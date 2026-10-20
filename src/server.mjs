@@ -55,8 +55,10 @@ import { registerPaymentTools } from "./tools/payment-tools.mjs";
 import { registerWebPageTools } from "./tools/web-page-tools.mjs";
 import { registerAgentSelfTools } from "./tools/agent-self-tools.mjs";
 import { registerVideoScriptTools } from "./tools/video-script-tools.mjs";
+import { registerObjectNetworkTools } from "./tools/object-network-tools.mjs";
 import { VideoScripts } from "./video-scripts.mjs";
 import { VideoContent } from "./video-content.mjs";
+import { VideoContentReconciler } from "./video-content-reconcile.mjs";
 import { WebPageClient } from "./web-page-client.mjs";
 import { timeZoneFromProfileFacts } from "./temporal-consistency.mjs";
 
@@ -98,6 +100,12 @@ const printableReport = store.status.ready ? new PrintableReportService({
 }) : null;
 const videoScripts = store.status.ready ? new VideoScripts({ store, ledger }) : null;
 const videoContent = store.status.ready ? new VideoContent({ videoScripts, organizer }) : null;
+const videoContentReconciler = store.status.ready ? new VideoContentReconciler({
+  ledger,
+  mediaRoot: config.mediaRoot,
+  maximumBytes: config.maxRequestAttachmentBytes,
+  videoContent,
+}) : null;
 let videoRenderWorker = null;
 const profileFactQuestions = await loadProfileFactQuestions(config.profileFactQuestionsPath);
 const hatCatalog = await loadHatCatalog(config.hatCatalogPath);
@@ -152,6 +160,7 @@ if (store.status.ready) {
   registerNativeObjectContextView(registry, organizer);
   registerVideoScriptTools(registry, videoScripts, {
     videoContent,
+    videoContentReconciler,
     onRenderQueued: () => videoRenderWorker?.notify(),
   });
   registerEmailReceiptTools(registry, ledger);
@@ -159,6 +168,7 @@ if (store.status.ready) {
 const objectNetwork = store.status.ready ? new ObjectNetworkService({
   database: store.requireReady(), organizer, registry,
 }) : null;
+if (objectNetwork) registerObjectNetworkTools(registry, objectNetwork);
 await mcp.initialize(registry);
 await jmap.initialize();
 if (jmap.health().ready) {

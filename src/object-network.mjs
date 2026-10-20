@@ -104,6 +104,21 @@ export class ObjectNetworkService {
     };
   }
 
+  identity(type, idValue) {
+    const definition = definitions.get(type);
+    if (!definition) throw new OrganizerInputError("Object type is not available in the object network.");
+    const id = positiveId(idValue);
+    const identity = exactIdentity({
+      type,
+      source: definition.source,
+      id,
+      ref: `${definition.refPrefix}${encodeURIComponent(String(id))}`,
+    });
+    const object = this.#readObject(identity);
+    if (!object) throw new OrganizerInputError("Object not found.", 404);
+    return { ...identity, display: object.display };
+  }
+
   #readObject(identity) {
     const { type, id } = identity;
     const definition = definitions.get(type);
@@ -369,5 +384,45 @@ export class ObjectNetworkService {
       throw new OrganizerInputError("Those object types do not have a simple direct connection.", 409);
     }
     return this.graph(first);
+  }
+
+  async setConnections(connections, context = {}) {
+    if (!Array.isArray(connections) || connections.length < 1 || connections.length > 50) {
+      throw new OrganizerInputError("connections must contain 1 through 50 object pairs.");
+    }
+    const keys = connections.map(({ from, to }) => {
+      const first = exactIdentity(from, "from object");
+      const second = exactIdentity(to, "to object");
+      return [first.ref, second.ref].sort().join("|");
+    });
+    if (new Set(keys).size !== keys.length) {
+      throw new OrganizerInputError("connections cannot contain the same object pair more than once.");
+    }
+    const results = [];
+    for (const connection of connections) {
+      const from = exactIdentity(connection.from, "from object");
+      const to = exactIdentity(connection.to, "to object");
+      const before = this.graph(from);
+      const wasLinked = before.connections.some(({ object }) => object.ref === to.ref);
+      const after = await this.setConnection(connection, context);
+      const isLinked = after.connections.some(({ object }) => object.ref === to.ref);
+      results.push({
+        from: { ...from, display: before.focus.display },
+        to: {
+          ...to,
+          display: (after.connections.find(({ object }) => object.ref === to.ref)?.object
+            ?? before.connections.find(({ object }) => object.ref === to.ref)?.object
+            ?? this.graph(to).focus).display,
+        },
+        linked: isLinked,
+        changed: wasLinked !== isLinked,
+      });
+    }
+    return {
+      selected_count: results.length,
+      changed_count: results.filter(({ changed }) => changed).length,
+      unchanged_count: results.filter(({ changed }) => !changed).length,
+      results,
+    };
   }
 }

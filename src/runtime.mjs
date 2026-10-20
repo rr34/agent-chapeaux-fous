@@ -55,6 +55,7 @@ import {
   mergeReferenceSets,
   objectReferenceSets,
   orientationReferenceSetProblem,
+  recordedReferenceSets,
   referenceSetObjectRefs,
   selectedReferenceSets,
 } from "./reference-sets.mjs";
@@ -117,7 +118,10 @@ const localCalendarCue = /(?:\b(?:today|tomorrow|yesterday|tonight|morning|after
 
 function needsPriorOperationalEvidence(requestText, selectedObjectCandidates, referencedExchanges) {
   if ((referencedExchanges ?? []).length) return true;
-  if ((selectedObjectCandidates ?? []).length) return false;
+  // A current composer selection establishes what words such as "this" mean;
+  // it does not make separately named targets or prior exact relationship sets
+  // irrelevant. Mixed requests commonly select one endpoint and refer to the
+  // other endpoint through the immediately preceding result.
   return operationalContinuationCue.test(String(requestText ?? ""));
 }
 
@@ -208,6 +212,71 @@ function canonicalToolArguments(value) {
     );
   }
   return value;
+}
+
+function connectionReferenceSets(requestId, result, sourceEventSeq) {
+  if (!Number.isSafeInteger(sourceEventSeq) || !Array.isArray(result?.results)) return [];
+  const definitions = new Map();
+  const objectGroups = new Map();
+  const relation = (left, right) => {
+    const types = new Set([left.type, right.type]);
+    if (types.has("todos.personal_task") && types.has("video.content_item")) {
+      const from = left.type === "todos.personal_task" ? left : right;
+      const to = left.type === "video.content_item" ? left : right;
+      return { relationshipType: "todo_content_link", from, to };
+    }
+    if (types.has("todos.personal_task") && types.has("contacts.contact")) {
+      const from = left.type === "todos.personal_task" ? left : right;
+      const to = left.type === "contacts.contact" ? left : right;
+      return { relationshipType: "todo_related_contact", from, to };
+    }
+    if (types.has("calendar.event") && types.has("todos.personal_task")) {
+      const from = left.type === "calendar.event" ? left : right;
+      const to = left.type === "todos.personal_task" ? left : right;
+      return { relationshipType: "calendar_todo_context", from, to };
+    }
+    if (types.has("calendar.event") && types.has("contacts.contact")) {
+      const from = left.type === "calendar.event" ? left : right;
+      const to = left.type === "contacts.contact" ? left : right;
+      return { relationshipType: "calendar_contact_other", from, to };
+    }
+    return null;
+  };
+  for (const resultItem of result.results.filter(({ linked }) => linked === true)) {
+    const selected = relation(resultItem.from, resultItem.to);
+    if (!selected) continue;
+    for (const object of [selected.from, selected.to]) {
+      const key = JSON.stringify([object.type, object.source]);
+      const group = objectGroups.get(key) ?? {
+        mention: "Objects in a completed direct connection",
+        role: "relationship_endpoint",
+        type: object.type,
+        source: object.source,
+        objects: [],
+        sourceEventSeqs: [sourceEventSeq],
+      };
+      if (!group.objects.some(({ ref }) => ref === object.ref)) {
+        group.objects.push({ id: object.id, ref: object.ref, display: object.display });
+      }
+      objectGroups.set(key, group);
+    }
+    const key = `${selected.relationshipType}\u0000${selected.from.type}\u0000${selected.to.type}`;
+    const definition = definitions.get(key) ?? {
+      display: `Completed ${selected.relationshipType} connections`,
+      relationshipType: selected.relationshipType,
+      fromType: selected.from.type,
+      toType: selected.to.type,
+      edges: [],
+    };
+    definition.edges.push({ fromRef: selected.from.ref, toRef: selected.to.ref });
+    definitions.set(key, definition);
+  }
+  if (!definitions.size) return [];
+  return recordedReferenceSets({
+    requestId,
+    relationshipSets: [...definitions.values()],
+    availableObjectReferences: [...objectGroups.values()],
+  });
 }
 
 function toolAttemptKey(name, args) {
@@ -848,6 +917,13 @@ export class SlayerRuntime {
       recentConversation,
       previousCapabilities: [],
     });
+    const directlyRoutedCapabilities = routing.capabilities.filter((capability) => (
+      routing.reasons.some((reason) => (
+        reason === `${capability}:request`
+        || reason === `${capability}:declared-alias`
+        || reason.startsWith(`${capability}:explicit-hat:`)
+      ))
+    ));
     const activeActionReferences = typeof this.ledger.activeDeferredActionReferences === "function"
       ? this.ledger.activeDeferredActionReferences({ afterEventSeq: boundaryEventSeq })
       : [];
@@ -989,7 +1065,13 @@ export class SlayerRuntime {
       ...value,
       capabilities: [...new Set([
         ...value.capabilities,
-        ...routing.capabilities.filter((capability) => capability === "database"),
+        ...routing.capabilities.filter((capability) => (
+          capability === "database"
+          && (
+            directlyRoutedCapabilities.includes("database")
+            || !directlyRoutedCapabilities.includes("relationships")
+          )
+        )),
       ])],
     });
     const acceptedCore = (value) => {
@@ -1249,6 +1331,7 @@ export class SlayerRuntime {
       .map(capabilityForTool);
     const primaryExecutionCapabilities = [...new Set([
       ...core.capabilities,
+      ...directlyRoutedCapabilities,
       ...explicitHatCapabilities,
       ...selectedObjectCapabilities,
       ...confirmedToolCapabilities,
@@ -1575,7 +1658,7 @@ export class SlayerRuntime {
           previousCapabilities: priorConversation.capabilities,
           capabilityOverride,
           toolOverride,
-          allowCapabilityExpansion: !workflowStep,
+          allowCapabilityExpansion: true,
           allowToolExpansion: Array.isArray(toolOverride),
         })
       : {
@@ -1619,10 +1702,11 @@ export class SlayerRuntime {
     const selectedEffort = effort || this.config.reasoningEffort;
     let conversationId = conversation.conversationId;
     let totalToolCallCount = 0;
-    // Orientation owns capability-family selection for structured execution.
-    // Legacy/direct execution may make one bounded late expansion, but an
-    // expansion can never turn into open-ended capability fishing.
-    const maximumCapabilityExpansionRounds = workflowStep ? 0 : 1;
+    // Orientation normally supplies the right capability families. Execution
+    // may still discover one evidenced owning-domain dependency after a read;
+    // permit exactly one bounded expansion instead of converting that ordinary
+    // discovery into a terminal dead end.
+    const maximumCapabilityExpansionRounds = 1;
     let capabilityExpansionRounds = 0;
     const maximumToolExpansionRounds = Array.isArray(toolOverride)
       ? Math.max(0, this.config.maxToolExpansionRounds ?? 2)
@@ -2247,7 +2331,9 @@ export class SlayerRuntime {
               } : null;
               const recordedSets = name === "reference_set_record"
                 ? mergeReferenceSets(toolResult?.referenceSets ?? [])
-                : [];
+                : name === "object_connection_set"
+                  ? connectionReferenceSets(requestId, toolResult, receiptEventSeq)
+                  : [];
               if (
                 sourcedActionReference
                 && !generatedActionReferences.some(({ referenceId }) => (

@@ -1,0 +1,23 @@
+{
+  "$schema": "../../protocol-schemas/capability-manifest.v1.schema.json",
+  "protocol": "agent-slayer.capability",
+  "version": 1,
+  "id": "relationships",
+  "title": "Object connections",
+  "summary": "Create or remove simple direct connections between exact first-class objects while delegating each edge to the domain operation that owns it.",
+  "aliases": [
+    "connect objects",
+    "object connection",
+    "related objects",
+    "link objects",
+    "associate objects",
+    "connected to"
+  ],
+  "dependentTools": [
+    "todo_list",
+    "video_content_list",
+    "contact_lookup_batch",
+    "calendar_event_search"
+  ],
+  "guidance": "guidance.md"
+}

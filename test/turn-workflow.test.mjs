@@ -654,6 +654,242 @@ test("missing explicit selections stop execution deterministically", async () =>
   assert.equal(requests.length, 1);
 });
 
+test("an explicit selection does not hide prior exact relationship evidence for a mixed-endpoint request", async () => {
+  const requests = [];
+  const content = {
+    mention: "@Job 6 - Sidelined — Content item #165",
+    type: "video.content_item",
+    source: "native:video",
+    id: 165,
+    ref: "agent-slayer://content-items/165",
+    display: "Job 6 - Sidelined",
+  };
+  const priorObjects = [{
+    mention: "Watch Job 6",
+    role: "relationship_source",
+    type: "todos.personal_task",
+    source: "native:todos",
+    objects: [{ id: 126, ref: "agent-slayer://todos/126", display: "Job 6 - Sidelined" }],
+    sourceEventSeqs: [4],
+  }, {
+    mention: "Previously linked Job 6 content",
+    role: "relationship_target",
+    type: "video.content_item",
+    source: "native:video",
+    objects: [{ id: 149, ref: "agent-slayer://content-items/149", display: "Earlier Job 6" }],
+    sourceEventSeqs: [4],
+  }];
+  const relationshipSet = {
+    protocol: "agent-slayer.reference-set",
+    version: 1,
+    kind: "relationship_set",
+    ref: "agent-slayer://reference-sets/relationships/watch-job-content",
+    display: "Watch Jobs linked to matching content items",
+    relationshipType: "todo_content_link",
+    fromType: "todos.personal_task",
+    toType: "video.content_item",
+    edges: [{
+      fromRef: "agent-slayer://todos/126",
+      toRef: "agent-slayer://content-items/149",
+    }],
+    sourceEventSeqs: [4],
+  };
+  const ledger = fakeLedger({
+    conversation: [{
+      eventSeq: 4,
+      requestId: "request-prior-links",
+      role: "assistant",
+      content: "I linked each numbered content item to its matching Watch Job.",
+      objectReferences: priorObjects,
+      referenceSets: [relationshipSet],
+    }],
+  });
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  registerNativeObjectContextView(registry, {
+    searchNativeObjects() { return { objects: [] }; },
+    resolveNativeObjectCandidates() {
+      return [{
+        type: "content_item", domainType: content.type, source: content.source,
+        table: "content_items", id: content.id, ref: content.ref,
+        label: "Content item", title: content.display, detail: "",
+        matchedOn: ["selected stable reference"], related: [],
+      }];
+    },
+  });
+  registry.withCapability("relationships").register({
+    name: "object_connection_set",
+    description: "Connect exact object pairs.",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+    async execute() {
+      return {
+        selected_count: 1, changed_count: 1, unchanged_count: 0,
+        results: [{
+          from: {
+            type: "video.content_item", source: "native:video", id: 165,
+            ref: "agent-slayer://content-items/165", display: "Job 6 - Sidelined",
+          },
+          to: {
+            type: "todos.personal_task", source: "native:todos", id: 126,
+            ref: "agent-slayer://todos/126", display: "Job 6 - Sidelined",
+          },
+          linked: true, changed: true,
+        }],
+      };
+    },
+  });
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) {
+        assert.match(payload.developerInstructions, /Exact previously verified object references/u);
+        assert.match(payload.developerInstructions, /Watch Job 6/u);
+        assert.match(payload.developerInstructions, /Exact selectable sets/u);
+        assert.match(payload.developerInstructions, /todo_content_link/u);
+        return completed(JSON.stringify(core({
+          objective: "Connect the selected content item to Watch Job 6.",
+          conversationSummary: "The selected content item should be connected to numbered Watch Job 6.",
+          actions: [{
+            instruction: "Connect the selected content item to Watch Job 6 using the canonical to-do/content relationship.",
+            targetRefs: [content.ref],
+            unresolvedTargets: [{
+              slot: "watch_job",
+              description: "Watch Job 6 in the exact named to-do group",
+              objectType: "todos.personal_task",
+              role: "relationship source",
+              cardinality: "one",
+            }],
+          }],
+          capabilities: ["relationships"],
+        })));
+      }
+      assert.equal(index, 1);
+      assert.equal(payload.tools.some(({ name }) => name === "object_connection_set"), true);
+      const result = await payload.onToolCall({
+        callId: "connect-selected-content",
+        tool: "object_connection_set",
+        arguments: {},
+      });
+      assert.equal(result.ok, true);
+      return completed("Connected the selected content item to Watch Job 6.", 30);
+    },
+  });
+
+  assert.equal(await runtime.run({
+    requestId: "request-mixed-endpoints",
+    requestEventId: "event-current",
+    text: "This should be connected to Watch Job 6.",
+    selectedObjectCandidates: [content],
+  }), "Connected the selected content item to Watch Job 6.");
+  assert.equal(requests.length, 2);
+  const observed = ledger.events.find(({ type }) => type === "reference.sets.observed");
+  assert.equal(observed.payload.referenceSets[0].relationshipType, "todo_content_link");
+  assert.deepEqual(observed.payload.referenceSets[0].edges, [{
+    fromRef: "agent-slayer://todos/126",
+    toRef: "agent-slayer://content-items/165",
+  }]);
+});
+
+test("structured execution can request one bounded missing owning capability", async () => {
+  const requests = [];
+  const selected = {
+    mention: "@Selected content",
+    type: "video.content_item",
+    source: "native:video",
+    id: 165,
+    ref: "agent-slayer://content-items/165",
+    display: "Selected content",
+  };
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  registerNativeObjectContextView(registry, {
+    searchNativeObjects() { return { objects: [] }; },
+    resolveNativeObjectCandidates() {
+      return [{
+        type: "content_item", domainType: selected.type, source: selected.source,
+        table: "content_items", id: selected.id, ref: selected.ref,
+        label: "Content item", title: selected.display, detail: "",
+        matchedOn: ["selected stable reference"], related: [],
+      }];
+    },
+  });
+  registry.withCapability("video").register({
+    name: "video_content_list",
+    description: "Read content.",
+    annotations: { readOnlyHint: true, destructiveHint: false },
+    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+    async execute() { return { items: [] }; },
+  });
+  registry.withCapability("todos").register({
+    name: "todo_selected_content_link",
+    description: "Link the selected content through the owning to-do domain.",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    metadata: {
+      [objectInputBindingsMetadataKey]: {
+        protocol: "agent-slayer.object-input-bindings",
+        version: 1,
+        bindings: [{
+          path: "/content_id", objectType: "video.content_item", value: "id", role: "subject",
+        }],
+      },
+    },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { content_id: { type: "integer" } }, required: ["content_id"],
+    },
+    async execute({ content_id }) {
+      assert.equal(content_id, 165);
+      return { linked: true, content_id };
+    },
+  });
+  const runtime = runtimeWith({
+    registry,
+    ledger: fakeLedger({ conversation: [] }),
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) {
+        return completed(JSON.stringify(core({
+          objective: "Apply the requested connection to the selected content.",
+          conversationSummary: "The selected content needs an owning-domain connection.",
+          actions: [{ instruction: "Apply the connection.", targetRefs: [selected.ref] }],
+          capabilities: ["video"],
+        })));
+      }
+      if (index === 1) {
+        assert.equal(payload.tools.some(({ name }) => name === "request_capabilities"), true);
+        assert.equal(payload.tools.some(({ name }) => name === "todo_selected_content_link"), false);
+        const expansion = await payload.onToolCall({
+          callId: "request-todos",
+          tool: "request_capabilities",
+          arguments: { capabilities: ["todos"] },
+        });
+        assert.equal(expansion.ok, true);
+        return completed("Loading the owning relationship capability.", 25);
+      }
+      assert.equal(index, 2);
+      assert.equal(payload.tools.some(({ name }) => name === "todo_selected_content_link"), true);
+      const linked = await payload.onToolCall({
+        callId: "link-selected-content",
+        tool: "todo_selected_content_link",
+        arguments: { content_id: 165 },
+      });
+      assert.equal(linked.ok, true);
+      return completed("Connected the selected content.", 30);
+    },
+  });
+
+  assert.equal(await runtime.run({
+    requestId: "request-expand-capability",
+    requestEventId: "event-current",
+    text: "Apply it.",
+    selectedObjectCandidates: [selected],
+  }), "Connected the selected content.");
+  assert.equal(requests.length, 3);
+});
+
 test("an explicitly referenced reusable exchange supplies tool-boundary identity evidence", async () => {
   const requests = [];
   const referencedTask = {

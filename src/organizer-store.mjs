@@ -3270,6 +3270,164 @@ export class OrganizerStore {
     }
   }
 
+  reconcileContentItems(input, context = {}) {
+    const groupId = identifier(input?.groupId, "content group id");
+    const updates = Array.isArray(input?.updates) ? input.updates : [];
+    const creates = Array.isArray(input?.creates) ? input.creates : [];
+    if (updates.length + creates.length < 1 || updates.length + creates.length > 500) {
+      throw new OrganizerInputError("reconciliation must contain 1 through 500 updates and creates.");
+    }
+    const normalizedUpdates = updates.map((entry, index) => ({
+      contentId: identifier(entry?.content_id, `updates[${index}].content_id`),
+      version: requiredText(entry?.version, `updates[${index}].version`, 64),
+      sequence: optionalPositiveInteger(entry?.sequence, `updates[${index}].sequence`),
+      title: requiredText(entry?.title, `updates[${index}].title`, 10_000),
+      publishedAtUtc: isoDateTime(entry?.publishedAtUtc, `updates[${index}].publishedAtUtc`, { required: true }),
+      contentHost: enumValue(entry?.contentHost, contentHosts, `updates[${index}].contentHost`, "none"),
+      contentUrl: httpUrl(entry?.contentUrl, `updates[${index}].contentUrl`),
+    }));
+    const normalizedCreates = creates.map((entry, index) => ({
+      sourceIdentity: requiredText(entry?.sourceIdentity, `creates[${index}].sourceIdentity`, 500),
+      sequence: optionalPositiveInteger(entry?.sequence, `creates[${index}].sequence`),
+      title: requiredText(entry?.title, `creates[${index}].title`, 10_000),
+      publishedAtUtc: isoDateTime(entry?.publishedAtUtc, `creates[${index}].publishedAtUtc`, { required: true }),
+      contentHost: enumValue(entry?.contentHost, contentHosts, `creates[${index}].contentHost`, "none"),
+      contentUrl: httpUrl(entry?.contentUrl, `creates[${index}].contentUrl`),
+    }));
+    const updateIds = normalizedUpdates.map(({ contentId }) => contentId);
+    if (new Set(updateIds).size !== updateIds.length) {
+      throw new OrganizerInputError("reconciliation cannot update the same content item more than once.");
+    }
+    const finalSequences = [...normalizedUpdates, ...normalizedCreates].map(({ sequence }) => sequence);
+    if (finalSequences.some((sequence) => sequence === null)) {
+      throw new OrganizerInputError("source reconciliation requires a positive sequence for every record.");
+    }
+    if (new Set(finalSequences).size !== finalSequences.length) {
+      throw new OrganizerInputError("source reconciliation cannot assign duplicate sequence values.");
+    }
+
+    this.database.exec("START TRANSACTION");
+    try {
+      const group = this.database.prepare(`
+        SELECT * FROM content_groups
+        WHERE content_group_id = ? AND archived_at_utc IS NULL
+        FOR UPDATE
+      `).get(groupId);
+      if (!group) throw new OrganizerInputError("Content group not found.", 404);
+      const current = normalizedUpdates.map((update) => {
+        const item = this.getContent(update.contentId);
+        if (!item || Number(item.groupId) !== groupId) {
+          throw new OrganizerInputError(`Content item ${update.contentId} is not in content group ${groupId}.`, 404);
+        }
+        if (item.version !== update.version) {
+          throw new OrganizerInputError(
+            `Content item ${update.contentId} changed after preview. Preview the reconciliation again.`,
+            409,
+          );
+        }
+        return { update, item };
+      });
+      for (const sequence of finalSequences) {
+        const sql = updateIds.length
+          ? `SELECT content_id FROM content_items
+             WHERE content_group_id = ? AND sequence = ?
+               AND content_id NOT IN (${updateIds.map(() => "?").join(", ")}) LIMIT 1`
+          : `SELECT content_id FROM content_items
+             WHERE content_group_id = ? AND sequence = ? LIMIT 1`;
+        const conflict = this.database.prepare(sql).get(groupId, sequence, ...updateIds);
+        if (conflict) {
+          throw new OrganizerInputError(
+            `Sequence ${sequence} became occupied by content item ${conflict.content_id}. Preview again.`,
+            409,
+          );
+        }
+      }
+
+      const now = new Date().toISOString();
+      if (updateIds.length) {
+        this.database.prepare(`
+          UPDATE content_items SET sequence = NULL
+          WHERE content_id IN (${updateIds.map(() => "?").join(", ")})
+        `).run(...updateIds);
+      }
+      const updateStatement = this.database.prepare(`
+        UPDATE content_items
+        SET sequence = ?, title = ?, published_at_utc = ?, content_host = ?,
+            content_url = ?, updated_at_utc = ?
+        WHERE content_id = ? AND COALESCE(updated_at_utc, created_at_utc) = ?
+      `);
+      for (const { update } of current) {
+        const result = updateStatement.run(
+          update.sequence, update.title, update.publishedAtUtc, update.contentHost,
+          update.contentUrl, now, update.contentId, update.version,
+        );
+        if (result.changes !== 1) {
+          throw new OrganizerInputError(
+            `Content item ${update.contentId} changed while reconciliation was being saved. Preview again.`,
+            409,
+          );
+        }
+      }
+
+      const insert = this.database.prepare(`
+        INSERT INTO content_items (
+          content_group_id, sequence, content_type, title, transcript, description,
+          published_at_utc, content_host, content_status, content_url, created_at_utc
+        ) VALUES (?, ?, 'unknown', ?, NULL, NULL, ?, ?, 'active', ?, ?)
+      `);
+      const createdIds = [];
+      for (const item of normalizedCreates) {
+        const result = insert.run(
+          groupId, item.sequence, item.title, item.publishedAtUtc,
+          item.contentHost, item.contentUrl, now,
+        );
+        createdIds.push(Number(result.lastInsertRowid));
+      }
+      const eventId = this.#activity({
+        eventType: "content.file_reconciled",
+        status: "complete",
+        actorType: context.actorName ? "tool" : "user",
+        actorName: context.actorName ?? "Nate",
+        source: context.actorName ? "agent-slayer" : "tailnet_web",
+        channel: context.channel ?? "tailnet_web",
+        turnId: context.requestId ?? null,
+        operationId: context.callId ?? null,
+        name: "Content source reconciled",
+        subjectType: "content_group",
+        subjectId: groupId,
+        contentText: `${group.name}: ${normalizedUpdates.length} updated, ${createdIds.length} created`,
+        payload: {
+          groupId,
+          sourceFileId: input.sourceFileId,
+          sourceSha256: input.sourceSha256,
+          previewDigest: input.previewDigest,
+          updatedContentIds: updateIds,
+          createdContentIds: createdIds,
+        },
+      });
+      if (createdIds.length) {
+        this.database.prepare(`
+          UPDATE content_items SET source_event_id = ?
+          WHERE content_id IN (${createdIds.map(() => "?").join(", ")})
+        `).run(eventId, ...createdIds);
+      }
+      const result = {
+        updatedCount: normalizedUpdates.length,
+        createdCount: createdIds.length,
+        updatedItems: updateIds.map((contentId) => this.getContent(contentId)),
+        createdItems: createdIds.map((contentId) => this.getContent(contentId)),
+      };
+      this.database.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      if (String(error?.message).includes("content_items.content_group_id, content_items.sequence")) {
+        throw new OrganizerInputError("A source sequence became occupied. Preview the reconciliation again.", 409);
+      }
+      throw error;
+    }
+  }
+
   addRenderedVideoToContentSequence(input) {
     const item = {
       groupId: identifier(input?.groupId, "content group id"),

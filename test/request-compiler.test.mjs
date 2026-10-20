@@ -69,6 +69,7 @@ function names(selection) {
 test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("calendar_event_list")), "calendar");
   assert.equal(capabilityForTool(tool("contact_merge")), "contacts");
+  assert.equal(capabilityForTool(tool("object_connection_set")), "relationships");
   assert.equal(capabilityForTool(tool("todo_add")), "todos");
   assert.equal(capabilityForTool(tool("tracker_update")), "journal");
   assert.equal(capabilityForTool(tool("journal_update")), "journal");
@@ -137,6 +138,26 @@ test("linking a to-do to library content selects both owning capability families
   assert.equal(selection.capabilities.includes("video"), true);
   assert.equal(names(selection).includes("todo_content_link_set"), true);
   assert.equal(names(selection).includes("video_content_list"), true);
+});
+
+test("a selected content item can be connected to a numbered Watch Job without schema discovery", () => {
+  const selection = selectRequestCapabilities({
+    tools: [
+      ...tools,
+      tool("object_connection_set"),
+      tool("todo_content_link_set"),
+      tool("video_content_list"),
+    ],
+    text: "This should be connected to Watch Job 6.",
+  });
+  assert.equal(selection.capabilities.includes("relationships"), true);
+  assert.equal(selection.capabilities.includes("todos"), true);
+  assert.equal(names(selection).includes("object_connection_set"), true);
+  assert.equal(names(selection).includes("todo_list"), true);
+  // The selected content binding adds video during deterministic execution
+  // hydration; raw request routing need only resolve the named Watch Job side.
+  assert.equal(names(selection).includes("video_content_list"), false);
+  assert.equal(names(selection).includes("database_read"), true);
 });
 
 test("an external video-series library request selects the video and web families", () => {

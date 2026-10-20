@@ -51,6 +51,14 @@ export class VideoContent {
     return this.organizer.updateContentItems(input, context);
   }
 
+  reconcileItems(input, context = {}) {
+    return this.organizer.reconcileContentItems(input, context);
+  }
+
+  getItem(contentId) {
+    return this.organizer.getContent(contentId);
+  }
+
   add({ videoScriptId, groupId }, context = {}) {
     const scriptId = positiveInteger(videoScriptId, "Video script ID");
     const selectedGroupId = positiveInteger(groupId, "Content group ID");

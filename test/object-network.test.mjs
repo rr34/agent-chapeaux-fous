@@ -97,6 +97,27 @@ test("a one-click task/event connection uses the calendar domain's context relat
   assert.equal(graph.connections.find(({ object }) => object.ref === eventIdentity.ref)?.removable, true);
 });
 
+test("a batch-shaped connection receipt reports changed and already-satisfied edges", async () => {
+  const { service } = fixture();
+  const first = await service.setConnections([{
+    from: { ...todoIdentity, display: "Call the electrician" },
+    to: { ...eventIdentity, display: "Kitchen walk-through" },
+    linked: true,
+  }]);
+  assert.equal(first.selected_count, 1);
+  assert.equal(first.changed_count, 1);
+  assert.equal(first.results[0].to.ref, eventIdentity.ref);
+  assert.equal(first.results[0].to.display, "Kitchen walk-through");
+
+  const replay = await service.setConnections([{
+    from: { ...todoIdentity, display: "Call the electrician" },
+    to: { ...eventIdentity, display: "Kitchen walk-through" },
+    linked: true,
+  }]);
+  assert.equal(replay.changed_count, 0);
+  assert.equal(replay.unchanged_count, 1);
+});
+
 test("the simple network control cannot remove specialized calendar meaning", async () => {
   const { service } = fixture({ relationshipKind: "work" });
   await assert.rejects(

@@ -37,7 +37,7 @@ content-library items:
 
 - Request `video.content_groups` during orientation and resolve the exact active group whose items are being changed.
 - Read every target with `video_content_list`, following `nextAfterSequence` until every intended numbered item has been returned. Use the returned `content_id`, stable reference, human title, and `version` as the exact target evidence; never infer an item ID from its sequence number.
-- Call `video_content_update` once with the complete batch of at most 50 target items. Supply each exact `content_id` and `version`, plus only the fields that should change. Omitted fields remain unchanged; explicit null clears sequence, description, transcript, or URL where the tool permits null.
+- Call `video_content_update` once with the complete batch of at most 50 target items. Supply each exact `content_id` and `version`, plus only the fields that should change. Omitted fields remain unchanged. Null clears only sequence; `clearDescription`, `clearTranscript`, and `clearContentUrl` are the explicit erasure operations and must be true only when the user asked to erase that field.
 - Put interdependent sequence shifts or swaps in the same call. The tool validates the final batch state and applies it atomically, so do not break one logical renumbering across separate calls.
 - A stale version, duplicate target, invalid destination group, or final sequence conflict rejects the complete batch. Read the targets again before making a materially corrected retry; never replay a successful update with the old versions.
 - Report the returned updated and unchanged counts and the affected titles or sequences. The typed update receipt is the completion evidence.
@@ -52,6 +52,19 @@ including items based on externally hosted pages:
 - Supply the requested or source-reported titles and publication dates or instants. When a publication time is absent, omit `publishedAtUtc` or use null; the tool stores the current UTC time captured for that creation batch. A source date without a time may stay date-only; the tool normalizes it to midnight UTC solely as a storage representation. Preserve useful descriptions or transcripts when they were actually read; use null rather than inventing missing text. Select the exact known host, using `none` when no named host applies, and use `unknown` when the content-type vocabulary does not precisely describe the item. Use the requested lifecycle status, normally `active` for current source material.
 - Creation is atomic and non-idempotent. A duplicate non-null sequence or another validation error rejects the complete batch. After a successful receipt, do not replay the mutation; use a read to verify current state when needed.
 - Report the returned group name, created count, and relevant sequence values. The successful group-creation and content-creation receipts are the completion evidence.
+
+If the user asks to make an existing content group match a complete CSV or
+delimited source, use `video_content_file_reconcile_preview` and then
+`video_content_file_reconcile_apply`. Map the exact inspected header names and
+the intended first sequence. The application reads the whole verified file,
+matches external sources by canonical identity (YouTube video ID for YouTube),
+and returns a digest over the complete source projection and current versions.
+Never reconstruct this operation with title searches plus ordinary updates and
+creates. Review every reported conflict; apply only when `canApply` is true,
+using the unchanged mapping and exact `previewDigest`. A sequence occupied by a
+different external source is a real conflict, not permission to repurpose that
+item. The apply call performs updates and creates in one transaction and its
+full row-to-object projection is the completion evidence.
 
 If the user asks to add an already-completed generated video to content:
 

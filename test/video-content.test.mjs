@@ -225,7 +225,7 @@ test("the Agent can atomically update exact content items, including sequence sw
       {
         content_id: second.id, version: read.items[1].version,
         sequence: 1, title: "First corrected title",
-        contentUrl: null,
+        clearContentUrl: true,
       },
     ],
   }, {
@@ -284,6 +284,102 @@ test("the Agent can atomically update exact content items, including sequence sw
     turn_id: "update-content-request",
     operation_id: "update-content-call",
   });
+});
+
+test("verified source reconciliation updates and creates in one transaction", async context => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.target);
+  context.after(() => store.close());
+  const organizer = new OrganizerStore(temporary.target);
+  context.after(() => organizer.close());
+  const ledger = new Ledger(store);
+  const videoContent = new VideoContent({ videoScripts: {}, organizer });
+  const group = videoContent.createGroup({ name: "Reconciled source" }).group;
+  const original = videoContent.createItems({
+    groupId: group.id,
+    items: [{
+      sequence: 1,
+      title: "Original title",
+      description: null,
+      transcript: null,
+      publishedAtUtc: "2024-05-10T00:00:00.000Z",
+      contentHost: "youtube",
+      contentType: "unknown",
+      contentStatus: "active",
+      contentUrl: "https://www.youtube.com/watch?v=0dqrgcV80TM",
+    }],
+  }).items[0];
+
+  const reconciled = videoContent.reconcileItems({
+    groupId: group.id,
+    sourceFileId: 51,
+    sourceSha256: "a".repeat(64),
+    previewDigest: "b".repeat(64),
+    updates: [{
+      content_id: original.id,
+      version: original.version,
+      sequence: 2,
+      title: "Aurora",
+      publishedAtUtc: "2024-05-11T00:00:00.000Z",
+      contentHost: "youtube",
+      contentUrl: "https://www.youtube.com/watch?v=0dqrgcV80TM",
+    }],
+    creates: [{
+      sourceIdentity: "youtube:AbCdEf12345",
+      sequence: 1,
+      title: "New source",
+      publishedAtUtc: "2025-02-10T00:00:00.000Z",
+      contentHost: "youtube",
+      contentUrl: "https://www.youtube.com/watch?v=AbCdEf12345",
+    }],
+  }, {
+    requestId: "request-reconcile", callId: "call-reconcile", channel: "web",
+    actorName: "video_content_file_reconcile_apply",
+  });
+  assert.equal(reconciled.updatedCount, 1);
+  assert.equal(reconciled.createdCount, 1);
+  assert.deepEqual(
+    organizer.listSequencedContent({ groupId: group.id }).items
+      .map(({ sequence, title }) => ({ sequence, title })),
+    [{ sequence: 1, title: "New source" }, { sequence: 2, title: "Aurora" }],
+  );
+  assert.deepEqual({ ...organizer.database.prepare(`
+    SELECT actor_name, turn_id, operation_id
+    FROM activity_events WHERE event_type = 'content.file_reconciled'
+  `).get() }, {
+    actor_name: "video_content_file_reconcile_apply",
+    turn_id: "request-reconcile",
+    operation_id: "call-reconcile",
+  });
+
+  await assert.rejects(
+    () => videoContent.reconcileItems({
+      groupId: group.id,
+      sourceFileId: 51,
+      sourceSha256: "a".repeat(64),
+      previewDigest: "c".repeat(64),
+      updates: [{
+        content_id: original.id,
+        version: original.version,
+        sequence: 3,
+        title: "Stale",
+        publishedAtUtc: "2024-05-12T00:00:00.000Z",
+        contentHost: "youtube",
+        contentUrl: "https://www.youtube.com/watch?v=0dqrgcV80TM",
+      }],
+      creates: [{
+        sourceIdentity: "youtube:ZyXwVu98765",
+        sequence: 4,
+        title: "Must not be created",
+        publishedAtUtc: "2025-02-11T00:00:00.000Z",
+        contentHost: "youtube",
+        contentUrl: "https://www.youtube.com/watch?v=ZyXwVu98765",
+      }],
+    }),
+    /changed after preview/u,
+  );
+  assert.equal(organizer.listContent({ query: "Must not be created" }).length, 0);
 });
 
 test("a completed generated video appends once to an exact content sequence", async (context) => {

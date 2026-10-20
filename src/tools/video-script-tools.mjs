@@ -66,6 +66,20 @@ const toolDescriptions = Object.freeze({
       "MUTATING"
     ]
   },
+  "video_content_file_reconcile_preview": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Preview a complete verified delimited source against one content group using canonical external source identity.",
+    "actionClasses": ["READ"],
+    "effectClassifications": ["READ-ONLY"]
+  },
+  "video_content_file_reconcile_apply": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Atomically apply an unchanged source-identity reconciliation preview to one content group.",
+    "actionClasses": ["CREATE", "UPDATE"],
+    "effectClassifications": ["MUTATING"]
+  },
   "video_production_create": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
@@ -358,6 +372,83 @@ const contentListOutputSchema = {
   required: ["group", "textFields", "items", "count", "hasMore", "nextAfterSequence"],
 };
 
+const reconciliationActionSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    sourceRecordNumber: { type: "integer", minimum: 1 },
+    sourceIdentity: { type: "string" },
+    action: { type: "string", enum: ["create", "update", "unchanged"] },
+    contentId: { type: ["integer", "null"] },
+    sequence: { type: "integer", minimum: 1 },
+    title: { type: "string" },
+    publishedAtUtc: { type: "string" },
+    contentUrl: { type: "string" },
+    changedFields: { type: "array", items: { type: "string" } },
+  },
+  required: [
+    "sourceRecordNumber", "sourceIdentity", "action", "contentId", "sequence",
+    "title", "publishedAtUtc", "contentUrl", "changedFields",
+  ],
+};
+
+const reconciliationInputProperties = {
+  file_id: {
+    type: "integer", minimum: 1,
+    description: "Stable ID of the complete durable CSV or delimited source file.",
+  },
+  groupId: { type: "integer", minimum: 1, description: "Exact target content-group ID." },
+  delimiter: { type: "string", enum: ["auto", "comma", "tab", "semicolon", "pipe"] },
+  first_sequence: {
+    type: "integer", minimum: 1,
+    description: "Sequence assigned to the first nonblank source data record; later records increment by one.",
+  },
+  source_url_column: { type: "string", minLength: 1, maxLength: 500 },
+  title_column: { type: "string", minLength: 1, maxLength: 500 },
+  published_at_column: { type: "string", minLength: 1, maxLength: 500 },
+  content_host: { type: "string", enum: ["youtube", "vimeo", "spotify", "mytlomdotcom", "none"] },
+};
+
+const reconciliationRequired = [
+  "file_id", "groupId", "delimiter", "first_sequence", "source_url_column",
+  "title_column", "published_at_column", "content_host",
+];
+
+const reconciliationPreviewOutputSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    fileId: { type: "integer" }, fileSha256: { type: "string" }, groupId: { type: "integer" },
+    headers: { type: "array", items: { type: "string" } },
+    sourceRecordCount: { type: "integer" }, existingNumberedCount: { type: "integer" },
+    createCount: { type: "integer" }, updateCount: { type: "integer" },
+    unchangedCount: { type: "integer" }, canApply: { type: "boolean" },
+    conflicts: { type: "array", items: { type: "object" } },
+    previewDigest: { type: "string" },
+    actions: { type: "array", items: reconciliationActionSchema },
+  },
+  required: [
+    "fileId", "fileSha256", "groupId", "headers", "sourceRecordCount",
+    "existingNumberedCount", "createCount", "updateCount", "unchangedCount",
+    "canApply", "conflicts", "previewDigest", "actions",
+  ],
+};
+
+const reconciliationApplyOutputSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    sourceRecordCount: { type: "integer" }, verifiedCount: { type: "integer" },
+    createdCount: { type: "integer" }, updatedCount: { type: "integer" },
+    unchangedCount: { type: "integer" }, previewDigest: { type: "string" },
+    items: { type: "array", items: { type: "object" } },
+  },
+  required: [
+    "sourceRecordCount", "verifiedCount", "createdCount", "updatedCount",
+    "unchangedCount", "previewDigest", "items",
+  ],
+};
+
 function parameters() {
   return {
     type: "object",
@@ -406,7 +497,9 @@ const nativeToolContracts = Object.freeze({
 });
 
 export function registerVideoScriptTools(
-  registry, videoScripts, { videoContent = null, onRenderQueued = () => {} } = {},
+  registry, videoScripts, {
+    videoContent = null, videoContentReconciler = null, onRenderQueued = () => {},
+  } = {},
 ) {
   const capabilityRegistry = registry.withCapability?.(
     "video", toolDescriptions, nativeToolContracts,
@@ -610,6 +703,7 @@ export function registerVideoScriptTools(
         required: ["groupId"],
       },
       outputSchema: contentListOutputSchema,
+      readResultCollectionPaths: ["/items"],
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       execute(args) {
         const result = videoContent.list(args);
@@ -624,7 +718,7 @@ export function registerVideoScriptTools(
     capabilityRegistry.register({
       name: "video_content_update",
       title: "Update content-library items",
-      description: "Atomically update a bounded batch of 1 through 50 exact content-library items. Read every target with video_content_list first and pass each returned content_id and version. Omitted fields remain unchanged; null sequence makes an item unnumbered, while null description, transcript, or contentUrl clears that field. The complete batch is rejected on a stale version, duplicate target, invalid destination group, or final non-null sequence conflict. Sequence swaps and shifts among items in the same batch are supported. The result returns every current item and its new version as mutation evidence.",
+      description: "Atomically update a bounded batch of 1 through 50 exact content-library items. Read every target with video_content_list first and pass each returned content_id and version. Omitted fields remain unchanged; null sequence makes an item unnumbered. Text and URL fields accept values only; use their explicit clear flags when the user asks to erase them. The complete batch is rejected on a stale version, duplicate target, contradictory value-and-clear input, invalid destination group, or final non-null sequence conflict. Sequence swaps and shifts among items in the same batch are supported. The result returns every current item and its new version as mutation evidence. Do not reconstruct a complete file reconciliation with this tool; use the source-identity preview/apply operations.",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -653,8 +747,16 @@ export function registerVideoScriptTools(
                   description: "New positive sequence number, null to make the item unnumbered, or omit to preserve it.",
                 },
                 title: { type: "string", minLength: 1, maxLength: 10_000 },
-                description: { type: ["string", "null"], maxLength: 10_000 },
-                transcript: { type: ["string", "null"], maxLength: 50_000 },
+                description: { type: "string", maxLength: 10_000 },
+                clearDescription: {
+                  type: "boolean",
+                  description: "True clears the description; use only for an explicit request to erase it.",
+                },
+                transcript: { type: "string", maxLength: 50_000 },
+                clearTranscript: {
+                  type: "boolean",
+                  description: "True clears the transcript; use only for an explicit request to erase it.",
+                },
                 publishedAtUtc: {
                   type: "string", minLength: 1, maxLength: 64,
                   description: "New ISO-8601 publication date or instant; omit to preserve it.",
@@ -673,8 +775,12 @@ export function registerVideoScriptTools(
                   type: "string", enum: ["active", "obsolete", "unused", "queued"],
                 },
                 contentUrl: {
-                  type: ["string", "null"], minLength: 1, maxLength: 2048,
-                  description: "New HTTP(S) source URL, null to clear it, or omit to preserve it.",
+                  type: "string", minLength: 1, maxLength: 2048,
+                  description: "New HTTP(S) source URL, or omit to preserve it.",
+                },
+                clearContentUrl: {
+                  type: "boolean",
+                  description: "True clears the source URL; use only for an explicit request to erase it.",
                 },
               },
               required: ["content_id", "version"],
@@ -686,7 +792,26 @@ export function registerVideoScriptTools(
       outputSchema: contentUpdateOutputSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       execute(args, context) {
-        const result = videoContent.updateItems(args, { ...context, actorName: "video_content_update" });
+        const updates = args.updates.map((entry, index) => {
+          const pairs = [
+            ["description", "clearDescription"],
+            ["transcript", "clearTranscript"],
+            ["contentUrl", "clearContentUrl"],
+          ];
+          for (const [field, clearField] of pairs) {
+            if (Object.hasOwn(entry, field) && entry[clearField] === true) {
+              throw new Error(`updates[${index}] cannot set ${field} and ${clearField} together`);
+            }
+          }
+          const { clearDescription, clearTranscript, clearContentUrl, ...update } = entry;
+          return {
+            ...update,
+            ...(clearDescription === true ? { description: null } : {}),
+            ...(clearTranscript === true ? { transcript: null } : {}),
+            ...(clearContentUrl === true ? { contentUrl: null } : {}),
+          };
+        });
+        const result = videoContent.updateItems({ updates }, { ...context, actorName: "video_content_update" });
         return {
           updatedCount: result.updatedCount,
           unchangedCount: result.unchangedCount,
@@ -705,6 +830,44 @@ export function registerVideoScriptTools(
         };
       },
     });
+
+    if (videoContentReconciler) {
+      capabilityRegistry.register({
+        name: "video_content_file_reconcile_preview",
+        title: "Preview content source reconciliation",
+        description: "Read a complete checksum-verified delimited file and compare every nonblank source row with one exact content group. Rows are matched only by canonical external source identity, including normalized YouTube video ID; title, date, position, or record count never authorize repurposing a different item. The preview reports every create, update, and unchanged mapping plus blocking duplicate-identity or occupied-sequence conflicts and returns a digest bound to the file checksum, current item versions, mapping, and full source projection. This changes no data.",
+        parameters: {
+          type: "object", additionalProperties: false,
+          properties: reconciliationInputProperties,
+          required: reconciliationRequired,
+        },
+        outputSchema: reconciliationPreviewOutputSchema,
+        readResultCollectionPaths: ["/actions", "/conflicts"],
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        async execute(args) { return videoContentReconciler.preview(args); },
+      });
+
+      capabilityRegistry.register({
+        name: "video_content_file_reconcile_apply",
+        title: "Apply content source reconciliation",
+        description: "Recompute and atomically apply one unchanged content reconciliation preview. The complete verified file is parsed again, canonical source identities and current item versions are rechecked, and the digest must match. Existing items are updated only when their external identity matches the source row; unmatched rows create new items, and a sequence occupied by a different identity blocks the entire transaction. The result returns a full row-to-object projection as mutation evidence.",
+        parameters: {
+          type: "object", additionalProperties: false,
+          properties: {
+            ...reconciliationInputProperties,
+            preview_digest: { type: "string", minLength: 64, maxLength: 64 },
+          },
+          required: [...reconciliationRequired, "preview_digest"],
+        },
+        outputSchema: reconciliationApplyOutputSchema,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        async execute(args, context) {
+          return videoContentReconciler.apply(args, {
+            ...context, actorName: "video_content_file_reconcile_apply",
+          });
+        },
+      });
+    }
 
     capabilityRegistry.register({
       name: "video_content_add",

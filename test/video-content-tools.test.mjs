@@ -103,7 +103,10 @@ test("content creation tools publish compact identified mutation results", async
     add() { return null; },
   };
   const registry = registerNativeCapabilities(new ToolRegistry());
-  registerVideoScriptTools(registry, {}, { videoContent });
+  registerVideoScriptTools(registry, {}, {
+    videoContent,
+    videoContentReconciler: { preview() { return {}; }, apply() { return {}; } },
+  });
 
   const created = await registry.execute("video_content_group_create", {
     name: "What to Watch",
@@ -119,6 +122,27 @@ test("content creation tools publish compact identified mutation results", async
     createDefinition.inputSchema.properties.items.items.properties.sequence.type,
     ["integer", "null"],
   );
+  assert.deepEqual(
+    definitions.get("video_content_list").inputSchema.properties.result_filter
+      .properties.collection_path.enum,
+    ["/items"],
+  );
+  const reconcilePreview = definitions.get("video_content_file_reconcile_preview");
+  const reconcileApply = definitions.get("video_content_file_reconcile_apply");
+  assert.deepEqual(
+    reconcilePreview.inputSchema.properties.result_filter.properties.collection_path.enum,
+    ["/actions", "/conflicts"],
+  );
+  for (const definition of [reconcilePreview, reconcileApply]) {
+    assert.deepEqual(
+      definition.metadata["agent-slayer/object-input-bindings"].bindings
+        .map(({ path, objectType, allowUnbound }) => ({ path, objectType, allowUnbound })),
+      [
+        { path: "/file_id", objectType: "files.file", allowUnbound: undefined },
+        { path: "/groupId", objectType: "video.content_group", allowUnbound: undefined },
+      ],
+    );
+  }
   assert.equal(
     createDefinition.inputSchema.properties.items.items.required.includes("publishedAtUtc"),
     false,
@@ -219,4 +243,14 @@ test("content creation tools publish compact identified mutation results", async
   assert.equal(updatedItems.items[0].content_ref, "agent-slayer://content-items/31");
   assert.equal(updatedItems.items[0].content_title, "What to Watch Next");
   assert.equal(updatedItems.items[0].version, updatedContent.version);
+  assert.equal(
+    schemaProblem({
+      updates: [{
+        content_id: 31,
+        version: "2026-10-19T11:00:00.000Z",
+        contentUrl: null,
+      }],
+    }, updateDefinition.inputSchema, "arguments"),
+    "arguments.updates[0].contentUrl must be string",
+  );
 });
