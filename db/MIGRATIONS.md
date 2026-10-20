@@ -11,6 +11,21 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 55: Physical Things object family
+
+Adds authoritative `physical_item_groups` and `physical_items` tables plus
+four constrained many-to-many joins from physical items to personal to-dos,
+content-library items, durable files, and contacts. It replaces the read-only
+`object_relationship_edges` definition so those joins and physical-item group
+membership appear as typed, bidirectional edges without becoming a write path.
+
+The matching application requires schema version 55. Apply with writers
+stopped because the new Things tools and object reads require all six tables
+and the expanded view together. MariaDB DDL commits implicitly; all table
+creates are guarded and the view replacement is idempotent, so keep writers
+stopped and replay the complete migration after a partial commit. Confirm a
+recoverable backup before applying it even though no existing rows are changed.
+
 ## Version 54: Unified object relationship edges
 
 Adds `object_relationship_edges`, a read-only non-materialized view that emits

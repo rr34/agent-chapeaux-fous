@@ -32,10 +32,14 @@ combines the contact assignments without creating duplicate tags.
 When the user asks to add or change a postal address on an existing contact,
 resolve that contact with `contact_search` or `contact_lookup_batch`, then call
 `contact_address_update` with the returned contact ID and expected version. Use
-the existing postal-address method ID when replacing an address. Use a null
-method ID only when the contact has no postal address. This tool changes the
-existing contact in place and preserves every unrelated method, tag, and
-identity field; never use `contact_import` to represent an address correction.
+`action=replace` and the existing postal-address method ID when changing an
+address. Use `action=add` and a null method ID only when the user explicitly
+wants a new address, including a second home, work, mailing, or billing address
+on the same contact. Do not infer add when the request could mean replacement;
+ask which existing address to replace or whether to retain both. This tool
+changes the existing contact in place and preserves every unrelated method and
+tag. It preserves every identity field; never use `contact_import` to represent
+an address correction. The same rule applies to an additional address.
 
 When the user asks to change an existing contact's birthday, name,
 organization, notes, kind, or status, resolve that contact with

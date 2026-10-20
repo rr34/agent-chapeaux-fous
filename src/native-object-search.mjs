@@ -33,6 +33,8 @@ const exactCandidateReads = Object.freeze({
   contact: { display: "display_name", where: "status <> 'inactive'" },
   todo_group: { display: "name", where: "1 = 1" },
   todo: { display: "text", where: "1 = 1" },
+  physical_item_group: { display: "name", where: "1 = 1" },
+  physical_item: { display: "name", where: "1 = 1" },
   journal_group: { display: "name", where: "1 = 1" },
   tracker: { display: "name", where: "1 = 1" },
   journal_entry: { display: "content_text", where: "1 = 1" },
@@ -213,6 +215,18 @@ function readCandidates(database, tokens, selectedTypes = null, query = "") {
     "task.status IN ('todo', 'ai_suggested') AND todo_group.archived_at_utc IS NULL",
     ["task.text", "todo_group.name", "contact.display_name"], [], "task.personal_task_id DESC");
 
+  read("physical_item_group", "physical_group.physical_item_group_id AS id, physical_group.name AS title",
+    "physical_item_groups AS physical_group", "physical_group.archived_at_utc IS NULL",
+    ["physical_group.name"], [], "physical_group.sort_position, physical_group.physical_item_group_id");
+  read("physical_item", `item.physical_item_id AS id, item.name AS title, item.status,
+      item.item_condition, item.location_text, item.physical_item_group_id AS parent_id,
+      physical_group.name AS parent_title`,
+    "physical_items AS item JOIN physical_item_groups AS physical_group USING (physical_item_group_id)",
+    "item.status NOT IN ('disposed', 'archived') AND physical_group.archived_at_utc IS NULL",
+    ["item.name", "item.description", "item.personal_notes", "item.location_text",
+      "item.manufacturer", "item.model_number", "item.serial_number", "physical_group.name"], [],
+    "item.physical_item_id DESC");
+
   read("journal_group", "journal_group.journal_group_id AS id, journal_group.name AS title",
     "journal1_groups AS journal_group", "journal_group.archived_at_utc IS NULL",
     ["journal_group.name"], [], "journal_group.name, journal_group.journal_group_id");
@@ -275,6 +289,7 @@ function scoreCandidate({ type, row }, tokens) {
     ["parent", row.parent_title, 2],
     ["related contact", row.contact_title, 2],
     ["group", row.grandparent_title, 1],
+    ["location", row.location_text, 2],
     ["sequence", row.sequence, 8],
   ];
   let score = 0;
@@ -307,6 +322,7 @@ function scoreCandidate({ type, row }, tokens) {
                 : type === "profile_fact" ? row.fact_type
                   : type === "catch_up_question" ? row.due_at_utc
                     : type === "content_item" ? [row.parent_title, row.content_status].filter(Boolean).join(" · ")
+                      : type === "physical_item" ? [row.parent_title, row.item_condition, row.status, row.location_text].filter(Boolean).join(" · ")
                       : row.status ?? "";
   return {
     type, domainType: definition.domainType, source: definition.source,
@@ -345,6 +361,15 @@ function relatedFor(database, item) {
       WHERE todo_group_id = ? AND status IN ('todo', 'ai_suggested')
       ORDER BY sort_position, personal_task_id LIMIT 3`).all(id)
       .map(({ id: relatedId, title }) => relatedObject("todo", relatedId, title));
+  }
+  if (type === "physical_item_group") {
+    return database.prepare(`SELECT physical_item_id AS id, name AS title FROM physical_items
+      WHERE physical_item_group_id = ? AND status NOT IN ('disposed', 'archived')
+      ORDER BY sort_position, physical_item_id LIMIT 3`).all(id)
+      .map(({ id: relatedId, title }) => relatedObject("physical_item", relatedId, title));
+  }
+  if (type === "physical_item") {
+    return [relatedObject("physical_item_group", row.parent_id, row.parent_title)];
   }
   if (type === "todo") {
     return [relatedObject("todo_group", row.parent_id, row.parent_title),

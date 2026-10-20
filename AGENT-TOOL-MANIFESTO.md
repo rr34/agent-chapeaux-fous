@@ -250,6 +250,10 @@ describe that contact, but tags and tag assignments are not separate
 first-class objects in this surface. Video scripts and content groups are first-class because native tools
 consume their stable IDs; numbered content items are first-class because users
 refer to the durable items returned by the owning sequence read.
+Things groups and physical items are likewise first-class: the group is the
+stable organizational parent, while each item is a durable possession that can
+be connected to exact to-dos, content, files, and contacts through constrained
+domain-owned joins.
 
 For a native object type, the catalog names its authoritative database table,
 primary key, selected columns for matching and display, and declared

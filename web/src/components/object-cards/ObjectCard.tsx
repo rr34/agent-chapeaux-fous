@@ -10,6 +10,8 @@ import { JournalTrackerCard } from "./JournalTrackerCard";
 import { LibraryGroupCard } from "./LibraryGroupCard";
 import { LibraryItemCard } from "./LibraryItemCard";
 import { ProfileFactCard } from "./ProfileFactCard";
+import { PhysicalItemCard } from "./PhysicalItemCard";
+import { PhysicalItemGroupCard } from "./PhysicalItemGroupCard";
 import { SimpleObjectCard } from "./SimpleObjectCard";
 import { TodoCard } from "./TodoCard";
 import { TodoGroupCard } from "./TodoGroupCard";
@@ -29,6 +31,8 @@ export function ObjectCard(props: ObjectCardProps) {
     case "calendar.routine": return <CalendarRoutineCard {...props} />;
     case "files.file": return <FileCard {...props} />;
     case "profile.fact": return <ProfileFactCard {...props} />;
+    case "things.physical_item": return <PhysicalItemCard {...props} />;
+    case "things.physical_item_group": return <PhysicalItemGroupCard {...props} />;
     case "catch_up.question": return <CheckInQuestionCard {...props} />;
     case "video.script": return <VideoScriptCard {...props} />;
     case "video.content_group": return <LibraryGroupCard {...props} />;

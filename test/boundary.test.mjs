@@ -99,7 +99,9 @@ test("base instructions stay universal while capability fragments retain domain 
   assert.match(instructions, /full verified file in one\s+call/);
   assert.match(instructions, /Use `contact_import` in bounded batches\s+only/);
   assert.match(instructions, /contact_address_update/);
-  assert.match(instructions, /never use `contact_import` to represent an address correction/);
+  assert.match(instructions, /action=add/);
+  assert.match(instructions, /second home, work, mailing, or billing address/);
+  assert.match(instructions, /never use `contact_import` to represent\s+an address correction/);
   assert.match(instructions, /contact_duplicate_list/);
   assert.match(instructions, /contact_dedupe_clear/);
   assert.match(instructions, /max_groups=500/);

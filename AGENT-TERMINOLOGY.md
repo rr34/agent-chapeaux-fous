@@ -282,3 +282,10 @@ object network, emitting each current edge in both directions with typed
 endpoints and source evidence. It is a live adjacency read, not an authority,
 mutation path, recursive graph traversal, first-class-object declaration, or
 immutable relationship reference set.
+
+**61. Physical item** — One authoritative native record of a physical
+possession, or a counted set of equivalent possessions, shown in the product's
+**Things** section. It owns possession-specific facts and notes while related
+work, content, files, and contacts remain exact independent objects connected
+through domain-owned join tables. A physical item is not a generic superclass
+for every first-class object.

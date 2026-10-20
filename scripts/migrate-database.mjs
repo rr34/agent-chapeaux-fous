@@ -151,6 +151,10 @@ export const relationshipJoinTables = Object.freeze([
   "payment_invoice_line_receipts_join",
   "calendar_events_todo_join",
   "todo_content_join",
+  "physical_items_todo_join",
+  "physical_items_content_join",
+  "physical_items_files_join",
+  "physical_items_contacts_join",
   "video_script_sources_join",
   "todo_correspondence_join",
   "calendar_events_correspondence_join",
@@ -164,6 +168,8 @@ export const relationshipEdgeViewColumns = Object.freeze([
   "relationship_qualifier", "sort_order", "attributes_json", "is_reverse",
 ]);
 
+const relationshipJoinTablesV54 = relationshipJoinTables.filter((name) => !name.startsWith("physical_items_"));
+
 async function assertVersion30Integrity(connection, databaseName) {
   const [columns] = await connection.query(
     `SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_TYPE
@@ -176,6 +182,9 @@ async function assertVersion30Integrity(connection, databaseName) {
     enumValues(column.COLUMN_TYPE),
   ]));
   for (const [tableName, fields] of Object.entries(requiredEnumColumns)) {
+    // Physical items are introduced by migration 0055 and do not exist while
+    // validating the historical migration 0030 enum conversion.
+    if (tableName === "physical_items") continue;
     for (const [fieldName, expectedValues] of Object.entries(fields)) {
       const qualifiedName = `${tableName}.${fieldName}`;
       // Historical enum validation also runs before migration 0044 renames
@@ -345,30 +354,85 @@ async function assertVersion32Integrity(connection, databaseName) {
 }
 
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
-  if (migration.version === 54) {
+  if (migration.version === 55) {
+    const requiredTables = [
+      "physical_item_groups", "physical_items", "physical_items_todo_join",
+      "physical_items_content_join", "physical_items_files_join", "physical_items_contacts_join",
+    ];
+    const [tables] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (${requiredTables.map(() => "?").join(", ")})`,
+    [databaseName, ...requiredTables]);
+    const tableTypes = new Map(tables.map((row) => [row.TABLE_NAME, row.TABLE_TYPE]));
+    for (const name of requiredTables) {
+      if (tableTypes.get(name) !== "BASE TABLE") throw new Error(`Migration 0055 is missing ${name}`);
+    }
+    const [columns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_TYPE
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (${requiredTables.map(() => "?").join(", ")})`,
+    [databaseName, ...requiredTables]);
+    const names = new Set(columns.map((row) => `${row.TABLE_NAME}.${row.COLUMN_NAME}`));
+    for (const name of [
+      "physical_item_groups.physical_item_group_id", "physical_item_groups.name",
+      "physical_items.physical_item_id", "physical_items.physical_item_group_id",
+      "physical_items.name", "physical_items.quantity", "physical_items.item_condition",
+      "physical_items.status", "physical_items.version",
+      "physical_items_todo_join.personal_task_id", "physical_items_content_join.content_id",
+      "physical_items_files_join.file_id", "physical_items_contacts_join.contact_id",
+    ]) if (!names.has(name)) throw new Error(`Migration 0055 is missing ${name}`);
+    for (const [field, values] of Object.entries(requiredEnumColumns.physical_items)) {
+      const column = columns.find((row) => row.TABLE_NAME === "physical_items" && row.COLUMN_NAME === field);
+      if (column?.DATA_TYPE !== "enum"
+          || JSON.stringify(enumValues(column.COLUMN_TYPE)) !== JSON.stringify(values)) {
+        throw new Error(`Migration 0055 did not establish physical_items.${field}`);
+      }
+    }
+    const [keys] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+      FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_SCHEMA = ?
+        AND TABLE_NAME IN (${requiredTables.map(() => "?").join(", ")})`, [databaseName, ...requiredTables]);
+    for (const [child, column, parent, target] of [
+      ["physical_items", "physical_item_group_id", "physical_item_groups", "physical_item_group_id"],
+      ["physical_items", "source_event_id", "activity_events", "event_id"],
+      ["physical_items_todo_join", "physical_item_id", "physical_items", "physical_item_id"],
+      ["physical_items_todo_join", "personal_task_id", "todo_personal", "personal_task_id"],
+      ["physical_items_content_join", "physical_item_id", "physical_items", "physical_item_id"],
+      ["physical_items_content_join", "content_id", "content_items", "content_id"],
+      ["physical_items_files_join", "physical_item_id", "physical_items", "physical_item_id"],
+      ["physical_items_files_join", "file_id", "files", "file_id"],
+      ["physical_items_contacts_join", "physical_item_id", "physical_items", "physical_item_id"],
+      ["physical_items_contacts_join", "contact_id", "contacts", "contact_id"],
+    ]) {
+      if (!keys.some((row) => row.TABLE_NAME === child && row.COLUMN_NAME === column
+        && row.REFERENCED_TABLE_NAME === parent && row.REFERENCED_COLUMN_NAME === target)) {
+        throw new Error(`Migration 0055 is missing ${child}.${column} to ${parent} relationship`);
+      }
+    }
+  }
+  if (migration.version === 54 || migration.version === 55) {
+    const label = String(migration.version).padStart(4, "0");
     const [objects] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE
       FROM information_schema.TABLES
       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'object_relationship_edges'`, [databaseName]);
     if (objects.length !== 1 || objects[0].TABLE_TYPE !== "VIEW") {
-      throw new Error("Migration 0054 must establish the object_relationship_edges view");
+      throw new Error(`Migration ${label} must establish the object_relationship_edges view`);
     }
     const [columns] = await connection.query(`SELECT COLUMN_NAME
       FROM information_schema.COLUMNS
       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'object_relationship_edges'
       ORDER BY ORDINAL_POSITION`, [databaseName]);
     if (JSON.stringify(columns.map((row) => row.COLUMN_NAME)) !== JSON.stringify(relationshipEdgeViewColumns)) {
-      throw new Error("Migration 0054 established an invalid object_relationship_edges column contract");
+      throw new Error(`Migration ${label} established an invalid object_relationship_edges column contract`);
     }
     const [views] = await connection.query(`SELECT VIEW_DEFINITION, SECURITY_TYPE
       FROM information_schema.VIEWS
       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'object_relationship_edges'`, [databaseName]);
     if (views.length !== 1 || views[0].SECURITY_TYPE !== "INVOKER") {
-      throw new Error("Migration 0054 relationship view must use invoker security");
+      throw new Error(`Migration ${label} relationship view must use invoker security`);
     }
     const definition = String(views[0]?.VIEW_DEFINITION ?? "").replaceAll("`", "").toLowerCase();
-    const missingSources = relationshipJoinTables.filter((tableName) => !definition.includes(tableName));
+    const expectedSources = migration.version === 54 ? relationshipJoinTablesV54 : relationshipJoinTables;
+    const missingSources = expectedSources.filter((tableName) => !definition.includes(tableName));
     if (missingSources.length > 0) {
-      throw new Error(`Migration 0054 relationship view is missing join sources: ${missingSources.join(", ")}`);
+      throw new Error(`Migration ${label} relationship view is missing join sources: ${missingSources.join(", ")}`);
     }
   }
   if (migration.version === 53) {

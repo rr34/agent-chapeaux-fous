@@ -13,6 +13,7 @@ test("every visible first-class domain owns a named card component", () => {
     "CalendarRoutineCard.tsx", "FileCard.tsx", "LibraryItemCard.tsx", "LibraryGroupCard.tsx",
     "VideoScriptCard.tsx", "JournalTrackerCard.tsx", "JournalEntryCard.tsx",
     "JournalGroupCard.tsx", "InvoiceCard.tsx", "ProfileFactCard.tsx", "CheckInQuestionCard.tsx",
+    "PhysicalItemCard.tsx", "PhysicalItemGroupCard.tsx",
     "CompactObjectCard.tsx", "FullObjectCard.tsx", "ObjectCardButtons.tsx", "ObjectCardIcons.tsx",
     "ObjectCardSequence.tsx",
   ];
@@ -148,6 +149,7 @@ test("interactive views do not retain pre-reusable or view-scoped card styling",
     "calendar-event-card", "calendar-routine-card", "file-card", "library-item-card",
     "library-group-card", "video-script-card", "journal-tracker-card", "journal-entry-card",
     "journal-group-card", "invoice-card", "profile-fact-card", "check-in-question-card",
+    "physical-item-card", "physical-item-group-card",
   ];
   for (const line of styles.split("\n")) {
     if (!/\.(?:first-class-object-|compact-object-)/.test(line)) continue;

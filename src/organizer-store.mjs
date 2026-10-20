@@ -30,6 +30,7 @@ const contentStatuses = new Set(["active", "obsolete", "unused", "queued"]);
 const contactKinds = new Set(["person", "organization", "service"]);
 const contactStatuses = new Set(["active", "inactive", "blocked", "deceased"]);
 const contactMethodKinds = new Set(["email", "phone", "postal_address", "handle", "url", "other"]);
+const contactAddressActions = new Set(["add", "replace"]);
 
 export class OrganizerInputError extends Error {
   constructor(message, statusCode = 400) {
@@ -251,6 +252,11 @@ function contactAddressUpdates(value) {
     if (typeof update.expectedVersion !== "string" || !update.expectedVersion) {
       throw new OrganizerInputError(`updates[${index}].expectedVersion is required.`);
     }
+    const action = enumValue(
+      update.action,
+      contactAddressActions,
+      `updates[${index}].action`,
+    );
     const [address] = contactMethods([{
       id: update.addressMethodId,
       kind: "postal_address",
@@ -259,7 +265,13 @@ function contactAddressUpdates(value) {
       isPrimary: update.isPrimary,
       canReceive: update.canReceive,
     }]);
-    return { contactId, expectedVersion: update.expectedVersion, address };
+    if (action === "add" && address.id !== null) {
+      throw new OrganizerInputError(`updates[${index}].addressMethodId must be null when action is add.`);
+    }
+    if (action === "replace" && address.id === null) {
+      throw new OrganizerInputError(`updates[${index}].addressMethodId is required when action is replace.`);
+    }
+    return { contactId, expectedVersion: update.expectedVersion, action, address };
   });
 }
 
@@ -1419,7 +1431,7 @@ export class OrganizerStore {
         let target = null;
         let status = "updated";
 
-        if (update.address.id !== null) {
+        if (update.action === "replace") {
           target = contact.methods.find(({ id }) => Number(id) === update.address.id) ?? null;
           if (!target) {
             throw new OrganizerInputError(
@@ -1450,17 +1462,12 @@ export class OrganizerStore {
             && exactAddress.canReceive === update.address.canReceive;
           if (!unchanged) {
             throw new OrganizerInputError(
-              `Contact ${update.contactId} already has that address; supply its addressMethodId to change its label or delivery settings.`,
+              `Contact ${update.contactId} already has that address; use action=replace and supply its addressMethodId to change its label or delivery settings.`,
               409,
             );
           }
           target = exactAddress;
           status = "unchanged";
-        } else if (addresses.length > 0) {
-          throw new OrganizerInputError(
-            `Contact ${update.contactId} already has a postal address; supply its addressMethodId to replace the intended address.`,
-            409,
-          );
         }
 
         if (status !== "unchanged" && update.expectedVersion !== contact.version) {

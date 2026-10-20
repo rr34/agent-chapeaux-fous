@@ -14,11 +14,23 @@ import {
 const schemaSource = fs.readFileSync(baselineFilename, "utf8");
 
 export function baselineBeforeObjectRelationshipEdges(source) {
-  return source
+  return baselineBeforePhysicalThings(source)
     .replace(/CREATE SQL SECURITY INVOKER VIEW object_relationship_edges AS[\s\S]*?\nCREATE VIEW activity_operation_latency AS/u,
       "CREATE VIEW activity_operation_latency AS")
     .replace("Target: MariaDB 10.11, schema version 54.", "Target: MariaDB 10.11, schema version 53.")
     .replace("VALUES (1, 54,", "VALUES (1, 53,");
+}
+
+export function baselineBeforePhysicalThings(source) {
+  for (const table of [
+    "physical_items_contacts_join", "physical_items_files_join", "physical_items_content_join",
+    "physical_items_todo_join", "physical_items", "physical_item_groups",
+  ]) {
+    source = source.replace(new RegExp(`CREATE TABLE ${table} \\([\\s\\S]*?\\n\\) ENGINE=InnoDB[^\\n]*;\\n\\n`, "u"), "");
+  }
+  return source
+    .replace("Target: MariaDB 10.11, schema version 55.", "Target: MariaDB 10.11, schema version 54.")
+    .replace("VALUES (1, 55,", "VALUES (1, 54,");
 }
 
 export function baselineBeforeInvoiceLineReceipts(source) {

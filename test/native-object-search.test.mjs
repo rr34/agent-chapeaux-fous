@@ -86,7 +86,7 @@ test("native object candidates come from selected authoritative tables and rank 
     "agent-slayer://journal-trackers/11");
   assert.equal(searchNativeObjects(database, { query: "family" }).objects[0].ref, "agent-slayer://contacts/7");
   assert.deepEqual(nativeObjectTypes.map(({ table }) => table), [
-    "contacts", "todo_groups", "todo_personal", "journal1_groups", "journal2_trackers", "journal3_entries",
+    "contacts", "todo_groups", "todo_personal", "physical_item_groups", "physical_items", "journal1_groups", "journal2_trackers", "journal3_entries",
     "calendar_events", "calendar_routines", "files", "profile_facts",
     "catch_up_questions", "video_scripts", "content_groups", "content_items",
   ]);

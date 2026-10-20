@@ -14,6 +14,14 @@ const contactIdentity = {
   type: "contacts.contact", source: "native:contacts", id: 12,
   ref: "agent-slayer://contacts/12",
 };
+const physicalItemIdentity = {
+  type: "things.physical_item", source: "native:things", id: 21,
+  ref: "agent-slayer://physical-items/21",
+};
+const fileIdentity = {
+  type: "files.file", source: "native:files", id: 31,
+  ref: "agent-slayer://files/31",
+};
 
 function fixture({ relationshipKind = null } = {}) {
   let kind = relationshipKind;
@@ -84,7 +92,7 @@ test("the object network keeps exact bindings and presents real connected object
     ref: "agent-slayer://calendar-events/9", display: "Kitchen walk-through", removable: true,
   }]);
   assert.deepEqual(graph.connectableTypes,
-    ["contacts.contact", "calendar.event", "video.content_item"]);
+    ["contacts.contact", "calendar.event", "video.content_item", "things.physical_item"]);
   assert.equal("relationshipLabel" in graph.connections[1], false);
   assert.throws(() => service.graph({ ...todoIdentity, ref: "agent-slayer://todos/8" }),
     /does not match its owning source/u);
@@ -123,6 +131,38 @@ test("the simple network control cannot remove specialized calendar meaning", as
   await assert.rejects(
     service.setConnection({ from: todoIdentity, to: eventIdentity, linked: false }),
     /Open the calendar event to change a work or deadline relationship/u,
+  );
+});
+
+test("the simple network control preserves specialized physical-item meanings", async () => {
+  const database = { prepare(sql) {
+    return {
+      get() {
+        if (/FROM physical_items WHERE physical_item_id/u.test(sql)) return {
+          physical_item_id: 21, name: "Cordless drill", description: null, personal_notes: null,
+          quantity: 1, location_text: "Workshop", item_condition: "good", status: "active",
+          manufacturer: null, model_number: null, serial_number: null, acquired_on: null,
+        };
+        if (/FROM files WHERE file_id/u.test(sql)) return {
+          file_id: 31, display: "drill-warranty.pdf", description: null,
+          original_filename: "drill-warranty.pdf", media_kind: "document",
+          mime_type: "application/pdf", byte_size: 400,
+        };
+        if (/SELECT relationship_qualifier FROM object_relationship_edges/u.test(sql)) {
+          return { relationship_qualifier: "warranty" };
+        }
+        throw new Error(`Unexpected get: ${sql}`);
+      },
+      all() { throw new Error(`Unexpected all: ${sql}`); },
+    };
+  } };
+  const service = new ObjectNetworkService({
+    database, organizer: {}, registry: {},
+    physicalItems: { setLinks() { throw new Error("specialized link must be preserved"); } },
+  });
+  await assert.rejects(
+    service.setConnection({ from: physicalItemIdentity, to: fileIdentity, linked: false }),
+    /Things relationship editor/u,
   );
 });
 

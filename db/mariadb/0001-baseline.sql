@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 54.
+-- Target: MariaDB 10.11, schema version 55.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -289,6 +289,23 @@ CREATE TABLE todo_groups (
     CONSTRAINT todo_groups_sequence CHECK (uses_sequence IN (0, 1)),
     CONSTRAINT todo_groups_daily_paper_pinned CHECK (daily_paper_pinned IN (0, 1))
 ) ENGINE=InnoDB COMMENT='Defines the named groups that organize the user''s one authoritative personal To-Do List. One row represents one named task group, such as Inbox or Watches. Groups are named containers, not tasks and not a second hierarchy. Group names are unique without regard to letter case. uses_sequence controls automatic task numbering. daily_paper_pinned controls whether the active group and its open tasks always appear on the daily paper; pinning belongs to the group rather than to individual tasks. Sensitivity: Group names may reveal the user''s private projects and areas of responsibility.';
+
+CREATE TABLE physical_item_groups (
+    -- sourceOfTruth: true
+    -- synonyms: ["thing groups", "possession groups", "inventory groups"]
+    -- keywords: ["things", "physical items", "possessions", "inventory", "group"]
+
+    physical_item_group_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for one group of physical items.',
+    name                   VARCHAR(200) NOT NULL COMMENT 'Complete human-facing name of the physical-item group. Unique without regard to letter case.',
+    sort_position          BIGINT NOT NULL DEFAULT 0 COMMENT 'Mutable presentation order for this group. Lower values appear first.',
+    archived_at_utc        DATETIME(3) COMMENT 'UTC instant when this group was archived, or null while active. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    created_at_utc         DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this group was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    updated_at_utc         DATETIME(3) COMMENT 'UTC instant of the latest material group change. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    PRIMARY KEY (physical_item_group_id),
+    UNIQUE KEY physical_item_groups_name (name),
+    KEY physical_item_groups_order (archived_at_utc, sort_position, physical_item_group_id),
+    CONSTRAINT physical_item_groups_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 200)
+) ENGINE=InnoDB COMMENT='Defines named groups for the user''s physical possessions. One row represents one organizational group; group identity and ordering remain stable when the name changes. Sensitivity: Names may reveal possessions, locations, interests, or private areas of the user''s life.';
 
 CREATE TABLE journal2_trackers (
     -- sourceOfTruth: true
@@ -753,6 +770,43 @@ CREATE TABLE content_items (
     CONSTRAINT content_items_sequence CHECK (sequence IS NULL OR sequence > 0)
 ) ENGINE=InnoDB COMMENT='Catalogs the user''s own content and reference material from other creators in one searchable structure. One row represents one work or source item, such as a video, book, article, podcast, image, document, course, or website. Every content item belongs to exactly one content group. sequence is an optional stable positive number unique within a content group. relationship_to_user distinguishes the user''s authored or planned work from reference material. transcript preserves source speech or text; personal_notes preserves the user''s reaction or intended use. Sensitivity: May contain private drafts, transcripts, reading history, personal notes, and source metadata.';
 
+CREATE TABLE physical_items (
+    -- sourceOfTruth: true
+    -- synonyms: ["things", "possessions", "inventory items", "physical stuff"]
+    -- keywords: ["thing", "item", "possession", "object", "equipment", "belonging"]
+    -- fk:physical_items_group meaning: Places each physical item in its required Things group.
+    -- fk:physical_items_group cardinality: Each physical item belongs to exactly one group; one group may contain many physical items.
+    -- fk:physical_items_group importantRules: ["A group cannot be deleted while physical items belong to it."]
+
+    physical_item_id       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for one physical item or counted set of equivalent physical items.',
+    physical_item_group_id BIGINT UNSIGNED NOT NULL COMMENT 'Required Things group that organizes this physical item.',
+    name                   VARCHAR(500) NOT NULL COMMENT 'Complete human-facing name of the physical item.',
+    description            LONGTEXT COMMENT 'Objective description of the item, its purpose, identifying features, or included parts.',
+    personal_notes         LONGTEXT COMMENT 'The user''s own notes, history, intentions, or other free-form context for the item.',
+    quantity               BIGINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Count of equivalent physical items represented by this record. Units: items.',
+    location_text          VARCHAR(1000) COMMENT 'Human-facing physical location where the item is ordinarily kept.',
+    item_condition         ENUM('unknown', 'new', 'good', 'fair', 'poor', 'broken') NOT NULL DEFAULT 'unknown' COMMENT 'Current physical condition. unknown: Not recorded; new: New or like-new; good: Fully usable; fair: Usable with wear; poor: Materially degraded; broken: Not currently usable.',
+    status                 ENUM('active', 'loaned', 'lost', 'disposed', 'archived') NOT NULL DEFAULT 'active' COMMENT 'Current possession lifecycle. active: Currently possessed; loaned: Temporarily with another party; lost: Location unknown; disposed: Sold, donated, discarded, or otherwise no longer possessed; archived: Retained history hidden from ordinary views.',
+    manufacturer           VARCHAR(500) COMMENT 'Manufacturer or maker when known.',
+    model_number           VARCHAR(500) COMMENT 'Manufacturer model designation when known.',
+    serial_number          VARCHAR(1000) COMMENT 'Manufacturer or asset serial identifier when known. Sensitivity: May be security-relevant identifying information.',
+    acquired_on            DATE COMMENT 'Local calendar date on which the item was acquired when known.',
+    sort_position          BIGINT NOT NULL DEFAULT 0 COMMENT 'Mutable presentation order within the owning group. Lower values appear first.',
+    source_event_id        VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Optional observable activity event that created this physical-item record.',
+    created_at_utc         DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this record was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    updated_at_utc         DATETIME(3) COMMENT 'UTC instant of the latest material change. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    version                BIGINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Monotonic optimistic-concurrency revision for user-visible changes.',
+    PRIMARY KEY (physical_item_id),
+    KEY physical_items_group_order (physical_item_group_id, sort_position, physical_item_id),
+    KEY physical_items_status (status, physical_item_id),
+    KEY physical_items_serial (serial_number),
+    CONSTRAINT physical_items_group FOREIGN KEY (physical_item_group_id) REFERENCES physical_item_groups(physical_item_group_id) ON DELETE RESTRICT,
+    CONSTRAINT physical_items_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
+    CONSTRAINT physical_items_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 500),
+    CONSTRAINT physical_items_quantity CHECK (quantity > 0),
+    CONSTRAINT physical_items_version CHECK (version > 0)
+) ENGINE=InnoDB COMMENT='Records the user''s physical possessions. One row represents one individually referable item or one counted set of equivalent items. Domain-specific fields describe possession state; free-form notes do not replace to-dos, content, files, contacts, or the explicit joins to those objects. Sensitivity: May reveal valuable property, serial numbers, purchase history, habits, and storage locations.';
+
 CREATE TABLE todo_content_join (
     -- sourceOfTruth: true
     -- synonyms: ["to-do content", "task library items", "task references"]
@@ -773,6 +827,55 @@ CREATE TABLE todo_content_join (
     CONSTRAINT todo_content_join_task FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE CASCADE,
     CONSTRAINT todo_content_join_content FOREIGN KEY (content_id) REFERENCES content_items(content_id) ON DELETE CASCADE
 ) ENGINE=InnoDB COMMENT='Associates personal to-dos with content-library items. Each pair appears once; either record may have many associations. Deleting either parent removes only its dependent association rows. This table stores relationships, not task or library content.';
+
+CREATE TABLE physical_items_todo_join (
+    physical_item_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing physical item associated with the personal to-do.',
+    personal_task_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing personal to-do associated with the physical item.',
+    relationship_kind VARCHAR(100) NOT NULL DEFAULT 'related' COMMENT 'Short owning-domain meaning such as related, maintenance, repair, purchase, or disposal.',
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the association was created.',
+    PRIMARY KEY (physical_item_id, personal_task_id),
+    KEY physical_items_todo_task (personal_task_id, physical_item_id),
+    CONSTRAINT physical_items_todo_item FOREIGN KEY (physical_item_id) REFERENCES physical_items(physical_item_id) ON DELETE CASCADE,
+    CONSTRAINT physical_items_todo_task_fk FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE CASCADE,
+    CONSTRAINT physical_items_todo_kind CHECK (CHAR_LENGTH(TRIM(relationship_kind)) BETWEEN 1 AND 100)
+) ENGINE=InnoDB COMMENT='Associates physical items with personal to-dos while retaining a compact relationship meaning. Deleting either parent deletes only the dependent association.';
+
+CREATE TABLE physical_items_content_join (
+    physical_item_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing physical item associated with the content-library item.',
+    content_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing content-library item associated with the physical item.',
+    relationship_kind VARCHAR(100) NOT NULL DEFAULT 'related' COMMENT 'Short owning-domain meaning such as related, manual, instructions, inspiration, or reference.',
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the association was created.',
+    PRIMARY KEY (physical_item_id, content_id),
+    KEY physical_items_content_content (content_id, physical_item_id),
+    CONSTRAINT physical_items_content_item FOREIGN KEY (physical_item_id) REFERENCES physical_items(physical_item_id) ON DELETE CASCADE,
+    CONSTRAINT physical_items_content_content_fk FOREIGN KEY (content_id) REFERENCES content_items(content_id) ON DELETE CASCADE,
+    CONSTRAINT physical_items_content_kind CHECK (CHAR_LENGTH(TRIM(relationship_kind)) BETWEEN 1 AND 100)
+) ENGINE=InnoDB COMMENT='Associates physical items with content-library records while retaining a compact relationship meaning. Deleting either parent deletes only the dependent association.';
+
+CREATE TABLE physical_items_files_join (
+    physical_item_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing physical item represented or documented by the file.',
+    file_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing durable file associated with the physical item.',
+    file_role VARCHAR(100) NOT NULL DEFAULT 'attachment' COMMENT 'Short owning-domain role such as attachment, photo, receipt, warranty, or manual.',
+    sort_order BIGINT NOT NULL DEFAULT 0 COMMENT 'Mutable display order among files attached to one physical item.',
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the association was created.',
+    PRIMARY KEY (physical_item_id, file_id),
+    KEY physical_items_files_file (file_id, physical_item_id),
+    CONSTRAINT physical_items_files_item FOREIGN KEY (physical_item_id) REFERENCES physical_items(physical_item_id) ON DELETE CASCADE,
+    CONSTRAINT physical_items_files_file_fk FOREIGN KEY (file_id) REFERENCES files(file_id) ON DELETE CASCADE,
+    CONSTRAINT physical_items_files_role CHECK (CHAR_LENGTH(TRIM(file_role)) BETWEEN 1 AND 100)
+) ENGINE=InnoDB COMMENT='Associates physical items with durable files such as photos, receipts, warranties, and manuals. Deleting either parent deletes only the dependent association.';
+
+CREATE TABLE physical_items_contacts_join (
+    physical_item_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing physical item associated with the contact.',
+    contact_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing contact associated with the physical item.',
+    relationship_kind VARCHAR(100) NOT NULL DEFAULT 'related' COMMENT 'Short owning-domain meaning such as related, owner, seller, manufacturer, lender, or borrower.',
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the association was created.',
+    PRIMARY KEY (physical_item_id, contact_id),
+    KEY physical_items_contacts_contact (contact_id, physical_item_id),
+    CONSTRAINT physical_items_contacts_item FOREIGN KEY (physical_item_id) REFERENCES physical_items(physical_item_id) ON DELETE CASCADE,
+    CONSTRAINT physical_items_contacts_contact_fk FOREIGN KEY (contact_id) REFERENCES contacts(contact_id) ON DELETE CASCADE,
+    CONSTRAINT physical_items_contacts_kind CHECK (CHAR_LENGTH(TRIM(relationship_kind)) BETWEEN 1 AND 100)
+) ENGINE=InnoDB COMMENT='Associates physical items with contacts while retaining the relationship meaning. Deleting either parent deletes only the dependent association.';
 
 CREATE TABLE video_scripts (
     -- sourceOfTruth: true
@@ -1036,7 +1139,7 @@ CREATE TABLE correspondence_participants_join (
 ) ENGINE=InnoDB COMMENT='Records senders and recipients for messages and calls while retaining unmatched addresses that do not yet resolve to a contact. One row represents one participant address in one role on one correspondence row, optionally linked to a known contact and contact method. This is enough to identify everyone observed on a group message without making group-thread reconstruction an owned requirement. address_value preserves the address observed on the communication even when no contact matches it. Sensitivity: Contains private communication participants, addresses, and display names.';
 
 CREATE SQL SECURITY INVOKER VIEW object_relationship_edges AS
--- Read-only, non-materialized edge projection over all eleven physical _join
+-- Read-only, non-materialized edge projection over all fifteen physical _join
 -- tables plus the direct native relationships used by the interactive object
 -- network. Each canonical relationship is emitted in both directions. The
 -- owning tables remain authoritative, attributes_json preserves domain
@@ -1045,7 +1148,7 @@ CREATE SQL SECURITY INVOKER VIEW object_relationship_edges AS
 -- owning reads. This live projection is not a relationship-set snapshot and
 -- never authorizes writes.
 -- sourceOfTruth: false
--- derivedFrom: ["activity_event_files_join", "contacts_tags_join", "calendar_event_contacts_join", "payment_invoice_line_receipts_join", "calendar_events_todo_join", "todo_content_join", "video_script_sources_join", "todo_correspondence_join", "calendar_events_correspondence_join", "correspondence_files_join", "correspondence_participants_join", "todo_personal", "payment_invoices", "payment_invoice_lines", "journal2_trackers", "journal3_entries", "calendar_events", "catch_up_questions", "content_items", "video_jobs"]
+-- derivedFrom: ["activity_event_files_join", "contacts_tags_join", "calendar_event_contacts_join", "payment_invoice_line_receipts_join", "calendar_events_todo_join", "todo_content_join", "physical_items_todo_join", "physical_items_content_join", "physical_items_files_join", "physical_items_contacts_join", "video_script_sources_join", "todo_correspondence_join", "calendar_events_correspondence_join", "correspondence_files_join", "correspondence_participants_join", "todo_personal", "physical_items", "payment_invoices", "payment_invoice_lines", "journal2_trackers", "journal3_entries", "calendar_events", "catch_up_questions", "content_items", "video_jobs"]
 -- from_type: Domain-qualified type of the lookup endpoint for this directed row.
 -- from_id: Text-preserving local or provider identifier of the lookup endpoint; first-class consumers restore the declared scalar type during hydration.
 -- relationship_type: Stable application relationship name shared by both directions of one edge.
@@ -1136,6 +1239,46 @@ WITH canonical_edges AS (
 
   UNION ALL
   SELECT
+    'things.physical_item', CAST(link.physical_item_id AS CHAR), 'thing-todo',
+    'todos.personal_task', CAST(link.personal_task_id AS CHAR), 'association',
+    'physical_items_todo_join',
+    JSON_OBJECT('physical_item_id', link.physical_item_id, 'personal_task_id', link.personal_task_id),
+    link.created_at_utc, link.relationship_kind, NULL,
+    JSON_OBJECT('relationship_kind', link.relationship_kind)
+  FROM physical_items_todo_join AS link
+
+  UNION ALL
+  SELECT
+    'things.physical_item', CAST(link.physical_item_id AS CHAR), 'thing-content',
+    'video.content_item', CAST(link.content_id AS CHAR), 'association',
+    'physical_items_content_join',
+    JSON_OBJECT('physical_item_id', link.physical_item_id, 'content_id', link.content_id),
+    link.created_at_utc, link.relationship_kind, NULL,
+    JSON_OBJECT('relationship_kind', link.relationship_kind)
+  FROM physical_items_content_join AS link
+
+  UNION ALL
+  SELECT
+    'things.physical_item', CAST(link.physical_item_id AS CHAR), 'thing-file',
+    'files.file', CAST(link.file_id AS CHAR), 'attachment',
+    'physical_items_files_join',
+    JSON_OBJECT('physical_item_id', link.physical_item_id, 'file_id', link.file_id),
+    link.created_at_utc, link.file_role, link.sort_order,
+    JSON_OBJECT('file_role', link.file_role, 'sort_order', link.sort_order)
+  FROM physical_items_files_join AS link
+
+  UNION ALL
+  SELECT
+    'things.physical_item', CAST(link.physical_item_id AS CHAR), 'thing-contact',
+    'contacts.contact', CAST(link.contact_id AS CHAR), 'association',
+    'physical_items_contacts_join',
+    JSON_OBJECT('physical_item_id', link.physical_item_id, 'contact_id', link.contact_id),
+    link.created_at_utc, link.relationship_kind, NULL,
+    JSON_OBJECT('relationship_kind', link.relationship_kind)
+  FROM physical_items_contacts_join AS link
+
+  UNION ALL
+  SELECT
     'video.script', CAST(link.video_script_id AS CHAR), 'script-source',
     'activity.event', CAST(link.request_event_id AS CHAR), 'provenance',
     'video_script_sources_join',
@@ -1205,6 +1348,14 @@ WITH canonical_edges AS (
     'todo_personal', JSON_OBJECT('personal_task_id', task.personal_task_id),
     NULL, NULL, task.sort_position, JSON_OBJECT()
   FROM todo_personal AS task
+
+  UNION ALL
+  SELECT
+    'things.physical_item_group', CAST(item.physical_item_group_id AS CHAR), 'physical-item-group',
+    'things.physical_item', CAST(item.physical_item_id AS CHAR), 'membership',
+    'physical_items', JSON_OBJECT('physical_item_id', item.physical_item_id),
+    item.created_at_utc, NULL, item.sort_position, JSON_OBJECT()
+  FROM physical_items AS item
 
   UNION ALL
   SELECT
@@ -1655,4 +1806,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 54, 'Chapeaux Fous MariaDB database');
+VALUES (1, 55, 'Chapeaux Fous MariaDB database');

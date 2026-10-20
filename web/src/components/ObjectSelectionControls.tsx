@@ -122,6 +122,31 @@ export function todoIdentity(todo: Entity | LinkedTodo) {
   });
 }
 
+export function physicalItemIdentity(item: Entity) {
+  const id = Number(item.id);
+  const name = String(item.name || `Physical item ${id}`);
+  const detail = [
+    `Physical item: ${concise(name)}`,
+    item.groupName ? `Group: ${concise(item.groupName, 80)}` : null,
+    item.location ? `Location: ${concise(item.location, 120)}` : null,
+    referenceCode({ physical_item_id: id, ref: stableReference("physical-items", id) }),
+  ].filter(Boolean).join("\n");
+  return nativeReference({
+    type: "things.physical_item", source: "native:things", id,
+    collection: "physical-items", label: "Physical item", display: name, detail,
+  });
+}
+
+export function physicalItemGroupIdentity(group: Entity) {
+  const id = Number(group.id);
+  const name = String(group.name || `Things group ${id}`);
+  return nativeReference({
+    type: "things.physical_item_group", source: "native:things", id,
+    collection: "physical-item-groups", label: "Things group", display: name,
+    detail: [`Things group: ${concise(name)}`, referenceCode({ physical_item_group_id: id, ref: stableReference("physical-item-groups", id) })].join("\n"),
+  });
+}
+
 export function contactIdentity(contact: Entity) {
   const name = String(contact.displayName || contact.name || "Contact");
   const detail = [

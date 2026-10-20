@@ -54,6 +54,15 @@ test("owning tool contracts explain inputs and results without a database or sch
       .methods.items.properties.id.description,
     /address_method_id/,
   );
+  assert.deepEqual(
+    definitions.contact_address_update.inputSchema.properties.updates.items.properties.action.enum,
+    ["add", "replace"],
+  );
+  assert.deepEqual(
+    definitions.contact_address_update.metadata["agent-slayer/selection"].actionClasses,
+    ["CREATE", "UPDATE"],
+  );
+  assert.match(definitions.contact_address_update.description, /additional address/);
   assert.equal(schemaProblem({ updated_count: 1, items: [{ task: { text: "Updated task" } }] }, definitions.todo_update.outputSchema), null);
 });
 

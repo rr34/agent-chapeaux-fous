@@ -5,8 +5,9 @@ const toolDescriptions = Object.freeze({
   "contact_address_update": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Atomically set postal addresses on existing contacts using current IDs and versions, without creating contacts or replacing unrelated contact data.",
+    "summary": "Atomically add or replace postal addresses on existing contacts using explicit intent, current IDs, and versions, without creating contacts or replacing unrelated contact data.",
     "actionClasses": [
+      "CREATE",
       "UPDATE"
     ],
     "effectClassifications": [
@@ -947,7 +948,7 @@ export function registerContactTools(
 
   registry.register({
     name: "contact_address_update",
-    description: "Atomically set a postal address on 1 through 100 existing visible contacts without creating contact records or replacing their other methods, tags, or identity fields. Inactive contacts are logically deleted and cannot be changed. Resolve each contact with contact_search or contact_lookup_batch and use its current expected_version. Supply address_method_id to replace one existing postal address; use null only when the contact has no postal address. An exact replay is unchanged even with the prior version. If an address already exists but no method ID is supplied, the call stops instead of guessing or adding a second address. The complete batch validates before any write.",
+    description: "Atomically add or replace a postal address on 1 through 100 existing visible contacts without creating contact records or replacing their other methods, tags, or identity fields. Inactive contacts are logically deleted and cannot be changed. Resolve each contact with contact_search or contact_lookup_batch and use its current expected_version. Use action=replace with the exact existing address_method_id to change one address. Use action=add with a null method ID only when the user explicitly wants a new address, including an additional address on a contact that already has one. An exact replay is unchanged even with the prior version, normalized duplicate addresses are rejected, and the complete batch validates before any write.",
     outputSchema: {
       type: "object",
       additionalProperties: false,
@@ -992,14 +993,15 @@ export function registerContactTools(
             properties: {
               contact_id: { type: "integer", minimum: 1, description: "Stable ID of the existing contact to change. This tool never creates a contact." },
               expected_version: { type: "string", minLength: 1, maxLength: 100, description: "Current contact version returned by contact_search or contact_lookup_batch." },
-              address_method_id: { type: ["integer", "null"], minimum: 1, description: "Existing postal-address method ID to replace. Use null only when the contact currently has no postal address." },
+              action: { type: "string", enum: ["add", "replace"], description: "Explicit address intent. add inserts a new postal address and requires a null address_method_id; replace changes one identified postal address and requires its method ID." },
+              address_method_id: { type: ["integer", "null"], minimum: 1, description: "Existing postal-address method ID for replace, or null for add." },
               address: { type: "string", minLength: 1, maxLength: 2000, description: "Complete new physical mailing or street address." },
               label: { ...nullableString, maxLength: 100, description: "Human-facing qualifier such as home, work, or billing." },
               is_primary: { type: "boolean", description: "True to make this the contact's sole primary postal address." },
               can_receive: { type: "boolean", description: "True when this address may be used as a delivery destination." },
             },
             required: [
-              "contact_id", "expected_version", "address_method_id", "address", "label",
+              "contact_id", "expected_version", "action", "address_method_id", "address", "label",
               "is_primary", "can_receive",
             ],
           },
@@ -1012,6 +1014,7 @@ export function registerContactTools(
         updates: updates.map((update) => ({
           contactId: update.contact_id,
           expectedVersion: update.expected_version,
+          action: update.action,
           addressMethodId: update.address_method_id,
           address: update.address,
           label: update.label,

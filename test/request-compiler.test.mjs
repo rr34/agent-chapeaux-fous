@@ -419,6 +419,12 @@ test("changing another person's address selects the supported contact update too
   assert.equal(names(selection).includes("contact_address_update"), true);
   assert.equal(selection.fallbackAll, false);
 
+  const additionalAddress = selectRequestCapabilities({
+    tools: [...tools, tool("contact_address_update")],
+    text: "Add Tim's work address without removing his home address.",
+  });
+  assert.equal(names(additionalAddress).includes("contact_address_update"), true);
+
   const selfUpdate = selectRequestCapabilities({
     tools: [...tools, tool("contact_address_update")],
     text: "Update my home address.",

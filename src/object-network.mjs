@@ -7,16 +7,19 @@ const supportedTypes = new Set([
   "journal.group", "journal.tracker", "journal.entry", "calendar.event",
   "calendar.routine", "files.file", "profile.fact", "catch_up.question",
   "video.script", "video.content_group", "video.content_item",
+  "things.physical_item_group", "things.physical_item",
 ]);
 const definitions = new Map(nativeFirstClassObjectTypes
   .filter(({ id }) => supportedTypes.has(id))
   .map((definition) => [definition.id, definition]));
 
 const connectableTypes = Object.freeze({
-  "contacts.contact": ["todos.personal_task", "calendar.event"],
-  "todos.personal_task": ["contacts.contact", "calendar.event", "video.content_item"],
+  "contacts.contact": ["todos.personal_task", "calendar.event", "things.physical_item"],
+  "todos.personal_task": ["contacts.contact", "calendar.event", "video.content_item", "things.physical_item"],
   "calendar.event": ["contacts.contact", "todos.personal_task"],
-  "video.content_item": ["todos.personal_task"],
+  "video.content_item": ["todos.personal_task", "things.physical_item"],
+  "files.file": ["things.physical_item"],
+  "things.physical_item": ["contacts.contact", "todos.personal_task", "video.content_item", "files.file"],
 });
 
 function positiveId(value, label = "object id") {
@@ -83,10 +86,11 @@ function contactLinks(methods) {
 }
 
 export class ObjectNetworkService {
-  constructor({ database, organizer, registry }) {
+  constructor({ database, organizer, registry, physicalItems }) {
     this.database = database;
     this.organizer = organizer;
     this.registry = registry;
+    this.physicalItems = physicalItems;
   }
 
   #card(definition, id, display, { body = null, attributes = [], links = [] } = {}) {
@@ -156,6 +160,27 @@ export class ObjectNetworkService {
         attribute("Status", row.status), attribute("Sequence", row.sequence),
         attribute("Billable", money(row.billable_amount_minor, row.billable_currency)),
         attribute("Planning prompt", row.planning_prompt_text),
+      ] });
+    }
+    if (type === "things.physical_item_group") {
+      row = this.database.prepare(`SELECT physical_item_group_id, name, sort_position, archived_at_utc
+        FROM physical_item_groups WHERE physical_item_group_id = ?`).get(id);
+      if (!row) return null;
+      return this.#card(definition, id, row.name, { attributes: [
+        attribute("Position", row.sort_position),
+        attribute("Status", row.archived_at_utc ? "Archived" : "Active"),
+      ] });
+    }
+    if (type === "things.physical_item") {
+      row = this.database.prepare(`SELECT physical_item_id, name, description, personal_notes,
+        quantity, location_text, item_condition, status, manufacturer, model_number,
+        serial_number, acquired_on FROM physical_items WHERE physical_item_id = ?`).get(id);
+      if (!row) return null;
+      return this.#card(definition, id, row.name, { body: row.description || row.personal_notes, attributes: [
+        attribute("Quantity", row.quantity), attribute("Location", row.location_text),
+        attribute("Condition", row.item_condition), attribute("Status", row.status),
+        attribute("Manufacturer", row.manufacturer), attribute("Model", row.model_number),
+        attribute("Serial number", row.serial_number), attribute("Acquired", row.acquired_on),
       ] });
     }
     if (type === "payments.invoice") {
@@ -283,6 +308,9 @@ export class ObjectNetworkService {
         MIN(relationship_type) AS kind,
         MIN(CASE
           WHEN relationship_type IN ('todo-contact', 'todo-content') THEN 1
+          WHEN relationship_type IN ('thing-todo', 'thing-content', 'thing-contact')
+            AND relationship_qualifier = 'related' THEN 1
+          WHEN relationship_type = 'thing-file' AND relationship_qualifier = 'attachment' THEN 1
           WHEN relationship_type = 'todo-event' AND relationship_qualifier = 'context' THEN 1
           WHEN relationship_type = 'event-contact' AND relationship_qualifier = 'other' THEN 1
           ELSE 0
@@ -380,6 +408,33 @@ export class ObjectNetworkService {
       await this.registry.execute("todo_content_link_set", {
         links: [{ personal_task_id: todo.id, content_id: content.id, linked }],
       }, { ...context, channel: context.channel ?? "web" });
+    } else if ([
+      "contacts.contact|things.physical_item",
+      "files.file|things.physical_item",
+      "things.physical_item|todos.personal_task",
+      "things.physical_item|video.content_item",
+    ].includes(selected.key)) {
+      const physicalItem = selected.left.type === "things.physical_item" ? selected.left : selected.right;
+      const target = selected.left.type === "things.physical_item" ? selected.right : selected.left;
+      const targetType = {
+        "contacts.contact": "contact", "files.file": "file",
+        "todos.personal_task": "todo", "video.content_item": "content",
+      }[target.type];
+      const existing = this.database.prepare(`SELECT relationship_qualifier FROM object_relationship_edges
+        WHERE from_type = 'things.physical_item' AND from_id = ? AND to_type = ? AND to_id = ?
+        LIMIT 1`).get(String(physicalItem.id), target.type, String(target.id));
+      if (linked && existing) return this.graph(first);
+      if (!linked && !existing) throw new OrganizerInputError("That exact physical-item connection does not exist.", 404);
+      const defaultQualifier = targetType === "file" ? "attachment" : "related";
+      if (!linked && existing.relationship_qualifier !== defaultQualifier) {
+        throw new OrganizerInputError("Use the Things relationship editor to remove a specialized physical-item connection.", 409);
+      }
+      this.physicalItems.setLinks([{
+        physical_item_id: physicalItem.id,
+        target_type: targetType,
+        target_id: target.id,
+        linked,
+      }], context);
     } else {
       throw new OrganizerInputError("Those object types do not have a simple direct connection.", 409);
     }

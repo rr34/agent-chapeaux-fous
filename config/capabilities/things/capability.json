@@ -1,0 +1,12 @@
+{
+  "$schema": "../../protocol-schemas/capability-manifest.v1.schema.json",
+  "protocol": "agent-slayer.capability",
+  "version": 1,
+  "id": "things",
+  "title": "Things",
+  "summary": "Record, organize, find, and update physical possessions, and connect them to exact to-dos, library content, files, and contacts.",
+  "aliases": ["thing", "things", "physical item", "physical items", "possession", "possessions", "belongings", "inventory", "equipment"],
+  "readOnlyTools": ["physical_item_group_list", "physical_item_list"],
+  "dependentTools": ["todo_list", "video_content_list", "file_get", "contact_search"],
+  "guidance": "guidance.md"
+}

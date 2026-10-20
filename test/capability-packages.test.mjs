@@ -15,7 +15,7 @@ import { registerWebPageTools } from "../src/tools/web-page-tools.mjs";
 const ids = [
   "calendar", "catch-up", "contacts", "daily-paper", "database", "database-write",
   "email", "files", "history", "journal", "payments", "printable-report", "profile", "relationships", "search",
-  "self", "todos", "video", "web",
+  "self", "things", "todos", "video", "web",
 ];
 
 async function temporaryPackage(context, transform = value => value) {

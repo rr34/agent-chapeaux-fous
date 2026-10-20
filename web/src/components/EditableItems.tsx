@@ -320,6 +320,102 @@ export function LibraryContentEditor({ content, groups, initialGroupId, onClose,
   </EditorFrame>;
 }
 
+interface PhysicalItemDraft {
+  groupId: string;
+  name: string;
+  description: string;
+  personalNotes: string;
+  quantity: string;
+  location: string;
+  condition: string;
+  status: string;
+  manufacturer: string;
+  modelNumber: string;
+  serialNumber: string;
+  acquiredOn: string;
+}
+
+function physicalItemDraft(item: Entity | undefined, groups: Entity[], initialGroupId?: number): PhysicalItemDraft {
+  const requestedGroupId = item?.groupId ?? initialGroupId;
+  return {
+    groupId: String(groups.some((group) => String(group.id) === String(requestedGroupId)) ? requestedGroupId : groups[0]?.id ?? ""),
+    name: String(item?.name || ""),
+    description: String(item?.description || ""),
+    personalNotes: String(item?.personalNotes || ""),
+    quantity: String(item?.quantity || 1),
+    location: String(item?.location || ""),
+    condition: String(item?.condition || "unknown"),
+    status: String(item?.status || "active"),
+    manufacturer: String(item?.manufacturer || ""),
+    modelNumber: String(item?.modelNumber || ""),
+    serialNumber: String(item?.serialNumber || ""),
+    acquiredOn: String(item?.acquiredOn || "").slice(0, 10),
+  };
+}
+
+export function PhysicalItemEditor({ item, groups, initialGroupId, onClose, onChanged }: {
+  item?: Entity;
+  groups: Entity[];
+  initialGroupId?: number;
+  onClose: () => void;
+  onChanged: Changed;
+}) {
+  const creating = item == null;
+  const [draft, setDraft] = useState(() => physicalItemDraft(item, groups, initialGroupId));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!groups.length || groups.some((group) => String(group.id) === draft.groupId)) return;
+    setDraft((current) => ({ ...current, groupId: String(groups[0].id) }));
+  }, [draft.groupId, groups]);
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await api(creating ? "/api/physical-items" : `/api/physical-items/${Number(item.id)}`, {
+        method: creating ? "POST" : "PATCH",
+        body: JSON.stringify({
+          ...(!creating ? { version: Number(item.version) } : {}),
+          groupId: Number(draft.groupId), name: draft.name, description: draft.description || null,
+          personalNotes: draft.personalNotes || null, quantity: Number(draft.quantity),
+          location: draft.location || null, condition: draft.condition, status: draft.status,
+          manufacturer: draft.manufacturer || null, modelNumber: draft.modelNumber || null,
+          serialNumber: draft.serialNumber || null, acquiredOn: draft.acquiredOn || null,
+        }),
+      });
+      await onChanged();
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <EditorFrame title={creating ? "Add thing" : "Edit thing"} onClose={onClose}>
+    <form onSubmit={(event) => void save(event)}>
+      <header className="object-editor-heading"><div><p className="eyebrow">Things</p><h2>{creating ? "Add physical item" : "Edit physical item"}</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
+      <label>Name<input autoFocus required maxLength={500} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+      <div className="object-editor-grid">
+        <label>Group<select required value={draft.groupId} onChange={(event) => setDraft({ ...draft, groupId: event.target.value })}>{groups.map((group) => <option key={String(group.id)} value={String(group.id)}>{String(group.name || "Untitled group")}</option>)}</select></label>
+        <label>Quantity<input required type="number" min="1" step="1" value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: event.target.value })} /></label>
+        <label>Condition<select value={draft.condition} onChange={(event) => setDraft({ ...draft, condition: event.target.value })}><option value="unknown">Unknown</option><option value="new">New</option><option value="good">Good</option><option value="fair">Fair</option><option value="poor">Poor</option><option value="broken">Broken</option></select></label>
+        <label>Status<select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })}><option value="active">Active</option><option value="loaned">Loaned</option><option value="lost">Lost</option><option value="disposed">Disposed</option><option value="archived">Archived</option></select></label>
+        <label>Location<input maxLength={1000} value={draft.location} onChange={(event) => setDraft({ ...draft, location: event.target.value })} /></label>
+        <label>Acquired<input type="date" value={draft.acquiredOn} onChange={(event) => setDraft({ ...draft, acquiredOn: event.target.value })} /></label>
+        <label>Manufacturer<input maxLength={500} value={draft.manufacturer} onChange={(event) => setDraft({ ...draft, manufacturer: event.target.value })} /></label>
+        <label>Model<input maxLength={500} value={draft.modelNumber} onChange={(event) => setDraft({ ...draft, modelNumber: event.target.value })} /></label>
+      </div>
+      <label>Serial number<input maxLength={1000} value={draft.serialNumber} onChange={(event) => setDraft({ ...draft, serialNumber: event.target.value })} /></label>
+      <label>Description<textarea rows={4} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label>
+      <label>Personal notes<textarea rows={5} value={draft.personalNotes} onChange={(event) => setDraft({ ...draft, personalNotes: event.target.value })} /></label>
+      {!groups.length && <p className="inline-error" role="alert">Create a Things group before adding a physical item.</p>}
+      {error && <p className="inline-error" role="alert">{error}</p>}
+      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={saving || !groups.length}>{saving ? "Saving..." : creating ? "Add thing" : "Save thing"}</button></footer>
+    </form>
+  </EditorFrame>;
+}
+
 interface CalendarDraft {
   title: string;
   description: string;

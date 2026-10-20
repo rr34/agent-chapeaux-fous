@@ -20,6 +20,7 @@ import { registerPaymentTools } from "../src/tools/payment-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerTodoTools } from "../src/tools/todo-tools.mjs";
 import { registerVideoScriptTools } from "../src/tools/video-script-tools.mjs";
+import { registerThingsTools } from "../src/tools/things-tools.mjs";
 
 function nativeRegistry() {
   const registry = new ToolRegistry();
@@ -43,6 +44,10 @@ function nativeRegistry() {
     selectedInteractionContext: () => ({ data: { sources: [] }, text: "" }),
   }, {
     videoContent: { list: () => null, add: () => null, listGroups: () => [] },
+  });
+  registerThingsTools(registry, {
+    listGroups: () => [], list: () => [], createGroup: () => null,
+    updateGroup: () => null, create: () => null, update: () => null, setLinks: () => null,
   });
   return registry;
 }
@@ -89,6 +94,8 @@ test("native authoritative reads publish the same Object Description contract as
   assert.deepEqual(objectTypes(definitions.get("video_content_list")), [
     "video.content_group", "video.content_item",
   ]);
+  assert.deepEqual(objectTypes(definitions.get("physical_item_group_list")), ["things.physical_item_group"]);
+  assert.deepEqual(objectTypes(definitions.get("physical_item_list")), ["things.physical_item"]);
   for (const definition of definitions.values()) {
     assert.equal(definition.nativeObjectTypes, undefined);
     assert.equal(definition.allowUnboundObjectInputs, undefined);

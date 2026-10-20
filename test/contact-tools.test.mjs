@@ -156,6 +156,7 @@ test("contact_address_update changes existing contacts in place and is replay-sa
     updates: [{
       contact_id: created.id,
       expected_version: created.version,
+      action: "replace",
       address_method_id: oldAddress.id,
       address: "22 New Street\nRaleigh, NC 27601",
       label: "Home",
@@ -207,7 +208,7 @@ test("contact_address_update changes existing contacts in place and is replay-sa
   `).get().count, 2);
 });
 
-test("contact_address_update adds only to an addressless contact and validates batches atomically", async (context) => {
+test("contact_address_update explicitly adds first or additional addresses and validates batches atomically", async (context) => {
   const { organizer, registry, request } = harness(context);
   const addressless = organizer.createContact({
     displayName: "No Address Yet",
@@ -215,12 +216,15 @@ test("contact_address_update adds only to an addressless contact and validates b
   });
   const existing = organizer.createContact({
     displayName: "Existing Address",
-    methods: [{ kind: "postal_address", label: "Home", value: "1 Current Lane" }],
+    methods: [{
+      kind: "postal_address", label: "Home", value: "1 Current Lane", isPrimary: true,
+    }],
   });
   const added = await registry.execute("contact_address_update", {
     updates: [{
       contact_id: addressless.id,
       expected_version: addressless.version,
+      action: "add",
       address_method_id: null,
       address: "5 First Avenue",
       label: "Home",
@@ -240,6 +244,31 @@ test("contact_address_update adds only to an addressless contact and validates b
     ["phone", "postal_address"],
   );
 
+  const additional = await registry.execute("contact_address_update", {
+    updates: [{
+      contact_id: existing.id,
+      expected_version: existing.version,
+      action: "add",
+      address_method_id: null,
+      address: "2 Business Plaza",
+      label: "Work",
+      is_primary: false,
+      can_receive: true,
+    }],
+  }, {
+    requestId: request.requestId,
+    requestEventId: request.eventId,
+    callId: "contact-address-additional",
+    channel: "web",
+  });
+  assert.equal(additional.updated_contact_count, 1);
+  assert.deepEqual(
+    organizer.getContact(existing.id).methods
+      .filter(({ kind }) => kind === "postal_address")
+      .map(({ label, value, isPrimary }) => [label, value, isPrimary]),
+    [["Home", "1 Current Lane", true], ["Work", "2 Business Plaza", false]],
+  );
+
   const beforeAddressless = organizer.getContact(addressless.id);
   await assert.rejects(
     registry.execute("contact_address_update", {
@@ -247,6 +276,7 @@ test("contact_address_update adds only to an addressless contact and validates b
         {
           contact_id: addressless.id,
           expected_version: beforeAddressless.version,
+          action: "replace",
           address_method_id: beforeAddressless.methods.find(({ kind }) => kind === "postal_address").id,
           address: "99 Should Roll Back Road",
           label: "Home",
@@ -256,6 +286,7 @@ test("contact_address_update adds only to an addressless contact and validates b
         {
           contact_id: existing.id,
           expected_version: "stale",
+          action: "replace",
           address_method_id: existing.methods[0].id,
           address: "2 Invalid Batch Street",
           label: "Home",
@@ -280,11 +311,12 @@ test("contact_address_update adds only to an addressless contact and validates b
     registry.execute("contact_address_update", {
       updates: [{
         contact_id: existing.id,
-        expected_version: existing.version,
+        expected_version: additional.results[0].expected_version,
+        action: "add",
         address_method_id: null,
-        address: "2 Ambiguous Street",
-        label: "Home",
-        is_primary: true,
+        address: "  2 BUSINESS PLAZA  ",
+        label: "Billing",
+        is_primary: false,
         can_receive: true,
       }],
     }, {
@@ -293,9 +325,33 @@ test("contact_address_update adds only to an addressless contact and validates b
       callId: "contact-address-ambiguous",
       channel: "web",
     }),
-    /already has a postal address/,
+    /already has that address/,
   );
-  assert.equal(organizer.getContact(existing.id).methods[0].value, "1 Current Lane");
+  assert.equal(
+    organizer.getContact(existing.id).methods.filter(({ kind }) => kind === "postal_address").length,
+    2,
+  );
+
+  await assert.rejects(
+    registry.execute("contact_address_update", {
+      updates: [{
+        contact_id: existing.id,
+        expected_version: additional.results[0].expected_version,
+        action: "replace",
+        address_method_id: null,
+        address: "3 Replacement Road",
+        label: "Home",
+        is_primary: true,
+        can_receive: true,
+      }],
+    }, {
+      requestId: request.requestId,
+      requestEventId: request.eventId,
+      callId: "contact-address-missing-replace-id",
+      channel: "web",
+    }),
+    /addressMethodId is required when action is replace/,
+  );
 });
 
 test("contact_update changes standard fields while preserving unrelated contact data", async (context) => {

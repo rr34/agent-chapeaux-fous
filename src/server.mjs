@@ -56,9 +56,11 @@ import { registerWebPageTools } from "./tools/web-page-tools.mjs";
 import { registerAgentSelfTools } from "./tools/agent-self-tools.mjs";
 import { registerVideoScriptTools } from "./tools/video-script-tools.mjs";
 import { registerObjectNetworkTools } from "./tools/object-network-tools.mjs";
+import { registerThingsTools } from "./tools/things-tools.mjs";
 import { VideoScripts } from "./video-scripts.mjs";
 import { VideoContent } from "./video-content.mjs";
 import { VideoContentReconciler } from "./video-content-reconcile.mjs";
+import { PhysicalItems } from "./physical-items.mjs";
 import { WebPageClient } from "./web-page-client.mjs";
 import { timeZoneFromProfileFacts } from "./temporal-consistency.mjs";
 
@@ -106,6 +108,7 @@ const videoContentReconciler = store.status.ready ? new VideoContentReconciler({
   maximumBytes: config.maxRequestAttachmentBytes,
   videoContent,
 }) : null;
+const physicalItems = store.status.ready ? new PhysicalItems({ store, ledger }) : null;
 let videoRenderWorker = null;
 const profileFactQuestions = await loadProfileFactQuestions(config.profileFactQuestionsPath);
 const hatCatalog = await loadHatCatalog(config.hatCatalogPath);
@@ -163,10 +166,11 @@ if (store.status.ready) {
     videoContentReconciler,
     onRenderQueued: () => videoRenderWorker?.notify(),
   });
+  registerThingsTools(registry, physicalItems);
   registerEmailReceiptTools(registry, ledger);
 }
 const objectNetwork = store.status.ready ? new ObjectNetworkService({
-  database: store.requireReady(), organizer, registry,
+  database: store.requireReady(), organizer, registry, physicalItems,
 }) : null;
 if (objectNetwork) registerObjectNetworkTools(registry, objectNetwork);
 await mcp.initialize(registry);
@@ -974,6 +978,45 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, {
         todo: organizer.assignNextTodoSequence(todoAssignSequenceMatch[1], await readJson(request)),
       });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/physical-item-groups") {
+      sendJson(response, 200, { groups: physicalItems.listGroups({
+        includeArchived: url.searchParams.get("includeArchived") === "true",
+      }) });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/physical-item-groups") {
+      sendJson(response, 201, { group: physicalItems.createGroup(await readJson(request)) });
+      return;
+    }
+    const physicalItemGroupMatch = /^\/api\/physical-item-groups\/(\d+)$/.exec(url.pathname);
+    if (request.method === "PATCH" && physicalItemGroupMatch) {
+      sendJson(response, 200, { group: physicalItems.updateGroup(physicalItemGroupMatch[1], await readJson(request)) });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/physical-items") {
+      sendJson(response, 200, { items: physicalItems.list({
+        groupId: url.searchParams.get("groupId"),
+        status: url.searchParams.get("status"),
+        query: url.searchParams.get("q"),
+        limit: url.searchParams.get("limit") || 1000,
+      }) });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/physical-items") {
+      sendJson(response, 201, { item: physicalItems.create(await readJson(request)) });
+      return;
+    }
+    const physicalItemMatch = /^\/api\/physical-items\/(\d+)$/.exec(url.pathname);
+    if (request.method === "GET" && physicalItemMatch) {
+      const item = physicalItems.get(physicalItemMatch[1]);
+      if (!item) throw Object.assign(new Error("Physical item not found"), { statusCode: 404 });
+      sendJson(response, 200, { item });
+      return;
+    }
+    if (request.method === "PATCH" && physicalItemMatch) {
+      sendJson(response, 200, { item: physicalItems.update(physicalItemMatch[1], await readJson(request)) });
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/content-items") {

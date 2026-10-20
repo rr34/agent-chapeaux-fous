@@ -16,6 +16,488 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0055: physical-things-object-family
+-- writer downtime: required while the six new authoritative tables and the
+-- expanded relationship view are installed with the matching application.
+-- locking: CREATE TABLE takes metadata locks without scanning existing domain
+-- rows; CREATE OR REPLACE VIEW briefly locks referenced table metadata.
+-- recovery: MariaDB DDL commits implicitly. All table creates are guarded and
+-- the view replacement is idempotent, so keep writers stopped and replay the
+-- complete migration after a partial commit. No existing rows are rewritten.
+
+CREATE TABLE IF NOT EXISTS physical_item_groups (
+    -- sourceOfTruth: true
+    -- synonyms: ["thing groups", "possession groups", "inventory groups"]
+    -- keywords: ["things", "physical items", "possessions", "inventory", "group"]
+
+    physical_item_group_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for one group of physical items.',
+    name                   VARCHAR(200) NOT NULL COMMENT 'Complete human-facing name of the physical-item group. Unique without regard to letter case.',
+    sort_position          BIGINT NOT NULL DEFAULT 0 COMMENT 'Mutable presentation order for this group. Lower values appear first.',
+    archived_at_utc        DATETIME(3) COMMENT 'UTC instant when this group was archived, or null while active. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    created_at_utc         DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this group was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    updated_at_utc         DATETIME(3) COMMENT 'UTC instant of the latest material group change. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    PRIMARY KEY (physical_item_group_id),
+    UNIQUE KEY physical_item_groups_name (name),
+    KEY physical_item_groups_order (archived_at_utc, sort_position, physical_item_group_id),
+    CONSTRAINT physical_item_groups_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 200)
+) ENGINE=InnoDB COMMENT='Defines named groups for the user''s physical possessions. One row represents one organizational group; group identity and ordering remain stable when the name changes. Sensitivity: Names may reveal possessions, locations, interests, or private areas of the user''s life.';
+
+CREATE TABLE IF NOT EXISTS physical_items (
+    -- sourceOfTruth: true
+    -- synonyms: ["things", "possessions", "inventory items", "physical stuff"]
+    -- keywords: ["thing", "item", "possession", "object", "equipment", "belonging"]
+    -- fk:physical_items_group meaning: Places each physical item in its required Things group.
+    -- fk:physical_items_group cardinality: Each physical item belongs to exactly one group; one group may contain many physical items.
+    -- fk:physical_items_group importantRules: ["A group cannot be deleted while physical items belong to it."]
+
+    physical_item_id       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for one physical item or counted set of equivalent physical items.',
+    physical_item_group_id BIGINT UNSIGNED NOT NULL COMMENT 'Required Things group that organizes this physical item.',
+    name                   VARCHAR(500) NOT NULL COMMENT 'Complete human-facing name of the physical item.',
+    description            LONGTEXT COMMENT 'Objective description of the item, its purpose, identifying features, or included parts.',
+    personal_notes         LONGTEXT COMMENT 'The user''s own notes, history, intentions, or other free-form context for the item.',
+    quantity               BIGINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Count of equivalent physical items represented by this record. Units: items.',
+    location_text          VARCHAR(1000) COMMENT 'Human-facing physical location where the item is ordinarily kept.',
+    item_condition         ENUM('unknown', 'new', 'good', 'fair', 'poor', 'broken') NOT NULL DEFAULT 'unknown' COMMENT 'Current physical condition. unknown: Not recorded; new: New or like-new; good: Fully usable; fair: Usable with wear; poor: Materially degraded; broken: Not currently usable.',
+    status                 ENUM('active', 'loaned', 'lost', 'disposed', 'archived') NOT NULL DEFAULT 'active' COMMENT 'Current possession lifecycle. active: Currently possessed; loaned: Temporarily with another party; lost: Location unknown; disposed: Sold, donated, discarded, or otherwise no longer possessed; archived: Retained history hidden from ordinary views.',
+    manufacturer           VARCHAR(500) COMMENT 'Manufacturer or maker when known.',
+    model_number           VARCHAR(500) COMMENT 'Manufacturer model designation when known.',
+    serial_number          VARCHAR(1000) COMMENT 'Manufacturer or asset serial identifier when known. Sensitivity: May be security-relevant identifying information.',
+    acquired_on            DATE COMMENT 'Local calendar date on which the item was acquired when known.',
+    sort_position          BIGINT NOT NULL DEFAULT 0 COMMENT 'Mutable presentation order within the owning group. Lower values appear first.',
+    source_event_id        VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Optional observable activity event that created this physical-item record.',
+    created_at_utc         DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this record was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    updated_at_utc         DATETIME(3) COMMENT 'UTC instant of the latest material change. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
+    version                BIGINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Monotonic optimistic-concurrency revision for user-visible changes.',
+    PRIMARY KEY (physical_item_id),
+    KEY physical_items_group_order (physical_item_group_id, sort_position, physical_item_id),
+    KEY physical_items_status (status, physical_item_id),
+    KEY physical_items_serial (serial_number),
+    CONSTRAINT physical_items_group FOREIGN KEY (physical_item_group_id) REFERENCES physical_item_groups(physical_item_group_id) ON DELETE RESTRICT,
+    CONSTRAINT physical_items_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
+    CONSTRAINT physical_items_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 500),
+    CONSTRAINT physical_items_quantity CHECK (quantity > 0),
+    CONSTRAINT physical_items_version CHECK (version > 0)
+) ENGINE=InnoDB COMMENT='Records the user''s physical possessions. One row represents one individually referable item or one counted set of equivalent items. Domain-specific fields describe possession state; free-form notes do not replace to-dos, content, files, contacts, or the explicit joins to those objects. Sensitivity: May reveal valuable property, serial numbers, purchase history, habits, and storage locations.';
+
+CREATE TABLE IF NOT EXISTS physical_items_todo_join (
+    physical_item_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing physical item associated with the personal to-do.',
+    personal_task_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing personal to-do associated with the physical item.',
+    relationship_kind VARCHAR(100) NOT NULL DEFAULT 'related' COMMENT 'Short owning-domain meaning such as related, maintenance, repair, purchase, or disposal.',
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the association was created.',
+    PRIMARY KEY (physical_item_id, personal_task_id),
+    KEY physical_items_todo_task (personal_task_id, physical_item_id),
+    CONSTRAINT physical_items_todo_item FOREIGN KEY (physical_item_id) REFERENCES physical_items(physical_item_id) ON DELETE CASCADE,
+    CONSTRAINT physical_items_todo_task_fk FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE CASCADE,
+    CONSTRAINT physical_items_todo_kind CHECK (CHAR_LENGTH(TRIM(relationship_kind)) BETWEEN 1 AND 100)
+) ENGINE=InnoDB COMMENT='Associates physical items with personal to-dos while retaining a compact relationship meaning. Deleting either parent deletes only the dependent association.';
+
+CREATE TABLE IF NOT EXISTS physical_items_content_join (
+    physical_item_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing physical item associated with the content-library item.',
+    content_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing content-library item associated with the physical item.',
+    relationship_kind VARCHAR(100) NOT NULL DEFAULT 'related' COMMENT 'Short owning-domain meaning such as related, manual, instructions, inspiration, or reference.',
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the association was created.',
+    PRIMARY KEY (physical_item_id, content_id),
+    KEY physical_items_content_content (content_id, physical_item_id),
+    CONSTRAINT physical_items_content_item FOREIGN KEY (physical_item_id) REFERENCES physical_items(physical_item_id) ON DELETE CASCADE,
+    CONSTRAINT physical_items_content_content_fk FOREIGN KEY (content_id) REFERENCES content_items(content_id) ON DELETE CASCADE,
+    CONSTRAINT physical_items_content_kind CHECK (CHAR_LENGTH(TRIM(relationship_kind)) BETWEEN 1 AND 100)
+) ENGINE=InnoDB COMMENT='Associates physical items with content-library records while retaining a compact relationship meaning. Deleting either parent deletes only the dependent association.';
+
+CREATE TABLE IF NOT EXISTS physical_items_files_join (
+    physical_item_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing physical item represented or documented by the file.',
+    file_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing durable file associated with the physical item.',
+    file_role VARCHAR(100) NOT NULL DEFAULT 'attachment' COMMENT 'Short owning-domain role such as attachment, photo, receipt, warranty, or manual.',
+    sort_order BIGINT NOT NULL DEFAULT 0 COMMENT 'Mutable display order among files attached to one physical item.',
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the association was created.',
+    PRIMARY KEY (physical_item_id, file_id),
+    KEY physical_items_files_file (file_id, physical_item_id),
+    CONSTRAINT physical_items_files_item FOREIGN KEY (physical_item_id) REFERENCES physical_items(physical_item_id) ON DELETE CASCADE,
+    CONSTRAINT physical_items_files_file_fk FOREIGN KEY (file_id) REFERENCES files(file_id) ON DELETE CASCADE,
+    CONSTRAINT physical_items_files_role CHECK (CHAR_LENGTH(TRIM(file_role)) BETWEEN 1 AND 100)
+) ENGINE=InnoDB COMMENT='Associates physical items with durable files such as photos, receipts, warranties, and manuals. Deleting either parent deletes only the dependent association.';
+
+CREATE TABLE IF NOT EXISTS physical_items_contacts_join (
+    physical_item_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing physical item associated with the contact.',
+    contact_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing contact associated with the physical item.',
+    relationship_kind VARCHAR(100) NOT NULL DEFAULT 'related' COMMENT 'Short owning-domain meaning such as related, owner, seller, manufacturer, lender, or borrower.',
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the association was created.',
+    PRIMARY KEY (physical_item_id, contact_id),
+    KEY physical_items_contacts_contact (contact_id, physical_item_id),
+    CONSTRAINT physical_items_contacts_item FOREIGN KEY (physical_item_id) REFERENCES physical_items(physical_item_id) ON DELETE CASCADE,
+    CONSTRAINT physical_items_contacts_contact_fk FOREIGN KEY (contact_id) REFERENCES contacts(contact_id) ON DELETE CASCADE,
+    CONSTRAINT physical_items_contacts_kind CHECK (CHAR_LENGTH(TRIM(relationship_kind)) BETWEEN 1 AND 100)
+) ENGINE=InnoDB COMMENT='Associates physical items with contacts while retaining the relationship meaning. Deleting either parent deletes only the dependent association.';
+
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW object_relationship_edges AS
+-- Read-only, non-materialized edge projection over all fifteen physical _join
+-- tables plus the direct native relationships used by the interactive object
+-- network. Each canonical relationship is emitted in both directions. The
+-- owning tables remain authoritative, attributes_json preserves domain
+-- qualifiers without interpreting them, and consumers still decide which
+-- endpoint types are first-class and hydrate exact bindings through their
+-- owning reads. This live projection is not a relationship-set snapshot and
+-- never authorizes writes.
+-- sourceOfTruth: false
+-- derivedFrom: ["activity_event_files_join", "contacts_tags_join", "calendar_event_contacts_join", "payment_invoice_line_receipts_join", "calendar_events_todo_join", "todo_content_join", "physical_items_todo_join", "physical_items_content_join", "physical_items_files_join", "physical_items_contacts_join", "video_script_sources_join", "todo_correspondence_join", "calendar_events_correspondence_join", "correspondence_files_join", "correspondence_participants_join", "todo_personal", "physical_items", "payment_invoices", "payment_invoice_lines", "journal2_trackers", "journal3_entries", "calendar_events", "catch_up_questions", "content_items", "video_jobs"]
+-- from_type: Domain-qualified type of the lookup endpoint for this directed row.
+-- from_id: Text-preserving local or provider identifier of the lookup endpoint; first-class consumers restore the declared scalar type during hydration.
+-- relationship_type: Stable application relationship name shared by both directions of one edge.
+-- to_type: Domain-qualified type of the related endpoint.
+-- to_id: Text-preserving local or provider identifier of the related endpoint.
+-- relationship_family: Broad structural family such as membership, attachment, participation, provenance, or billing.
+-- source_table: Authoritative table containing the relationship or the direct foreign key from which it is projected.
+-- source_key_json: Compact JSON object identifying the exact authoritative source row.
+-- created_at_utc: Relationship creation time only when the owning source records that exact fact; otherwise null.
+-- relationship_qualifier: Compact owning-domain role or kind needed for bounded filtering and simple-connection behavior.
+-- sort_order: Owning-domain ordering value when the relationship has one; otherwise null.
+-- attributes_json: Owning-domain relationship metadata retained without interpretation. Format: JSON object encoded as text.
+-- is_reverse: 0 for the canonical source-table direction and 1 for the generated inverse lookup row.
+WITH canonical_edges AS (
+  SELECT
+    'activity.event' AS left_type,
+    CAST(link.event_id AS CHAR) AS left_id,
+    'activity-file' AS relationship_type,
+    'files.file' AS right_type,
+    CAST(link.file_id AS CHAR) AS right_id,
+    'attachment' AS relationship_family,
+    'activity_event_files_join' AS source_table,
+    JSON_OBJECT('event_id', link.event_id, 'file_id', link.file_id) AS source_key_json,
+    NULL AS created_at_utc,
+    link.file_role AS relationship_qualifier,
+    link.ordinal AS sort_order,
+    JSON_OBJECT('file_role', link.file_role, 'ordinal', link.ordinal) AS attributes_json
+  FROM activity_event_files_join AS link
+
+  UNION ALL
+  SELECT
+    CASE WHEN link.record_type = 'contact' THEN 'contacts.contact'
+         ELSE CONCAT('record.', link.record_type) END,
+    link.record_id,
+    'record-tag',
+    'contacts.tag',
+    CAST(link.tag_id AS CHAR),
+    'classification',
+    'contacts_tags_join',
+    JSON_OBJECT('tag_id', link.tag_id, 'record_type', link.record_type, 'record_id', link.record_id),
+    link.created_at_utc,
+    link.record_type,
+    NULL,
+    JSON_OBJECT('record_type', link.record_type)
+  FROM contacts_tags_join AS link
+
+  UNION ALL
+  SELECT
+    'calendar.event', CAST(link.calendar_event_id AS CHAR), 'event-contact',
+    'contacts.contact', CAST(link.contact_id AS CHAR), 'participation',
+    'calendar_event_contacts_join',
+    JSON_OBJECT('calendar_event_id', link.calendar_event_id, 'contact_id', link.contact_id,
+                'participant_role', link.participant_role),
+    NULL, link.participant_role, NULL,
+    JSON_OBJECT('participant_role', link.participant_role, 'response_status', link.response_status)
+  FROM calendar_event_contacts_join AS link
+
+  UNION ALL
+  SELECT
+    'payments.invoice_line', CAST(link.payment_invoice_line_id AS CHAR), 'invoice-line-receipt',
+    'files.file', CAST(link.file_id AS CHAR), 'attachment',
+    'payment_invoice_line_receipts_join',
+    JSON_OBJECT('payment_invoice_line_id', link.payment_invoice_line_id, 'file_id', link.file_id),
+    link.created_at_utc, NULL, NULL,
+    JSON_OBJECT('display_name_snapshot', link.display_name_snapshot,
+                'mime_type_snapshot', link.mime_type_snapshot,
+                'sha256_snapshot', link.sha256_snapshot)
+  FROM payment_invoice_line_receipts_join AS link
+
+  UNION ALL
+  SELECT
+    'calendar.event', CAST(link.calendar_event_id AS CHAR), 'todo-event',
+    'todos.personal_task', CAST(link.personal_task_id AS CHAR), 'scheduling',
+    'calendar_events_todo_join',
+    JSON_OBJECT('calendar_event_id', link.calendar_event_id, 'personal_task_id', link.personal_task_id),
+    link.created_at_utc, link.relationship_kind, NULL,
+    JSON_OBJECT('relationship_kind', link.relationship_kind)
+  FROM calendar_events_todo_join AS link
+
+  UNION ALL
+  SELECT
+    'todos.personal_task', CAST(link.personal_task_id AS CHAR), 'todo-content',
+    'video.content_item', CAST(link.content_id AS CHAR), 'association',
+    'todo_content_join',
+    JSON_OBJECT('personal_task_id', link.personal_task_id, 'content_id', link.content_id),
+    link.created_at_utc, NULL, NULL, JSON_OBJECT()
+  FROM todo_content_join AS link
+
+  UNION ALL
+  SELECT
+    'things.physical_item', CAST(link.physical_item_id AS CHAR), 'thing-todo',
+    'todos.personal_task', CAST(link.personal_task_id AS CHAR), 'association',
+    'physical_items_todo_join',
+    JSON_OBJECT('physical_item_id', link.physical_item_id, 'personal_task_id', link.personal_task_id),
+    link.created_at_utc, link.relationship_kind, NULL,
+    JSON_OBJECT('relationship_kind', link.relationship_kind)
+  FROM physical_items_todo_join AS link
+
+  UNION ALL
+  SELECT
+    'things.physical_item', CAST(link.physical_item_id AS CHAR), 'thing-content',
+    'video.content_item', CAST(link.content_id AS CHAR), 'association',
+    'physical_items_content_join',
+    JSON_OBJECT('physical_item_id', link.physical_item_id, 'content_id', link.content_id),
+    link.created_at_utc, link.relationship_kind, NULL,
+    JSON_OBJECT('relationship_kind', link.relationship_kind)
+  FROM physical_items_content_join AS link
+
+  UNION ALL
+  SELECT
+    'things.physical_item', CAST(link.physical_item_id AS CHAR), 'thing-file',
+    'files.file', CAST(link.file_id AS CHAR), 'attachment',
+    'physical_items_files_join',
+    JSON_OBJECT('physical_item_id', link.physical_item_id, 'file_id', link.file_id),
+    link.created_at_utc, link.file_role, link.sort_order,
+    JSON_OBJECT('file_role', link.file_role, 'sort_order', link.sort_order)
+  FROM physical_items_files_join AS link
+
+  UNION ALL
+  SELECT
+    'things.physical_item', CAST(link.physical_item_id AS CHAR), 'thing-contact',
+    'contacts.contact', CAST(link.contact_id AS CHAR), 'association',
+    'physical_items_contacts_join',
+    JSON_OBJECT('physical_item_id', link.physical_item_id, 'contact_id', link.contact_id),
+    link.created_at_utc, link.relationship_kind, NULL,
+    JSON_OBJECT('relationship_kind', link.relationship_kind)
+  FROM physical_items_contacts_join AS link
+
+  UNION ALL
+  SELECT
+    'video.script', CAST(link.video_script_id AS CHAR), 'script-source',
+    'activity.event', CAST(link.request_event_id AS CHAR), 'provenance',
+    'video_script_sources_join',
+    JSON_OBJECT('video_script_id', link.video_script_id, 'request_event_id', link.request_event_id),
+    NULL, NULL, link.source_order,
+    JSON_OBJECT('source_order', link.source_order)
+  FROM video_script_sources_join AS link
+
+  UNION ALL
+  SELECT
+    'todos.personal_task', CAST(link.personal_task_id AS CHAR), 'todo-correspondence',
+    'correspondence.item', CAST(link.correspondence_id AS CHAR), 'correspondence',
+    'todo_correspondence_join',
+    JSON_OBJECT('personal_task_id', link.personal_task_id, 'correspondence_id', link.correspondence_id),
+    link.created_at_utc, NULL, NULL, JSON_OBJECT()
+  FROM todo_correspondence_join AS link
+
+  UNION ALL
+  SELECT
+    'calendar.event', CAST(link.calendar_event_id AS CHAR), 'event-correspondence',
+    'correspondence.item', CAST(link.correspondence_id AS CHAR), 'correspondence',
+    'calendar_events_correspondence_join',
+    JSON_OBJECT('calendar_event_id', link.calendar_event_id, 'correspondence_id', link.correspondence_id),
+    link.created_at_utc, NULL, NULL, JSON_OBJECT()
+  FROM calendar_events_correspondence_join AS link
+
+  UNION ALL
+  SELECT
+    'correspondence.item', CAST(link.correspondence_id AS CHAR), 'correspondence-file',
+    'files.file', CAST(link.file_id AS CHAR), 'attachment',
+    'correspondence_files_join',
+    JSON_OBJECT('correspondence_id', link.correspondence_id, 'file_id', link.file_id),
+    NULL, link.attachment_role, NULL,
+    JSON_OBJECT('attachment_role', link.attachment_role)
+  FROM correspondence_files_join AS link
+
+  UNION ALL
+  SELECT
+    'correspondence.item', CAST(link.correspondence_id AS CHAR), 'correspondence-contact',
+    'contacts.contact', CAST(link.contact_id AS CHAR), 'participation',
+    'correspondence_participants_join',
+    JSON_OBJECT('correspondence_id', link.correspondence_id, 'participant_role', link.participant_role,
+                'address_value', link.address_value),
+    NULL, link.participant_role, NULL,
+    JSON_OBJECT('participant_role', link.participant_role, 'contact_method_id', link.contact_method_id,
+                'address_value', link.address_value, 'display_name', link.display_name)
+  FROM correspondence_participants_join AS link
+  WHERE link.contact_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'correspondence.item', CAST(link.correspondence_id AS CHAR), 'correspondence-contact-method',
+    'contacts.contact_method', CAST(link.contact_method_id AS CHAR), 'participation',
+    'correspondence_participants_join',
+    JSON_OBJECT('correspondence_id', link.correspondence_id, 'participant_role', link.participant_role,
+                'address_value', link.address_value),
+    NULL, link.participant_role, NULL,
+    JSON_OBJECT('participant_role', link.participant_role, 'contact_id', link.contact_id,
+                'address_value', link.address_value, 'display_name', link.display_name)
+  FROM correspondence_participants_join AS link
+  WHERE link.contact_method_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'todos.todo_group', CAST(task.todo_group_id AS CHAR), 'todo-group',
+    'todos.personal_task', CAST(task.personal_task_id AS CHAR), 'membership',
+    'todo_personal', JSON_OBJECT('personal_task_id', task.personal_task_id),
+    NULL, NULL, task.sort_position, JSON_OBJECT()
+  FROM todo_personal AS task
+
+  UNION ALL
+  SELECT
+    'things.physical_item_group', CAST(item.physical_item_group_id AS CHAR), 'physical-item-group',
+    'things.physical_item', CAST(item.physical_item_id AS CHAR), 'membership',
+    'physical_items', JSON_OBJECT('physical_item_id', item.physical_item_id),
+    item.created_at_utc, NULL, item.sort_position, JSON_OBJECT()
+  FROM physical_items AS item
+
+  UNION ALL
+  SELECT
+    'todos.personal_task', CAST(task.personal_task_id AS CHAR), 'todo-contact',
+    'contacts.contact', CAST(task.related_contact_id AS CHAR), 'association',
+    'todo_personal', JSON_OBJECT('personal_task_id', task.personal_task_id),
+    NULL, NULL, NULL, JSON_OBJECT()
+  FROM todo_personal AS task
+  WHERE task.related_contact_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'payments.invoice', CAST(invoice.payment_invoice_id AS CHAR), 'invoice-payer',
+    'contacts.contact', CAST(invoice.payer_contact_id AS CHAR), 'billing',
+    'payment_invoices', JSON_OBJECT('payment_invoice_id', invoice.payment_invoice_id),
+    NULL, NULL, NULL, JSON_OBJECT()
+  FROM payment_invoices AS invoice
+  WHERE invoice.payer_contact_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'payments.invoice', CAST(line.payment_invoice_id AS CHAR), 'invoice-line',
+    'todos.personal_task', CAST(line.personal_task_id AS CHAR), 'billing',
+    'payment_invoice_lines', JSON_OBJECT('payment_invoice_line_id', line.payment_invoice_line_id),
+    line.created_at_utc, line.line_source, line.line_position,
+    JSON_OBJECT('payment_invoice_line_id', line.payment_invoice_line_id,
+                'line_source', line.line_source, 'line_position', line.line_position)
+  FROM payment_invoice_lines AS line
+  WHERE line.personal_task_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'payments.invoice', CAST(line.payment_invoice_id AS CHAR), 'invoice-line-receipt',
+    'files.file', CAST(receipt.file_id AS CHAR), 'attachment',
+    'payment_invoice_line_receipts_join',
+    JSON_OBJECT('payment_invoice_line_id', receipt.payment_invoice_line_id, 'file_id', receipt.file_id),
+    receipt.created_at_utc, NULL, line.line_position,
+    JSON_OBJECT('payment_invoice_line_id', receipt.payment_invoice_line_id,
+                'line_position', line.line_position,
+                'display_name_snapshot', receipt.display_name_snapshot,
+                'mime_type_snapshot', receipt.mime_type_snapshot,
+                'sha256_snapshot', receipt.sha256_snapshot)
+  FROM payment_invoice_line_receipts_join AS receipt
+  JOIN payment_invoice_lines AS line USING (payment_invoice_line_id)
+
+  UNION ALL
+  SELECT
+    'journal.group', CAST(tracker.journal_group_id AS CHAR), 'journal-group',
+    'journal.tracker', CAST(tracker.tracker_id AS CHAR), 'membership',
+    'journal2_trackers', JSON_OBJECT('tracker_id', tracker.tracker_id),
+    NULL, NULL, NULL, JSON_OBJECT()
+  FROM journal2_trackers AS tracker
+
+  UNION ALL
+  SELECT
+    'journal.tracker', CAST(entry.tracker_id AS CHAR), 'tracker-entry',
+    'journal.entry', CAST(entry.journal_entry_id AS CHAR), 'membership',
+    'journal3_entries', JSON_OBJECT('journal_entry_id', entry.journal_entry_id),
+    entry.created_at_utc, NULL, NULL,
+    JSON_OBJECT('occurred_at_utc', entry.occurred_at_utc)
+  FROM journal3_entries AS entry
+
+  UNION ALL
+  SELECT
+    'calendar.routine', CAST(event.calendar_routine_id AS CHAR), 'routine-event',
+    'calendar.event', CAST(event.calendar_event_id AS CHAR), 'generation',
+    'calendar_events', JSON_OBJECT('calendar_event_id', event.calendar_event_id),
+    event.created_at_utc, NULL, NULL,
+    JSON_OBJECT('routine_occurrence_key', event.routine_occurrence_key)
+  FROM calendar_events AS event
+  WHERE event.calendar_routine_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'calendar.event', CAST(question.calendar_event_id AS CHAR), 'event-question',
+    'catch_up.question', CAST(question.question_id AS CHAR), 'review',
+    'catch_up_questions', JSON_OBJECT('question_id', question.question_id),
+    NULL, NULL, NULL, JSON_OBJECT()
+  FROM catch_up_questions AS question
+  WHERE question.calendar_event_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'journal.tracker', CAST(question.tracker_id AS CHAR), 'tracker-question',
+    'catch_up.question', CAST(question.question_id AS CHAR), 'review',
+    'catch_up_questions', JSON_OBJECT('question_id', question.question_id),
+    NULL, NULL, NULL, JSON_OBJECT()
+  FROM catch_up_questions AS question
+  WHERE question.tracker_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'video.content_group', CAST(content.content_group_id AS CHAR), 'content-group',
+    'video.content_item', CAST(content.content_id AS CHAR), 'membership',
+    'content_items', JSON_OBJECT('content_id', content.content_id),
+    content.created_at_utc, NULL, content.sequence, JSON_OBJECT()
+  FROM content_items AS content
+
+  UNION ALL
+  SELECT
+    'video.content_item', CAST(content.content_id AS CHAR), 'content-file',
+    'files.file', CAST(content.primary_file_id AS CHAR), 'attachment',
+    'content_items', JSON_OBJECT('content_id', content.content_id),
+    NULL, NULL, NULL, JSON_OBJECT()
+  FROM content_items AS content
+  WHERE content.primary_file_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'video.script', CAST(job.video_script_id AS CHAR), 'script-content',
+    'video.content_item', CAST(job.content_id AS CHAR), 'production',
+    'video_jobs', JSON_OBJECT('video_job_id', job.video_job_id),
+    job.created_at_utc, NULL, NULL,
+    JSON_OBJECT('video_job_id', job.video_job_id, 'status', job.status)
+  FROM video_jobs AS job
+  WHERE job.video_script_id IS NOT NULL AND job.content_id IS NOT NULL
+)
+SELECT
+  left_type AS from_type,
+  left_id AS from_id,
+  relationship_type,
+  right_type AS to_type,
+  right_id AS to_id,
+  relationship_family,
+  source_table,
+  source_key_json,
+  created_at_utc,
+  relationship_qualifier,
+  sort_order,
+  attributes_json,
+  0 AS is_reverse
+FROM canonical_edges
+UNION ALL
+SELECT
+  right_type AS from_type,
+  right_id AS from_id,
+  relationship_type,
+  left_type AS to_type,
+  left_id AS to_id,
+  relationship_family,
+  source_table,
+  source_key_json,
+  created_at_utc,
+  relationship_qualifier,
+  sort_order,
+  attributes_json,
+  1 AS is_reverse
+FROM canonical_edges;
+
+-- end migration 0055
+
+
 -- migration 0054: unified-object-relationship-edges
 -- writer downtime: not required; this adds one read-only non-materialized view
 -- and does not change authoritative rows, constraints, or mutation paths.

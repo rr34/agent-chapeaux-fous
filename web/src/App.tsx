@@ -5,7 +5,7 @@ import { CalendarGrid, DailyPaper, DayTimeline } from "./components/DailyPaper";
 import { Empty, ErrorState, Loading } from "./components/State";
 import { RoutineScreen } from "./components/RoutineCalendar";
 import { ObjectMentionInput, ObjectMentionText } from "./components/ObjectMentionInput";
-import { CalendarEventEditor, ContactEditor, LibraryContentEditor, TodoEditor, TodoItem } from "./components/EditableItems";
+import { CalendarEventEditor, ContactEditor, LibraryContentEditor, PhysicalItemEditor, TodoEditor, TodoItem } from "./components/EditableItems";
 import { TrackerSchedule } from "./components/TrackerSchedule";
 import { SectionFilter } from "./components/SectionFilter";
 import { Markdown } from "./components/Markdown";
@@ -19,6 +19,8 @@ import { JournalTrackerCard } from "./components/object-cards/JournalTrackerCard
 import type { JournalTrackerValuePoint } from "./components/object-cards/JournalTrackerCard";
 import { LibraryGroupCard } from "./components/object-cards/LibraryGroupCard";
 import { LibraryItemCard } from "./components/object-cards/LibraryItemCard";
+import { PhysicalItemCard } from "./components/object-cards/PhysicalItemCard";
+import { PhysicalItemGroupCard } from "./components/object-cards/PhysicalItemGroupCard";
 import { ObjectCard, type ObjectCardModel } from "./components/object-cards/ObjectCard";
 import { VideoScriptCard } from "./components/object-cards/VideoScriptCard";
 import { TodoGroupCard } from "./components/object-cards/TodoGroupCard";
@@ -26,6 +28,7 @@ import {
   ObjectSelectionControls, contactIdentity, exchangeIdentity,
   contentGroupIdentity, genericEntityIdentity, invoiceIdentity, journalEntryIdentity,
   journalGroupIdentity, journalTrackerIdentity, todoGroupIdentity, todoIdentity,
+  physicalItemGroupIdentity, physicalItemIdentity,
   type GenericObjectKind,
 } from "./components/ObjectSelectionControls";
 import {
@@ -42,7 +45,7 @@ import hatOutlineUrl from "./assets/logo-outline-hat.svg";
 
 const navigation = [
   ["agent", "Agent"], ["hats", "Hats"], ["calendar", "Calendar"], ["routine", "Routine"],
-  ["todos", "To do"], ["content", "Library"], ["files", "Files"],
+  ["todos", "To do"], ["things", "Things"], ["content", "Library"], ["files", "Files"],
   ["contacts", "Contacts"], ["journal", "Journal"], ["video-scripts", "Video Scripts"],
   ["payments", "Payments"], ["ai-usage", "AI Usage"],
 ] as const;
@@ -205,7 +208,7 @@ function SectionSelectFilter({ label, value, onChange, disabled = false, childre
 type EditableGroup = {
   id: number;
   name: string;
-  resource: "todo-groups" | "content-groups" | "journal-groups";
+  resource: "todo-groups" | "content-groups" | "journal-groups" | "physical-item-groups";
 };
 
 type GroupDeleteAction = {
@@ -214,6 +217,40 @@ type GroupDeleteAction = {
   confirmation: string;
   execute: () => Promise<void>;
 };
+
+function NewGroupEditor({ resource, label, onClose, onChanged }: {
+  resource: EditableGroup["resource"];
+  label: string;
+  onClose: () => void;
+  onChanged: () => void | Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!name.trim()) return;
+    setSaving(true);
+    setError("");
+    try {
+      await api(`/api/${resource}`, { method: "POST", body: JSON.stringify({ name: name.trim() }) });
+      await onChanged();
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not create the group.");
+    } finally { setSaving(false); }
+  };
+  return <div className="object-editor-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section className="object-editor" role="dialog" aria-modal="true" aria-labelledby="new-group-editor-title">
+      <form onSubmit={(event) => void save(event)}>
+        <header className="object-editor-heading"><div><p className="eyebrow">Group</p><h2 id="new-group-editor-title">Add {label} group</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
+        <label>Group name<input autoFocus required maxLength={200} value={name} onChange={(event) => setName(event.target.value)} /></label>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={saving || !name.trim()}>{saving ? "Saving…" : "Add group"}</button></footer>
+      </form>
+    </section>
+  </div>;
+}
 
 function GroupEditor({ group, onClose, onChanged, deleteAction }: {
   group: EditableGroup;
@@ -1588,6 +1625,91 @@ const genericScreens: Record<GenericObjectKind, { eyebrow: string; title: string
   files: { eyebrow: "Durable artifacts", title: "Files", detail: "Uploads, generated documents, and their source evidence.", url: "/api/files?limit=200", key: "files" },
 };
 
+function ThingsScreen() {
+  const [filterQuery, setFilterQuery] = useState("");
+  const [serverQuery, setServerQuery] = useState("");
+  const [selectedGroupId, setSelectedGroupId] = useState("all");
+  const [selectedStatus, setSelectedStatus] = useState("current");
+  const [addingItem, setAddingItem] = useState(false);
+  const [addingGroup, setAddingGroup] = useState(false);
+  const [editingItem, setEditingItem] = useState<Entity | null>(null);
+  const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
+  const parameters = new URLSearchParams({ limit: serverQuery ? "5000" : "1000" });
+  if (serverQuery) parameters.set("q", serverQuery);
+  if (selectedStatus !== "current") parameters.set("status", selectedStatus);
+  const { data, error, loading, reload } = useApi<{ items: Entity[] }>(`/api/physical-items?${parameters}`);
+  const { data: groupData, error: groupError, loading: groupsLoading, reload: reloadGroups } = useApi<{ groups: Entity[] }>("/api/physical-item-groups");
+  const items = data?.items || [];
+  const visibleItems = items.filter((item) =>
+    (selectedGroupId === "all" || String(item.groupId) === selectedGroupId)
+    && matchesSearch(item, filterQuery),
+  );
+  const groups = useMemo(() => {
+    const grouped = new Map<string, { id: number; name: string; items: Entity[] }>();
+    for (const group of groupData?.groups || []) {
+      if (selectedGroupId !== "all" && String(group.id) !== selectedGroupId) continue;
+      grouped.set(String(group.id), { id: Number(group.id), name: textKey(group, "name") || "Untitled group", items: [] });
+    }
+    for (const item of visibleItems) {
+      const groupId = Number(item.groupId);
+      const group = grouped.get(String(groupId)) || { id: groupId, name: textKey(item, "groupName") || "Things", items: [] };
+      group.items.push(item);
+      grouped.set(String(groupId), group);
+    }
+    const result = [...grouped.values()];
+    return filterQuery.trim() ? result.filter((group) => group.items.length) : result;
+  }, [filterQuery, groupData?.groups, selectedGroupId, visibleItems]);
+  const reloadThings = async () => { await Promise.all([reload(), reloadGroups()]); };
+  const search = () => {
+    const nextQuery = filterQuery.trim();
+    if (nextQuery === serverQuery) void reload();
+    else setServerQuery(nextQuery);
+  };
+  return <>
+    <PageHeading eyebrow="Physical possessions" title="Things" detail="The physical items you own, use, store, lend, or maintain." actions={<><button className="button button--quiet" type="button" onClick={() => setAddingGroup(true)}>Add group</button><button className="button" type="button" disabled={!groupData?.groups?.length} onClick={() => setAddingItem(true)}>Add thing</button></>} />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={search} searching={loading} count={visibleItems.length} noun="thing" controls={<>
+      <SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={groupsLoading}><option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}</SectionSelectFilter>
+      <SectionSelectFilter label="Status" value={selectedStatus} onChange={setSelectedStatus}><option value="current">Current</option><option value="active">Active</option><option value="loaned">Loaned</option><option value="lost">Lost</option><option value="disposed">Disposed</option><option value="archived">Archived</option></SectionSelectFilter>
+    </>} />
+    {(loading || groupsLoading) && <Loading />}
+    {error && <ErrorState error={error} retry={reloadThings} />}
+    {groupError && <ErrorState error={groupError} retry={reloadThings} />}
+    {!loading && !groupsLoading && !error && !groupError && !groups.length && <Empty>{groupData?.groups?.length ? "No physical items match the filter." : "Create a group to start recording your things."}</Empty>}
+    {!loading && !groupsLoading && !error && !groupError && Boolean(groups.length) && <div className="library-groups">
+      {groups.map((group) => <section className="library-group" key={group.id} aria-label={`${group.name} Things group`}>
+        <PhysicalItemGroupCard
+          object={{ id: group.id, type: "things.physical_item_group", label: "Things group", display: group.name, attributes: [{ label: "Items", value: String(group.items.length) }] }}
+          controls={<ObjectSelectionControls identity={physicalItemGroupIdentity({ id: group.id, name: group.name })} subject={`Things group ${group.name}`} />}
+          onEdit={() => setEditingGroup({ id: group.id, name: group.name, resource: "physical-item-groups" })}
+        />
+        {group.items.length ? <ul className="library-list">{group.items.map((item) => {
+          const name = textKey(item, "name") || `Physical item ${String(item.id)}`;
+          return <PhysicalItemCard
+            as="li" key={String(item.id)}
+            object={objectCardData({
+              id: Number(item.id), type: "things.physical_item", label: "Physical item", display: name,
+              body: textKey(item, "description", "personalNotes") || null,
+              attributes: [
+                ...(Number(item.quantity) !== 1 ? [{ label: "Quantity", value: String(item.quantity) }] : []),
+                ...(textKey(item, "location") ? [{ label: "Location", value: textKey(item, "location") }] : []),
+                ...(textKey(item, "manufacturer") ? [{ label: "Manufacturer", value: textKey(item, "manufacturer") }] : []),
+                ...(textKey(item, "modelNumber") ? [{ label: "Model", value: textKey(item, "modelNumber") }] : []),
+              ],
+              badges: [textKey(item, "condition"), textKey(item, "status")],
+            })}
+            controls={<ObjectSelectionControls identity={physicalItemIdentity(item)} subject={`physical item ${name}`} />}
+            onEdit={() => setEditingItem(item)}
+          />;
+        })}</ul> : <p className="library-group-empty">No physical items in this group.</p>}
+      </section>)}
+    </div>}
+    {addingItem && <PhysicalItemEditor groups={groupData?.groups || []} initialGroupId={selectedGroupId === "all" ? undefined : Number(selectedGroupId)} onClose={() => setAddingItem(false)} onChanged={reloadThings} />}
+    {editingItem && <PhysicalItemEditor item={editingItem} groups={groupData?.groups || []} onClose={() => setEditingItem(null)} onChanged={reloadThings} />}
+    {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={reloadThings} />}
+    {addingGroup && <NewGroupEditor resource="physical-item-groups" label="Things" onClose={() => setAddingGroup(false)} onChanged={reloadThings} />}
+  </>;
+}
+
 function LibraryScreen() {
   const [filterQuery, setFilterQuery] = useState("");
   const [serverQuery, setServerQuery] = useState("");
@@ -2748,6 +2870,7 @@ function Workspace() {
   />;
   else if (view === "calendar") screen = <CalendarScreen generationNotice={calendarGenerationNotice} dismissGenerationNotice={() => setCalendarGenerationNotice(null)} />;
   else if (view === "todos") screen = <TodoScreen />;
+  else if (view === "things") screen = <ThingsScreen />;
   else if (view === "contacts") screen = <ContactsScreen />;
   else if (view === "hats") screen = <HatsScreen />;
   else if (view === "routine") screen = <RoutineScreen onGenerated={(message) => { setCalendarGenerationNotice(message); go("calendar"); }} />;

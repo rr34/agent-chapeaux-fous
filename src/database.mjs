@@ -1,6 +1,6 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 
-export const requiredDatabaseSchemaVersion = 54;
+export const requiredDatabaseSchemaVersion = 55;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -43,6 +43,18 @@ export const requiredDatabaseShape = {
     "transcript", "description", "published_at_utc", "content_host", "content_status", "content_url",
   ],
   todo_content_join: ["personal_task_id", "content_id", "created_at_utc"],
+  physical_item_groups: [
+    "physical_item_group_id", "name", "sort_position", "archived_at_utc",
+  ],
+  physical_items: [
+    "physical_item_id", "physical_item_group_id", "name", "description", "personal_notes",
+    "quantity", "location_text", "item_condition", "status", "manufacturer", "model_number",
+    "serial_number", "acquired_on", "sort_position", "source_event_id", "version",
+  ],
+  physical_items_todo_join: ["physical_item_id", "personal_task_id", "relationship_kind", "created_at_utc"],
+  physical_items_content_join: ["physical_item_id", "content_id", "relationship_kind", "created_at_utc"],
+  physical_items_files_join: ["physical_item_id", "file_id", "file_role", "sort_order", "created_at_utc"],
+  physical_items_contacts_join: ["physical_item_id", "contact_id", "relationship_kind", "created_at_utc"],
   video_scripts: [
     "video_script_id", "title", "status", "schema_version", "script_json", "script_text",
     "created_by_event_id", "created_at_utc", "updated_at_utc", "archived_at_utc", "version",
@@ -152,6 +164,10 @@ export const requiredEnumColumns = {
     content_host: ["youtube", "vimeo", "spotify", "mytlomdotcom", "none"],
     content_status: ["active", "obsolete", "unused", "queued"],
     relationship_to_user: ["mine", "reference"],
+  },
+  physical_items: {
+    item_condition: ["unknown", "new", "good", "fair", "poor", "broken"],
+    status: ["active", "loaned", "lost", "disposed", "archived"],
   },
   video_scripts: { status: ["draft", "archived"] },
   video_jobs: {

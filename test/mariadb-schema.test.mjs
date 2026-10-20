@@ -69,19 +69,19 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 54", () => {
+test("the authoritative MariaDB baseline is complete at schema version 55", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
-  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 37);
+  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 43);
   assert.equal(statements.filter((statement) => /^CREATE (?:SQL SECURITY INVOKER )?VIEW\b/iu.test(statement)).length, 8);
   assert.equal(statements.filter((statement) => /^CREATE TRIGGER\b/iu.test(statement)).length, 7);
-  assert.equal(source.match(/\bENUM\(/gu)?.length, 33);
-  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 58);
-  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 78);
+  assert.equal(source.match(/\bENUM\(/gu)?.length, 35);
+  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 66);
+  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 87);
   assert.doesNotMatch(source, /\b(?:[A-Za-z_][A-Za-z0-9_]*_at_utc|ask_after|resolved_at|routine_occurrence_key)\s+VARCHAR\(/u);
   assert.equal(
     Object.values(requiredEnumColumns).reduce((count, fields) => count + Object.keys(fields).length, 0),
-    33,
+    35,
   );
   for (const [tableName, fields] of Object.entries(requiredEnumColumns)) {
     const table = statements.find((statement) => statement.startsWith(`CREATE TABLE ${tableName} `));
@@ -118,6 +118,24 @@ test("the authoritative MariaDB baseline is complete at schema version 54", () =
   assert.match(todoContentJoin, /PRIMARY KEY \(personal_task_id, content_id\)/u);
   assert.match(todoContentJoin, /REFERENCES todo_personal\(personal_task_id\) ON DELETE CASCADE/u);
   assert.match(todoContentJoin, /REFERENCES content_items\(content_id\) ON DELETE CASCADE/u);
+  const physicalGroups = statements.find((statement) => statement.startsWith("CREATE TABLE physical_item_groups "));
+  const physicalItems = statements.find((statement) => statement.startsWith("CREATE TABLE physical_items "));
+  assert.ok(physicalGroups);
+  assert.ok(physicalItems);
+  assert.match(physicalItems, /REFERENCES physical_item_groups\(physical_item_group_id\) ON DELETE RESTRICT/u);
+  assert.match(physicalItems, /item_condition\s+ENUM\('unknown', 'new', 'good', 'fair', 'poor', 'broken'\)/u);
+  assert.match(physicalItems, /status\s+ENUM\('active', 'loaned', 'lost', 'disposed', 'archived'\)/u);
+  for (const [tableName, targetTable, targetColumn] of [
+    ["physical_items_todo_join", "todo_personal", "personal_task_id"],
+    ["physical_items_content_join", "content_items", "content_id"],
+    ["physical_items_files_join", "files", "file_id"],
+    ["physical_items_contacts_join", "contacts", "contact_id"],
+  ]) {
+    const join = statements.find((statement) => statement.startsWith(`CREATE TABLE ${tableName} `));
+    assert.ok(join, `missing ${tableName}`);
+    assert.match(join, /REFERENCES physical_items\(physical_item_id\) ON DELETE CASCADE/u);
+    assert.match(join, new RegExp(`REFERENCES ${targetTable}\\(${targetColumn}\\) ON DELETE CASCADE`, "u"));
+  }
   const videoJobsTable = statements.find((statement) => statement.startsWith("CREATE TABLE video_jobs "));
   assert.match(videoJobsTable, /content_id\s+BIGINT UNSIGNED/u);
   assert.match(videoJobsTable, /CONSTRAINT video_jobs_content FOREIGN KEY \(content_id\)/u);
@@ -151,29 +169,33 @@ test("the authoritative MariaDB baseline is complete at schema version 54", () =
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 54, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 55, 'Chapeaux Fous MariaDB database'\)$/);
   assert.equal(
     requiredDatabaseSchemaVersion,
     readMigrationLedger(path.join(root, "db", "migrations.sql")).at(-1).version,
   );
 });
 
-test("the relationship edge migration is additive, bidirectional, and complete", () => {
+test("the physical Things migration adds constrained tables and expands the bidirectional edge view", () => {
   const baseline = parseMariaDbScript(
     fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8"),
   ).find((statement) => statement.startsWith("CREATE SQL SECURITY INVOKER VIEW object_relationship_edges "));
   const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
-    .find(({ version }) => version === 54);
-  assert.equal(migration.label, "0054:unified-object-relationship-edges");
-  assert.match(migration.sql, /writer downtime: not required/u);
+    .find(({ version }) => version === 55);
+  assert.equal(migration.label, "0055:physical-things-object-family");
+  assert.match(migration.sql, /writer downtime: required/u);
   assert.match(migration.sql, /CREATE OR REPLACE SQL SECURITY INVOKER VIEW object_relationship_edges/u);
   assert.match(migration.sql, /0 AS is_reverse[\s\S]*1 AS is_reverse/u);
   for (const tableName of relationshipJoinTables) assert.match(migration.sql, new RegExp(`\\b${tableName}\\b`, "u"));
-  assert.doesNotMatch(migration.sql, /^\s*(?:INSERT|UPDATE|DELETE|TRUNCATE|ALTER|DROP)\b/gimu);
+  for (const tableName of ["physical_item_groups", "physical_items", "physical_items_todo_join", "physical_items_content_join", "physical_items_files_join", "physical_items_contacts_join"]) {
+    assert.match(migration.sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${tableName}\\b`, "u"));
+  }
   const normalize = (sql) => sql.replace(/^\s*--.*$/gmu, "")
     .replace(/^CREATE SQL SECURITY INVOKER VIEW/u, "CREATE OR REPLACE SQL SECURITY INVOKER VIEW")
     .replace(/\s+/gu, " ").trim().replace(/;$/u, "");
-  assert.equal(normalize(baseline), normalize(splitMariaDbStatements(migration.sql)[0]));
+  const migratedView = splitMariaDbStatements(migration.sql)
+    .find((statement) => statement.startsWith("CREATE OR REPLACE SQL SECURITY INVOKER VIEW object_relationship_edges "));
+  assert.equal(normalize(baseline), normalize(migratedView));
 });
 
 test("the relationship-table rename migration finishes the join naming invariant", () => {
