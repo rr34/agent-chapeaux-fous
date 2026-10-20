@@ -185,8 +185,7 @@ test("native database-backed tools preserve their records without result decorat
   assert.equal(Object.hasOwn(definitions.todo_add, "scheduledAtUtc"), false);
   assert.equal(Object.hasOwn(definitions.calendar_routine_add, "recurrence"), true);
   assert.equal(Object.hasOwn(definitions.calendar_routine_add, "group"), false);
-  assert.equal(Object.hasOwn(definitions.calendar_event_todo_links_set, "links"), true);
-  assert.equal(Object.hasOwn(definitions.calendar_todo_links_place, "placements"), true);
+  assert.equal(Object.hasOwn(definitions.calendar_event_todo_link_set, "links"), true);
   assert.equal(Object.hasOwn(definitions.journal_add, "content_text"), true);
   assert.equal(Object.hasOwn(definitions.journal_add, "tracker_unit"), true);
   assert.equal(Object.hasOwn(definitions.journal_add, "unit"), false);

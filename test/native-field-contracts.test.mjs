@@ -45,8 +45,8 @@ test("owning tool contracts explain inputs and results without a database or sch
   assert.equal(definitions.todo_add.inputSchema.properties.status.enum.includes("unplanned"), false);
   assert.match(definitions.calendar_routine_add.description, /generates concrete calendar events only/);
   assert.equal(definitions.calendar_routine_list.annotations.readOnlyHint, true);
-  assert.match(definitions.calendar_event_todo_links_set.description, /multiple to-dos/);
-  assert.match(definitions.calendar_todo_links_place.description, /moves that to-do's other work link/);
+  assert.match(definitions.calendar_event_todo_link_set.description, /linked=false removes it/);
+  assert.equal(definitions.calendar_event_todo_link_set.annotations.idempotentHint, true);
   assert.match(definitions.calendar_routine_generate.description, /earliest current or upcoming event/);
   assert.ok(definitions.contact_search.outputSchema.properties.matches.items.properties.display_name.description);
   assert.match(

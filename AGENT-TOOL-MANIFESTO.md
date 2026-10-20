@@ -107,6 +107,13 @@ Every Agent Slayer-owned native domain presents one coherent data surface to
 the user and the agent. A domain may preserve specialized business behavior,
 but it must not create a weaker parallel implementation for one caller.
 
+Mutable domain relationships expose exact batch-shaped link and unlink
+operations together. Unlinking names the exact edges to remove and never
+requires the caller to reconstruct or replace every sibling relationship.
+Whole-set replacement may remain available when replacing the set is itself a
+real domain operation, but it is not the sole deletion path for individual
+edges.
+
 Every user-referable native object family must provide:
 
 - deterministic discovery through the one application search coordinator,

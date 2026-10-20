@@ -28,10 +28,13 @@ organizer, attendee, or customer roles only when the request supports them.
 The tool can also remove exact contact-role associations in the same atomic batch. It does not send
 an invitation or change any to-do. Calendar reads return linked contacts.
 
-Calendar events are the sole owner of all scheduled times and deadlines. Place
-to-dos on concrete events with `calendar_todo_links_place`, using `work`,
-`deadline`, or `context` to preserve the relationship's meaning. A work
-placement on a routine-generated event moves that to-do's other work link in
+Calendar events are the sole owner of all scheduled times and deadlines. Link
+or unlink exact to-do/event pairs with `calendar_event_todo_link_set`, using
+`work`, `deadline`, or `context` to preserve the relationship's meaning and
+`linked=true` or `linked=false` to state the requested edge change. Unlink only
+the named pairs; never reconstruct or replace an event's complete relationship
+set merely to remove a subset. Submit every intended pair in one atomic batch.
+A work link on a routine-generated event moves that to-do's other work link in
 the same routine to the selected occurrence. Deadline and context links remain
 fixed. Never copy an event time into a to-do field; those fields do not exist.
 
