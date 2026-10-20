@@ -30,15 +30,17 @@ const toolDescriptions = Object.freeze({
       "MUTATING"
     ]
   },
-  "todo_group_archive": {
+  "todo_group_update": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Archive one active native to-do group after all of its tasks are terminal.",
+    "summary": "Atomically rename or delete up to 100 exact native to-do groups; deletion requires every contained task to be terminal or moved elsewhere.",
     "actionClasses": [
-      "UPDATE"
+      "UPDATE",
+      "DELETE"
     ],
     "effectClassifications": [
-      "MUTATING"
+      "MUTATING",
+      "DESTRUCTIVE"
     ]
   },
   "todo_group_create": {
@@ -72,17 +74,6 @@ const toolDescriptions = Object.freeze({
     ],
     "effectClassifications": [
       "READ-ONLY"
-    ]
-  },
-  "todo_group_rename": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Rename one active native to-do group without changing its stable identity or contained tasks.",
-    "actionClasses": [
-      "UPDATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
     ]
   },
   "todo_group_sequence_set": {
@@ -362,7 +353,7 @@ export function registerTodoTools(registry, store, ledger) {
   registry = registry.withCapability?.("todos", toolDescriptions, nativeToolContracts) ?? registry;
   rootRegistry.registerContextView?.("todos", {
     id: "todos.active_groups", title: "Active to-do groups",
-    description: "Exact active to-do group names and IDs. Request this whenever a read or change names a to-do group and no exact to-do-group binding is already supplied. No individual to-do items.",
+    description: "Exact active to-do group names and IDs. Request this when creating or moving a to-do, or whenever a read or change names a to-do group, unless an exact to-do-group binding is already supplied. No individual to-do items.",
     maximumItems: 100, execute: () => todoGroupContext(store),
   });
 
@@ -642,16 +633,106 @@ export function registerTodoTools(registry, store, ledger) {
     },
   });
 
+  registry.register({
+    name: "todo_group_update",
+    description: "Atomically rename or delete one through 100 exact active to-do groups. Each update must supply either a complete new name or deleted: true, never both. Deletion removes an empty group from active use while retaining its stable historical identity; it fails while any active task remains. When correcting a mistakenly created group, first move its active tasks to their intended group, then delete the mistaken group with this tool. Inbox is permanent and cannot be renamed or deleted.",
+    outputSchema: { type: "object", additionalProperties: false, properties: {
+      updated_count: { type: "integer", minimum: 1 },
+      items: { type: "array", minItems: 1, items: {
+        type: "object", additionalProperties: false, properties: {
+          action: { type: "string", enum: ["renamed", "deleted"] },
+          changed: { type: "boolean" },
+          before: todoGroupRecordSchema,
+          group: todoGroupRecordSchema,
+          retained_terminal_task_count: { type: ["integer", "null"], minimum: 0 },
+        }, required: ["action", "changed", "before", "group", "retained_terminal_task_count"],
+      } },
+    }, required: ["updated_count", "items"] },
+    parameters: { type: "object", additionalProperties: false, properties: {
+      updates: { type: "array", minItems: 1, maxItems: 100, items: {
+        type: "object", additionalProperties: false, properties: {
+          todo_group_id: {
+            type: "integer", minimum: 1,
+            description: "Stable ID of the exact active to-do group to change.",
+          },
+          name: {
+            type: ["string", "null"], minLength: 1, maxLength: 200,
+            description: "Complete new group name, or null when deleting the group.",
+          },
+          deleted: {
+            type: ["boolean", "null"],
+            description: "True deletes the group from active use; null when renaming. False is not an operation.",
+          },
+        }, required: ["todo_group_id", "name", "deleted"],
+      } },
+    }, required: ["updates"] },
+    annotations: {
+      readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false,
+    },
+    async execute({ updates }, context) {
+      const database = store.requireReady();
+      const ids = updates.map(({ todo_group_id: id }) => id);
+      if (new Set(ids).size !== ids.length) throw new Error("Duplicate to-do group ID in update batch");
+      for (const update of updates) {
+        const renaming = update.name !== null;
+        const deleting = update.deleted === true;
+        if (renaming === deleting) {
+          throw new Error("Each to-do group update must supply either name or deleted: true");
+        }
+      }
+      database.exec("START TRANSACTION");
+      try {
+        const items = updates.map((input) => {
+          const before = databaseGroup(database.prepare(`
+            SELECT * FROM todo_groups
+            WHERE todo_group_id = ? AND archived_at_utc IS NULL
+          `).get(input.todo_group_id));
+          if (!before) throw new Error(`Active to-do group ${input.todo_group_id} does not exist`);
+          if (input.name !== null) {
+            const result = renameTodoGroup(database, {
+              groupId: input.todo_group_id, newName: input.name,
+            });
+            return {
+              action: "renamed",
+              changed: result.group.previousName !== result.group.name,
+              before,
+              group: databaseGroup(database.prepare(
+                "SELECT * FROM todo_groups WHERE todo_group_id = ?",
+              ).get(input.todo_group_id)),
+              retained_terminal_task_count: null,
+            };
+          }
+          const result = archiveEmptyTodoGroup(database, { groupId: input.todo_group_id });
+          return {
+            action: "deleted",
+            changed: result.archived,
+            before,
+            group: databaseGroup(database.prepare(
+              "SELECT * FROM todo_groups WHERE todo_group_id = ?",
+            ).get(input.todo_group_id)),
+            retained_terminal_task_count: result.retainedTerminalTaskCount,
+          };
+        });
+        const payload = { updated_count: items.length, items };
+        appendLedger(ledger, context, {
+          type: "personal_todo_group.updated",
+          actorName: "todo_group_update",
+          name: "To-do groups updated",
+          content: `${items.length} ${items.length === 1 ? "group" : "groups"} updated`,
+          payload,
+          subjectType: "todo_group_set",
+          subjectId: ids.join(","),
+        });
+        database.exec("COMMIT");
+        return payload;
+      } catch (error) { database.exec("ROLLBACK"); throw error; }
+    },
+  });
+
   for (const definition of [
-    { name: "todo_group_rename", description: "Rename an active to-do group.",
-      properties: { todo_group_id: { type: "integer", minimum: 1 }, name: { type: "string", minLength: 1, maxLength: 200 } },
-      required: ["todo_group_id", "name"], run: (db, input) => renameTodoGroup(db, { groupId: input.todo_group_id, newName: input.name }) },
     { name: "todo_group_sequence_set", description: "Enable or disable stable sequence numbers for a to-do group.",
       properties: { todo_group_id: { type: "integer", minimum: 1 }, uses_sequence: { type: "boolean" } },
       required: ["todo_group_id", "uses_sequence"], run: (db, input) => setTodoGroupSequenceMode(db, { groupId: input.todo_group_id, usesSequence: input.uses_sequence }) },
-    { name: "todo_group_archive", description: "Archive an empty active to-do group.",
-      properties: { todo_group_id: { type: "integer", minimum: 1 } }, required: ["todo_group_id"],
-      run: (db, input) => archiveEmptyTodoGroup(db, { groupId: input.todo_group_id }) },
   ]) registry.register({
     name: definition.name, description: definition.description,
     outputSchema: { type: "object", properties: { group: todoGroupRecordSchema } },

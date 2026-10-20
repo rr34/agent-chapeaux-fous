@@ -9,7 +9,7 @@ const toolDescriptions = Object.freeze({
   "calendar_event_add": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Create one native calendar event, including an optional planning prompt, all-day event, or structured recurrence when requested.",
+    "summary": "Create one native calendar event, defaulting to a start-only point event when the user gives no end or duration; also supports planning prompts, all-day events, and recurrence.",
     "actionClasses": [
       "CREATE"
     ],
@@ -175,7 +175,7 @@ const calendarEventRecordSchema = {
     description: { description: "Complete available description or notes for the event." },
     location_text: { description: "Human-readable physical, virtual, or meeting location." },
     starts_at_utc: { description: "UTC instant when the event starts." },
-    ends_at_utc: { description: "UTC instant when the event ends, when an end is known." },
+    ends_at_utc: { description: "UTC instant when the event ends. Null makes a timed event a start-only point in time." },
     time_zone: { description: "IANA or provider time-zone name used to display the event in its intended local time." },
     is_all_day: { description: "1 when the event represents a calendar day rather than a precise time; otherwise 0." },
     status: { description: "Current scheduling state of the event. Calendar events happen; completion is represented only by the passage of time, not a stored event status. tentative: Event is proposed but not firmly confirmed. confirmed: Event is scheduled to occur. cancelled: Event will not occur." },
@@ -304,7 +304,9 @@ function calendarEventWithTodos(database, id) {
     JOIN todo_groups AS todo_group USING (todo_group_id)
     WHERE relation.calendar_event_id = ?
       AND task.status <> 'archive'
-    ORDER BY todo_group.sort_position, task.sort_position, task.personal_task_id
+    ORDER BY todo_group.sort_position, todo_group.todo_group_id,
+             task.sequence IS NULL, task.sequence DESC,
+             task.sort_position, task.personal_task_id
   `).all(id).map((link) => ({
     ...link,
     personal_task_id: Number(link.personal_task_id),
@@ -490,7 +492,7 @@ export function registerCalendarTools(
 
   registry.register({
     name: "calendar_event_add",
-    description: "Create one native calendar event with an optional planning_prompt_text containing the exact question to ask about time that still needs planning. Use is_all_day=true when the user names a day without a specific time, with starts_at_utc representing local midnight and time_zone preserving that local date. For repetition, supply structured recurrence concepts including numbered weekdays or days of the month; never write RRULE syntax.",
+    description: "Create one native calendar event with an optional planning_prompt_text containing the exact question to ask about time that still needs planning. When the user supplies a start time without an end or duration, create a point event with ends_at_utc=null instead of inventing a duration. Use is_all_day=true when the user names a day without a specific time, with starts_at_utc representing local midnight and time_zone preserving that local date. For repetition, supply structured recurrence concepts including numbered weekdays or days of the month; never write RRULE syntax.",
     outputSchema: {
       type: "object",
       properties: { event: calendarEventRecordSchema },
@@ -504,7 +506,7 @@ export function registerCalendarTools(
         location_text: { ...optionalText, description: "Human-readable physical, virtual, or meeting location." },
         planning_prompt_text: { ...optionalText, description: "Optional question the agent should proactively ask to help the user decide how this scheduled time will be used. Null means no proactive planning question is attached to this event." },
         starts_at_utc: { type: "string", description: "UTC instant when the event starts." },
-        ends_at_utc: { ...optionalText, description: "UTC instant when the event ends, when an end is known." },
+        ends_at_utc: { ...optionalText, description: "UTC instant when the event ends. Use null for a start-only point event when the user gives no end or duration; never invent a duration." },
         time_zone: { ...optionalText, description: "IANA or provider time-zone name used to display the event in its intended local time." },
         is_all_day: { type: "boolean", description: "True when the event represents a calendar day rather than a precise time; false otherwise." },
         status: { type: "string", enum: statuses, description: "Current scheduling state of the event. Calendar events happen; completion is represented only by the passage of time, not a stored event status. tentative: Event is proposed but not firmly confirmed. confirmed: Event is scheduled to occur. cancelled: Event will not occur." },
@@ -572,7 +574,7 @@ export function registerCalendarTools(
 
   registry.register({
     name: "calendar_event_update",
-    description: "Update or cancel a stored calendar event with explicit scope. Use scope=event for a one-time event, an already materialized RRULE exception, or one concrete event generated by a calendar routine; a routine-generated event has calendar_routine_id and routine_occurrence_key but no recurrence_rule, and changing it does not rewrite its routine or sibling events. For an RRULE recurring master, scope=series is required: changes affect the whole series, including past and future computed occurrences; separately edited exceptions are not rewritten. Use calendar_event_occurrence_update with the RRULE series ID and original occurrence start to change just one computed occurrence. Choose series only when the user requests the whole series; if scope is unclear, offer just this occurrence or the whole series before changing anything. Null means leave a field unchanged; use an empty string to clear description, location_text, planning_prompt_text, ends_at_utc, or time_zone. Change recurrence separately with calendar_event_recurrence_set.",
+    description: "Update or cancel a stored calendar event with explicit scope. Use scope=event for a one-time event, an already materialized RRULE exception, or one concrete event generated by a calendar routine; a routine-generated event has calendar_routine_id and routine_occurrence_key but no recurrence_rule, and changing it does not rewrite its routine or sibling events. For an RRULE recurring master, scope=series is required: changes affect the whole series, including past and future computed occurrences; separately edited exceptions are not rewritten. Use calendar_event_occurrence_update with the RRULE series ID and original occurrence start to change just one computed occurrence. Choose series only when the user requests the whole series; if scope is unclear, offer just this occurrence or the whole series before changing anything. Null means leave a field unchanged; use an empty string to clear description, location_text, planning_prompt_text, or time_zone. An empty ends_at_utc clears the end and makes a timed event a start-only point in time. Change recurrence separately with calendar_event_recurrence_set.",
     outputSchema: {
       type: "object",
       properties: {
@@ -591,7 +593,7 @@ export function registerCalendarTools(
         location_text: { ...optionalText, description: "Human-readable physical, virtual, or meeting location." },
         planning_prompt_text: { ...optionalText, description: "Question to ask about this scheduled time. Null leaves it unchanged; an empty string clears it." },
         starts_at_utc: { ...optionalText, description: "UTC instant when the event starts." },
-        ends_at_utc: { ...optionalText, description: "UTC instant when the event ends, when an end is known." },
+        ends_at_utc: { ...optionalText, description: "UTC instant when the event ends. Null leaves it unchanged; an empty string clears it and makes a timed event a start-only point in time." },
         time_zone: { ...optionalText, description: "IANA or provider time-zone name used to display the event in its intended local time." },
         is_all_day: { type: ["boolean", "null"], description: "True when the event represents a calendar day rather than a precise time; false otherwise." },
         status: { type: ["string", "null"], enum: [...statuses, null], description: "Current scheduling state of the event. Calendar events happen; completion is represented only by the passage of time, not a stored event status. tentative: Event is proposed but not firmly confirmed. confirmed: Event is scheduled to occur. cancelled: Event will not occur." },

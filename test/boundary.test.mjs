@@ -443,7 +443,7 @@ test("the standalone client restores calendar, routine, grouped to-do, grouped c
   assert.match(application, /Assign next #/);
   assert.match(application, /\/api\/todos\/\$\{todo\.id\}\/assign-next-sequence/);
   assert.match(application, /const headingTitle = node\("div", "todo-group-heading-title"\)/);
-  assert.match(application, /headingTitle\.append\(rename, archive\)/);
+  assert.match(application, /headingTitle\.append\(edit\)/);
   assert.match(application, /headingTitle\.append\(top, up, down, bottom\)/);
   assert.match(application, /node\("button", "secondary compact", "Add task"\)/);
   assert.match(application, /addTask\.addEventListener\("click", \(\) => openTodoEditor\(null, groupId\)\)/);
@@ -458,8 +458,15 @@ test("the standalone client restores calendar, routine, grouped to-do, grouped c
   assert.match(application, /todo\.relatedContactName/);
   assert.match(application, /actions\.append\(top, up, down, bottom, edit\)/);
   assert.match(application, /\/api\/todo-groups\/\$\{todo\.groupId\}\/reorder/);
-  assert.match(application, /Archive group/);
-  assert.match(application, /archiveTodoGroup/);
+  assert.match(document, /id="todo-group-dialog"/);
+  assert.match(document, /id="todo-group-name"[^>]*required/);
+  assert.match(document, /id="todo-group-delete"[^>]*>Delete group<\/button>/);
+  assert.match(application, /function openTodoGroupEditor/);
+  assert.match(application, /function saveTodoGroup/);
+  assert.match(application, /function deleteEditedTodoGroup/);
+  assert.match(application, /elements\.todoGroupForm\.addEventListener\("submit", saveTodoGroup\)/);
+  assert.match(application, /elements\.todoGroupDelete\.addEventListener\("click"/);
+  assert.doesNotMatch(application, /archiveTodoGroup/);
   assert.match(server, /\/api\/calendar-events/);
   assert.match(server, /\/api\/todo-groups/);
   assert.match(server, /todoGroupReorderMatch/);

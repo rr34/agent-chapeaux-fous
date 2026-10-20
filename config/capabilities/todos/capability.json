@@ -15,7 +15,8 @@
     "watch job",
     "watch jobs",
     "todo group",
-    "rename todo group"
+    "rename todo group",
+    "delete todo group"
   ],
   "readOnlyTools": [
     "todo_group_list",

@@ -352,14 +352,15 @@ capability selector, which controls which exact tool schemas are callable.
   related pages. It is not a search tool. Each redirect is checked, private and
   local network targets are rejected, DNS is pinned for the request, and binary
   responses are not returned to the model.
-- `todo_group_list`, `todo_group_create`, `todo_group_rename`,
+- `todo_group_list`, `todo_group_create`, `todo_group_update`,
   `todo_group_sequence_set`, `todo_group_daily_paper_pin_set`,
-  `todo_group_archive`, `todo_list`, `todo_add`,
+  `todo_list`, `todo_add`,
   `todo_position_set`, and `todo_update` provide the native personal to-do path
   without requiring the model to invent SQL. The agent inspects existing groups before
   assigning an otherwise ungrouped task; Inbox is the catchall when no group is
-  a clear match. Group archival fails while active tasks remain and preserves
-  the group on terminal task history. To-dos are deliberately non-temporal:
+  a clear match. `todo_group_update` atomically renames or deletes exact groups;
+  deletion fails while active tasks remain and preserves the group on terminal
+  task history. To-dos are deliberately non-temporal:
   schedules, deadlines, durations, all-day state, and recurrence belong to the
   calendar. New and existing tasks can be
   placed at an exact 1-based manual sort position, including position 1.

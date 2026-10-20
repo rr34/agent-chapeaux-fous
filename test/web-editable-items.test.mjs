@@ -128,6 +128,17 @@ test("calendar event timing keeps start, duration, and end synchronized", () => 
   assert.match(styles, /\.object-editor-timing \{ grid-template-columns:/);
 });
 
+test("new calendar events default to a persisted start-only point in time", () => {
+  assert.match(items, /isPoint: boolean/);
+  assert.match(items, /endsAt: "",\s+duration: "",\s+isPoint: true/);
+  assert.match(items, /isPoint: !event\.isAllDay && !endsAt/);
+  assert.match(items, /Point in time <span className="field-hint">Start only<\/span>/);
+  assert.match(items, /endsAtUtc: !draft\.isAllDay && draft\.isPoint \? null/);
+  assert.match(items, /!draft\.isAllDay && !draft\.isPoint && <label><span>Duration/);
+  assert.match(items, /!draft\.isPoint && <label>Ends/);
+  assert.match(styles, /\.object-editor-timing--point \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+});
+
 
 test("events, to-dos, and routines preserve authored newlines everywhere they display", () => {
   assert.ok(dailyPaper.includes('className="multiline-item-text">{event.title}</span>'));

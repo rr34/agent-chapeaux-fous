@@ -244,6 +244,67 @@ test("to-do update batches stay atomic", async (context) => {
   assert.equal(listed.results[0].tasks[0].text, "First");
 });
 
+test("one group-update tool renames groups and deletes emptied mistaken groups", async (context) => {
+  const { store, registry, toolContext } = harness(context);
+  const tools = definitions();
+  assert.ok(tools.todo_group_update);
+  assert.equal(Object.hasOwn(tools, "todo_group_rename"), false);
+  assert.equal(Object.hasOwn(tools, "todo_group_archive"), false);
+  assert.equal(tools.todo_group_update.annotations.destructiveHint, true);
+
+  const intended = await registry.execute("todo_group_create", { name: "Construction" }, toolContext);
+  const mistaken = await registry.execute("todo_group_create", { name: "217 Oakland" }, toolContext);
+  const task = await registry.execute("todo_add", {
+    text: "Frame kitchen ceiling", todo_group_id: mistaken.group.todo_group_id,
+    status: "todo", related_contact_id: null, planning_prompt_text: null, position: null,
+  }, toolContext);
+
+  await assert.rejects(registry.execute("todo_group_update", { updates: [{
+    todo_group_id: mistaken.group.todo_group_id, name: null, deleted: true,
+  }] }, toolContext), /active task/u);
+
+  await registry.execute("todo_update", { updates: [{
+    personal_task_id: task.task.personal_task_id,
+    todo_group_id: intended.group.todo_group_id,
+  }] }, toolContext);
+  const result = await registry.execute("todo_group_update", { updates: [{
+    todo_group_id: intended.group.todo_group_id, name: "Construction projects", deleted: null,
+  }, {
+    todo_group_id: mistaken.group.todo_group_id, name: null, deleted: true,
+  }] }, toolContext);
+
+  assert.equal(result.updated_count, 2);
+  assert.deepEqual(result.items.map(({ action }) => action), ["renamed", "deleted"]);
+  assert.equal(result.items[0].group.name, "Construction projects");
+  assert.equal(result.items[1].group.ref,
+    `agent-slayer://todo-groups/${mistaken.group.todo_group_id}`);
+  assert.ok(result.items[1].group.archived_at_utc);
+  assert.equal(result.items[1].retained_terminal_task_count, 0);
+  assert.equal(store.requireReady().prepare(`
+    SELECT archived_at_utc FROM todo_groups WHERE todo_group_id = ?
+  `).get(mistaken.group.todo_group_id).archived_at_utc, result.items[1].group.archived_at_utc);
+});
+
+test("group-update batches roll back every change when one deletion is invalid", async (context) => {
+  const { store, registry, toolContext } = harness(context);
+  const first = await registry.execute("todo_group_create", { name: "First group" }, toolContext);
+  const active = await registry.execute("todo_group_create", { name: "Active group" }, toolContext);
+  await registry.execute("todo_add", {
+    text: "Still here", todo_group_id: active.group.todo_group_id,
+    status: "todo", related_contact_id: null, planning_prompt_text: null, position: null,
+  }, toolContext);
+
+  await assert.rejects(registry.execute("todo_group_update", { updates: [{
+    todo_group_id: first.group.todo_group_id, name: "Renamed group", deleted: null,
+  }, {
+    todo_group_id: active.group.todo_group_id, name: null, deleted: true,
+  }] }, toolContext), /active task/u);
+
+  assert.equal(store.requireReady().prepare(`
+    SELECT name FROM todo_groups WHERE todo_group_id = ?
+  `).get(first.group.todo_group_id).name, "First group");
+});
+
 test("daily-paper pin updates are group-bound, batched, and atomic", async (context) => {
   const { store, registry, toolContext } = harness(context);
   const first = await registry.execute("todo_group_create", { name: "Shopping" }, toolContext);

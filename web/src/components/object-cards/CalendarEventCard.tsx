@@ -119,7 +119,7 @@ export function CalendarEventCard(props: ObjectCardProps & {
     }}
     className={`calendar-event-card${props.className ? ` ${props.className}` : ""}`}
     topEdge={timing ? <time className="calendar-event-time calendar-event-time--start" dateTime={event!.startsAtUtc}>
-      <span>Start</span><strong>{timing.start}</strong>
+      <span>{!event!.isAllDay && !event!.endsAtUtc ? "Time" : "Start"}</span><strong>{timing.start}</strong>
     </time> : props.topEdge}
     bottomEdge={timing?.end ? <time className="calendar-event-time calendar-event-time--end" dateTime={event!.endsAtUtc!}>
       <span>End</span><strong>{timing.end}</strong>

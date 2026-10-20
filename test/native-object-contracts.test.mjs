@@ -177,6 +177,10 @@ test("native ID consumers publish bindings for singleton and batch inputs", () =
     path: "/updates/*/todo_group_id", objectType: "todos.todo_group",
     value: "id", role: "subject",
   }]);
+  assert.deepEqual(bindings("todo_group_update"), [{
+    path: "/updates/*/todo_group_id", objectType: "todos.todo_group",
+    value: "id", role: "subject",
+  }]);
   assert.deepEqual(bindings("todo_content_link_set"), [
     { path: "/links/*/personal_task_id", objectType: "todos.personal_task", value: "id", role: "subject" },
     { path: "/links/*/content_id", objectType: "video.content_item", value: "id", role: "subject" },

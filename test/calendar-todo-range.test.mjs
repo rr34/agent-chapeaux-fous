@@ -52,6 +52,35 @@ test("calendar events and to-dos have replaceable many-to-many links", () => {
   }
 });
 
+test("calendar events order linked to-dos like the ordinary to-do list", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.target);
+  try {
+    const group = organizer.createTodoGroup({ name: "Sequenced event work" });
+    const highSequence = organizer.createTodo({ text: "Ninth task", groupId: group.id, sequence: 9 });
+    const lowSequence = organizer.createTodo({ text: "Second task", groupId: group.id, sequence: 2 });
+    const unsequenced = organizer.createTodo({ text: "Unnumbered task", groupId: group.id });
+    const event = organizer.createCalendar({
+      title: "Sequenced work", startsAtUtc: "2026-09-20T19:30:00.000Z",
+      endsAtUtc: "2026-09-20T20:00:00.000Z", timeZone: "America/New_York",
+    });
+    organizer.setCalendarEventTodoLinks(event.id, { links: [
+      { todoId: unsequenced.id, relationshipKind: "work" },
+      { todoId: lowSequence.id, relationshipKind: "work" },
+      { todoId: highSequence.id, relationshipKind: "work" },
+    ] });
+
+    const expected = [highSequence.id, lowSequence.id, unsequenced.id];
+    assert.deepEqual(organizer.getCalendar(event.id).linkedTodos.map(({ todoId }) => todoId), expected);
+    assert.deepEqual(organizer.listCalendar({
+      from: "2026-09-20T00:00:00.000Z", to: "2026-09-21T00:00:00.000Z",
+    })[0].linkedTodos.map(({ todoId }) => todoId), expected);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("calendar routines generate idempotent events and never generate to-dos", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.target);

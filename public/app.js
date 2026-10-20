@@ -253,6 +253,13 @@ const elements = {
   todoList: document.querySelector("#todo-list"),
   newTodo: document.querySelector("#new-todo"),
   newTodoGroup: document.querySelector("#new-todo-group"),
+  todoGroupDialog: document.querySelector("#todo-group-dialog"),
+  todoGroupForm: document.querySelector("#todo-group-form"),
+  todoGroupDialogTitle: document.querySelector("#todo-group-dialog-title"),
+  todoGroupId: document.querySelector("#todo-group-id"),
+  todoGroupName: document.querySelector("#todo-group-name"),
+  todoGroupFormError: document.querySelector("#todo-group-form-error"),
+  todoGroupDelete: document.querySelector("#todo-group-delete"),
   todoDialog: document.querySelector("#todo-dialog"),
   todoForm: document.querySelector("#todo-form"),
   todoDialogTitle: document.querySelector("#todo-dialog-title"),
@@ -3392,13 +3399,10 @@ function renderTodos() {
     down.addEventListener("click", () => void moveTodoGroup(groupId, "down"));
     bottom.addEventListener("click", () => void moveTodoGroup(groupId, "bottom"));
     if (!group.archivedAtUtc && !["inbox", "routine"].includes(group.name.toLowerCase())) {
-      const rename = node("button", "secondary compact", "Rename");
-      const archive = node("button", "secondary compact", "Archive group");
-      rename.type = "button";
-      archive.type = "button";
-      rename.addEventListener("click", () => void renameTodoGroup(groupId, group.name));
-      archive.addEventListener("click", () => void archiveTodoGroup(groupId, group.name));
-      headingTitle.append(rename, archive);
+      const edit = node("button", "secondary compact", "Edit group");
+      edit.type = "button";
+      edit.addEventListener("click", () => openTodoGroupEditor(groupId));
+      headingTitle.append(edit);
     }
     if (!group.archivedAtUtc) {
       const sequenceMode = node(
@@ -3792,26 +3796,39 @@ async function createTodoGroup({ selectFilter = true } = {}) {
   }
 }
 
-async function archiveTodoGroup(groupId, groupName) {
-  const confirmed = window.confirm(
-    `Archive the ${groupName} group? This fails if it has active tasks. Terminal tasks will retain this historical group.`,
-  );
-  if (!confirmed) return;
-  try {
-    const result = await api(`/api/todo-groups/${groupId}/archive`, { method: "POST" });
-    const retained = result.retainedTerminalTaskCount
-      ? ` ${result.retainedTerminalTaskCount} terminal ${result.retainedTerminalTaskCount === 1 ? "task retains" : "tasks retain"} this historical group.`
-      : "";
-    elements.status.textContent = `${groupName} was archived.${retained}`;
-    await refreshTodos();
-  } catch (error) {
-    window.alert(error.message || "Could not archive the group.");
-  }
+function openTodoGroupEditor(groupId) {
+  const group = todoGroups.find(({ id }) => id === groupId);
+  if (!group || group.archivedAtUtc || ["inbox", "routine"].includes(group.name.toLowerCase())) return;
+  elements.todoGroupForm.reset();
+  elements.todoGroupFormError.textContent = "";
+  elements.todoGroupDialogTitle.textContent = `Edit ${group.name}`;
+  elements.todoGroupId.value = String(group.id);
+  elements.todoGroupName.value = group.name;
+  elements.todoGroupDialog.showModal();
+  elements.todoGroupName.focus();
 }
 
-async function renameTodoGroup(groupId, currentName) {
-  const name = window.prompt("New name for this to-do group:", currentName)?.trim();
-  if (!name || name === currentName) return;
+async function saveTodoGroup(event) {
+  event.preventDefault();
+  elements.todoGroupFormError.textContent = "";
+  const groupId = Number(elements.todoGroupId.value);
+  const group = todoGroups.find(({ id }) => id === groupId);
+  if (!group) {
+    elements.todoGroupFormError.textContent = "This to-do group is no longer available.";
+    return;
+  }
+  const name = elements.todoGroupName.value.trim();
+  if (!name) {
+    elements.todoGroupFormError.textContent = "A group name is required.";
+    elements.todoGroupName.focus();
+    return;
+  }
+  if (name === group.name) {
+    elements.todoGroupDialog.close();
+    return;
+  }
+  const submit = elements.todoGroupForm.querySelector('[type="submit"]');
+  submit.disabled = true;
   try {
     const result = await api(`/api/todo-groups/${groupId}`, {
       method: "PATCH",
@@ -3819,10 +3836,38 @@ async function renameTodoGroup(groupId, currentName) {
       body: JSON.stringify({ name }),
     });
     elements.status.textContent = `${result.group.previousName} was renamed to ${result.group.name}.`;
+    elements.todoGroupDialog.close();
     await refreshTodos();
     if (activeView === "calendar") await refreshCalendar();
   } catch (error) {
-    window.alert(error.message || "Could not rename the group.");
+    elements.todoGroupFormError.textContent = error.message || "Could not rename the group.";
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+async function deleteEditedTodoGroup() {
+  const groupId = Number(elements.todoGroupId.value);
+  const group = todoGroups.find(({ id }) => id === groupId);
+  if (!group || ["inbox", "routine"].includes(group.name.toLowerCase())) return;
+  const confirmed = window.confirm(
+    `Delete the ${group.name} group? This only succeeds after its active tasks are moved, completed, ignored, or archived. Terminal tasks retain this historical group.`,
+  );
+  if (!confirmed) return;
+  elements.todoGroupFormError.textContent = "";
+  elements.todoGroupDelete.disabled = true;
+  try {
+    const result = await api(`/api/todo-groups/${groupId}/archive`, { method: "POST" });
+    const retained = result.retainedTerminalTaskCount
+      ? ` ${result.retainedTerminalTaskCount} terminal ${result.retainedTerminalTaskCount === 1 ? "task retains" : "tasks retain"} its historical group.`
+      : "";
+    elements.status.textContent = `${group.name} was deleted.${retained}`;
+    elements.todoGroupDialog.close();
+    await refreshTodos();
+  } catch (error) {
+    elements.todoGroupFormError.textContent = error.message || "Could not delete the group.";
+  } finally {
+    elements.todoGroupDelete.disabled = false;
   }
 }
 
@@ -5654,6 +5699,8 @@ elements.todoScope.addEventListener("change", () => void refreshTodos());
 elements.todoGroupFilter.addEventListener("change", renderTodos);
 elements.todoContactFilter.addEventListener("change", renderTodos);
 elements.todoGroup.addEventListener("change", updateTodoSequenceHint);
+elements.todoGroupForm.addEventListener("submit", saveTodoGroup);
+elements.todoGroupDelete.addEventListener("click", () => void deleteEditedTodoGroup());
 elements.todoForm.addEventListener("submit", saveTodo);
 elements.todoCalendarForm.addEventListener("submit", saveTodoCalendarPlacement);
 elements.newContentGroup.addEventListener("click", () => void createContentGroup());

@@ -750,7 +750,9 @@ function calendarEventTodoLinks(database, eventIds) {
     LEFT JOIN contacts AS related_contact ON related_contact.contact_id = task.related_contact_id
     WHERE relation.calendar_event_id IN (${ids.map(() => "?").join(", ")})
       AND task.status <> 'archive'
-    ORDER BY relation.calendar_event_id, todo_group.sort_position,
+    ORDER BY relation.calendar_event_id,
+             todo_group.sort_position, todo_group.todo_group_id,
+             task.sequence IS NULL, task.sequence DESC,
              task.sort_position, task.personal_task_id
   `).all(...ids);
   const byEvent = new Map(ids.map((id) => [id, []]));

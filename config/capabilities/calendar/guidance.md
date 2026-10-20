@@ -5,7 +5,11 @@ requested local date and time into a UTC instant and preserve the intended IANA
 time zone. When the user names a calendar day without an exact time, create an
 all-day event rather than inventing a time. Translate ordinary recurrence
 language into the structured recurrence fields; never ask the user to write
-RRULE syntax. Archive an event by setting its stored status to `cancelled`, but
+RRULE syntax. When the user gives a start time without an end or duration,
+create a point event by leaving `ends_at_utc` null; do not invent a duration.
+When the user asks to remove an existing timed event's duration, clear its end
+so it becomes the same start-only point event.
+Archive an event by setting its stored status to `cancelled`, but
 describe it to the user as archived; archived events do not appear on the
 calendar. Calendar tool results use stored `calendar_events` field names and
 the tool contracts explain their meaning; `occurrence_*` fields describe

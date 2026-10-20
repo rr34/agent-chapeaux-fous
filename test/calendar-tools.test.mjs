@@ -69,6 +69,29 @@ test("calendar_event_search returns exact stored fields with strict bounded argu
   assert.equal(archived.events[0].status, "cancelled");
 });
 
+test("calendar_event_add preserves a start-only event as a point in time", async (context) => {
+  const { registry } = calendarFixture(context);
+  const created = await registry.execute("calendar_event_add", {
+    title: "Leave for the airport",
+    description: null,
+    location_text: null,
+    starts_at_utc: "2026-08-18T19:00:00Z",
+    ends_at_utc: null,
+    time_zone: "America/New_York",
+    is_all_day: false,
+    status: "confirmed",
+    recurrence: null,
+  }, { requestId: "point-event", callId: "calendar-point" });
+  assert.equal(created.event.ends_at_utc, null);
+
+  const listed = await registry.execute("calendar_event_list", {
+    starts_at_utc: "2026-08-18T00:00:00Z",
+    ends_at_utc: "2026-08-19T00:00:00Z",
+  }, { requestId: "point-event", callId: "calendar-point-list" });
+  assert.equal(listed.count, 1);
+  assert.equal(listed.occurrences[0].occurrence.occurrence_ends_at_utc, null);
+});
+
 test("native calendar tools create, list, update, and cancel stored events", async (context) => {
   const { ledger, registry } = calendarFixture(context);
   const request = ledger.createRequest({ text: "Schedule a dentist visit" });
@@ -150,6 +173,30 @@ test("calendar reads hide archived linked to-dos without deleting their associat
   assert.equal(listed.occurrences[0].calendar_events.linked_todos.length, 0);
   assert.equal(Number(database.prepare(`SELECT COUNT(*) AS count FROM calendar_events_todo_join
     WHERE calendar_event_id = ? AND personal_task_id = ?`).get(eventId, todoId).count), 1);
+});
+
+test("native calendar reads order linked to-dos by descending sequence before manual position", async (context) => {
+  const { organizer, registry } = calendarFixture(context);
+  const group = organizer.createTodoGroup({ name: "Native sequenced event work" });
+  const highSequence = organizer.createTodo({ text: "Ninth native task", groupId: group.id, sequence: 9 });
+  const lowSequence = organizer.createTodo({ text: "Second native task", groupId: group.id, sequence: 2 });
+  const unsequenced = organizer.createTodo({ text: "Unnumbered native task", groupId: group.id });
+  const event = organizer.createCalendar({
+    title: "Native sequence check", startsAtUtc: "2026-09-13T15:00:00.000Z",
+    endsAtUtc: "2026-09-13T16:00:00.000Z", timeZone: "America/New_York",
+  });
+  organizer.setCalendarEventTodoLinks(event.id, { links: [
+    { todoId: unsequenced.id, relationshipKind: "work" },
+    { todoId: lowSequence.id, relationshipKind: "work" },
+    { todoId: highSequence.id, relationshipKind: "work" },
+  ] });
+
+  const listed = await registry.execute("calendar_event_list", {
+    starts_at_utc: "2026-09-13T00:00:00.000Z",
+    ends_at_utc: "2026-09-14T00:00:00.000Z",
+  });
+  assert.deepEqual(listed.occurrences[0].calendar_events.linked_todos
+    .map(({ personal_task_id: todoId }) => todoId), [highSequence.id, lowSequence.id, unsequenced.id]);
 });
 
 test("calendar contact links are visible, role-specific, idempotent, and leave to-dos alone", async (context) => {

@@ -60,6 +60,7 @@ test("the common-sense core is compact, batch-shaped, and contains no tool plann
 
 test("read-only work is answer mode and current receipts can correct factual premises", () => {
   assert.match(commonSenseInstructions, /answer for read-only retrieval/i);
+  assert.match(commonSenseInstructions, /rejects an object the agent just created by mistake/i);
   assert.match(commonSenseExecutionInstructions(validCore(), []), /Tool results are authoritative for current facts/);
   assert.match(commonSenseExecutionInstructions(validCore(), []), /successful owning-domain read is sufficient evidence/);
   assert.match(commonSenseExecutionInstructions(validCore(), []), /nested dot paths/);

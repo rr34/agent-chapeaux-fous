@@ -739,6 +739,24 @@
     </form>
   </dialog>
 
+  <dialog id="todo-group-dialog" class="editor-dialog">
+    <form id="todo-group-form" method="dialog">
+      <header class="dialog-heading">
+        <div><p class="eyebrow">Personal todo</p><h2 id="todo-group-dialog-title">Edit group</h2></div>
+        <button class="secondary compact dialog-close" type="button">Close</button>
+      </header>
+      <input id="todo-group-id" type="hidden">
+      <label>Group name<input id="todo-group-name" required maxlength="200"></label>
+      <p class="field-hint">A group can be deleted after all active tasks have been moved, completed, ignored, or archived. Terminal tasks retain its historical name.</p>
+      <p id="todo-group-form-error" class="form-error" role="alert"></p>
+      <footer class="editor-actions">
+        <button id="todo-group-delete" class="danger editor-delete" type="button">Delete group</button>
+        <button class="secondary dialog-close" type="button">Cancel</button>
+        <button type="submit">Save changes</button>
+      </footer>
+    </form>
+  </dialog>
+
   <dialog id="todo-dialog" class="editor-dialog">
     <form id="todo-form" method="dialog">
       <header class="dialog-heading">
