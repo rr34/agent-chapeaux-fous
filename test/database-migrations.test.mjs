@@ -27,6 +27,36 @@ const block = (version, name = `migration-${version}`, sql = `SELECT ${version};
   return `-- migration ${label}: ${name}\n${sql}\n-- end migration ${label}\n`;
 };
 
+test("explicit content-group sequence integrity requires a non-null boolean setting", async () => {
+  const connection = ({ columns = [{ COLUMN_NAME: "uses_sequence", IS_NULLABLE: "NO", COLUMN_DEFAULT: "0" }],
+    constraints = [{ CONSTRAINT_NAME: "content_groups_sequence", CONSTRAINT_TYPE: "CHECK" }],
+    nullCount = 0 } = {}) => ({ async query(sql, parameters) {
+    if (sql.includes("information_schema.COLUMNS")) {
+      assert.deepEqual(parameters, ["test_database"]);
+      return [columns];
+    }
+    if (sql.includes("information_schema.TABLE_CONSTRAINTS")) {
+      assert.deepEqual(parameters, ["test_database"]);
+      return [constraints];
+    }
+    if (sql.includes("FROM content_groups")) return [[{ null_count: nullCount }]];
+    throw new Error(`Unexpected SQL: ${sql}`);
+  } });
+  await assertMigrationSpecificIntegrity(connection(), { version: 56 }, "test_database");
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ columns: [] }), { version: 56 }, "test_database"),
+    /content_groups\.uses_sequence/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ constraints: [] }), { version: 56 }, "test_database"),
+    /content_groups_sequence/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ nullCount: 1 }), { version: 56 }, "test_database"),
+    /without an explicit sequence setting/u,
+  );
+});
+
 test("relationship edge-view integrity requires its contract and all join sources", async () => {
   const completeDefinition = relationshipJoinTables.map((name) => `SELECT * FROM ${name}`).join(" UNION ALL ");
   const connection = ({
@@ -462,11 +492,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55]);
-  for (let current = 29; current <= 55; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56]);
+  for (let current = 29; current <= 56; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 55 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 56 - current }, (_, index) => current + index + 1),
     );
   }
 });

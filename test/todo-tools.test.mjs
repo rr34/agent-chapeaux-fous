@@ -55,6 +55,10 @@ test("native to-do contracts are entirely non-temporal", () => {
     tools.todo_add.outputSchema), null);
   assert.match(tools.todo_add.description, /non-null sequence/u);
   assert.match(tools.todo_add.description, /personal_task_id is a different database identity/u);
+  assert.match(tools.todo_add.description,
+    /same call atomically creates the to-do with its optional connection/u);
+  assert.match(tools.todo_add.inputSchema.properties.related_contact_id.description,
+    /stored atomically in this call/u);
   assert.match(tools.todo_add.outputSchema.properties.task.properties.sequence.description,
     /user-facing number within the owning group/u);
 });
@@ -87,7 +91,7 @@ test("to-dos can be created, listed, and completed without calendar fields", asy
   assert.equal(store.requireReady().prepare("SELECT COUNT(*) AS count FROM calendar_events").get().count, 0);
 });
 
-test("inactive contacts behave as deleted relationship targets", async (context) => {
+test("todo_add connects an active contact in one call and rejects inactive targets", async (context) => {
   const { store, registry, toolContext } = harness(context);
   const database = store.requireReady();
   const activeId = Number(database.prepare(`
@@ -102,6 +106,13 @@ test("inactive contacts behave as deleted relationship targets", async (context)
     text: "Customer task", todo_group_id: 1, status: "todo",
     related_contact_id: activeId, planning_prompt_text: null, position: null,
   }, toolContext);
+  assert.equal(created.task.related_contact_id, activeId);
+  assert.deepEqual(created.task.related_contact, {
+    contact_id: activeId,
+    ref: `agent-slayer://contacts/${activeId}`,
+    display_name: "Active Person",
+    status: "active",
+  });
 
   await assert.rejects(registry.execute("todo_update", { updates: [{
     personal_task_id: created.task.personal_task_id,

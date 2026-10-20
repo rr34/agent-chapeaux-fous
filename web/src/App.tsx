@@ -37,6 +37,7 @@ import {
 import { selectedObjectSummary } from "./object-selection-summary";
 import { formatDisplayDate, formatLocalDate } from "./date-format";
 import { matchesSearch } from "./search-filter";
+import { compareSequenceValuesDescending } from "./sequence-order";
 import type {
   DailyPaperModel, DailyPaperTodoGroup, Entity, LinkedTodo, RequestRecord,
   PersistedObjectCandidate, SelectedObjectCandidate, StoredFileBinding,
@@ -163,20 +164,14 @@ function todoCompletionTime(todo: Entity) {
   return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
 }
 
-function compareTodoDisplayOrder(left: Entity, right: Entity, sequencedGroupIds: ReadonlySet<string>) {
+function compareTodoDisplayOrder(left: Entity, right: Entity) {
   const leftGroupId = readKey(left, "groupId");
   const rightGroupId = readKey(right, "groupId");
   if (leftGroupId == null || rightGroupId == null || String(leftGroupId) !== String(rightGroupId)) return 0;
-  if (sequencedGroupIds.has(String(leftGroupId))) {
-    const leftSequence = readKey(left, "sequence");
-    const rightSequence = readKey(right, "sequence");
-    if (leftSequence != null || rightSequence != null) {
-      if (leftSequence == null) return 1;
-      if (rightSequence == null) return -1;
-      const sequenceDifference = Number(rightSequence) - Number(leftSequence);
-      if (sequenceDifference !== 0) return sequenceDifference;
-    }
-  }
+  const sequenceDifference = compareSequenceValuesDescending(
+    readKey(left, "sequence"), readKey(right, "sequence"),
+  );
+  if (sequenceDifference !== 0) return sequenceDifference;
   const leftComplete = left.status === "complete";
   const rightComplete = right.status === "complete";
   if (leftComplete !== rightComplete) return leftComplete ? -1 : 1;
@@ -1353,14 +1348,7 @@ function TodoScreen() {
     ? statusTodos
     : statusTodos.filter((todo) => String(readKey(todo, "groupId")) === selectedGroupId);
   const filteredTodos = groupTodos.filter((todo) => matchesSearch(todo, filterQuery));
-  const sequencedGroupIds = new Set(
-    (groupData?.groups || [])
-      .filter((group) => Boolean(group.usesSequence))
-      .map((group) => String(group.id)),
-  );
-  const todos = showCompleted
-    ? [...filteredTodos].sort((left, right) => compareTodoDisplayOrder(left, right, sequencedGroupIds))
-    : filteredTodos;
+  const todos = [...filteredTodos].sort(compareTodoDisplayOrder);
   const setDailyPaperPinned = async (groupId: number, dailyPaperPinned: boolean) => {
     await api(`/api/todo-groups/${groupId}/daily-paper-pin`, {
       method: "POST",
@@ -1717,6 +1705,8 @@ function LibraryScreen() {
   const [addingContent, setAddingContent] = useState(false);
   const [editingContent, setEditingContent] = useState<Entity | null>(null);
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
+  const [sequenceError, setSequenceError] = useState("");
+  const [changingSequenceGroupId, setChangingSequenceGroupId] = useState<number | null>(null);
   const contentParameters = new URLSearchParams({ limit: serverQuery ? "5000" : "1000" });
   if (serverQuery) contentParameters.set("q", serverQuery);
   const { data, error, loading, reload } = useApi<{ content: Entity[] }>(`/api/content-items?${contentParameters}`);
@@ -1727,13 +1717,14 @@ function LibraryScreen() {
     && matchesSearch(entity, filterQuery),
   );
   const groups = useMemo(() => {
-    const grouped = new Map<string, { id: string; name: string; editable: boolean; items: Entity[] }>();
+    const grouped = new Map<string, { id: string; name: string; editable: boolean; usesSequence: boolean; items: Entity[] }>();
     for (const group of groupData?.groups || []) {
       if (selectedGroupId !== "all" && String(group.id) !== selectedGroupId) continue;
       grouped.set(String(group.id), {
         id: String(group.id),
         name: textKey(group, "name") || "Untitled group",
         editable: Number(group.id) !== 1,
+        usesSequence: Boolean(group.usesSequence),
         items: [],
       });
     }
@@ -1743,15 +1734,36 @@ function LibraryScreen() {
         id: groupId,
         name: textKey(item, "groupName") || "Library",
         editable: false,
+        usesSequence: false,
         items: [],
       };
       group.items.push(item);
       grouped.set(groupId, group);
     }
     const allGroups = [...grouped.values()];
+    for (const group of allGroups) {
+      group.items.sort((left, right) => compareSequenceValuesDescending(
+        readKey(left, "sequence"), readKey(right, "sequence"),
+      ));
+    }
     return filterQuery.trim() ? allGroups.filter((group) => group.items.length) : allGroups;
   }, [filterQuery, groupData?.groups, selectedGroupId, visibleContent]);
   const reloadLibrary = async () => { await Promise.all([reload(), reloadGroups()]); };
+  const setContentGroupSequenceMode = async (groupId: number, groupName: string, usesSequence: boolean) => {
+    if (usesSequence && !window.confirm(`Enable automatic sequence numbers for ${groupName}? Existing unnumbered items will be numbered.`)) return;
+    setSequenceError("");
+    setChangingSequenceGroupId(groupId);
+    try {
+      await api(`/api/content-groups/${groupId}/sequence`, {
+        method: "POST", body: JSON.stringify({ usesSequence }),
+      });
+      await reloadLibrary();
+    } catch (caught) {
+      setSequenceError(caught instanceof Error ? caught.message : "Could not change the Library sequence setting.");
+    } finally {
+      setChangingSequenceGroupId(null);
+    }
+  };
   const searchLibrary = () => {
     const nextQuery = filterQuery.trim();
     if (nextQuery === serverQuery) void reload();
@@ -1765,13 +1777,17 @@ function LibraryScreen() {
     {(loading || groupsLoading) && <Loading />}
     {error && <ErrorState error={error} retry={reloadLibrary} />}
     {groupError && <ErrorState error={groupError} retry={reloadLibrary} />}
+    {sequenceError && <p className="inline-error" role="alert">{sequenceError}</p>}
     {!loading && !groupsLoading && !error && !groupError && !groups.length && <Empty>{filterQuery.trim() ? "No library items match the filter." : "Nothing here yet."}</Empty>}
     {!loading && !groupsLoading && !error && !groupError && Boolean(groups.length) && <div className="library-groups">
       {groups.map((group) => <section className="library-group" key={group.id} aria-label={`${group.name} library group`}>
         {Number.isSafeInteger(Number(group.id)) && Number(group.id) > 0 ? <LibraryGroupCard
-          object={{ id: Number(group.id), type: "video.content_group", label: "Library group", display: group.name, attributes: [{ label: "Items", value: String(group.items.length) }] }}
+          object={{ id: Number(group.id), type: "video.content_group", label: "Library group", display: group.name, attributes: [{ label: "Items", value: String(group.items.length) }], badges: [group.usesSequence ? "Auto sequence" : "Manual numbering"] }}
           controls={<ObjectSelectionControls identity={contentGroupIdentity({ id: Number(group.id), name: group.name })} subject={`library group ${group.name}`} />}
-          actions={group.editable ? [{ key: "edit", label: "Edit", onClick: () => setEditingGroup({ id: Number(group.id), name: group.name, resource: "content-groups" }) }] : []}
+          actions={[
+            { key: "sequence", label: group.usesSequence ? "Stop auto sequence" : "Enable sequence", disabled: changingSequenceGroupId != null, onClick: () => void setContentGroupSequenceMode(Number(group.id), group.name, !group.usesSequence) },
+            ...(group.editable ? [{ key: "edit", label: "Edit", onClick: () => setEditingGroup({ id: Number(group.id), name: group.name, resource: "content-groups" }) }] : []),
+          ]}
         /> : <header className="library-group-heading"><h2 id={`library-group-${group.id}`}>{group.name}</h2><span>{group.items.length} {group.items.length === 1 ? "item" : "items"}</span></header>}
         {group.items.length ? <ul className="library-list">
           {group.items.map((entity, index) => {

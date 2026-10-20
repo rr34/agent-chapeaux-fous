@@ -11,6 +11,19 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 56: Explicit Library sequencing
+
+Adds `content_groups.uses_sequence` as the authoritative automatic-numbering
+setting for Library groups. Existing groups that already contain numbered
+items are backfilled to enabled; all other groups remain disabled. Disabling
+the setting preserves existing item numbers, while enabling it numbers existing
+unnumbered items and causes later ordinary saves without a number to receive
+the next group-local value.
+
+Apply with writers stopped so the schema and application switch from inferred
+to explicit sequencing together. The nullable guarded add and null-only
+backfill make the migration replayable after a partial MariaDB DDL commit.
+
 ## Version 55: Physical Things object family
 
 Adds authoritative `physical_item_groups` and `physical_items` tables plus

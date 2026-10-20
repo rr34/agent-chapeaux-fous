@@ -9,6 +9,7 @@ const group = {
   id: 7,
   name: "What to Watch",
   sortPosition: 20,
+  usesSequence: false,
   archivedAtUtc: null,
   createdAtUtc: "2026-10-05T12:00:00.000Z",
   updatedAtUtc: null,
@@ -27,6 +28,11 @@ test("video content service creates, reuses, and rejects archived named groups",
       assert.equal(groupId, group.id);
       assert.equal(context.actorName, "video_content_group_rename");
       return { group: { ...group, name, previousName: group.name } };
+    },
+    setContentGroupSequenceMode(groupId, { usesSequence }, context) {
+      assert.equal(groupId, group.id);
+      assert.equal(context.actorName, "video_content_group_sequence_set");
+      return { changed: true, assignedItemCount: 0, group: { ...group, usesSequence } };
     },
   };
   const content = new VideoContent({ videoScripts: {}, organizer });
@@ -57,6 +63,9 @@ test("video content service creates, reuses, and rejects archived named groups",
     previousName: "What to Watch",
     group: { ...group, name: "Time v3" },
   });
+  assert.equal(content.setGroupSequenceMode({ groupId: 7, usesSequence: true }, {
+    actorName: "video_content_group_sequence_set",
+  }).group.usesSequence, true);
 });
 
 test("content creation tools publish compact identified mutation results", async () => {
@@ -81,6 +90,10 @@ test("content creation tools publish compact identified mutation results", async
     renameGroup({ groupId, name }) {
       assert.equal(groupId, group.id);
       return { renamed: true, previousName: group.name, group: { ...group, name } };
+    },
+    setGroupSequenceMode({ groupId, usesSequence }) {
+      assert.equal(groupId, group.id);
+      return { changed: true, assignedItemCount: 1, group: { ...group, usesSequence } };
     },
     createItems() {
       return {

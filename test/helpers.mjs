@@ -13,6 +13,17 @@ import {
 
 const schemaSource = fs.readFileSync(baselineFilename, "utf8");
 
+export function baselineBeforeContentGroupSequence(source) {
+  return source
+    .replace(/^    uses_sequence\s+TINYINT[^\n]+\n/mu, "")
+    .replace(/^    CONSTRAINT content_groups_sequence[^\n]+\n/mu, "")
+    .replace("    CONSTRAINT content_groups_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 200),\n",
+      "    CONSTRAINT content_groups_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 200)\n")
+    .replace(" uses_sequence explicitly controls automatic item numbering; disabling it preserves existing item numbers.", "")
+    .replace("Target: MariaDB 10.11, schema version 56.", "Target: MariaDB 10.11, schema version 55.")
+    .replace("VALUES (1, 56,", "VALUES (1, 55,");
+}
+
 export function baselineBeforeObjectRelationshipEdges(source) {
   return baselineBeforePhysicalThings(source)
     .replace(/CREATE SQL SECURITY INVOKER VIEW object_relationship_edges AS[\s\S]*?\nCREATE VIEW activity_operation_latency AS/u,
@@ -22,6 +33,7 @@ export function baselineBeforeObjectRelationshipEdges(source) {
 }
 
 export function baselineBeforePhysicalThings(source) {
+  source = baselineBeforeContentGroupSequence(source);
   for (const table of [
     "physical_items_contacts_join", "physical_items_files_join", "physical_items_content_join",
     "physical_items_todo_join", "physical_items", "physical_item_groups",

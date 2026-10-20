@@ -7,6 +7,7 @@ import { formatDisplayDate, formatDisplayTime, formatLocalDate } from "../date-f
 import { CalendarEventItem } from "./EditableItems";
 import { CalendarEventCard, calendarEventCardObject } from "./object-cards/CalendarEventCard";
 import { matchesSearch, searchTerms } from "../search-filter";
+import { compareSequenceValuesDescending } from "../sequence-order";
 
 function timeLabel(event: CalendarEvent, timeZone: string) {
   if (event.isAllDay) return "All day";
@@ -235,12 +236,8 @@ export function ScheduledTrackers({ trackers }: { trackers: ScheduledTracker[] }
 }
 
 function compareTodoOrder(left: LinkedTodo, right: LinkedTodo) {
-  const leftHasSequence = left.sequence != null;
-  const rightHasSequence = right.sequence != null;
-  if (leftHasSequence !== rightHasSequence) return leftHasSequence ? -1 : 1;
-  if (leftHasSequence && rightHasSequence && left.sequence !== right.sequence) {
-    return Number(right.sequence) - Number(left.sequence);
-  }
+  const sequenceDifference = compareSequenceValuesDescending(left.sequence, right.sequence);
+  if (sequenceDifference !== 0) return sequenceDifference;
   return Number(left.sortPosition ?? Number.MAX_SAFE_INTEGER)
     - Number(right.sortPosition ?? Number.MAX_SAFE_INTEGER)
     || left.todoId - right.todoId;

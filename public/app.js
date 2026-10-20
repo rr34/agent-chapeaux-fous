@@ -294,6 +294,7 @@ const elements = {
   contentGroupDialogTitle: document.querySelector("#content-group-dialog-title"),
   contentGroupId: document.querySelector("#content-group-id"),
   contentGroupName: document.querySelector("#content-group-name"),
+  contentGroupSequence: document.querySelector("#content-group-sequence"),
   contentGroupFormError: document.querySelector("#content-group-form-error"),
   contentGroupArchive: document.querySelector("#content-group-archive"),
   contentDialog: document.querySelector("#content-dialog"),
@@ -4281,7 +4282,7 @@ function updateContentSequenceHint() {
   const selected = contentGroups.find(({ id }) => String(id) === elements.contentGroup.value);
   elements.contentSequenceHint.textContent = selected?.usesSequence
     ? "Assigned the next unique number when left blank."
-    : "Optional for this group. Entering a number starts its sequence.";
+    : "Optional while automatic sequencing is disabled for this group.";
 }
 
 function openContentEditor(item = null, groupId = null) {
@@ -4391,10 +4392,36 @@ function openContentGroupEditor(groupId) {
   elements.contentGroupDialogTitle.textContent = `Edit ${group.name}`;
   elements.contentGroupId.value = String(group.id);
   elements.contentGroupName.value = group.name;
+  elements.contentGroupSequence.textContent = group.usesSequence ? "Stop auto sequence" : "Enable sequence";
   elements.contentGroupName.readOnly = isGeneral;
   elements.contentGroupArchive.hidden = isGeneral;
   elements.contentGroupDialog.showModal();
   (isGeneral ? elements.contentGroupDialog.querySelector(".dialog-close") : elements.contentGroupName).focus();
+}
+
+async function changeContentGroupSequenceMode() {
+  const groupId = Number(elements.contentGroupId.value);
+  const group = contentGroups.find(({ id }) => id === groupId);
+  if (!group) return;
+  const usesSequence = !group.usesSequence;
+  if (usesSequence && !window.confirm(`Enable automatic sequence numbers for ${group.name}? Existing unnumbered items will be numbered.`)) return;
+  elements.contentGroupSequence.disabled = true;
+  elements.contentGroupFormError.textContent = "";
+  try {
+    const result = await api(`/api/content-groups/${groupId}/sequence`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ usesSequence }),
+    });
+    const assigned = result.assignedItemCount ? ` ${result.assignedItemCount} existing items were numbered.` : "";
+    elements.status.textContent = usesSequence
+      ? `${group.name} now assigns sequence numbers automatically.${assigned}`
+      : `${group.name} no longer assigns sequence numbers automatically. Existing numbers were preserved.`;
+    elements.contentGroupDialog.close();
+    await refreshContent();
+  } catch (error) {
+    elements.contentGroupFormError.textContent = error.message || "Could not change the group's sequence setting.";
+  } finally {
+    elements.contentGroupSequence.disabled = false;
+  }
 }
 
 async function saveContentGroup(event) {
@@ -5705,6 +5732,7 @@ elements.todoForm.addEventListener("submit", saveTodo);
 elements.todoCalendarForm.addEventListener("submit", saveTodoCalendarPlacement);
 elements.newContentGroup.addEventListener("click", () => void createContentGroup());
 elements.contentGroupForm.addEventListener("submit", saveContentGroup);
+elements.contentGroupSequence.addEventListener("click", () => void changeContentGroupSequenceMode());
 elements.contentGroupArchive.addEventListener("click", () => void archiveEditedContentGroup());
 elements.contentNewGroup.addEventListener("click", async () => {
   const group = await createContentGroup({ selectFilter: false });

@@ -13,6 +13,11 @@ invent a group; use Inbox only when no existing group reasonably fits. New user-
 `ai_suggested` is reserved for agent-proposed work that the user has not
 accepted or dismissed. Preserve an exact user-supplied planning question in
 `planning_prompt_text`; the prompt and lifecycle status remain independent.
+When creating a to-do for an exact active contact, pass that retained contact's
+`contact_id` as `todo_add.related_contact_id`. That single call atomically
+creates the task and its contact connection; do not follow it with
+`object_connection_set`. Use the separate relationship surface only when
+connecting already-existing objects.
 Rename or delete groups with one batch-shaped `todo_group_update` call and each
 exact bound `todo_group_id`. Renaming preserves the group identity, tasks, and
 ordering. Deletion removes an empty group from active use while retaining its

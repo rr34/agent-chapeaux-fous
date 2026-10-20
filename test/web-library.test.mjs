@@ -5,6 +5,7 @@ import test from "node:test";
 const appSource = fs.readFileSync(new URL("../web/src/App.tsx", import.meta.url), "utf8");
 const editableItemsSource = fs.readFileSync(new URL("../web/src/components/EditableItems.tsx", import.meta.url), "utf8");
 const libraryCardSource = fs.readFileSync(new URL("../web/src/components/object-cards/LibraryItemCard.tsx", import.meta.url), "utf8");
+const sequenceOrderSource = fs.readFileSync(new URL("../web/src/sequence-order.ts", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("../web/src/styles.css", import.meta.url), "utf8");
 
 test("the React library renders content as grouped list rows", () => {
@@ -41,4 +42,12 @@ test("the React library creates and edits content with the shared modal and card
   assert.match(editableItemsSource, /method: creating \? "POST" : "PATCH"/);
   assert.match(editableItemsSource, /version: String\(content\.version \|\| ""\)/);
   assert.match(editableItemsSource, /creating \? "Add content" : "Save content"/);
+});
+
+test("to-do and Library groups share descending numbered-item display order", () => {
+  assert.match(sequenceOrderSource, /if \(left === null \|\| right === null\)/);
+  assert.match(sequenceOrderSource, /return left === null \? 1 : -1/);
+  assert.match(sequenceOrderSource, /return right - left/);
+  assert.match(appSource, /const todos = \[\.\.\.filteredTodos\]\.sort\(compareTodoDisplayOrder\)/);
+  assert.match(appSource, /group\.items\.sort\(\(left, right\) => compareSequenceValuesDescending/);
 });

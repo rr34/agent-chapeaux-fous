@@ -1,6 +1,6 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 
-export const requiredDatabaseSchemaVersion = 55;
+export const requiredDatabaseSchemaVersion = 56;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -37,7 +37,7 @@ export const requiredDatabaseShape = {
   todo_correspondence_join: ["personal_task_id", "correspondence_id", "created_at_utc"],
   calendar_events_correspondence_join: ["calendar_event_id", "correspondence_id", "created_at_utc"],
   contacts_tags_join: ["tag_id", "record_type", "record_id"],
-  content_groups: ["content_group_id", "name", "sort_position", "archived_at_utc"],
+  content_groups: ["content_group_id", "name", "sort_position", "uses_sequence", "archived_at_utc"],
   content_items: [
     "content_id", "content_group_id", "sequence", "content_type", "title",
     "transcript", "description", "published_at_utc", "content_host", "content_status", "content_url",

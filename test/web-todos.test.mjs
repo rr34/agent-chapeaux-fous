@@ -39,11 +39,9 @@ test("the React to-do page prints exactly its visible filtered groups as a PDF c
 });
 
 test("completed to-dos keep each group's intended ordering", () => {
-  assert.match(appSource, /\.filter\(\(group\) => Boolean\(group\.usesSequence\)\)/);
   assert.match(appSource, /String\(leftGroupId\) !== String\(rightGroupId\)\) return 0/);
-  assert.match(appSource, /sequencedGroupIds\.has\(String\(leftGroupId\)\)/);
-  assert.match(appSource, /const sequenceDifference = Number\(rightSequence\) - Number\(leftSequence\)/);
-  assert.match(appSource, /\.sort\(\(left, right\) => compareTodoDisplayOrder\(left, right, sequencedGroupIds\)\)/);
+  assert.match(appSource, /compareSequenceValuesDescending\(\s*readKey\(left, "sequence"\), readKey\(right, "sequence"\)/);
+  assert.match(appSource, /const todos = \[\.\.\.filteredTodos\]\.sort\(compareTodoDisplayOrder\)/);
   assert.match(appSource, /if \(leftComplete !== rightComplete\) return leftComplete \? -1 : 1/);
   assert.match(appSource, /rightCompletedAt > leftCompletedAt \? 1 : -1/);
 });

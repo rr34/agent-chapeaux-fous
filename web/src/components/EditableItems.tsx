@@ -298,7 +298,7 @@ export function LibraryContentEditor({ content, groups, initialGroupId, onClose,
         <label>Group<select required value={draft.groupId} onChange={(change) => setDraft({ ...draft, groupId: change.target.value })}>
           {groups.map((group) => <option value={String(group.id)} key={String(group.id)}>{String(group.name || "Untitled group")}</option>)}
         </select></label>
-        <label>Sequence<input type="number" min="1" step="1" value={draft.sequence} onChange={(change) => setDraft({ ...draft, sequence: change.target.value })} /><span className="field-hint">{selectedGroup?.usesSequence ? "Assigned the next unique number when left blank." : "Optional for this group. Entering a number starts its sequence."}</span></label>
+        <label>Sequence<input type="number" min="1" step="1" value={draft.sequence} onChange={(change) => setDraft({ ...draft, sequence: change.target.value })} /><span className="field-hint">{selectedGroup?.usesSequence ? "Assigned the next unique number when left blank." : "Optional while automatic sequencing is disabled for this group."}</span></label>
         <label>Type<select value={draft.contentType} onChange={(change) => setDraft({ ...draft, contentType: change.target.value })}>
           <option value="mobileUGC_tutorial">Mobile UGC tutorial</option><option value="mobileUGC_ad">Mobile UGC ad</option><option value="webUGC_tutorial">Web UGC tutorial</option><option value="webUGC_ad">Web UGC ad</option><option value="video_ad">Video ad</option><option value="podcast">Podcast</option><option value="image">Image</option><option value="unknown">Unknown</option>
         </select></label>

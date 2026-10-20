@@ -18,7 +18,7 @@ export class VideoContent {
     return this.organizer.listSequencedContent(input);
   }
 
-  createGroup({ name }) {
+  createGroup({ name, usesSequence = false }) {
     const selectedName = String(name ?? "").trim();
     const existing = this.organizer.listContentGroups({ includeArchived: true })
       .find((group) => group.name === selectedName);
@@ -32,7 +32,7 @@ export class VideoContent {
     return {
       created: true,
       unchanged: false,
-      group: this.organizer.createContentGroup({ name: selectedName }),
+      group: this.organizer.createContentGroup({ name: selectedName, usesSequence }),
     };
   }
 
@@ -41,6 +41,13 @@ export class VideoContent {
     const result = this.organizer.renameContentGroup(selectedGroupId, { name }, context);
     const { previousName, ...group } = result.group;
     return { renamed: true, previousName, group };
+  }
+
+  setGroupSequenceMode({ groupId, usesSequence }, context = {}) {
+    const selectedGroupId = positiveInteger(groupId, "Content group ID");
+    return this.organizer.setContentGroupSequenceMode(
+      selectedGroupId, { usesSequence }, context,
+    );
   }
 
   createItems(input, context = {}) {

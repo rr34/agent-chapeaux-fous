@@ -1141,6 +1141,13 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, { groups: organizer.reorderContentGroups(await readJson(request)) });
       return;
     }
+    const contentGroupSequenceMatch = /^\/api\/content-groups\/(\d+)\/sequence$/.exec(url.pathname);
+    if (request.method === "POST" && contentGroupSequenceMatch) {
+      sendJson(response, 200, organizer.setContentGroupSequenceMode(
+        contentGroupSequenceMatch[1], await readJson(request),
+      ));
+      return;
+    }
     const contentGroupMatch = /^\/api\/content-groups\/(\d+)$/.exec(url.pathname);
     if (request.method === "PATCH" && contentGroupMatch) {
       sendJson(response, 200, organizer.renameContentGroup(contentGroupMatch[1], await readJson(request)));

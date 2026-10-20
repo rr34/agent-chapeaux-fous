@@ -1367,7 +1367,7 @@ test("grouped content supports sequence-aware CRUD, filtering, and safe group li
   }
 });
 
-test("content saves assign the next number only after a group becomes sequenced", () => {
+test("content groups assign numbers only while their explicit sequence setting is enabled", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.target);
   try {
@@ -1382,18 +1382,27 @@ test("content saves assign the next number only after a group becomes sequenced"
     const explicit = organizer.createContent({
       groupId: group.id, sequence: 7, title: "First numbered item",
     });
-    const generated = organizer.createContent({ groupId: group.id, title: "Next numbered item" });
+    const stillUnnumbered = organizer.createContent({ groupId: group.id, title: "Still unnumbered" });
     assert.equal(explicit.sequence, 7);
-    assert.equal(generated.sequence, 8);
-    const numberedOnSave = organizer.updateContent(unnumbered.id, {
-      version: unnumbered.version,
-      description: "Saved after the group became sequenced.",
-    });
-    assert.equal(numberedOnSave.sequence, 9);
     assert.equal(
       organizer.listContentGroups().find(({ id }) => id === group.id).usesSequence,
-      true,
+      false,
     );
+
+    const enabled = organizer.setContentGroupSequenceMode(group.id, { usesSequence: true });
+    assert.equal(enabled.changed, true);
+    assert.equal(enabled.assignedItemCount, 2);
+    assert.equal(enabled.group.usesSequence, true);
+    assert.equal(organizer.getContent(unnumbered.id).sequence, 8);
+    assert.equal(organizer.getContent(stillUnnumbered.id).sequence, 9);
+    assert.equal(organizer.createContent({ groupId: group.id, title: "Next numbered item" }).sequence, 10);
+
+    const disabled = organizer.setContentGroupSequenceMode(group.id, { usesSequence: false });
+    assert.equal(disabled.changed, true);
+    assert.equal(disabled.assignedItemCount, 0);
+    assert.equal(disabled.group.usesSequence, false);
+    assert.equal(organizer.createContent({ groupId: group.id, title: "Optional number" }).sequence, null);
+    assert.equal(organizer.getContent(explicit.id).sequence, 7);
   } finally {
     organizer.close();
     temporary.cleanup();

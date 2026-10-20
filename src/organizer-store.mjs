@@ -876,6 +876,7 @@ function publicContentGroup(row) {
     id: row.content_group_id,
     name: row.name,
     sortPosition: row.sort_position,
+    usesSequence: Boolean(row.uses_sequence),
     archivedAtUtc: row.archived_at_utc,
     createdAtUtc: row.created_at_utc,
     updatedAtUtc: row.updated_at_utc,
@@ -2656,30 +2657,26 @@ export class OrganizerStore {
 
   listContentGroups({ includeArchived = false } = {}) {
     return this.database.prepare(`
-      SELECT content_group.*,
-             EXISTS (
-               SELECT 1 FROM content_items AS content
-               WHERE content.content_group_id = content_group.content_group_id
-                 AND content.sequence IS NOT NULL
-             ) AS uses_sequence
+      SELECT content_group.*
       FROM content_groups AS content_group
       ${includeArchived ? "" : "WHERE content_group.archived_at_utc IS NULL"}
       ORDER BY content_group.sort_position, content_group.content_group_id
-    `).all().map((row) => ({
-      ...publicContentGroup(row),
-      usesSequence: Boolean(row.uses_sequence),
-    }));
+    `).all().map(publicContentGroup);
   }
 
   createContentGroup(input) {
     const name = requiredText(input?.name, "name", 200);
+    const usesSequence = input?.usesSequence ?? false;
+    if (typeof usesSequence !== "boolean") {
+      throw new OrganizerInputError("usesSequence must be true or false.");
+    }
     const now = new Date().toISOString();
     this.database.exec("START TRANSACTION");
     try {
       const result = this.database.prepare(`
-        INSERT INTO content_groups (name, sort_position, created_at_utc)
-        SELECT ?, COALESCE(MAX(sort_position), 0) + 10, ? FROM content_groups
-      `).run(name, now);
+        INSERT INTO content_groups (name, sort_position, uses_sequence, created_at_utc)
+        SELECT ?, COALESCE(MAX(sort_position), 0) + 10, ?, ? FROM content_groups
+      `).run(name, usesSequence ? 1 : 0, now);
       const group = publicContentGroup(this.database.prepare(
         "SELECT * FROM content_groups WHERE content_group_id = ?",
       ).get(Number(result.lastInsertRowid)));
@@ -2694,6 +2691,75 @@ export class OrganizerStore {
       if (String(error?.message).includes("content_groups.name")) {
         throw new OrganizerInputError("A content group with that name already exists.", 409);
       }
+      throw error;
+    }
+  }
+
+  setContentGroupSequenceMode(idValue, input, context = {}) {
+    const id = identifier(idValue, "content group id");
+    if (typeof input?.usesSequence !== "boolean") {
+      throw new OrganizerInputError("usesSequence must be true or false.");
+    }
+    const usesSequence = input.usesSequence;
+    this.database.exec("START TRANSACTION");
+    try {
+      const row = this.database.prepare(`
+        SELECT * FROM content_groups
+        WHERE content_group_id = ? AND archived_at_utc IS NULL
+        FOR UPDATE
+      `).get(id);
+      if (!row) throw new OrganizerInputError("Content group not found.", 404);
+      const updatedAtUtc = new Date().toISOString();
+      let assignedItemCount = 0;
+      if (usesSequence) {
+        const nextSequence = Number(this.database.prepare(`
+          SELECT COALESCE(MAX(sequence), 0) + 1 AS value
+          FROM content_items WHERE content_group_id = ?
+        `).get(id).value);
+        const unnumbered = this.database.prepare(`
+          SELECT content_id FROM content_items
+          WHERE content_group_id = ? AND sequence IS NULL
+          ORDER BY content_id
+        `).all(id);
+        const assign = this.database.prepare(`
+          UPDATE content_items SET sequence = ?, updated_at_utc = ?
+          WHERE content_id = ? AND sequence IS NULL
+        `);
+        unnumbered.forEach((content, index) => {
+          assignedItemCount += assign.run(
+            nextSequence + index, updatedAtUtc, content.content_id,
+          ).changes;
+        });
+      }
+      this.database.prepare(`
+        UPDATE content_groups SET uses_sequence = ?, updated_at_utc = ?
+        WHERE content_group_id = ? AND archived_at_utc IS NULL
+      `).run(usesSequence ? 1 : 0, updatedAtUtc, id);
+      const group = publicContentGroup(this.database.prepare(
+        "SELECT * FROM content_groups WHERE content_group_id = ?",
+      ).get(id));
+      const result = {
+        changed: Boolean(row.uses_sequence) !== usesSequence,
+        assignedItemCount,
+        group,
+      };
+      this.#activity({
+        eventType: "content_group.sequence_mode_set", status: "complete",
+        name: "Content group sequence mode set",
+        subjectType: "content_group", subjectId: id,
+        contentText: `${group.name}: ${usesSequence ? "automatic sequence on" : "automatic sequence off"}`,
+        payload: result,
+        actorType: context.actorType ?? "user",
+        actorName: context.actorName ?? "Nate",
+        source: context.source ?? "tailnet_web",
+        channel: context.channel ?? "tailnet_web",
+        turnId: context.requestId ?? null,
+        operationId: context.callId ?? null,
+      });
+      this.database.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
       throw error;
     }
   }
@@ -2962,18 +3028,16 @@ export class OrganizerStore {
     this.database.exec("START TRANSACTION");
     try {
       const group = this.database.prepare(
-        "SELECT 1 FROM content_groups WHERE content_group_id = ? AND archived_at_utc IS NULL",
+        "SELECT uses_sequence FROM content_groups WHERE content_group_id = ? AND archived_at_utc IS NULL",
       ).get(item.groupId);
       if (!group) throw new OrganizerInputError("Content group not found.", 404);
-      if (item.sequence === null) {
+      if (item.sequence === null && group.uses_sequence) {
         const maximumSequence = this.database.prepare(`
           SELECT MAX(sequence) AS value
           FROM content_items
           WHERE content_group_id = ?
         `).get(item.groupId).value;
-        if (maximumSequence !== null) {
-          item.sequence = optionalPositiveInteger(Number(maximumSequence) + 1, "sequence");
-        }
+        item.sequence = optionalPositiveInteger(Number(maximumSequence ?? 0) + 1, "sequence");
       }
       const result = this.database.prepare(`
         INSERT INTO content_items (
@@ -3536,18 +3600,17 @@ export class OrganizerStore {
         contentStatus: input.contentStatus === undefined ? before.contentStatus : enumValue(input.contentStatus, contentStatuses, "contentStatus", before.contentStatus),
         contentUrl: input.contentUrl === undefined ? before.contentUrl : httpUrl(input.contentUrl, "contentUrl"),
       };
-      if (!this.database.prepare(
-        "SELECT 1 FROM content_groups WHERE content_group_id = ? AND archived_at_utc IS NULL",
-      ).get(after.groupId)) throw new OrganizerInputError("Content group not found.", 404);
-      if (after.sequence === null) {
+      const destinationGroup = this.database.prepare(
+        "SELECT uses_sequence FROM content_groups WHERE content_group_id = ? AND archived_at_utc IS NULL",
+      ).get(after.groupId);
+      if (!destinationGroup) throw new OrganizerInputError("Content group not found.", 404);
+      if (after.sequence === null && destinationGroup.uses_sequence) {
         const maximumSequence = this.database.prepare(`
           SELECT MAX(sequence) AS value
           FROM content_items
           WHERE content_group_id = ? AND content_id <> ?
         `).get(after.groupId, id).value;
-        if (maximumSequence !== null) {
-          after.sequence = optionalPositiveInteger(Number(maximumSequence) + 1, "sequence");
-        }
+        after.sequence = optionalPositiveInteger(Number(maximumSequence ?? 0) + 1, "sequence");
       }
       const changes = changedFields(before, after, [
         "groupId", "sequence", "contentType", "title", "transcript", "description",

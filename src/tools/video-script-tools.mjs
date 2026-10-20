@@ -33,6 +33,17 @@ const toolDescriptions = Object.freeze({
       "MUTATING"
     ]
   },
+  "video_content_group_sequence_set": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Enable or disable automatic sequence assignment for one exact content-library group.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
   "video_content_create": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
@@ -225,6 +236,7 @@ const contentGroupSchema = {
     id: { type: ["integer", "string"] },
     name: { type: "string" },
     sortPosition: { type: ["integer", "string"] },
+    usesSequence: { type: "boolean" },
     archivedAtUtc: { type: ["string", "null"] },
     createdAtUtc: { type: "string" },
     updatedAtUtc: { type: ["string", "null"] },
@@ -233,7 +245,7 @@ const contentGroupSchema = {
     content_group_name: { type: "string" },
   },
   required: [
-    "id", "name", "sortPosition", "archivedAtUtc", "createdAtUtc", "updatedAtUtc",
+    "id", "name", "sortPosition", "usesSequence", "archivedAtUtc", "createdAtUtc", "updatedAtUtc",
     "content_group_id", "content_group_ref", "content_group_name",
   ],
 };
@@ -555,6 +567,10 @@ export function registerVideoScriptTools(
             type: "string", minLength: 1, maxLength: 200,
             description: "Complete human-facing name for the content-library group.",
           },
+          usesSequence: {
+            type: "boolean",
+            description: "Whether this group should automatically assign sequence numbers to ordinary content saved without one. Defaults to false.",
+          },
         },
         required: ["name"],
       },
@@ -590,6 +606,38 @@ export function registerVideoScriptTools(
       execute(args, context) {
         const result = videoContent.renameGroup(args, {
           ...context, actorType: "tool", actorName: "video_content_group_rename",
+          source: "agent-slayer", channel: context.channel ?? "agent",
+        });
+        return { ...result, group: identifiedContentGroup(result.group) };
+      },
+    });
+
+    capabilityRegistry.register({
+      name: "video_content_group_sequence_set",
+      title: "Set content-library group sequencing",
+      description: "Enable or disable automatic sequence assignment for one exact active content-library group. Enabling assigns numbers to existing unnumbered items in stable creation order after the current maximum. Disabling preserves every existing number and makes later blank ordinary saves remain unnumbered.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          groupId: { type: "integer", minimum: 1, description: "Stable ID of the exact active content-library group." },
+          usesSequence: { type: "boolean", description: "True enables automatic numbering; false disables it without clearing existing numbers." },
+        },
+        required: ["groupId", "usesSequence"],
+      },
+      outputSchema: {
+        type: "object", additionalProperties: false,
+        properties: {
+          changed: { type: "boolean" },
+          assignedItemCount: { type: "integer" },
+          group: contentGroupSchema,
+        },
+        required: ["changed", "assignedItemCount", "group"],
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      execute(args, context) {
+        const result = videoContent.setGroupSequenceMode(args, {
+          ...context, actorType: "tool", actorName: "video_content_group_sequence_set",
           source: "agent-slayer", channel: context.channel ?? "agent",
         });
         return { ...result, group: identifiedContentGroup(result.group) };
@@ -942,7 +990,7 @@ export function registerVideoScriptTools(
         data: { groups: groups.map(identifiedContentGroup) },
         text: [
           "Active content-library groups:",
-          ...groups.map((group) => `- ${group.name} [content_group_id=${group.id}]`),
+          ...groups.map((group) => `- ${group.name} [content_group_id=${group.id}; automatic_sequence=${group.usesSequence ? "on" : "off"}]`),
         ].join("\n"),
       };
     },

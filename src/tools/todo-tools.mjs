@@ -11,7 +11,7 @@ const toolDescriptions = Object.freeze({
   "todo_add": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Create one non-temporal native personal to-do in an exact stable-ID group, with optional planning prompt, position, contact, and fixed billable price.",
+    "summary": "Create one non-temporal native personal to-do in an exact stable-ID group, with optional planning prompt, position, fixed billable price, and an optional contact connection established atomically in the same call.",
     "actionClasses": [
       "CREATE"
     ],
@@ -400,13 +400,16 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_add",
-    description: "Add one non-temporal native personal to-do to an exact group selected by stable ID. New items default to the top of their group unless an explicit position is supplied. It may carry a fixed billable amount in minor currency units. To place work or a deadline on the calendar, create a calendar event and link it to the to-do. When the returned task has a non-null sequence, report that group-local sequence together with group_name in the completion response; personal_task_id is a different database identity.",
+    description: "Add one non-temporal native personal to-do to an exact group selected by stable ID. When related_contact_id is supplied, this same call atomically creates the to-do with its optional connection to that exact active contact; do not make a follow-up relationship call. New items default to the top of their group unless an explicit position is supplied. It may carry a fixed billable amount in minor currency units. To place work or a deadline on the calendar, create a calendar event and link it to the to-do. When the returned task has a non-null sequence, report that group-local sequence together with group_name in the completion response; personal_task_id is a different database identity.",
     outputSchema: { type: "object", properties: { task: todoTaskRecordSchema } },
     parameters: { type: "object", additionalProperties: false, properties: {
       text: { type: "string", minLength: 1, maxLength: 10000 },
       status: { type: "string", enum: todoStatuses },
       todo_group_id: { type: "integer", minimum: 1 },
-      related_contact_id: { type: ["integer", "null"], minimum: 1 },
+      related_contact_id: {
+        type: ["integer", "null"], minimum: 1,
+        description: "Existing active contact to connect while creating the to-do. The connection is stored atomically in this call; null or omission creates the to-do without one.",
+      },
       planning_prompt_text: optionalText,
       billable_amount_minor: { type: ["integer", "null"], minimum: 1 },
       billable_currency: { type: ["string", "null"], pattern: "^[A-Z]{3}$" },

@@ -16,6 +16,39 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0056: explicit-content-group-sequencing
+-- writer downtime: required while the content-group setting and matching
+-- application behavior are installed together.
+-- locking: ALTER TABLE takes a metadata lock; the one-time backfill reads
+-- content_items and updates only the new nullable column in content_groups.
+-- recovery: MariaDB DDL commits implicitly. The nullable add and null-only
+-- backfill make this block replayable after partial completion. Keep writers
+-- stopped and replay the complete migration before starting the application.
+
+ALTER TABLE content_groups
+  ADD COLUMN IF NOT EXISTS uses_sequence TINYINT NULL DEFAULT NULL
+    COMMENT 'Whether this group automatically assigns the next unique positive sequence number to content saved without one. 0: Sequence numbers are optional and are not assigned automatically. 1: Unnumbered content receives the next number after the group''s current maximum. Disabling automatic sequencing preserves numbers already assigned.'
+    AFTER sort_position;
+
+UPDATE content_groups AS content_group
+SET content_group.uses_sequence = EXISTS (
+  SELECT 1 FROM content_items AS content
+  WHERE content.content_group_id = content_group.content_group_id
+    AND content.sequence IS NOT NULL
+)
+WHERE content_group.uses_sequence IS NULL;
+
+ALTER TABLE content_groups
+  DROP CONSTRAINT IF EXISTS content_groups_sequence,
+  MODIFY COLUMN uses_sequence TINYINT NOT NULL DEFAULT 0
+    COMMENT 'Whether this group automatically assigns the next unique positive sequence number to content saved without one. 0: Sequence numbers are optional and are not assigned automatically. 1: Unnumbered content receives the next number after the group''s current maximum. Disabling automatic sequencing preserves numbers already assigned.',
+  ADD CONSTRAINT content_groups_sequence CHECK (uses_sequence IN (0, 1));
+
+ALTER TABLE content_groups
+  COMMENT='Defines the named groups that organize the user''s content catalog. One row represents one content group. Every content item belongs to exactly one content group. sort_position controls group presentation order without changing stable group identifiers. uses_sequence explicitly controls automatic item numbering; disabling it preserves existing item numbers. Sensitivity: Group names may reveal private content plans and interests.';
+
+-- end migration 0056
+
 -- migration 0055: physical-things-object-family
 -- writer downtime: required while the six new authoritative tables and the
 -- expanded relationship view are installed with the matching application.

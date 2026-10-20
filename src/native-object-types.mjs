@@ -379,7 +379,10 @@ export const nativeFirstClassObjectTypes = Object.freeze([
     identity: field("content_group_id", "Stable native content-group primary ID."),
     reference: field("content_group_ref", "Stable Agent Slayer content-group reference."),
     display: field("content_group_name", "Human-facing content-group name."),
-    qualifiers: [field("sortPosition", "Current ordering position among content groups.")],
+    qualifiers: [
+      field("sortPosition", "Current ordering position among content groups."),
+      field("usesSequence", "Whether the group automatically assigns sequence numbers."),
+    ],
     relationships: [relationship("items", "video.content_item", "Ordered content items contained by this group.")],
     idFields: ["content_group_id"], displayFields: ["content_group_name"],
     refFields: ["content_group_ref"], refPrefix: "agent-slayer://content-groups/",

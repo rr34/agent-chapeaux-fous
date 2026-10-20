@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 55.
+-- Target: MariaDB 10.11, schema version 56.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -239,6 +239,7 @@ CREATE TABLE content_groups (
     content_group_id  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for this content group.',
     name              VARCHAR(200) NOT NULL COMMENT 'Complete human-facing name of the content group.',
     sort_position     BIGINT NOT NULL DEFAULT 0 COMMENT 'Mutable presentation order used to place the group and all of its content in the catalog.',
+    uses_sequence     TINYINT NOT NULL DEFAULT 0 COMMENT 'Whether this group automatically assigns the next unique positive sequence number to content saved without one. 0: Sequence numbers are optional and are not assigned automatically. 1: Unnumbered content receives the next number after the group''s current maximum. Disabling automatic sequencing preserves numbers already assigned.',
     archived_at_utc   DATETIME(3) COMMENT 'UTC time when this group was removed from active content organization, or null while active. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     created_at_utc    DATETIME(3) NOT NULL
                       DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC time when this content group was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
@@ -246,8 +247,9 @@ CREATE TABLE content_groups (
     PRIMARY KEY (content_group_id),
     UNIQUE KEY content_groups_name (name),
     KEY content_groups_order (archived_at_utc, sort_position, content_group_id),
-    CONSTRAINT content_groups_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 200)
-) ENGINE=InnoDB COMMENT='Defines the named groups that organize the user''s content catalog. One row represents one content group. Every content item belongs to exactly one content group. sort_position controls group presentation order without changing stable group identifiers. Sensitivity: Group names may reveal private content plans and interests.';
+    CONSTRAINT content_groups_name_length CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 200),
+    CONSTRAINT content_groups_sequence CHECK (uses_sequence IN (0, 1))
+) ENGINE=InnoDB COMMENT='Defines the named groups that organize the user''s content catalog. One row represents one content group. Every content item belongs to exactly one content group. sort_position controls group presentation order without changing stable group identifiers. uses_sequence explicitly controls automatic item numbering; disabling it preserves existing item numbers. Sensitivity: Group names may reveal private content plans and interests.';
 
 CREATE TABLE journal1_groups (
     -- sourceOfTruth: true
@@ -1806,4 +1808,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 55, 'Chapeaux Fous MariaDB database');
+VALUES (1, 56, 'Chapeaux Fous MariaDB database');

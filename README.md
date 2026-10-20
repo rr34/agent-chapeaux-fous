@@ -398,6 +398,9 @@ capability selector, which controls which exact tool schemas are callable.
   schedules, deadlines, durations, all-day state, and recurrence belong to the
   calendar. New and existing tasks can be
   placed at an exact 1-based manual sort position, including position 1.
+  `todo_add` accepts an exact active contact ID and atomically creates the task
+  with that optional contact connection in the same native call; an existing
+  task's connection is set or cleared through `todo_update`.
   `todo_update` applies one through 500 independently identified changes in one
   atomic call, using the same array schema for a singular update.
 - `calendar_event_search`, `calendar_event_list`, `calendar_event_add`,

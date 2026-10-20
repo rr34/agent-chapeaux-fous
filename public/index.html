@@ -827,7 +827,8 @@
       </header>
       <input id="content-group-id" type="hidden">
       <label>Group name<input id="content-group-name" required maxlength="200"></label>
-      <p class="field-hint content-group-sequence-help">A content group becomes sequenced when one of its items has a number. New items in a sequenced group receive the next number when left blank.</p>
+      <p class="field-hint content-group-sequence-help">Automatic sequencing is an explicit group setting. Disabling it preserves existing item numbers.</p>
+      <button id="content-group-sequence" class="secondary" type="button">Enable sequence</button>
       <p id="content-group-form-error" class="form-error" role="alert"></p>
       <footer class="editor-actions">
         <button id="content-group-archive" class="danger editor-delete" type="button">Archive group</button>

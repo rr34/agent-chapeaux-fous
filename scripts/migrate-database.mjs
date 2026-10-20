@@ -354,6 +354,28 @@ async function assertVersion32Integrity(connection, databaseName) {
 }
 
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
+  if (migration.version === 56) {
+    const [columns] = await connection.query(`SELECT COLUMN_NAME, IS_NULLABLE, COLUMN_DEFAULT
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'content_groups' AND COLUMN_NAME = 'uses_sequence'`,
+    [databaseName]);
+    if (columns.length !== 1 || columns[0].IS_NULLABLE !== "NO" || Number(columns[0].COLUMN_DEFAULT) !== 0) {
+      throw new Error("Migration 0056 did not establish content_groups.uses_sequence");
+    }
+    const [constraints] = await connection.query(`SELECT CONSTRAINT_NAME, CONSTRAINT_TYPE
+      FROM information_schema.TABLE_CONSTRAINTS
+      WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME = 'content_groups'
+        AND CONSTRAINT_NAME = 'content_groups_sequence'`, [databaseName]);
+    if (constraints.length !== 1 || constraints[0].CONSTRAINT_TYPE !== "CHECK") {
+      throw new Error("Migration 0056 did not establish check content_groups_sequence");
+    }
+    const [nullRows] = await connection.query(
+      "SELECT COUNT(*) AS null_count FROM content_groups WHERE uses_sequence IS NULL",
+    );
+    if (Number(nullRows[0]?.null_count) !== 0) {
+      throw new Error("Migration 0056 left content groups without an explicit sequence setting");
+    }
+  }
   if (migration.version === 55) {
     const requiredTables = [
       "physical_item_groups", "physical_items", "physical_items_todo_join",
