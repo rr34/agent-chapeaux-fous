@@ -36,6 +36,51 @@ the common-sense core and checked with deterministic Gregorian calendar code bef
 execution. Native to-do and calendar scheduling also validate proposed UTC timestamps
 against those accepted local-date targets before beginning their transactions.
 
+## Repository development contracts
+
+This README is the canonical home for repository development instructions and
+product-specific coding contracts. Add or revise those instructions here under
+a descriptive heading instead of creating scattered instruction files or
+component-level READMEs that are difficult to discover. Keep a contract beside
+code only when an external format or tool requires that location.
+
+`AGENTS.md` is only the Codex discovery pointer to these contracts and must not
+duplicate them. `AGENT-TOOL-MANIFESTO.md` remains separate because Agent Slayer
+and third-party MCP creators use it as the shared agent/tool integration
+contract. `AGENT-TERMINOLOGY.md` remains the numbered canonical glossary.
+
+### Change safety
+
+- Leave changes unstaged unless Nate explicitly requests a Git action.
+- Never commit secrets or `.env`.
+- Do not deploy or restart services as part of repository work unless Nate
+  explicitly requests that live-system action.
+- Treat the live MariaDB database as Nate's data. Do not replace, recreate, or
+  mutate its schema without explicit approval.
+- Run `npm run db:verify` before and after database-dependent changes.
+- Keep observability linear and literal. Product users should not need to know
+  internal lifecycle terminology to understand a trace.
+
+### Reusable object-card contract
+
+Every interactive first-class object surface renders the applicable domain card
+from `web/src/components/object-cards/`. Views may compose cards and provide
+data, controls, actions, and genuinely contextual details; they must not
+recreate or restyle an object's visual representation.
+
+Object-specific presentation changes belong in the named domain card. Shared
+layout changes belong in `SimpleObjectCard`, `FullObjectCard`, or
+`CompactObjectCard`. The only ordinary presentation variants are full and
+compact (expanded and collapsed).
+
+A property that identifies or characterizes an object in more than one view
+belongs to its reusable card. Keep
+`test/web-domain-object-cards.test.mjs` aligned with this boundary so a new view
+cannot silently fork the representation.
+
+Print-only documents may use their purpose-built physical-page layout. That
+exception does not authorize a second interactive card design.
+
 ## Hats and the user manual
 
 Users may make one or more roles explicit with the convention:
