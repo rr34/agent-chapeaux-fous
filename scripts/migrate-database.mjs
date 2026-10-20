@@ -144,6 +144,26 @@ export const relationshipTableRenames = {
   correspondence_participants: "correspondence_participants_join",
 };
 
+export const relationshipJoinTables = Object.freeze([
+  "activity_event_files_join",
+  "contacts_tags_join",
+  "calendar_event_contacts_join",
+  "payment_invoice_line_receipts_join",
+  "calendar_events_todo_join",
+  "todo_content_join",
+  "video_script_sources_join",
+  "todo_correspondence_join",
+  "calendar_events_correspondence_join",
+  "correspondence_files_join",
+  "correspondence_participants_join",
+]);
+
+export const relationshipEdgeViewColumns = Object.freeze([
+  "from_type", "from_id", "relationship_type", "to_type", "to_id",
+  "relationship_family", "source_table", "source_key_json", "created_at_utc",
+  "relationship_qualifier", "sort_order", "attributes_json", "is_reverse",
+]);
+
 async function assertVersion30Integrity(connection, databaseName) {
   const [columns] = await connection.query(
     `SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_TYPE
@@ -325,6 +345,32 @@ async function assertVersion32Integrity(connection, databaseName) {
 }
 
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
+  if (migration.version === 54) {
+    const [objects] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'object_relationship_edges'`, [databaseName]);
+    if (objects.length !== 1 || objects[0].TABLE_TYPE !== "VIEW") {
+      throw new Error("Migration 0054 must establish the object_relationship_edges view");
+    }
+    const [columns] = await connection.query(`SELECT COLUMN_NAME
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'object_relationship_edges'
+      ORDER BY ORDINAL_POSITION`, [databaseName]);
+    if (JSON.stringify(columns.map((row) => row.COLUMN_NAME)) !== JSON.stringify(relationshipEdgeViewColumns)) {
+      throw new Error("Migration 0054 established an invalid object_relationship_edges column contract");
+    }
+    const [views] = await connection.query(`SELECT VIEW_DEFINITION, SECURITY_TYPE
+      FROM information_schema.VIEWS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'object_relationship_edges'`, [databaseName]);
+    if (views.length !== 1 || views[0].SECURITY_TYPE !== "INVOKER") {
+      throw new Error("Migration 0054 relationship view must use invoker security");
+    }
+    const definition = String(views[0]?.VIEW_DEFINITION ?? "").replaceAll("`", "").toLowerCase();
+    const missingSources = relationshipJoinTables.filter((tableName) => !definition.includes(tableName));
+    if (missingSources.length > 0) {
+      throw new Error(`Migration 0054 relationship view is missing join sources: ${missingSources.join(", ")}`);
+    }
+  }
   if (migration.version === 53) {
     const names = Object.entries(relationshipTableRenames).flat();
     const [rows] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES

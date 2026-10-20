@@ -13,6 +13,14 @@ import {
 
 const schemaSource = fs.readFileSync(baselineFilename, "utf8");
 
+export function baselineBeforeObjectRelationshipEdges(source) {
+  return source
+    .replace(/CREATE SQL SECURITY INVOKER VIEW object_relationship_edges AS[\s\S]*?\nCREATE VIEW activity_operation_latency AS/u,
+      "CREATE VIEW activity_operation_latency AS")
+    .replace("Target: MariaDB 10.11, schema version 54.", "Target: MariaDB 10.11, schema version 53.")
+    .replace("VALUES (1, 54,", "VALUES (1, 53,");
+}
+
 export function baselineBeforeInvoiceLineReceipts(source) {
   return baselineBeforeRelationshipJoinRenames(source)
     .replace(/CREATE TABLE payment_invoice_line_receipts \([\s\S]*?\n\) ENGINE=InnoDB[^\n]*;\n\n/u, "")
@@ -20,6 +28,7 @@ export function baselineBeforeInvoiceLineReceipts(source) {
 }
 
 export function baselineBeforeRelationshipJoinRenames(source) {
+  source = baselineBeforeObjectRelationshipEdges(source);
   for (const [previous, current] of Object.entries(relationshipTableRenames)) {
     source = source.replaceAll(current, previous);
   }

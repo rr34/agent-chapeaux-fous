@@ -11,6 +11,20 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 54: Unified object relationship edges
+
+Adds `object_relationship_edges`, a read-only non-materialized view that emits
+each curated native relationship in both directions. It covers all eleven
+physical `_join` tables and the direct foreign-key relationships used by the
+interactive object network. Typed endpoints, relationship family and qualifier,
+source table and key, ordering, timestamps, and domain attributes remain visible
+without copying relationship rows or becoming a write path.
+
+The matching application requires schema version 54. Writer downtime is not
+required for this additive view, though deployment must still migrate before
+starting the matching application. Replaying the guarded `CREATE OR REPLACE
+VIEW` statement restores the reviewed definition after a partial DDL commit.
+
 ## Version 53: Finish relationship join-table names
 
 Renames `payment_invoice_line_receipts` to

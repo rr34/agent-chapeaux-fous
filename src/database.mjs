@@ -1,6 +1,6 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 
-export const requiredDatabaseSchemaVersion = 53;
+export const requiredDatabaseSchemaVersion = 54;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -107,6 +107,14 @@ export const requiredDatabaseShape = {
   ],
 };
 
+export const requiredDatabaseViewShape = {
+  object_relationship_edges: [
+    "from_type", "from_id", "relationship_type", "to_type", "to_id",
+    "relationship_family", "source_table", "source_key_json", "created_at_utc",
+    "relationship_qualifier", "sort_order", "attributes_json", "is_reverse",
+  ],
+};
+
 export const requiredEnumColumns = {
   files: {
     media_kind: ["audio", "video", "image", "document", "archive", "other"],
@@ -208,6 +216,21 @@ export function inspectDatabase(database) {
     const object = byName.get(name);
     if (!object || object.table_type !== "BASE TABLE") {
       problems.push(`Missing required table: ${name}`);
+      continue;
+    }
+    const columns = new Set(database.prepare(`
+      SELECT COLUMN_NAME AS name
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
+    `).all(name).map((row) => row.name));
+    for (const column of requiredColumns) {
+      if (!columns.has(column)) problems.push(`Missing required column: ${name}.${column}`);
+    }
+  }
+  for (const [name, requiredColumns] of Object.entries(requiredDatabaseViewShape)) {
+    const object = byName.get(name);
+    if (!object || object.table_type !== "VIEW") {
+      problems.push(`Missing required view: ${name}`);
       continue;
     }
     const columns = new Set(database.prepare(`

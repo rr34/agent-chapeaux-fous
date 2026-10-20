@@ -238,6 +238,23 @@ test("composer object selections retain exact searchable identity fields", () =>
     ...selected[0], mention: "@Lucas Ruffing — Contact #7",
   }])[0].mention, "@Lucas Ruffing — Contact #7");
 
+  const cardSelections = nativeObjectTypes.map((definition, index) => {
+    const id = index + 1;
+    const display = `Selected ${definition.label}`;
+    return {
+      mention: `@${display}`,
+      type: definition.domainType,
+      source: definition.source,
+      id,
+      ref: `${definition.refPrefix}${id}`,
+      display,
+    };
+  });
+  assert.deepEqual(
+    normalizeSelectedObjectCandidates(cardSelections).map(({ type, id }) => ({ type, id })),
+    cardSelections.map(({ type, id }) => ({ type, id })),
+  );
+
   assert.deepEqual(normalizeSelectedObjectCandidates([{
     mention: "@Payer not set — not priced — Payment invoice #51",
     type: "payments.invoice",

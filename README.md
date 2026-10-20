@@ -332,6 +332,14 @@ view descriptions live beside their definitions in the baseline SQL. Explicit
 `database_schema` calls can read live comments. Ordinary results carry no extra
 schema-description payload and no generated schema file is required.
 
+The interactive object network reads one-hop local adjacency from the
+non-materialized `object_relationship_edges` view. The view projects all eleven
+`_join` tables and the reviewed direct native relationships in both directions,
+while the owning tables remain authoritative and all changes continue through
+their domain tools. Application code applies the first-class object catalog,
+bounded hydration, and simple-connection rules; the live view is not a saved
+relationship set or a recursive traversal engine.
+
 Native discovery also has one in-process search coordinator. Calendar,
 contacts, and conversation history keep their own matching and completeness
 rules behind provider adapters, while the coordinator handles bounded

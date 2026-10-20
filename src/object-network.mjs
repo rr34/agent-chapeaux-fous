@@ -260,123 +260,24 @@ export class ObjectNetworkService {
 
   #connections(identity) {
     const { type, id } = identity;
-    const read = (sql, ...parameters) => this.database.prepare(sql).all(...parameters);
-    if (type === "contacts.contact") return [
-      ...read(`SELECT personal_task_id AS id FROM todo_personal WHERE related_contact_id = ?
-        ORDER BY personal_task_id DESC LIMIT 101`, id).map((row) => edge("todos.personal_task", row.id, "todo-contact", true)),
-      ...read(`SELECT calendar_event_id AS id,
-          MIN(participant_role = 'other') AS only_other,
-          MAX(participant_role <> 'other') AS has_named_role
-        FROM calendar_event_contacts_join WHERE contact_id = ? GROUP BY calendar_event_id
-        ORDER BY calendar_event_id DESC LIMIT 101`, id).map((row) => edge("calendar.event", row.id, "event-contact", !row.has_named_role && Boolean(row.only_other))),
-      ...read(`SELECT payment_invoice_id AS id FROM payment_invoices WHERE payer_contact_id = ?
-        ORDER BY payment_invoice_id DESC LIMIT 101`, id).map((row) => edge("payments.invoice", row.id, "invoice-payer")),
-    ];
-    if (type === "todos.todo_group") return read(`SELECT personal_task_id AS id FROM todo_personal
-      WHERE todo_group_id = ? ORDER BY sort_position, personal_task_id LIMIT 101`, id)
-      .map((row) => edge("todos.personal_task", row.id, "todo-group"));
-    if (type === "todos.personal_task") {
-      const task = this.database.prepare(`SELECT todo_group_id, related_contact_id
-        FROM todo_personal WHERE personal_task_id = ?`).get(id);
-      return task ? [edge("todos.todo_group", task.todo_group_id, "todo-group"),
-        ...(task.related_contact_id ? [edge("contacts.contact", task.related_contact_id, "todo-contact", true)] : []),
-        ...read(`SELECT calendar_event_id AS id, relationship_kind FROM calendar_events_todo_join
-          WHERE personal_task_id = ? ORDER BY calendar_event_id DESC LIMIT 101`, id)
-          .map((row) => edge("calendar.event", row.id, "todo-event", row.relationship_kind === "context")),
-        ...read(`SELECT content_id AS id FROM todo_content_join WHERE personal_task_id = ?
-          ORDER BY content_id DESC LIMIT 101`, id).map((row) => edge("video.content_item", row.id, "todo-content", true)),
-        ...read(`SELECT payment_invoice_id AS id FROM payment_invoice_lines WHERE personal_task_id = ?
-          ORDER BY payment_invoice_id DESC LIMIT 101`, id).map((row) => edge("payments.invoice", row.id, "invoice-line")),
-      ] : [];
-    }
-    if (type === "payments.invoice") {
-      const invoice = this.database.prepare(`SELECT payer_contact_id FROM payment_invoices
-        WHERE payment_invoice_id = ?`).get(id);
-      return invoice ? [edge("contacts.contact", invoice.payer_contact_id, "invoice-payer"),
-        ...read(`SELECT personal_task_id AS id FROM payment_invoice_lines
-          WHERE payment_invoice_id = ? AND personal_task_id IS NOT NULL ORDER BY line_position LIMIT 101`, id)
-          .map((row) => edge("todos.personal_task", row.id, "invoice-line")),
-        ...read(`SELECT DISTINCT receipt.file_id AS id FROM payment_invoice_line_receipts_join receipt
-          JOIN payment_invoice_lines line USING (payment_invoice_line_id)
-          WHERE line.payment_invoice_id = ? ORDER BY receipt.file_id LIMIT 101`, id)
-          .map((row) => edge("files.file", row.id, "invoice-line-receipt"))] : [];
-    }
-    if (type === "journal.group") return read(`SELECT tracker_id AS id FROM journal2_trackers
-      WHERE journal_group_id = ? ORDER BY name, tracker_id LIMIT 101`, id)
-      .map((row) => edge("journal.tracker", row.id, "journal-group"));
-    if (type === "journal.tracker") {
-      const tracker = this.database.prepare(`SELECT journal_group_id FROM journal2_trackers
-        WHERE tracker_id = ?`).get(id);
-      return tracker ? [edge("journal.group", tracker.journal_group_id, "journal-group"),
-        ...read(`SELECT journal_entry_id AS id FROM journal3_entries WHERE tracker_id = ?
-          ORDER BY occurred_at_utc DESC, journal_entry_id DESC LIMIT 101`, id)
-          .map((row) => edge("journal.entry", row.id, "tracker-entry")),
-        ...read(`SELECT question_id AS id FROM catch_up_questions WHERE tracker_id = ?
-          ORDER BY due_at_utc DESC, question_id DESC LIMIT 101`, id)
-          .map((row) => edge("catch_up.question", row.id, "tracker-question"))] : [];
-    }
-    if (type === "journal.entry") {
-      const entry = this.database.prepare(`SELECT tracker_id FROM journal3_entries
-        WHERE journal_entry_id = ?`).get(id);
-      return entry ? [edge("journal.tracker", entry.tracker_id, "tracker-entry")] : [];
-    }
-    if (type === "calendar.event") {
-      const event = this.database.prepare(`SELECT calendar_routine_id FROM calendar_events
-        WHERE calendar_event_id = ?`).get(id);
-      return event ? [
-        ...(event.calendar_routine_id ? [edge("calendar.routine", event.calendar_routine_id, "routine-event")] : []),
-        ...read(`SELECT personal_task_id AS id, relationship_kind FROM calendar_events_todo_join
-          WHERE calendar_event_id = ? ORDER BY personal_task_id LIMIT 101`, id)
-          .map((row) => edge("todos.personal_task", row.id, "todo-event", row.relationship_kind === "context")),
-        ...read(`SELECT contact_id AS id,
-            MIN(participant_role = 'other') AS only_other,
-            MAX(participant_role <> 'other') AS has_named_role
-          FROM calendar_event_contacts_join WHERE calendar_event_id = ? GROUP BY contact_id
-          ORDER BY contact_id LIMIT 101`, id)
-          .map((row) => edge("contacts.contact", row.id, "event-contact", !row.has_named_role && Boolean(row.only_other))),
-        ...read(`SELECT question_id AS id FROM catch_up_questions WHERE calendar_event_id = ?
-          ORDER BY due_at_utc DESC, question_id DESC LIMIT 101`, id)
-          .map((row) => edge("catch_up.question", row.id, "event-question")),
-      ] : [];
-    }
-    if (type === "calendar.routine") return read(`SELECT calendar_event_id AS id FROM calendar_events
-      WHERE calendar_routine_id = ? ORDER BY starts_at_utc DESC, calendar_event_id DESC LIMIT 101`, id)
-      .map((row) => edge("calendar.event", row.id, "routine-event"));
-    if (type === "files.file") return [
-      ...read(`SELECT content_id AS id FROM content_items
-        WHERE primary_file_id = ? ORDER BY content_id DESC LIMIT 101`, id)
-        .map((row) => edge("video.content_item", row.id, "content-file")),
-      ...read(`SELECT DISTINCT line.payment_invoice_id AS id FROM payment_invoice_line_receipts_join receipt
-        JOIN payment_invoice_lines line USING (payment_invoice_line_id)
-        WHERE receipt.file_id = ? ORDER BY line.payment_invoice_id DESC LIMIT 101`, id)
-        .map((row) => edge("payments.invoice", row.id, "invoice-line-receipt")),
-    ];
-    if (type === "catch_up.question") {
-      const question = this.database.prepare(`SELECT calendar_event_id, tracker_id FROM catch_up_questions
-        WHERE question_id = ?`).get(id);
-      return question ? [
-        ...(question.calendar_event_id ? [edge("calendar.event", question.calendar_event_id, "event-question")] : []),
-        ...(question.tracker_id ? [edge("journal.tracker", question.tracker_id, "tracker-question")] : []),
-      ] : [];
-    }
-    if (type === "video.script") return read(`SELECT DISTINCT content_id AS id FROM video_jobs
-      WHERE video_script_id = ? AND content_id IS NOT NULL ORDER BY content_id DESC LIMIT 101`, id)
-      .map((row) => edge("video.content_item", row.id, "script-content"));
-    if (type === "video.content_group") return read(`SELECT content_id AS id FROM content_items
-      WHERE content_group_id = ? ORDER BY sequence IS NULL, sequence, content_id LIMIT 101`, id)
-      .map((row) => edge("video.content_item", row.id, "content-group"));
-    if (type === "video.content_item") {
-      const content = this.database.prepare(`SELECT content_group_id, primary_file_id FROM content_items
-        WHERE content_id = ?`).get(id);
-      return content ? [edge("video.content_group", content.content_group_id, "content-group"),
-        ...(content.primary_file_id ? [edge("files.file", content.primary_file_id, "content-file")] : []),
-        ...read(`SELECT personal_task_id AS id FROM todo_content_join WHERE content_id = ?
-          ORDER BY personal_task_id DESC LIMIT 101`, id).map((row) => edge("todos.personal_task", row.id, "todo-content", true)),
-        ...read(`SELECT DISTINCT video_script_id AS id FROM video_jobs
-          WHERE content_id = ? AND video_script_id IS NOT NULL ORDER BY video_script_id DESC LIMIT 101`, id)
-          .map((row) => edge("video.script", row.id, "script-content"))] : [];
-    }
-    return [];
+    const targetTypes = [...supportedTypes];
+    const placeholders = targetTypes.map(() => "?").join(", ");
+    const rows = this.database.prepare(`SELECT
+        to_type AS type,
+        to_id AS id,
+        MIN(relationship_type) AS kind,
+        MIN(CASE
+          WHEN relationship_type IN ('todo-contact', 'todo-content') THEN 1
+          WHEN relationship_type = 'todo-event' AND relationship_qualifier = 'context' THEN 1
+          WHEN relationship_type = 'event-contact' AND relationship_qualifier = 'other' THEN 1
+          ELSE 0
+        END) AS removable
+      FROM object_relationship_edges
+      WHERE from_type = ? AND from_id = ? AND to_type IN (${placeholders})
+      GROUP BY to_type, to_id
+      ORDER BY to_type, to_id
+      LIMIT ?`).all(type, String(id), ...targetTypes, maximumConnections + 1);
+    return rows.map((row) => edge(row.type, row.id, row.kind, Boolean(Number(row.removable))));
   }
 
   graph(rawIdentity) {

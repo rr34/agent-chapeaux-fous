@@ -1,7 +1,6 @@
 import type { CalendarEvent, Entity, LinkedTodo, RequestRecord, SelectedObjectCandidate } from "../types";
 import { formatDisplayDate, formatDisplayTime } from "../date-format";
 import { ObjectNetworkButton } from "./ObjectNetworkButton";
-import { descriptiveObjectMention } from "../object-references";
 import { ObjectCardSelectionCheckbox } from "./object-cards/ObjectCardButtons";
 import { useObjectSelection } from "./ObjectSelectionContext";
 
@@ -35,7 +34,7 @@ function nativeReference({
   const normalizedId = typeof id === "number" ? id : String(id);
   const title = concise(display, 160);
   return {
-    mention: descriptiveObjectMention({ display: title, label, id: normalizedId }),
+    mention: `@${title}`,
     type,
     source,
     id: normalizedId,

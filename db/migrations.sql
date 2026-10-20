@@ -16,6 +16,312 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0054: unified-object-relationship-edges
+-- writer downtime: not required; this adds one read-only non-materialized view
+-- and does not change authoritative rows, constraints, or mutation paths.
+-- locking: CREATE OR REPLACE VIEW takes brief metadata locks while validating
+-- its referenced tables; it does not scan, copy, or rewrite relationship rows.
+-- recovery: MariaDB DDL commits implicitly. Replaying this single idempotent
+-- statement replaces any partially established view with the reviewed shape.
+
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW object_relationship_edges AS
+WITH canonical_edges AS (
+  SELECT
+    'activity.event' AS left_type,
+    CAST(link.event_id AS CHAR) AS left_id,
+    'activity-file' AS relationship_type,
+    'files.file' AS right_type,
+    CAST(link.file_id AS CHAR) AS right_id,
+    'attachment' AS relationship_family,
+    'activity_event_files_join' AS source_table,
+    JSON_OBJECT('event_id', link.event_id, 'file_id', link.file_id) AS source_key_json,
+    NULL AS created_at_utc,
+    link.file_role AS relationship_qualifier,
+    link.ordinal AS sort_order,
+    JSON_OBJECT('file_role', link.file_role, 'ordinal', link.ordinal) AS attributes_json
+  FROM activity_event_files_join AS link
+
+  UNION ALL
+  SELECT
+    CASE WHEN link.record_type = 'contact' THEN 'contacts.contact'
+         ELSE CONCAT('record.', link.record_type) END,
+    link.record_id,
+    'record-tag',
+    'contacts.tag',
+    CAST(link.tag_id AS CHAR),
+    'classification',
+    'contacts_tags_join',
+    JSON_OBJECT('tag_id', link.tag_id, 'record_type', link.record_type, 'record_id', link.record_id),
+    link.created_at_utc,
+    link.record_type,
+    NULL,
+    JSON_OBJECT('record_type', link.record_type)
+  FROM contacts_tags_join AS link
+
+  UNION ALL
+  SELECT
+    'calendar.event', CAST(link.calendar_event_id AS CHAR), 'event-contact',
+    'contacts.contact', CAST(link.contact_id AS CHAR), 'participation',
+    'calendar_event_contacts_join',
+    JSON_OBJECT('calendar_event_id', link.calendar_event_id, 'contact_id', link.contact_id,
+                'participant_role', link.participant_role),
+    NULL, link.participant_role, NULL,
+    JSON_OBJECT('participant_role', link.participant_role, 'response_status', link.response_status)
+  FROM calendar_event_contacts_join AS link
+
+  UNION ALL
+  SELECT
+    'payments.invoice_line', CAST(link.payment_invoice_line_id AS CHAR), 'invoice-line-receipt',
+    'files.file', CAST(link.file_id AS CHAR), 'attachment',
+    'payment_invoice_line_receipts_join',
+    JSON_OBJECT('payment_invoice_line_id', link.payment_invoice_line_id, 'file_id', link.file_id),
+    link.created_at_utc, NULL, NULL,
+    JSON_OBJECT('display_name_snapshot', link.display_name_snapshot,
+                'mime_type_snapshot', link.mime_type_snapshot,
+                'sha256_snapshot', link.sha256_snapshot)
+  FROM payment_invoice_line_receipts_join AS link
+
+  UNION ALL
+  SELECT
+    'calendar.event', CAST(link.calendar_event_id AS CHAR), 'todo-event',
+    'todos.personal_task', CAST(link.personal_task_id AS CHAR), 'scheduling',
+    'calendar_events_todo_join',
+    JSON_OBJECT('calendar_event_id', link.calendar_event_id, 'personal_task_id', link.personal_task_id),
+    link.created_at_utc, link.relationship_kind, NULL,
+    JSON_OBJECT('relationship_kind', link.relationship_kind)
+  FROM calendar_events_todo_join AS link
+
+  UNION ALL
+  SELECT
+    'todos.personal_task', CAST(link.personal_task_id AS CHAR), 'todo-content',
+    'video.content_item', CAST(link.content_id AS CHAR), 'association',
+    'todo_content_join',
+    JSON_OBJECT('personal_task_id', link.personal_task_id, 'content_id', link.content_id),
+    link.created_at_utc, NULL, NULL, JSON_OBJECT()
+  FROM todo_content_join AS link
+
+  UNION ALL
+  SELECT
+    'video.script', CAST(link.video_script_id AS CHAR), 'script-source',
+    'activity.event', CAST(link.request_event_id AS CHAR), 'provenance',
+    'video_script_sources_join',
+    JSON_OBJECT('video_script_id', link.video_script_id, 'request_event_id', link.request_event_id),
+    NULL, NULL, link.source_order,
+    JSON_OBJECT('source_order', link.source_order)
+  FROM video_script_sources_join AS link
+
+  UNION ALL
+  SELECT
+    'todos.personal_task', CAST(link.personal_task_id AS CHAR), 'todo-correspondence',
+    'correspondence.item', CAST(link.correspondence_id AS CHAR), 'correspondence',
+    'todo_correspondence_join',
+    JSON_OBJECT('personal_task_id', link.personal_task_id, 'correspondence_id', link.correspondence_id),
+    link.created_at_utc, NULL, NULL, JSON_OBJECT()
+  FROM todo_correspondence_join AS link
+
+  UNION ALL
+  SELECT
+    'calendar.event', CAST(link.calendar_event_id AS CHAR), 'event-correspondence',
+    'correspondence.item', CAST(link.correspondence_id AS CHAR), 'correspondence',
+    'calendar_events_correspondence_join',
+    JSON_OBJECT('calendar_event_id', link.calendar_event_id, 'correspondence_id', link.correspondence_id),
+    link.created_at_utc, NULL, NULL, JSON_OBJECT()
+  FROM calendar_events_correspondence_join AS link
+
+  UNION ALL
+  SELECT
+    'correspondence.item', CAST(link.correspondence_id AS CHAR), 'correspondence-file',
+    'files.file', CAST(link.file_id AS CHAR), 'attachment',
+    'correspondence_files_join',
+    JSON_OBJECT('correspondence_id', link.correspondence_id, 'file_id', link.file_id),
+    NULL, link.attachment_role, NULL,
+    JSON_OBJECT('attachment_role', link.attachment_role)
+  FROM correspondence_files_join AS link
+
+  UNION ALL
+  SELECT
+    'correspondence.item', CAST(link.correspondence_id AS CHAR), 'correspondence-contact',
+    'contacts.contact', CAST(link.contact_id AS CHAR), 'participation',
+    'correspondence_participants_join',
+    JSON_OBJECT('correspondence_id', link.correspondence_id, 'participant_role', link.participant_role,
+                'address_value', link.address_value),
+    NULL, link.participant_role, NULL,
+    JSON_OBJECT('participant_role', link.participant_role, 'contact_method_id', link.contact_method_id,
+                'address_value', link.address_value, 'display_name', link.display_name)
+  FROM correspondence_participants_join AS link
+  WHERE link.contact_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'correspondence.item', CAST(link.correspondence_id AS CHAR), 'correspondence-contact-method',
+    'contacts.contact_method', CAST(link.contact_method_id AS CHAR), 'participation',
+    'correspondence_participants_join',
+    JSON_OBJECT('correspondence_id', link.correspondence_id, 'participant_role', link.participant_role,
+                'address_value', link.address_value),
+    NULL, link.participant_role, NULL,
+    JSON_OBJECT('participant_role', link.participant_role, 'contact_id', link.contact_id,
+                'address_value', link.address_value, 'display_name', link.display_name)
+  FROM correspondence_participants_join AS link
+  WHERE link.contact_method_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'todos.todo_group', CAST(task.todo_group_id AS CHAR), 'todo-group',
+    'todos.personal_task', CAST(task.personal_task_id AS CHAR), 'membership',
+    'todo_personal', JSON_OBJECT('personal_task_id', task.personal_task_id),
+    NULL, NULL, task.sort_position, JSON_OBJECT()
+  FROM todo_personal AS task
+
+  UNION ALL
+  SELECT
+    'todos.personal_task', CAST(task.personal_task_id AS CHAR), 'todo-contact',
+    'contacts.contact', CAST(task.related_contact_id AS CHAR), 'association',
+    'todo_personal', JSON_OBJECT('personal_task_id', task.personal_task_id),
+    NULL, NULL, NULL, JSON_OBJECT()
+  FROM todo_personal AS task
+  WHERE task.related_contact_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'payments.invoice', CAST(invoice.payment_invoice_id AS CHAR), 'invoice-payer',
+    'contacts.contact', CAST(invoice.payer_contact_id AS CHAR), 'billing',
+    'payment_invoices', JSON_OBJECT('payment_invoice_id', invoice.payment_invoice_id),
+    NULL, NULL, NULL, JSON_OBJECT()
+  FROM payment_invoices AS invoice
+  WHERE invoice.payer_contact_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'payments.invoice', CAST(line.payment_invoice_id AS CHAR), 'invoice-line',
+    'todos.personal_task', CAST(line.personal_task_id AS CHAR), 'billing',
+    'payment_invoice_lines', JSON_OBJECT('payment_invoice_line_id', line.payment_invoice_line_id),
+    line.created_at_utc, line.line_source, line.line_position,
+    JSON_OBJECT('payment_invoice_line_id', line.payment_invoice_line_id,
+                'line_source', line.line_source, 'line_position', line.line_position)
+  FROM payment_invoice_lines AS line
+  WHERE line.personal_task_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'payments.invoice', CAST(line.payment_invoice_id AS CHAR), 'invoice-line-receipt',
+    'files.file', CAST(receipt.file_id AS CHAR), 'attachment',
+    'payment_invoice_line_receipts_join',
+    JSON_OBJECT('payment_invoice_line_id', receipt.payment_invoice_line_id, 'file_id', receipt.file_id),
+    receipt.created_at_utc, NULL, line.line_position,
+    JSON_OBJECT('payment_invoice_line_id', receipt.payment_invoice_line_id,
+                'line_position', line.line_position,
+                'display_name_snapshot', receipt.display_name_snapshot,
+                'mime_type_snapshot', receipt.mime_type_snapshot,
+                'sha256_snapshot', receipt.sha256_snapshot)
+  FROM payment_invoice_line_receipts_join AS receipt
+  JOIN payment_invoice_lines AS line USING (payment_invoice_line_id)
+
+  UNION ALL
+  SELECT
+    'journal.group', CAST(tracker.journal_group_id AS CHAR), 'journal-group',
+    'journal.tracker', CAST(tracker.tracker_id AS CHAR), 'membership',
+    'journal2_trackers', JSON_OBJECT('tracker_id', tracker.tracker_id),
+    NULL, NULL, NULL, JSON_OBJECT()
+  FROM journal2_trackers AS tracker
+
+  UNION ALL
+  SELECT
+    'journal.tracker', CAST(entry.tracker_id AS CHAR), 'tracker-entry',
+    'journal.entry', CAST(entry.journal_entry_id AS CHAR), 'membership',
+    'journal3_entries', JSON_OBJECT('journal_entry_id', entry.journal_entry_id),
+    entry.created_at_utc, NULL, NULL,
+    JSON_OBJECT('occurred_at_utc', entry.occurred_at_utc)
+  FROM journal3_entries AS entry
+
+  UNION ALL
+  SELECT
+    'calendar.routine', CAST(event.calendar_routine_id AS CHAR), 'routine-event',
+    'calendar.event', CAST(event.calendar_event_id AS CHAR), 'generation',
+    'calendar_events', JSON_OBJECT('calendar_event_id', event.calendar_event_id),
+    event.created_at_utc, NULL, NULL,
+    JSON_OBJECT('routine_occurrence_key', event.routine_occurrence_key)
+  FROM calendar_events AS event
+  WHERE event.calendar_routine_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'calendar.event', CAST(question.calendar_event_id AS CHAR), 'event-question',
+    'catch_up.question', CAST(question.question_id AS CHAR), 'review',
+    'catch_up_questions', JSON_OBJECT('question_id', question.question_id),
+    NULL, NULL, NULL, JSON_OBJECT()
+  FROM catch_up_questions AS question
+  WHERE question.calendar_event_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'journal.tracker', CAST(question.tracker_id AS CHAR), 'tracker-question',
+    'catch_up.question', CAST(question.question_id AS CHAR), 'review',
+    'catch_up_questions', JSON_OBJECT('question_id', question.question_id),
+    NULL, NULL, NULL, JSON_OBJECT()
+  FROM catch_up_questions AS question
+  WHERE question.tracker_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'video.content_group', CAST(content.content_group_id AS CHAR), 'content-group',
+    'video.content_item', CAST(content.content_id AS CHAR), 'membership',
+    'content_items', JSON_OBJECT('content_id', content.content_id),
+    content.created_at_utc, NULL, content.sequence, JSON_OBJECT()
+  FROM content_items AS content
+
+  UNION ALL
+  SELECT
+    'video.content_item', CAST(content.content_id AS CHAR), 'content-file',
+    'files.file', CAST(content.primary_file_id AS CHAR), 'attachment',
+    'content_items', JSON_OBJECT('content_id', content.content_id),
+    NULL, NULL, NULL, JSON_OBJECT()
+  FROM content_items AS content
+  WHERE content.primary_file_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'video.script', CAST(job.video_script_id AS CHAR), 'script-content',
+    'video.content_item', CAST(job.content_id AS CHAR), 'production',
+    'video_jobs', JSON_OBJECT('video_job_id', job.video_job_id),
+    job.created_at_utc, NULL, NULL,
+    JSON_OBJECT('video_job_id', job.video_job_id, 'status', job.status)
+  FROM video_jobs AS job
+  WHERE job.video_script_id IS NOT NULL AND job.content_id IS NOT NULL
+)
+SELECT
+  left_type AS from_type,
+  left_id AS from_id,
+  relationship_type,
+  right_type AS to_type,
+  right_id AS to_id,
+  relationship_family,
+  source_table,
+  source_key_json,
+  created_at_utc,
+  relationship_qualifier,
+  sort_order,
+  attributes_json,
+  0 AS is_reverse
+FROM canonical_edges
+UNION ALL
+SELECT
+  right_type AS from_type,
+  right_id AS from_id,
+  relationship_type,
+  left_type AS to_type,
+  left_id AS to_id,
+  relationship_family,
+  source_table,
+  source_key_json,
+  created_at_utc,
+  relationship_qualifier,
+  sort_order,
+  attributes_json,
+  1 AS is_reverse
+FROM canonical_edges;
+
+-- end migration 0054
+
 -- migration 0053: finish-relationship-join-table-names
 -- writer downtime: required; payment and correspondence readers/writers must
 -- switch to the matching application code while these two tables are renamed.

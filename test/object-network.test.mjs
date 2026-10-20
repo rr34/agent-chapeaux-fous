@@ -44,10 +44,13 @@ function fixture({ relationshipKind = null } = {}) {
         throw new Error(`Unexpected get: ${sql} ${parameters}`);
       },
       all() {
-        if (/FROM calendar_events_todo_join/u.test(sql)) {
-          return kind ? [{ id: 9, relationship_kind: kind }] : [];
-        }
-        if (/FROM todo_content_join|FROM payment_invoice_lines/u.test(sql)) return [];
+        if (/FROM object_relationship_edges/u.test(sql)) return [
+          { type: "todos.todo_group", id: "3", kind: "todo-group", removable: 0 },
+          ...(kind ? [{
+            type: "calendar.event", id: "9", kind: "todo-event",
+            removable: kind === "context" ? 1 : 0,
+          }] : []),
+        ];
         throw new Error(`Unexpected all: ${sql}`);
       },
     };
@@ -117,7 +120,7 @@ test("contact cards carry their available communication actions with the object"
           { method_kind: "phone", label: "pref", value: "+14406227421" },
           { method_kind: "email", label: "work", value: "brian@example.com" },
         ];
-        if (/FROM todo_personal|FROM calendar_event_contacts_join|FROM payment_invoices/u.test(sql)) return [];
+        if (/FROM object_relationship_edges/u.test(sql)) return [];
         throw new Error(`Unexpected all: ${sql}`);
       },
     };

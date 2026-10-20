@@ -44,3 +44,8 @@ test("explicit card selections preserve exact request text while the server vali
   assert.match(server, /normalizeSelectedObjectCandidates\(body\.selectedObjectCandidates\)/);
   assert.doesNotMatch(server, /selectedObjectMentionsAreVisible/);
 });
+
+test("all card selections use the server's label-independent exact mention form", () => {
+  assert.match(controls, /mention: `@\$\{title\}`/u);
+  assert.doesNotMatch(controls, /mention: descriptiveObjectMention/u);
+});

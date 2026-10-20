@@ -16,6 +16,8 @@ import {
   readCurrentSchemaVersion,
   runDatabaseMigrations,
   joinTableRenames,
+  relationshipEdgeViewColumns,
+  relationshipJoinTables,
   relationshipTableRenames,
 } from "../scripts/migrate-database.mjs";
 import { requiredEnumColumns } from "../src/database.mjs";
@@ -24,6 +26,37 @@ const block = (version, name = `migration-${version}`, sql = `SELECT ${version};
   const label = String(version).padStart(4, "0");
   return `-- migration ${label}: ${name}\n${sql}\n-- end migration ${label}\n`;
 };
+
+test("relationship edge-view integrity requires its contract and all join sources", async () => {
+  const completeDefinition = relationshipJoinTables.map((name) => `SELECT * FROM ${name}`).join(" UNION ALL ");
+  const connection = ({
+    objects = [{ TABLE_NAME: "object_relationship_edges", TABLE_TYPE: "VIEW" }],
+    columns = relationshipEdgeViewColumns.map((COLUMN_NAME) => ({ COLUMN_NAME })),
+    definition = completeDefinition,
+  } = {}) => ({ async query(sql, parameters) {
+    assert.equal(parameters[0], "test_database");
+    if (sql.includes("information_schema.TABLES")) return [objects];
+    if (sql.includes("information_schema.COLUMNS")) return [columns];
+    if (sql.includes("information_schema.VIEWS")) return [[{ VIEW_DEFINITION: definition, SECURITY_TYPE: "INVOKER" }]];
+    throw new Error(`Unexpected SQL: ${sql}`);
+  } });
+  await assertMigrationSpecificIntegrity(connection(), { version: 54 }, "test_database");
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ objects: [] }), { version: 54 }, "test_database"),
+    /Migration 0054 must establish/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ columns: relationshipEdgeViewColumns.slice(1)
+      .map((COLUMN_NAME) => ({ COLUMN_NAME })) }), { version: 54 }, "test_database"),
+    /invalid object_relationship_edges column contract/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({
+      definition: relationshipJoinTables.slice(1).map((name) => `SELECT * FROM ${name}`).join(" UNION ALL "),
+    }), { version: 54 }, "test_database"),
+    /missing join sources: activity_event_files_join/u,
+  );
+});
 
 test("relationship join rename integrity rejects legacy or missing destinations", async () => {
   const expected = Object.values(relationshipTableRenames)
@@ -429,11 +462,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53]);
-  for (let current = 29; current <= 53; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54]);
+  for (let current = 29; current <= 54; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 53 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 54 - current }, (_, index) => current + index + 1),
     );
   }
 });

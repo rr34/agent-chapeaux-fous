@@ -55,7 +55,7 @@ test("card checkboxes stage exact native object bindings without modifying the i
   assert.match(summaryFormatter, /selected for this request/);
   assert.match(app, /const referencedRequestIds = \[\.\.\.new Set\(selections\.flatMap/);
   assert.match(app, /referencedRequestId \? \[\] : \[selection\]/);
-  assert.match(references, /mention: descriptiveObjectMention/);
+  assert.match(references, /mention: `@\$\{title\}`/);
   assert.match(references, /type: "calendar\.event", source: "native:calendar"/);
   assert.match(references, /collection: "calendar-events", label: "Calendar event"/);
   assert.match(references, /const detail = \[\s*`Calendar event:/);

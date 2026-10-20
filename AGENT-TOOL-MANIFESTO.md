@@ -271,6 +271,17 @@ primary object. An object reference narrows what the user and agent are
 discussing; it does not make a tool callable, authorize a mutation, or bypass
 the owning tool's validation.
 
+The native interactive object network reads local adjacency through the
+read-only `object_relationship_edges` view. That non-materialized projection
+normalizes every physical join table plus explicitly reviewed direct native
+relationships, emits each edge in both directions, and retains its source table,
+source key, family, qualifier, ordering, timestamp, and domain attributes. The
+owning tables and tools remain authoritative. The view does not infer that an
+endpoint is first-class, authorize a write, perform recursive traversal, or
+replace an immutable relationship reference set; application code filters the
+declared object types, applies a hard result bound, and hydrates each surviving
+object through its owning read.
+
 While the user composes a request, every canonical object card exposes the same
 selection checkbox, and the persistent Agent composer shows the bounded total
 selected for the next request. The checked source cards remain the sole object

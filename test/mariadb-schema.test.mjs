@@ -9,6 +9,7 @@ import {
   quoteMariaDbIdentifier,
 } from "../scripts/mariadb-schema.mjs";
 import { readMigrationLedger, splitMariaDbStatements } from "../scripts/database-migrations.mjs";
+import { relationshipEdgeViewColumns, relationshipJoinTables } from "../scripts/migrate-database.mjs";
 import { requiredDatabaseSchemaVersion, requiredEnumColumns } from "../src/database.mjs";
 import { baselineBeforeJournalLevels } from "./helpers.mjs";
 
@@ -68,11 +69,11 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 53", () => {
+test("the authoritative MariaDB baseline is complete at schema version 54", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
   assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 37);
-  assert.equal(statements.filter((statement) => /^CREATE VIEW\b/iu.test(statement)).length, 7);
+  assert.equal(statements.filter((statement) => /^CREATE (?:SQL SECURITY INVOKER )?VIEW\b/iu.test(statement)).length, 8);
   assert.equal(statements.filter((statement) => /^CREATE TRIGGER\b/iu.test(statement)).length, 7);
   assert.equal(source.match(/\bENUM\(/gu)?.length, 33);
   assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 58);
@@ -140,17 +141,39 @@ test("the authoritative MariaDB baseline is complete at schema version 53", () =
   assert.match(invoiceLineReceiptsTable, /REFERENCES files\(file_id\) ON DELETE RESTRICT/u);
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE correspondence_participants_join ")));
   assert.doesNotMatch(source, /CREATE TABLE (?:payment_invoice_line_receipts|correspondence_participants)\s*\(/u);
+  const relationshipView = statements.find((statement) => statement.startsWith("CREATE SQL SECURITY INVOKER VIEW object_relationship_edges "));
+  assert.ok(relationshipView);
+  for (const tableName of relationshipJoinTables) assert.match(relationshipView, new RegExp(`\\b${tableName}\\b`, "u"));
+  for (const columnName of relationshipEdgeViewColumns) assert.match(relationshipView, new RegExp(`\\b${columnName}\\b`, "u"));
   for (const retired of ["todo_routine_id", "scheduled_at_utc", "due_at_utc", "is_all_day", "duration_minutes"]) {
     assert.doesNotMatch(todoTable, new RegExp(`\\b${retired}\\b`, "u"));
   }
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 53, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 54, 'Chapeaux Fous MariaDB database'\)$/);
   assert.equal(
     requiredDatabaseSchemaVersion,
     readMigrationLedger(path.join(root, "db", "migrations.sql")).at(-1).version,
   );
+});
+
+test("the relationship edge migration is additive, bidirectional, and complete", () => {
+  const baseline = parseMariaDbScript(
+    fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8"),
+  ).find((statement) => statement.startsWith("CREATE SQL SECURITY INVOKER VIEW object_relationship_edges "));
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 54);
+  assert.equal(migration.label, "0054:unified-object-relationship-edges");
+  assert.match(migration.sql, /writer downtime: not required/u);
+  assert.match(migration.sql, /CREATE OR REPLACE SQL SECURITY INVOKER VIEW object_relationship_edges/u);
+  assert.match(migration.sql, /0 AS is_reverse[\s\S]*1 AS is_reverse/u);
+  for (const tableName of relationshipJoinTables) assert.match(migration.sql, new RegExp(`\\b${tableName}\\b`, "u"));
+  assert.doesNotMatch(migration.sql, /^\s*(?:INSERT|UPDATE|DELETE|TRUNCATE|ALTER|DROP)\b/gimu);
+  const normalize = (sql) => sql.replace(/^\s*--.*$/gmu, "")
+    .replace(/^CREATE SQL SECURITY INVOKER VIEW/u, "CREATE OR REPLACE SQL SECURITY INVOKER VIEW")
+    .replace(/\s+/gu, " ").trim().replace(/;$/u, "");
+  assert.equal(normalize(baseline), normalize(splitMariaDbStatements(migration.sql)[0]));
 });
 
 test("the relationship-table rename migration finishes the join naming invariant", () => {
