@@ -36,7 +36,7 @@ const toolDescriptions = Object.freeze({
   "video_content_create": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Create up to 50 ordinary content-library items in one exact group, preserving each explicit sequence value and metadata.",
+    "summary": "Create up to 50 ordinary content-library items in one exact group, preserving explicit metadata and using the current UTC time when publication time is absent.",
     "actionClasses": [
       "CREATE"
     ],
@@ -53,6 +53,17 @@ const toolDescriptions = Object.freeze({
     ],
     "effectClassifications": [
       "READ-ONLY"
+    ]
+  },
+  "video_content_update": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Atomically update up to 50 exact content-library items using versions returned by the owning sequence read.",
+    "actionClasses": [
+      "UPDATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
     ]
   },
   "video_production_create": {
@@ -273,6 +284,26 @@ const contentCreateOutputSchema = {
   required: ["group", "createdCount", "items"],
 };
 
+const updatedContentSchema = {
+  ...createdContentSchema,
+  properties: {
+    ...createdContentSchema.properties,
+    version: { type: "string" },
+  },
+  required: [...createdContentSchema.required, "version"],
+};
+
+const contentUpdateOutputSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    updatedCount: { type: "integer" },
+    unchangedCount: { type: "integer" },
+    items: { type: "array", items: updatedContentSchema },
+  },
+  required: ["updatedCount", "unchangedCount", "items"],
+};
+
 const contentListItemSchema = {
   type: "object",
   additionalProperties: false,
@@ -293,6 +324,8 @@ const contentListItemSchema = {
     publishedAtUtc: { type: "string" },
     contentHost: { type: "string" },
     contentStatus: { type: "string" },
+    contentUrl: { type: ["string", "null"] },
+    version: { type: "string" },
     content_id: { type: "integer" },
     content_ref: { type: "string" },
     content_title: { type: "string" },
@@ -301,7 +334,8 @@ const contentListItemSchema = {
     "id", "groupId", "sequence", "contentType", "title", "titleCharacters", "titleTruncated",
     "descriptionExcerpt", "descriptionCharacters", "descriptionTruncated",
     "transcriptExcerpt", "transcriptCharacters", "transcriptTruncated",
-    "publishedAtUtc", "contentHost", "contentStatus", "content_id", "content_ref", "content_title",
+    "publishedAtUtc", "contentHost", "contentStatus", "contentUrl", "version",
+    "content_id", "content_ref", "content_title",
   ],
 };
 
@@ -472,7 +506,7 @@ export function registerVideoScriptTools(
     capabilityRegistry.register({
       name: "video_content_create",
       title: "Create content-library items",
-      description: "Atomically create a bounded batch of 1 through 50 ordinary items in one exact active content-library group. Each item carries its own title, optional text, publication time, type, host, status, optional HTTP(S) source URL, and explicit positive sequence or null. Null remains unnumbered and array order never generates sequence. Duplicate non-null sequences reject the complete call without partial writes. This is a general content mutation, not an external-source import or media transfer; it does not download, render, or publish media. A successful result proves new items were created, so do not replay the call.",
+      description: "Atomically create a bounded batch of 1 through 50 ordinary items in one exact active content-library group. Each item carries its own title, optional text, optional publication time, type, host, status, optional HTTP(S) source URL, and explicit positive sequence or null. An omitted or null publication time uses the current UTC time captured for the batch. Null sequence remains unnumbered and array order never generates sequence. Duplicate non-null sequences reject the complete call without partial writes. This is a general content mutation, not an external-source import or media transfer; it does not download, render, or publish media. A successful result proves new items were created, so do not replay the call.",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -493,8 +527,8 @@ export function registerVideoScriptTools(
                 description: { type: ["string", "null"], maxLength: 10_000 },
                 transcript: { type: ["string", "null"], maxLength: 50_000 },
                 publishedAtUtc: {
-                  type: "string", minLength: 1, maxLength: 64,
-                  description: "ISO-8601 publication date or instant. A date without a time is normalized to midnight UTC as a storage representation.",
+                  type: ["string", "null"], minLength: 1, maxLength: 64,
+                  description: "Optional ISO-8601 publication date or instant. Omit or use null to store the current UTC time. A date without a time is normalized to midnight UTC as a storage representation.",
                 },
                 contentHost: {
                   type: "string", enum: ["youtube", "vimeo", "spotify", "mytlomdotcom", "none"],
@@ -516,7 +550,7 @@ export function registerVideoScriptTools(
                 },
               },
               required: [
-                "sequence", "title", "description", "transcript", "publishedAtUtc",
+                "sequence", "title", "description", "transcript",
                 "contentHost", "contentType", "contentStatus", "contentUrl",
               ],
             },
@@ -583,6 +617,91 @@ export function registerVideoScriptTools(
           ...result,
           group: identifiedContentGroup(result.group),
           items: result.items.map(identifiedContentItem),
+        };
+      },
+    });
+
+    capabilityRegistry.register({
+      name: "video_content_update",
+      title: "Update content-library items",
+      description: "Atomically update a bounded batch of 1 through 50 exact content-library items. Read every target with video_content_list first and pass each returned content_id and version. Omitted fields remain unchanged; null sequence makes an item unnumbered, while null description, transcript, or contentUrl clears that field. The complete batch is rejected on a stale version, duplicate target, invalid destination group, or final non-null sequence conflict. Sequence swaps and shifts among items in the same batch are supported. The result returns every current item and its new version as mutation evidence.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          updates: {
+            type: "array", minItems: 1, maxItems: 50,
+            description: "The complete intended batch. Include each exact content item once.",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                content_id: {
+                  type: "integer", minimum: 1,
+                  description: "Stable ID of the exact content item returned by video_content_list.",
+                },
+                version: {
+                  type: "string", minLength: 1, maxLength: 64,
+                  description: "Exact current version returned for this item by video_content_list.",
+                },
+                groupId: {
+                  type: "integer", minimum: 1,
+                  description: "Exact active destination content-group ID; omit to preserve the current group.",
+                },
+                sequence: {
+                  type: ["integer", "null"], minimum: 1,
+                  description: "New positive sequence number, null to make the item unnumbered, or omit to preserve it.",
+                },
+                title: { type: "string", minLength: 1, maxLength: 10_000 },
+                description: { type: ["string", "null"], maxLength: 10_000 },
+                transcript: { type: ["string", "null"], maxLength: 50_000 },
+                publishedAtUtc: {
+                  type: "string", minLength: 1, maxLength: 64,
+                  description: "New ISO-8601 publication date or instant; omit to preserve it.",
+                },
+                contentHost: {
+                  type: "string", enum: ["youtube", "vimeo", "spotify", "mytlomdotcom", "none"],
+                },
+                contentType: {
+                  type: "string",
+                  enum: [
+                    "mobileUGC_tutorial", "mobileUGC_ad", "webUGC_tutorial", "webUGC_ad",
+                    "video_ad", "podcast", "image", "unknown",
+                  ],
+                },
+                contentStatus: {
+                  type: "string", enum: ["active", "obsolete", "unused", "queued"],
+                },
+                contentUrl: {
+                  type: ["string", "null"], minLength: 1, maxLength: 2048,
+                  description: "New HTTP(S) source URL, null to clear it, or omit to preserve it.",
+                },
+              },
+              required: ["content_id", "version"],
+            },
+          },
+        },
+        required: ["updates"],
+      },
+      outputSchema: contentUpdateOutputSchema,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      execute(args, context) {
+        const result = videoContent.updateItems(args, { ...context, actorName: "video_content_update" });
+        return {
+          updatedCount: result.updatedCount,
+          unchangedCount: result.unchangedCount,
+          items: result.items.map((content) => identifiedContentItem({
+            id: Number(content.id),
+            groupId: Number(content.groupId),
+            sequence: content.sequence == null ? null : Number(content.sequence),
+            contentType: content.contentType,
+            title: content.title,
+            publishedAtUtc: content.publishedAtUtc,
+            contentHost: content.contentHost,
+            contentStatus: content.contentStatus,
+            contentUrl: content.contentUrl,
+            version: content.version,
+          })),
         };
       },
     });

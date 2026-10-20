@@ -249,6 +249,10 @@ test("native ID consumers publish bindings for singleton and batch inputs", () =
   assert.deepEqual(bindings("video_content_create"), [
     { path: "/groupId", objectType: "video.content_group", value: "id", role: "subject" },
   ]);
+  assert.deepEqual(bindings("video_content_update"), [
+    { path: "/updates/*/content_id", objectType: "video.content_item", value: "id", role: "subject" },
+    { path: "/updates/*/groupId", objectType: "video.content_group", value: "id", role: "subject" },
+  ]);
 });
 
 test("native results bind only complete identity and preserve the correct parent display", () => {
@@ -381,6 +385,26 @@ test("native results bind only complete identity and preserve the correct parent
     }]],
     ["video.content_item", [{
       id: 31, ref: "agent-slayer://content-items/31", display: "What to Watch 1",
+    }]],
+  ]);
+
+  const contentUpdate = definitions.find(({ name }) => name === "video_content_update");
+  assert.deepEqual(objectReferenceGroupsFromToolResult({
+    toolDefinition: contentUpdate,
+    toolDefinitions: definitions,
+    sourceEventSeq: 97,
+    result: {
+      updatedCount: 1,
+      unchangedCount: 0,
+      items: [{
+        content_id: 31,
+        content_ref: "agent-slayer://content-items/31",
+        content_title: "What to Watch 1 corrected",
+      }],
+    },
+  }).map(({ type, objects }) => [type, objects]), [
+    ["video.content_item", [{
+      id: 31, ref: "agent-slayer://content-items/31", display: "What to Watch 1 corrected",
     }]],
   ]);
 

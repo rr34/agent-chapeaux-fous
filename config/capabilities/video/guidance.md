@@ -32,6 +32,16 @@ group binding from `video.content_groups` or `video_content_list`, then call
 rename preserves the group identity, items, sequence values, and ordering; do
 not create a replacement group or move its items.
 
+If the user asks to edit, correct, move, renumber, or otherwise update existing
+content-library items:
+
+- Request `video.content_groups` during orientation and resolve the exact active group whose items are being changed.
+- Read every target with `video_content_list`, following `nextAfterSequence` until every intended numbered item has been returned. Use the returned `content_id`, stable reference, human title, and `version` as the exact target evidence; never infer an item ID from its sequence number.
+- Call `video_content_update` once with the complete batch of at most 50 target items. Supply each exact `content_id` and `version`, plus only the fields that should change. Omitted fields remain unchanged; explicit null clears sequence, description, transcript, or URL where the tool permits null.
+- Put interdependent sequence shifts or swaps in the same call. The tool validates the final batch state and applies it atomically, so do not break one logical renumbering across separate calls.
+- A stale version, duplicate target, invalid destination group, or final sequence conflict rejects the complete batch. Read the targets again before making a materially corrected retry; never replay a successful update with the old versions.
+- Report the returned updated and unchanged counts and the affected titles or sequences. The typed update receipt is the completion evidence.
+
 If the user asks to create a content-library group or ordinary content items,
 including items based on externally hosted pages:
 
@@ -39,7 +49,7 @@ including items based on externally hosted pages:
 - Interpret sequence from the user's request and source evidence. When the user asks for title-derived sequence, use only a number explicitly present in each source title and use null when the title has none. If the requested source set includes every post, retain unnumbered posts with null sequence instead of silently narrowing the set to numbered titles. Never use array order to invent sequence.
 - Request `video.content_groups` during orientation. Reuse an exact matching active group when one exists. Otherwise call `video_content_group_create` with the requested human-facing name and wait for its returned first-class-object binding before using its ID.
 - Call `video_content_create` with one complete batch of at most 50 items. For a post-based series, use each item's canonical post URL as `contentUrl`; do not use one archive URL for several items or substitute a linked media-file URL.
-- Supply the requested or source-reported titles and publication dates or instants. A source date without a time may stay date-only; the tool normalizes it to midnight UTC solely as a storage representation. Preserve useful descriptions or transcripts when they were actually read; use null rather than inventing missing text. Select the exact known host, using `none` when no named host applies, and use `unknown` when the content-type vocabulary does not precisely describe the item. Use the requested lifecycle status, normally `active` for current source material.
+- Supply the requested or source-reported titles and publication dates or instants. When a publication time is absent, omit `publishedAtUtc` or use null; the tool stores the current UTC time captured for that creation batch. A source date without a time may stay date-only; the tool normalizes it to midnight UTC solely as a storage representation. Preserve useful descriptions or transcripts when they were actually read; use null rather than inventing missing text. Select the exact known host, using `none` when no named host applies, and use `unknown` when the content-type vocabulary does not precisely describe the item. Use the requested lifecycle status, normally `active` for current source material.
 - Creation is atomic and non-idempotent. A duplicate non-null sequence or another validation error rejects the complete batch. After a successful receipt, do not replay the mutation; use a read to verify current state when needed.
 - Report the returned group name, created count, and relevant sequence values. The successful group-creation and content-creation receipts are the completion evidence.
 

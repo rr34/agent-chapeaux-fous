@@ -2877,7 +2877,8 @@ export class OrganizerStore {
              CHAR_LENGTH(title) AS title_characters,
              ${descriptionProjection},
              ${transcriptProjection},
-             published_at_utc, content_host, content_status
+             published_at_utc, content_host, content_status, content_url,
+             COALESCE(updated_at_utc, created_at_utc) AS version
       FROM content_items
       WHERE content_group_id = ? AND sequence IS NOT NULL AND sequence > ?
       ORDER BY sequence, content_id
@@ -2910,6 +2911,8 @@ export class OrganizerStore {
         publishedAtUtc: row.published_at_utc,
         contentHost: row.content_host,
         contentStatus: row.content_status,
+        contentUrl: row.content_url,
+        version: row.version,
       };
     });
     return {
@@ -2997,6 +3000,7 @@ export class OrganizerStore {
     if (!Array.isArray(input?.items) || input.items.length < 1 || input.items.length > 50) {
       throw new OrganizerInputError("items must contain 1 through 50 content items.");
     }
+    const defaultPublishedAtUtc = new Date().toISOString();
     const items = input.items.map((entry, index) => {
       const contentUrl = httpUrl(entry?.contentUrl, `items[${index}].contentUrl`);
       return {
@@ -3008,7 +3012,9 @@ export class OrganizerStore {
         transcript: optionalText(entry?.transcript, `items[${index}].transcript`, 50_000),
         description: optionalText(entry?.description, `items[${index}].description`, 10_000),
         publishedAtUtc: isoDateTime(
-          entry?.publishedAtUtc, `items[${index}].publishedAtUtc`, { required: true },
+          entry?.publishedAtUtc ?? defaultPublishedAtUtc,
+          `items[${index}].publishedAtUtc`,
+          { required: true },
         ),
         contentHost: enumValue(
           entry?.contentHost, contentHosts, `items[${index}].contentHost`, "none",
@@ -3085,6 +3091,175 @@ export class OrganizerStore {
         group: publicContentGroup(group),
         createdCount: created.length,
         items: created.map((content) => this.getContent(content.id)),
+      };
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      if (String(error?.message).includes("content_items.content_group_id, content_items.sequence")) {
+        throw new OrganizerInputError("That sequence is already used in this content group.", 409);
+      }
+      throw error;
+    }
+  }
+
+  updateContentItems(input, context = {}) {
+    if (!Array.isArray(input?.updates) || input.updates.length < 1 || input.updates.length > 50) {
+      throw new OrganizerInputError("updates must contain 1 through 50 content-item updates.");
+    }
+    const editableFields = [
+      "groupId", "sequence", "contentType", "title", "transcript", "description",
+      "publishedAtUtc", "contentHost", "contentStatus", "contentUrl",
+    ];
+    const updates = input.updates.map((entry, index) => {
+      const contentId = identifier(entry?.content_id, `updates[${index}].content_id`);
+      if (typeof entry?.version !== "string" || !entry.version) {
+        throw new OrganizerInputError(`updates[${index}].version is required.`);
+      }
+      if (!editableFields.some((field) => Object.hasOwn(entry, field))) {
+        throw new OrganizerInputError(`updates[${index}] must supply at least one field to update.`);
+      }
+      return { ...entry, contentId };
+    });
+    const contentIds = updates.map(({ contentId }) => contentId);
+    if (new Set(contentIds).size !== contentIds.length) {
+      throw new OrganizerInputError("updates cannot contain the same content item more than once.");
+    }
+    const suppliedTextCharacters = updates.reduce((total, update) => total + [
+      update.title, update.description, update.transcript,
+    ].reduce((subtotal, value) => subtotal + (typeof value === "string" ? value.length : 0), 0), 0);
+    if (suppliedTextCharacters > 200_000) {
+      throw new OrganizerInputError("The batch cannot contain more than 200000 text characters.");
+    }
+
+    this.database.exec("START TRANSACTION");
+    try {
+      const records = updates.map((update, index) => {
+        const before = this.getContent(update.contentId);
+        if (!before) throw new OrganizerInputError(`Content item ${update.contentId} was not found.`, 404);
+        if (before.version !== update.version) {
+          throw new OrganizerInputError(
+            `Content item ${update.contentId} changed while you were preparing the update. Read it again and retry.`,
+            409,
+          );
+        }
+        const after = {
+          ...before,
+          groupId: update.groupId === undefined
+            ? before.groupId : identifier(update.groupId, `updates[${index}].groupId`),
+          sequence: update.sequence === undefined
+            ? before.sequence : optionalPositiveInteger(update.sequence, `updates[${index}].sequence`),
+          contentType: update.contentType === undefined
+            ? before.contentType
+            : enumValue(update.contentType, contentTypes, `updates[${index}].contentType`, before.contentType),
+          title: update.title === undefined
+            ? before.title : requiredText(update.title, `updates[${index}].title`, 10_000),
+          transcript: update.transcript === undefined
+            ? before.transcript : optionalText(update.transcript, `updates[${index}].transcript`, 50_000),
+          description: update.description === undefined
+            ? before.description : optionalText(update.description, `updates[${index}].description`, 10_000),
+          publishedAtUtc: update.publishedAtUtc === undefined
+            ? before.publishedAtUtc
+            : isoDateTime(update.publishedAtUtc, `updates[${index}].publishedAtUtc`, { required: true }),
+          contentHost: update.contentHost === undefined
+            ? before.contentHost
+            : enumValue(update.contentHost, contentHosts, `updates[${index}].contentHost`, before.contentHost),
+          contentStatus: update.contentStatus === undefined
+            ? before.contentStatus
+            : enumValue(update.contentStatus, contentStatuses, `updates[${index}].contentStatus`, before.contentStatus),
+          contentUrl: update.contentUrl === undefined
+            ? before.contentUrl : httpUrl(update.contentUrl, `updates[${index}].contentUrl`),
+        };
+        const changes = changedFields(before, after, editableFields);
+        return { before, after, changes };
+      });
+
+      const groupIds = [...new Set(records.map(({ after }) => after.groupId))];
+      for (const groupId of groupIds) {
+        if (!this.database.prepare(
+          "SELECT 1 FROM content_groups WHERE content_group_id = ? AND archived_at_utc IS NULL",
+        ).get(groupId)) throw new OrganizerInputError(`Content group ${groupId} was not found.`, 404);
+      }
+
+      const finalSequences = new Set();
+      for (const { after } of records) {
+        if (after.sequence === null) continue;
+        const key = `${after.groupId}:${after.sequence}`;
+        if (finalSequences.has(key)) {
+          throw new OrganizerInputError("updates cannot assign duplicate non-null sequences in one content group.");
+        }
+        finalSequences.add(key);
+      }
+      const otherContentPlaceholders = contentIds.map(() => "?").join(", ");
+      for (const { after } of records) {
+        if (after.sequence === null) continue;
+        const conflict = this.database.prepare(`
+          SELECT content_id FROM content_items
+          WHERE content_group_id = ? AND sequence = ?
+            AND content_id NOT IN (${otherContentPlaceholders})
+          LIMIT 1
+        `).get(after.groupId, after.sequence, ...contentIds);
+        if (conflict) {
+          throw new OrganizerInputError(
+            `Sequence ${after.sequence} is already used in content group ${after.groupId}.`,
+            409,
+          );
+        }
+      }
+
+      const changed = records.filter(({ changes }) => Object.keys(changes).length > 0);
+      if (changed.length) {
+        const changedIds = changed.map(({ before }) => before.id);
+        this.database.prepare(`
+          UPDATE content_items SET sequence = NULL
+          WHERE content_id IN (${changedIds.map(() => "?").join(", ")})
+        `).run(...changedIds);
+        const now = new Date().toISOString();
+        const update = this.database.prepare(`
+          UPDATE content_items
+          SET content_group_id = ?, sequence = ?, content_type = ?, title = ?,
+              transcript = ?, description = ?, published_at_utc = ?, content_host = ?,
+              content_status = ?, content_url = ?, updated_at_utc = ?
+          WHERE content_id = ? AND COALESCE(updated_at_utc, created_at_utc) = ?
+        `);
+        for (const { before, after } of changed) {
+          const result = update.run(
+            after.groupId, after.sequence, after.contentType, after.title, after.transcript,
+            after.description, after.publishedAtUtc, after.contentHost, after.contentStatus,
+            after.contentUrl, now, before.id, before.version,
+          );
+          if (result.changes !== 1) {
+            throw new OrganizerInputError(
+              `Content item ${before.id} changed while the batch was being saved. Read it again and retry.`,
+              409,
+            );
+          }
+        }
+        this.#activity({
+          eventType: "content.batch_updated", status: "complete",
+          actorType: context.actorName ? "tool" : "user",
+          actorName: context.actorName ?? "Nate",
+          source: context.actorName ? "agent-slayer" : "tailnet_web",
+          channel: context.channel ?? "tailnet_web",
+          turnId: context.requestId ?? null,
+          operationId: context.callId ?? null,
+          name: "Content items updated",
+          subjectType: changed.length === 1 ? "content_item" : "content_item_batch",
+          subjectId: changed.length === 1 ? String(changed[0].before.id) : String(changed.length),
+          contentText: changed.length === 1
+            ? changed[0].after.title : `${changed.length} content items updated`,
+          payload: {
+            updates: changed.map(({ before, changes }) => ({
+              contentId: before.id,
+              fields: Object.keys(changes),
+            })),
+          },
+        });
+      }
+      const items = records.map(({ before }) => this.getContent(before.id));
+      this.database.exec("COMMIT");
+      return {
+        updatedCount: changed.length,
+        unchangedCount: records.length - changed.length,
+        items,
       };
     } catch (error) {
       this.database.exec("ROLLBACK");

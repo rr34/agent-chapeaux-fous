@@ -71,17 +71,47 @@ test("the Agent can create a library and atomically create ordinary content item
       contentStatus: "active",
       contentUrl: "https://youtu.be/example-one",
     },
+    {
+      sequence: 33,
+      title: "Job 6 - Patek Philippe Display Case",
+      description: null,
+      transcript: null,
+      contentHost: "youtube",
+      contentType: "unknown",
+      contentStatus: "active",
+      contentUrl: "https://example.com/patek-display-case",
+    },
+    {
+      sequence: 34,
+      title: "Explicit null publication time",
+      description: null,
+      transcript: null,
+      publishedAtUtc: null,
+      contentHost: "youtube",
+      contentType: "unknown",
+      contentStatus: "active",
+      contentUrl: "https://example.com/null-publication-time",
+    },
   ];
+  const creationStartedAt = Date.now();
   const createdItems = await registry.execute("video_content_create", {
     groupId: Number(createdGroup.group.id), items,
   }, {
     requestId: "external-content-request", callId: "external-content-call", channel: "web",
   });
-  assert.equal(createdItems.createdCount, 2);
-  assert.deepEqual(createdItems.items.map(({ sequence }) => sequence), [null, 1]);
+  const creationFinishedAt = Date.now();
+  assert.equal(createdItems.createdCount, 4);
+  assert.deepEqual(createdItems.items.map(({ sequence }) => sequence), [null, 1, 33, 34]);
   assert.deepEqual(createdItems.items.map(({ title }) => title), [
     "What to Watch Today", "What to Watch 1",
+    "Job 6 - Patek Philippe Display Case", "Explicit null publication time",
   ]);
+  const defaultedPublicationTimes = createdItems.items.slice(2)
+    .map(({ publishedAtUtc }) => Date.parse(publishedAtUtc));
+  assert.ok(defaultedPublicationTimes.every((value) => (
+    value >= creationStartedAt && value <= creationFinishedAt
+  )));
+  assert.equal(defaultedPublicationTimes[0], defaultedPublicationTimes[1]);
   assert.ok(createdItems.items.every((content) => (
     content.content_ref === `agent-slayer://content-items/${content.id}`
   )));
@@ -106,7 +136,7 @@ test("the Agent can create a library and atomically create ordinary content item
     }),
     /sequence is already used/,
   );
-  assert.equal(organizer.listContent({ groupId: createdGroup.group.id }).length, 2);
+  assert.equal(organizer.listContent({ groupId: createdGroup.group.id }).length, 4);
   assert.equal(organizer.database.prepare(`
     SELECT COUNT(*) AS count FROM activity_events
     WHERE event_type = 'content.batch_created'
@@ -145,6 +175,114 @@ test("the Agent can create a library and atomically create ordinary content item
     actor_name: "video_content_group_rename",
     turn_id: "rename-content-group-request",
     operation_id: "rename-content-group-call",
+  });
+});
+
+test("the Agent can atomically update exact content items, including sequence swaps", async (context) => {
+  const temporary = temporaryDatabase();
+  context.after(() => temporary.cleanup());
+  const store = new SlayerDatabase(temporary.target);
+  context.after(() => store.close());
+  const organizer = new OrganizerStore(temporary.target);
+  context.after(() => organizer.close());
+  const ledger = new Ledger(store);
+  const videoScripts = new VideoScripts({ store, ledger });
+  const videoContent = new VideoContent({ videoScripts, organizer });
+  const group = organizer.createContentGroup({ name: "Sequence corrections" });
+  const first = organizer.createContent({
+    groupId: group.id, sequence: 1, title: "First old title",
+    publishedAtUtc: "2026-10-01", contentHost: "youtube", contentType: "unknown",
+    contentStatus: "active", contentUrl: "https://example.test/first",
+  });
+  const second = organizer.createContent({
+    groupId: group.id, sequence: 2, title: "Second old title",
+    publishedAtUtc: "2026-10-02", contentHost: "youtube", contentType: "unknown",
+    contentStatus: "active", contentUrl: "https://example.test/second",
+  });
+  const third = organizer.createContent({
+    groupId: group.id, sequence: 3, title: "Third unchanged",
+    publishedAtUtc: "2026-10-03", contentHost: "youtube", contentType: "unknown",
+    contentStatus: "active", contentUrl: "https://example.test/third",
+  });
+  const registry = registerNativeCapabilities(new ToolRegistry());
+  registerVideoScriptTools(registry, videoScripts, { videoContent });
+  const read = await registry.execute("video_content_list", {
+    groupId: Number(group.id), afterSequence: 0, limit: 20,
+  });
+  assert.deepEqual(read.items.map(({ content_id }) => content_id), [first.id, second.id, third.id]);
+  assert.equal(read.items[0].version, first.version);
+  assert.equal(read.items[0].contentUrl, "https://example.test/first");
+
+  const definition = registry.toolDefinitions()
+    .find(({ name }) => name === "video_content_update");
+  const updated = await registry.execute("video_content_update", {
+    updates: [
+      {
+        content_id: first.id, version: read.items[0].version,
+        sequence: 2, title: "Second corrected title",
+        contentUrl: "https://example.test/second-corrected",
+      },
+      {
+        content_id: second.id, version: read.items[1].version,
+        sequence: 1, title: "First corrected title",
+        contentUrl: null,
+      },
+    ],
+  }, {
+    requestId: "update-content-request", callId: "update-content-call", channel: "web",
+  });
+  assert.equal(schemaProblem(updated, definition.outputSchema, "result"), null);
+  assert.equal(updated.updatedCount, 2);
+  assert.equal(updated.unchangedCount, 0);
+  assert.deepEqual(updated.items.map(({ id, sequence, title, contentUrl }) => ({
+    id, sequence, title, contentUrl,
+  })), [
+    {
+      id: first.id, sequence: 2, title: "Second corrected title",
+      contentUrl: "https://example.test/second-corrected",
+    },
+    { id: second.id, sequence: 1, title: "First corrected title", contentUrl: null },
+  ]);
+  assert.deepEqual(
+    organizer.listSequencedContent({ groupId: group.id }).items
+      .map(({ id, sequence, title }) => ({ id, sequence, title })),
+    [
+      { id: second.id, sequence: 1, title: "First corrected title" },
+      { id: first.id, sequence: 2, title: "Second corrected title" },
+      { id: third.id, sequence: 3, title: "Third unchanged" },
+    ],
+  );
+
+  await assert.rejects(
+    () => registry.execute("video_content_update", {
+      updates: [
+        { content_id: first.id, version: "2000-01-01T00:00:00.000Z", title: "Stale change" },
+        { content_id: third.id, version: third.version, title: "Must roll back" },
+      ],
+    }),
+    /changed while you were preparing the update/,
+  );
+  assert.equal(organizer.getContent(third.id).title, "Third unchanged");
+
+  await assert.rejects(
+    () => registry.execute("video_content_update", {
+      updates: [{
+        content_id: first.id,
+        version: organizer.getContent(first.id).version,
+        sequence: 3,
+      }],
+    }),
+    /Sequence 3 is already used/,
+  );
+  assert.equal(organizer.getContent(first.id).sequence, 2);
+  assert.deepEqual({ ...organizer.database.prepare(`
+    SELECT actor_type, actor_name, turn_id, operation_id
+    FROM activity_events WHERE event_type = 'content.batch_updated'
+  `).get() }, {
+    actor_type: "tool",
+    actor_name: "video_content_update",
+    turn_id: "update-content-request",
+    operation_id: "update-content-call",
   });
 });
 

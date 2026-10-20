@@ -83,6 +83,7 @@ test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("video_content_add")), "video");
   assert.equal(capabilityForTool(tool("video_content_group_create")), "video");
   assert.equal(capabilityForTool(tool("video_content_create")), "video");
+  assert.equal(capabilityForTool(tool("video_content_update")), "video");
   assert.equal(capabilityForTool(tool("global_search")), "search");
   assert.equal(capabilityForTool(tool("file_read")), "files");
 });
@@ -151,6 +152,21 @@ test("an external video-series library request selects the video and web familie
   assert.equal(selection.capabilities.includes("video"), true);
   assert.equal(names(selection).includes("video_content_group_create"), true);
   assert.equal(names(selection).includes("video_content_create"), true);
+  assert.equal(selection.fallbackAll, false);
+});
+
+test("a content-library correction selects the video read and update tools", () => {
+  const selection = selectRequestCapabilities({
+    tools: [
+      ...tools,
+      tool("video_content_list"),
+      tool("video_content_update"),
+    ],
+    text: "Correct the titles and sequence numbers of the existing content library items.",
+  });
+  assert.equal(selection.capabilities.includes("video"), true);
+  assert.equal(names(selection).includes("video_content_list"), true);
+  assert.equal(names(selection).includes("video_content_update"), true);
   assert.equal(selection.fallbackAll, false);
 });
 

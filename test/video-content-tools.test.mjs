@@ -71,6 +71,11 @@ test("content creation tools publish compact identified mutation results", async
     contentStatus: "active",
     contentUrl: "https://example.com/what-to-watch-today/",
   };
+  const updatedContent = {
+    ...createdContent,
+    title: "What to Watch Next",
+    version: "2026-10-19T12:00:00.000Z",
+  };
   const videoContent = {
     createGroup() { return { created: true, unchanged: false, group }; },
     renameGroup({ groupId, name }) {
@@ -83,6 +88,15 @@ test("content creation tools publish compact identified mutation results", async
         createdCount: 1,
         items: [createdContent],
       };
+    },
+    updateItems({ updates }, context) {
+      assert.equal(context.actorName, "video_content_update");
+      assert.deepEqual(updates, [{
+        content_id: 31,
+        version: "2026-10-19T11:00:00.000Z",
+        title: "What to Watch Next",
+      }]);
+      return { updatedCount: 1, unchangedCount: 0, items: [updatedContent] };
     },
     listGroups() { return []; },
     list() { return null; },
@@ -105,6 +119,32 @@ test("content creation tools publish compact identified mutation results", async
     createDefinition.inputSchema.properties.items.items.properties.sequence.type,
     ["integer", "null"],
   );
+  assert.equal(
+    createDefinition.inputSchema.properties.items.items.required.includes("publishedAtUtc"),
+    false,
+  );
+  assert.deepEqual(
+    createDefinition.inputSchema.properties.items.items.properties.publishedAtUtc.type,
+    ["string", "null"],
+  );
+  const itemWithoutPublicationTime = {
+    sequence: 33,
+    title: "Job 6 - Patek Philippe Display Case",
+    description: null,
+    transcript: null,
+    contentHost: "youtube",
+    contentType: "unknown",
+    contentStatus: "active",
+    contentUrl: null,
+  };
+  assert.equal(schemaProblem({
+    groupId: 7,
+    items: [itemWithoutPublicationTime],
+  }, createDefinition.inputSchema, "arguments"), null);
+  assert.equal(schemaProblem({
+    groupId: 7,
+    items: [{ ...itemWithoutPublicationTime, publishedAtUtc: null }],
+  }, createDefinition.inputSchema, "arguments"), null);
   assert.equal(
     schemaProblem(created, definitions.get("video_content_group_create").outputSchema, "result"),
     null,
@@ -156,4 +196,27 @@ test("content creation tools publish compact identified mutation results", async
     content_ref: "agent-slayer://content-items/31",
     content_title: "What to Watch Today",
   });
+
+  const updateDefinition = definitions.get("video_content_update");
+  assert.equal(updateDefinition.annotations.idempotentHint, false);
+  assert.deepEqual(updateDefinition.inputSchema.required, ["updates"]);
+  assert.deepEqual(
+    updateDefinition.metadata["agent-slayer/object-input-bindings"].bindings,
+    [
+      { path: "/updates/*/content_id", objectType: "video.content_item", value: "id", role: "subject" },
+      { path: "/updates/*/groupId", objectType: "video.content_group", value: "id", role: "subject" },
+    ],
+  );
+  const updatedItems = await registry.execute("video_content_update", {
+    updates: [{
+      content_id: 31,
+      version: "2026-10-19T11:00:00.000Z",
+      title: "What to Watch Next",
+    }],
+  });
+  assert.equal(schemaProblem(updatedItems, updateDefinition.outputSchema, "result"), null);
+  assert.equal(updatedItems.updatedCount, 1);
+  assert.equal(updatedItems.items[0].content_ref, "agent-slayer://content-items/31");
+  assert.equal(updatedItems.items[0].content_title, "What to Watch Next");
+  assert.equal(updatedItems.items[0].version, updatedContent.version);
 });
