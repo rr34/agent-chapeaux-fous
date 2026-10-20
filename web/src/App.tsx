@@ -45,9 +45,9 @@ import hatOutlineUrl from "./assets/logo-outline-hat.svg";
 
 const navigation = [
   ["agent", "Agent"], ["hats", "Hats"], ["calendar", "Calendar"], ["routine", "Routine"],
-  ["todos", "To do"], ["things", "Things"], ["content", "Library"], ["files", "Files"],
-  ["contacts", "Contacts"], ["journal", "Journal"], ["video-scripts", "Video Scripts"],
-  ["payments", "Payments"], ["ai-usage", "AI Usage"],
+  ["journal", "Journal"], ["contacts", "Contacts"], ["things", "Things"], ["todos", "To do"],
+  ["files", "Files"], ["content", "Library"], ["payments", "Payments"], ["ai-usage", "AI Usage"],
+  ["video-scripts", "Video Scripts"],
 ] as const;
 
 type NavigationItem = typeof navigation[number];

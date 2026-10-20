@@ -124,9 +124,9 @@ test("persisted group headers expose the shared editor while synthetic groups do
   assert.match(styles, /\.group-edit-button/);
 });
 
-test("video scripts are the last workspace section before AI usage", () => {
+test("workspace sections use the intended navigation order", () => {
   assert.match(
     appSource,
-    /\["journal", "Journal"\], \["video-scripts", "Video Scripts"\],\s*\["payments", "Payments"\], \["ai-usage", "AI Usage"\]/,
+    /\["agent", "Agent"\], \["hats", "Hats"\], \["calendar", "Calendar"\], \["routine", "Routine"\],\s*\["journal", "Journal"\], \["contacts", "Contacts"\], \["things", "Things"\], \["todos", "To do"\],\s*\["files", "Files"\], \["content", "Library"\], \["payments", "Payments"\], \["ai-usage", "AI Usage"\],\s*\["video-scripts", "Video Scripts"\]/,
   );
 });
