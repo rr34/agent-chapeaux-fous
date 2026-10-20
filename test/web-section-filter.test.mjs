@@ -8,6 +8,7 @@ const filterComponentSource = fs.readFileSync(new URL("../web/src/components/Sec
 const calendarSource = fs.readFileSync(new URL("../web/src/components/DailyPaper.tsx", import.meta.url), "utf8");
 const routineSource = fs.readFileSync(new URL("../web/src/components/RoutineCalendar.tsx", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("../web/src/styles.css", import.meta.url), "utf8");
+const serverSource = fs.readFileSync(new URL("../src/server.mjs", import.meta.url), "utf8");
 
 test("section filters require every query term while allowing terms in any field", () => {
   assert.match(filterSource, /match\(\/\[\\p\{L\}\\p\{N\}\]\+\/gu\)/);
@@ -21,7 +22,7 @@ test("React sections share one consistent filter control", () => {
   assert.match(filterComponentSource, /<form className="section-filter surface"/);
   assert.match(filterComponentSource, /onSubmit=\{\(event\) => \{ event\.preventDefault\(\); onSearch\(\); \}\}/);
   assert.match(filterComponentSource, /\{searching \? "Searching…" : "Search"\}[\s\S]*<\/button>/);
-  for (const screen of ["AgentScreen", "CalendarScreen", "TodoScreen", "ContactsScreen", "LibraryScreen", "VideoScriptsScreen", "FilesScreen", "GenericScreen", "HatsScreen", "JournalScreen", "UsageScreen"]) {
+  for (const screen of ["AgentScreen", "GlobalSearchScreen", "CalendarScreen", "TodoScreen", "ContactsScreen", "LibraryScreen", "VideoScriptsScreen", "FilesScreen", "GenericScreen", "HatsScreen", "JournalScreen", "UsageScreen"]) {
     const start = appSource.indexOf(`function ${screen}`);
     assert.notEqual(start, -1, `${screen} exists`);
     const next = appSource.indexOf("\nfunction ", start + 1);
@@ -31,6 +32,8 @@ test("React sections share one consistent filter control", () => {
 });
 
 test("bounded section searches submit their query to server endpoints", () => {
+  assert.match(appSource, /`\/api\/global-search\?q=\$\{encodeURIComponent\(serverQuery\)\}&mode=terms&limit=100`/);
+  assert.match(serverSource, /url\.pathname === "\/api\/global-search"[\s\S]*searchCoordinator\.search/);
   assert.match(appSource, /`\/api\/files\?\$\{fileParameters\}`/);
   assert.match(appSource, /fileParameters\.set\("query", serverQuery\)/);
   assert.match(appSource, /`\/api\/todos\?\$\{todoParameters\}`/);

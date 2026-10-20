@@ -32,6 +32,12 @@ group binding from `video.content_groups` or `video_content_list`, then call
 rename preserves the group identity, items, sequence values, and ordering; do
 not create a replacement group or move its items.
 
+If the user asks to enable or disable automatic numbering for a content-library
+group, resolve the exact group and call `video_content_group_sequence_set`.
+Enabling numbers every existing unnumbered item after the current maximum;
+disabling preserves existing numbers. Supplying a numbered content item never
+changes this group setting implicitly.
+
 If the user asks to edit, correct, move, renumber, or otherwise update existing
 content-library items:
 
@@ -47,7 +53,7 @@ including items based on externally hosted pages:
 
 - Use an authorized bounded source reader such as `web_page_read` to read the complete requested source. Follow every pagination continuation, then read each canonical post page needed to obtain its title, description, and transcript when present. Do not fetch linked video or audio files, and do not import from a partial result.
 - Interpret sequence from the user's request and source evidence. When the user asks for title-derived sequence, use only a number explicitly present in each source title and use null when the title has none. If the requested source set includes every post, retain unnumbered posts with null sequence instead of silently narrowing the set to numbered titles. Never use array order to invent sequence.
-- Request `video.content_groups` during orientation. Reuse an exact matching active group when one exists. Otherwise call `video_content_group_create` with the requested human-facing name and wait for its returned first-class-object binding before using its ID.
+- Request `video.content_groups` during orientation. Reuse an exact matching active group when one exists. Otherwise call `video_content_group_create` with the requested human-facing name and explicit automatic-sequencing preference when the user supplied one, then wait for its returned first-class-object binding before using its ID.
 - Call `video_content_create` with one complete batch of at most 50 items. For a post-based series, use each item's canonical post URL as `contentUrl`; do not use one archive URL for several items or substitute a linked media-file URL.
 - Supply the requested or source-reported titles and publication dates or instants. When a publication time is absent, omit `publishedAtUtc` or use null; the tool stores the current UTC time captured for that creation batch. A source date without a time may stay date-only; the tool normalizes it to midnight UTC solely as a storage representation. Preserve useful descriptions or transcripts when they were actually read; use null rather than inventing missing text. Select the exact known host, using `none` when no named host applies, and use `unknown` when the content-type vocabulary does not precisely describe the item. Use the requested lifecycle status, normally `active` for current source material.
 - Creation is atomic and non-idempotent. A duplicate non-null sequence or another validation error rejects the complete batch. After a successful receipt, do not replay the mutation; use a read to verify current state when needed.

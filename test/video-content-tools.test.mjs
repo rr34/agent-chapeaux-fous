@@ -208,6 +208,16 @@ test("content creation tools publish compact identified mutation results", async
   assert.equal(renamed.group.content_group_id, 7);
   assert.equal(renamed.group.content_group_name, "Time v3");
 
+  const sequenceResult = await registry.execute("video_content_group_sequence_set", {
+    groupId: 7,
+    usesSequence: true,
+  });
+  const sequenceDefinition = definitions.get("video_content_group_sequence_set");
+  assert.equal(schemaProblem(sequenceResult, sequenceDefinition.outputSchema, "result"), null);
+  assert.equal(sequenceDefinition.annotations.idempotentHint, true);
+  assert.equal(sequenceResult.assignedItemCount, 1);
+  assert.equal(sequenceResult.group.usesSequence, true);
+
   const createdItems = await registry.execute("video_content_create", {
     groupId: 7,
     items: [{

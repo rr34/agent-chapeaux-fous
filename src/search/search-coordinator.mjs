@@ -46,6 +46,37 @@ function providerCapabilities(provider) {
   };
 }
 
+function normalizedHit(scope, hit) {
+  const provider = String(hit?.provider ?? scope);
+  const kind = String(hit?.kind ?? "record");
+  const id = String(hit?.id ?? "");
+  return {
+    provider,
+    kind,
+    id,
+    ref: typeof hit?.ref === "string" ? hit.ref : null,
+    objectType: typeof hit?.objectType === "string" ? hit.objectType : null,
+    source: typeof hit?.source === "string" ? hit.source : null,
+    title: String(hit?.title ?? `${kind} ${id}`).trim(),
+    snippet: hit?.snippet == null ? null : String(hit.snippet),
+    matchedFields: Array.isArray(hit?.matchedFields) ? hit.matchedFields.map(String) : [],
+    occurredAtUtc: hit?.occurredAtUtc ?? null,
+    actionRef: hit?.actionRef && typeof hit.actionRef === "object" ? hit.actionRef : {},
+    ...(hit?.providerRank == null ? {} : { providerRank: Number(hit.providerRank) }),
+    ...(hit?.object && typeof hit.object === "object" ? { object: hit.object } : {}),
+  };
+}
+
+function deduplicatedHits(hits) {
+  const seen = new Set();
+  return hits.filter((hit) => {
+    const key = hit.ref || `${hit.provider}:${hit.kind}:${hit.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export class SearchCoordinator {
   constructor({ providers = [] } = {}) {
     this.providers = new Map();
@@ -64,8 +95,8 @@ export class SearchCoordinator {
     return this;
   }
 
-  listProviders() {
-    return [...this.providers.values()].map((provider) => ({
+  listProviders({ includeInternal = false } = {}) {
+    return [...this.providers.values()].filter((provider) => includeInternal || provider.global !== false).map((provider) => ({
       id: provider.id,
       description: provider.description ?? `${provider.id} search provider`,
       capabilities: providerCapabilities(provider),
@@ -92,13 +123,22 @@ export class SearchCoordinator {
     });
   }
 
+  async searchNativeObjects({ query, limit = 24, domainTypes = null } = {}) {
+    const result = await this.searchScope("objects", {
+      query,
+      limit,
+      options: { domainTypes },
+    });
+    return result.native;
+  }
+
   async search({
     query, scopes = null, mode = "terms", maxDistance = 12, contextTokens = 24,
     limit = 20, options = {},
   } = {}) {
     const selectedQuery = normalizedQuery(query);
     const selectedLimit = boundedInteger(limit, "limit", { minimum: 1, maximum: 100, fallback: 20 });
-    const availableScopes = [...this.providers.keys()];
+    const availableScopes = this.listProviders().map(({ id }) => id);
     if (scopes !== null && !Array.isArray(scopes)) {
       throw inputError("scopes must be an array of search scope names or null.");
     }
@@ -124,7 +164,9 @@ export class SearchCoordinator {
         return {
           scope,
           status: "complete",
-          hits: Array.isArray(result.hits) ? result.hits : [],
+          hits: Array.isArray(result.hits)
+            ? result.hits.map((hit) => normalizedHit(scope, hit))
+            : [],
           exhaustive: result.exhaustive !== false,
           hasMore: Boolean(result.hasMore),
           matchMode: result.matchMode ?? "terms",
@@ -145,7 +187,7 @@ export class SearchCoordinator {
         };
       }
     }));
-    const hits = interleavedHits(settled, selectedLimit);
+    const hits = deduplicatedHits(interleavedHits(settled, selectedLimit));
     return {
       query: selectedQuery,
       requestedMode: mode,

@@ -70,6 +70,24 @@ cannot silently fork the representation.
 Print-only documents may use their purpose-built physical-page layout. That
 exception does not authorize a second interactive card design.
 
+### Native data surface contract
+
+Every user-referable native domain participates in one shared discovery
+coordinator used by the agent, the global Search screen, and native object
+selection. Domain providers own searchable fields and actual matching behavior;
+the coordinator owns normalized compact hits, source-diverse fan-out,
+deduplication, bounds, completeness, and literal partial-source reporting.
+Domain-specific tools and screens remain the authoritative paths for complete
+records, rich filters, and actions.
+
+Native domains expose bounded lifecycle operations with batch-shaped reads and
+mutations by default. Each exception must have a concrete domain reason. Exact
+identity and stable references, authorization, pagination, concurrency,
+idempotency, transaction or partial-success rules, lifecycle states, and
+literal receipts remain consistent across agent tools and HTTP/UI adapters.
+The normative cross-domain requirements live in the **Native domain
+consistency invariant** in `AGENT-TOOL-MANIFESTO.md`.
+
 ## Hats and the user manual
 
 Users may make one or more roles explicit with the convention:
@@ -374,12 +392,16 @@ their domain tools. Application code applies the first-class object catalog,
 bounded hydration, and simple-connection rules; the live view is not a saved
 relationship set or a recursive traversal engine.
 
-Native discovery also has one in-process search coordinator. Calendar,
-contacts, and conversation history keep their own matching and completeness
-rules behind provider adapters, while the coordinator handles bounded
-cross-domain fan-out, compact normalized hits, source-diverse interleaving, and
-literal partial-failure reporting. This is separate from the pre-model
-capability selector, which controls which exact tool schemas are callable.
+Native discovery has one in-process search coordinator shared by agent
+`global_search`, the user-facing Search screen and `/api/global-search`, and the
+internal native-object picker. Calendar, contacts, files, conversation history,
+to-dos, things, journal, content, video scripts, profile facts, Check-in
+questions, invoices, and connected live email retain their own matching and
+completeness rules behind provider adapters. The coordinator handles bounded
+cross-domain fan-out, compact normalized hits, stable references,
+deduplication, source-diverse interleaving, and literal partial-failure
+reporting. This is separate from the pre-model capability selector, which
+controls which exact tool schemas are callable.
 
 - `web_page_read` fetches one explicit HTTP(S) URL and returns bounded extracted
   text, metadata, and links so the model can follow pagination or directly
@@ -488,13 +510,15 @@ capability selector, which controls which exact tool schemas are callable.
   requests and responses, supports relative local periods through explicit UTC
   boundaries, and can apply a topical term filter across both sides of each
   exchange in the same lookup.
-- `global_search` performs read-only discovery across selected calendar,
-  contacts, and history providers. It returns compact references and reports
+- `global_search` performs read-only discovery across selected native domain
+  providers. It returns the same normalized hits available to the direct user
+  Search screen and reports
   each provider's actual matching mode, capabilities, completeness, warnings,
   and errors. History and file discovery use MariaDB FULLTEXT indexes with
   bounded contextual snippets and deterministic fallbacks for short tokens,
   stopwords, accents, phrases, and proximity. Existing domain search tools
-  retain their schemas and native result shapes.
+  retain their schemas and native result shapes. Exact literal or RE2 search
+  inside one verified file remains the specialized `file_text_search` path.
 - `email_account_list`, `email_mailbox_list`, `email_identity_list`,
   `email_search`, `email_get`, `email_thread_get`, `email_changes`,
   `email_update`, `email_bulk_update`, `email_cleanup_preview`,
@@ -732,7 +756,8 @@ term **physical item** so other first-class objects are not misclassified.
 
 The Agent can also create a named content-library group with
 `video_content_group_create`, rename that same stable group with
-`video_content_group_rename`, then use its binding with `video_content_create`
+`video_content_group_rename`, explicitly enable or disable its automatic
+numbering with `video_content_group_sequence_set`, then use its binding with `video_content_create`
 to create as many as 50 ordinary content items in one atomic batch. Renaming
 preserves the group identity, existing items, and sequence order. Each item
 carries an explicit positive sequence or null, and array order never generates
@@ -741,6 +766,12 @@ operation does not download media. This is a non-idempotent create operation:
 successful batches must not be replayed.
 These focused video-domain tools own content mutations, so generic database
 writes cannot change content tables.
+
+Library groups store an explicit automatic-sequencing setting. Enabling it
+assigns stable numbers to existing unnumbered items and makes later ordinary UI
+saves without a number receive the next group-local value. Disabling it
+preserves existing numbers and leaves later blank saves unnumbered. Supplying
+an explicit number does not silently enable the group setting.
 
 Rendering is deliberately outside the FIFO Agent request queue so a long MP4
 does not block ordinary requests; interrupted `preparing` or `rendering` jobs

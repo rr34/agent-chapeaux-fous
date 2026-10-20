@@ -77,7 +77,10 @@ test("native coordinator searches calendar, contacts, files, and history through
   const registry = new ToolRegistry();
   registerSearchTools(registry, coordinator);
   const definition = registry.toolDefinitions().find(({ name }) => name === "global_search");
-  assert.deepEqual(definition.inputSchema.properties.scopes.items.enum, ["calendar", "contacts", "files", "history"]);
+  assert.deepEqual(definition.inputSchema.properties.scopes.items.enum, [
+    "calendar", "contacts", "files", "history", "todos", "things", "journal", "content",
+    "video", "profile", "catch_up", "payments",
+  ]);
   assert.deepEqual(definition.inputSchema.properties.match_mode.enum, ["terms", "phrase", "near"]);
   assert.equal(registry.toolDefinitions().some(({ name }) => name === "reference_set_record"), true);
 

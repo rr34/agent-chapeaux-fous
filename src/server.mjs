@@ -25,7 +25,7 @@ import { assertNativeToolDescriptions } from "./native-tool-descriptions.mjs";
 import { loadHatCatalog } from "./hat-catalog.mjs";
 import { RequestQueue } from "./queue.mjs";
 import { capabilityForTool, RequestCompiler } from "./request-compiler.mjs";
-import { createNativeSearchCoordinator } from "./search/native-search.mjs";
+import { createNativeSearchCoordinator, registerEmailSearchProvider } from "./search/native-search.mjs";
 import { receiveRequestAttachment, safeMediaPath } from "./request-attachments.mjs";
 import { normalizeRunLimits } from "./run-limits.mjs";
 import { SlayerRuntime } from "./runtime.mjs";
@@ -159,8 +159,7 @@ if (store.status.ready) {
     maximumTextBytes: config.maxTextAttachmentBytes,
     maximumGeneratedBytes: config.maxRequestAttachmentBytes,
   });
-  registerSearchTools(registry, searchCoordinator);
-  registerNativeObjectContextView(registry, organizer);
+  registerNativeObjectContextView(registry, organizer, searchCoordinator);
   registerVideoScriptTools(registry, videoScripts, {
     videoContent,
     videoContentReconciler,
@@ -177,7 +176,9 @@ await mcp.initialize(registry);
 await jmap.initialize();
 if (jmap.health().ready) {
   registerJmapEmailTools(registry, jmap);
+  if (searchCoordinator) registerEmailSearchProvider(searchCoordinator, jmap);
 }
+if (searchCoordinator) registerSearchTools(registry, searchCoordinator);
 registerAgentSelfTools(registry, {
   runtimeIdentity: identity,
   config,
@@ -546,9 +547,21 @@ const server = http.createServer(async (request, response) => {
       }, { actorType: "user", actorName: "payments_page" }));
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/global-search") {
+      const scopes = url.searchParams.getAll("scope");
+      sendJson(response, 200, await searchCoordinator.search({
+        query: url.searchParams.get("q") || "",
+        scopes: scopes.length ? scopes : null,
+        mode: url.searchParams.get("mode") || "terms",
+        maxDistance: url.searchParams.get("maxDistance") || 12,
+        contextTokens: url.searchParams.get("contextTokens") || 24,
+        limit: url.searchParams.get("limit") || 50,
+      }));
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/native-objects/search") {
       const domainTypes = url.searchParams.getAll("domainType");
-      sendJson(response, 200, organizer.searchNativeObjects({
+      sendJson(response, 200, await searchCoordinator.searchNativeObjects({
         query: url.searchParams.get("q") || "",
         limit: url.searchParams.get("limit") || 24,
         ...(domainTypes.length ? { domainTypes } : {}),
@@ -1145,6 +1158,7 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "POST" && contentGroupSequenceMatch) {
       sendJson(response, 200, organizer.setContentGroupSequenceMode(
         contentGroupSequenceMatch[1], await readJson(request),
+        { actorType: "user", actorName: "web", source: "tailnet_web", channel: "web" },
       ));
       return;
     }

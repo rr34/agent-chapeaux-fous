@@ -101,6 +101,53 @@ reference, display, source, or evidence. Tool contracts assign any specialized
 use-site role during execution; later interactions preserve that role with the
 binding.
 
+## Native domain consistency invariant
+
+Every Agent Slayer-owned native domain presents one coherent data surface to
+the user and the agent. A domain may preserve specialized business behavior,
+but it must not create a weaker parallel implementation for one caller.
+
+Every user-referable native object family must provide:
+
+- deterministic discovery through the one application search coordinator,
+  using a domain-owned provider adapter and explicitly selected searchable
+  fields;
+- an authoritative bounded read path plus create, update, and delete or archive
+  operations wherever those lifecycle transitions are meaningful;
+- batch-shaped reads and mutations by default, with one item represented as a
+  one-item batch, and a documented domain reason for every singleton-only or
+  intentionally unsupported operation;
+- the canonical domain-qualified type, owning source, provider-native ID,
+  stable reference, human display, version or freshness evidence when needed,
+  and source evidence in every result that identifies an object;
+- explicit filtering, ordering, limits, pagination or continuation, and
+  complete, partial, empty, and error states without silent truncation;
+- authorization, complete-batch validation, duplicate-target rejection,
+  transaction or partial-success semantics, optimistic concurrency where stale
+  writes matter, idempotency and replay behavior, and literal effect receipts;
+- explicit lifecycle states, timestamps, units, relationships, and deletion or
+  archival behavior owned by the domain rather than inferred from generic
+  field names; and
+- contract tests proving that the agent tools, HTTP adapters, and interactive
+  UI call the same domain and search services and preserve the same identity,
+  result-state, and mutation semantics.
+
+Consistency means consistent protocol envelopes and invariants, not flattening
+every domain into one generic record schema. Domain tools retain their exact
+fields, filters, validation, and rich result shapes. The global search surface
+returns compact normalized discovery hits and stable references; callers then
+use the owning domain read or mutation for complete records and actions. Exact
+inside-artifact search, duplicate detection, and other workflow-specific
+queries remain specialized operations, but they do not become competing global
+discovery engines.
+
+The same coordinator and provider adapters serve agent `global_search`, native
+object candidate selection, and direct user global search. A native HTTP or UI
+adapter may add presentation but may not reimplement matching, ranking,
+completeness, authorization, or result-state semantics. A connected
+provider-owned domain such as live email participates through its authorized
+provider-native search adapter and reports its actual matching behavior.
+
 # 1. The LLM
 
 The LLM translates natural speech and selected evidence into structured
@@ -248,7 +295,7 @@ These are three levels of one Journal object family. Personal to-dos likewise
 have named groups and individual tasks. A contact's tags may help match or
 describe that contact, but tags and tag assignments are not separate
 first-class objects in this surface. Video scripts and content groups are first-class because native tools
-consume their stable IDs; numbered content items are first-class because users
+consume their stable IDs and the group owns its explicit automatic-sequencing setting; numbered content items are first-class because users
 refer to the durable items returned by the owning sequence read.
 Things groups and physical items are likewise first-class: the group is the
 stable organizational parent, while each item is a durable possession that can
@@ -514,6 +561,14 @@ Every LLM-directed retrieval path follows this sequence:
 Provider-native search accesses provider-owned data. The Agent Slayer search
 layer mechanically bounds and shapes those provider results according to the
 LLM's structured instructions before they enter model context.
+
+Agent-facing and direct user-facing global discovery use this same coordinator,
+provider catalog, normalization, deduplication, bounds, and partial-source
+reporting. Domain-specific search and read tools remain callable for rich
+filters and complete native records, but their discovery implementations are
+provider adapters behind this coordinator rather than separate global engines.
+Native object pickers use an internal coordinator scope and never bypass the
+coordinator to create a competing cross-domain search path.
 
 The owning tool publishes the meanings of its inputs and results in its exact
 contract. Search code applies explicit structured instructions; the LLM

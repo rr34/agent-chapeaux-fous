@@ -277,6 +277,16 @@ function readCandidates(database, tokens, selectedTypes = null, query = "") {
     "content.content_status IN ('active', 'queued') AND content_group.archived_at_utc IS NULL",
     ["content.title", "content.description", "content.personal_notes", "content_group.name"], [],
     "content.content_id DESC");
+  read("payments.invoice", `invoice.payment_invoice_id AS id,
+      CONCAT(COALESCE(invoice.payer_name_snapshot, 'Payer not set'), ' — Invoice ', invoice.payment_invoice_id) AS title,
+      invoice.status, invoice.currency, invoice.amount_minor, invoice.due_on,
+      invoice.payer_name_snapshot, invoice.payer_email_snapshot`,
+    "payment_invoices AS invoice", "1 = 1",
+    ["invoice.payer_name_snapshot", "invoice.payer_email_snapshot", "invoice.description", "invoice.status", "invoice.currency"],
+    [`EXISTS (SELECT 1 FROM payment_invoice_lines AS invoice_line
+      WHERE invoice_line.payment_invoice_id = invoice.payment_invoice_id
+        AND LOWER(invoice_line.description_snapshot) LIKE ?)`],
+    "invoice.payment_invoice_id DESC");
   return candidates;
 }
 
@@ -321,6 +331,7 @@ function scoreCandidate({ type, row }, tokens) {
               : type === "file" ? [row.media_kind, row.original_filename].filter(Boolean).join(" · ")
                 : type === "profile_fact" ? row.fact_type
                   : type === "catch_up_question" ? row.due_at_utc
+                    : type === "payments.invoice" ? [row.status, row.currency, row.amount_minor].filter(Boolean).join(" · ")
                     : type === "content_item" ? [row.parent_title, row.content_status].filter(Boolean).join(" · ")
                       : type === "physical_item" ? [row.parent_title, row.item_condition, row.status, row.location_text].filter(Boolean).join(" · ")
                       : row.status ?? "";
@@ -434,16 +445,17 @@ export function resolveNativeObjectCandidates(database, selectedCandidates = [])
   return resolved;
 }
 
-export function registerNativeObjectContextView(registry, organizer) {
+export function registerNativeObjectContextView(registry, organizer, searchCoordinator = null) {
   registry.registerContextView("search", {
     id: "search.native_object_candidates",
     title: "Native objects named in this request",
     maximumItems: maximumSelectedObjects + maximumLexicalCandidates,
     description: "Read every explicitly selected object (up to five hundred) plus up to six lexical candidates from bounded fields of searchable native object tables, with stable IDs and bounded relationships. Select when the request names a particular native object. Candidates do not prove intent or authorize an action.",
-    execute({ requestText = "", selectedObjectCandidates = [] } = {}) {
-      const result = organizer.searchNativeObjects({
-        query: requestText.slice(-400), limit: maximumLexicalCandidates,
-      });
+    async execute({ requestText = "", selectedObjectCandidates = [] } = {}) {
+      const searchInput = { query: requestText.slice(-400), limit: maximumLexicalCandidates };
+      const result = searchCoordinator
+        ? await searchCoordinator.searchNativeObjects(searchInput)
+        : organizer.searchNativeObjects(searchInput);
       const selected = typeof organizer.resolveNativeObjectCandidates === "function"
         ? organizer.resolveNativeObjectCandidates(selectedObjectCandidates)
         : [];

@@ -45,7 +45,7 @@ import type {
 import hatOutlineUrl from "./assets/logo-outline-hat.svg";
 
 const navigation = [
-  ["agent", "Agent"], ["hats", "Hats"], ["calendar", "Calendar"], ["routine", "Routine"],
+  ["agent", "Agent"], ["search", "Search"], ["hats", "Hats"], ["calendar", "Calendar"], ["routine", "Routine"],
   ["journal", "Journal"], ["contacts", "Contacts"], ["things", "Things"], ["todos", "To do"],
   ["files", "Files"], ["content", "Library"], ["payments", "Payments"], ["ai-usage", "AI Usage"],
   ["video-scripts", "Video Scripts"],
@@ -198,6 +198,94 @@ function SectionSelectFilter({ label, value, onChange, disabled = false, childre
     <span>{label}</span>
     <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled}>{children}</select>
   </label>;
+}
+
+type GlobalSearchHit = {
+  provider: string;
+  kind: string;
+  id: string;
+  ref: string | null;
+  objectType: string | null;
+  source: string | null;
+  title: string;
+  snippet: string | null;
+  matchedFields: string[];
+  occurredAtUtc: string | null;
+};
+
+type GlobalSearchResult = {
+  query: string;
+  count: number;
+  partial: boolean;
+  hasMore: boolean;
+  hits: GlobalSearchHit[];
+  providers: Array<{
+    scope: string; status: string; count: number; exhaustive: boolean;
+    warnings: string[]; error?: string;
+  }>;
+};
+
+function GlobalSearchScreen() {
+  const [query, setQuery] = useState("");
+  const [serverQuery, setServerQuery] = useState("");
+  const searchUrl = serverQuery
+    ? `/api/global-search?q=${encodeURIComponent(serverQuery)}&mode=terms&limit=100`
+    : null;
+  const { data, error, loading, reload } = useApi<GlobalSearchResult>(searchUrl);
+  const search = () => {
+    const next = query.trim();
+    if (next === serverQuery) {
+      if (next) void reload();
+    } else setServerQuery(next);
+  };
+  return <>
+    <PageHeading
+      eyebrow="One search across native data"
+      title="Search"
+      detail="Find matching records across every connected native search provider. Results retain their owning domain and stable reference."
+    />
+    <SectionFilter query={query} onChange={setQuery} onSearch={search} searching={loading} count={data?.count ?? 0} noun="result" />
+    {loading && <Loading label="Searching native data" />}
+    {error && <ErrorState error={error} retry={reload} />}
+    {data?.partial && <section className="entity-card" role="status">
+      <h2>Partial search</h2>
+      {data.providers.filter(({ status, exhaustive, warnings }) => status !== "complete" || !exhaustive || warnings.length)
+        .map((provider) => <p key={provider.scope}><strong>{provider.scope}</strong>: {provider.error || provider.warnings.join(" ") || "More matches are available."}</p>)}
+    </section>}
+    {serverQuery && !loading && !error && !data?.hits.length && <Empty>No native data matches this search.</Empty>}
+    <div className="card-grid">{data?.hits.map((hit) => {
+      const numericId = Number(hit.id);
+      const selectable = hit.ref && hit.objectType && hit.source
+        && Number.isSafeInteger(numericId) && numericId > 0
+        && hit.objectType !== "agent.exchange";
+      const identity = selectable ? {
+        mention: `@${hit.title}`,
+        type: hit.objectType!,
+        source: hit.source!,
+        id: numericId,
+        ref: hit.ref!,
+        display: hit.title,
+        label: hit.kind.replaceAll("_", " "),
+        detail: hit.snippet || "",
+      } : null;
+      return <ObjectCard
+        key={`${hit.provider}:${hit.kind}:${hit.id}`}
+        object={objectCardData({
+          id: hit.id,
+          type: hit.objectType || `search.${hit.kind}`,
+          label: hit.kind.replaceAll("_", " "),
+          display: hit.title,
+          body: hit.snippet,
+          attributes: [
+            { label: "Source", value: hit.provider },
+            ...(hit.matchedFields.length ? [{ label: "Matched", value: hit.matchedFields.join(", ") }] : []),
+            ...(hit.occurredAtUtc ? [{ label: "When", value: formatDisplayDate(hit.occurredAtUtc) }] : []),
+          ],
+        })}
+        controls={identity ? <ObjectSelectionControls identity={identity} subject={hit.title} /> : undefined}
+      />;
+    })}</div>
+  </>;
 }
 
 type EditableGroup = {
@@ -1707,6 +1795,7 @@ function LibraryScreen() {
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
   const [sequenceError, setSequenceError] = useState("");
   const [changingSequenceGroupId, setChangingSequenceGroupId] = useState<number | null>(null);
+  const [pendingSequenceEnable, setPendingSequenceEnable] = useState<{ id: number; name: string } | null>(null);
   const contentParameters = new URLSearchParams({ limit: serverQuery ? "5000" : "1000" });
   if (serverQuery) contentParameters.set("q", serverQuery);
   const { data, error, loading, reload } = useApi<{ content: Entity[] }>(`/api/content-items?${contentParameters}`);
@@ -1749,8 +1838,7 @@ function LibraryScreen() {
     return filterQuery.trim() ? allGroups.filter((group) => group.items.length) : allGroups;
   }, [filterQuery, groupData?.groups, selectedGroupId, visibleContent]);
   const reloadLibrary = async () => { await Promise.all([reload(), reloadGroups()]); };
-  const setContentGroupSequenceMode = async (groupId: number, groupName: string, usesSequence: boolean) => {
-    if (usesSequence && !window.confirm(`Enable automatic sequence numbers for ${groupName}? Existing unnumbered items will be numbered.`)) return;
+  const setContentGroupSequenceMode = async (groupId: number, usesSequence: boolean) => {
     setSequenceError("");
     setChangingSequenceGroupId(groupId);
     try {
@@ -1758,6 +1846,7 @@ function LibraryScreen() {
         method: "POST", body: JSON.stringify({ usesSequence }),
       });
       await reloadLibrary();
+      setPendingSequenceEnable(null);
     } catch (caught) {
       setSequenceError(caught instanceof Error ? caught.message : "Could not change the Library sequence setting.");
     } finally {
@@ -1778,6 +1867,10 @@ function LibraryScreen() {
     {error && <ErrorState error={error} retry={reloadLibrary} />}
     {groupError && <ErrorState error={groupError} retry={reloadLibrary} />}
     {sequenceError && <p className="inline-error" role="alert">{sequenceError}</p>}
+    {pendingSequenceEnable && <section className="group-delete-confirmation" role="alertdialog" aria-label="Confirm automatic Library sequencing">
+      <p>Enable automatic sequence numbers for {pendingSequenceEnable.name}? Existing unnumbered items will be numbered.</p>
+      <div><button className="button button--quiet" type="button" disabled={changingSequenceGroupId != null} onClick={() => setPendingSequenceEnable(null)}>Cancel</button><button className="button" type="button" disabled={changingSequenceGroupId != null} onClick={() => void setContentGroupSequenceMode(pendingSequenceEnable.id, true)}>{changingSequenceGroupId != null ? "Enabling…" : "Enable sequence"}</button></div>
+    </section>}
     {!loading && !groupsLoading && !error && !groupError && !groups.length && <Empty>{filterQuery.trim() ? "No library items match the filter." : "Nothing here yet."}</Empty>}
     {!loading && !groupsLoading && !error && !groupError && Boolean(groups.length) && <div className="library-groups">
       {groups.map((group) => <section className="library-group" key={group.id} aria-label={`${group.name} library group`}>
@@ -1785,7 +1878,7 @@ function LibraryScreen() {
           object={{ id: Number(group.id), type: "video.content_group", label: "Library group", display: group.name, attributes: [{ label: "Items", value: String(group.items.length) }], badges: [group.usesSequence ? "Auto sequence" : "Manual numbering"] }}
           controls={<ObjectSelectionControls identity={contentGroupIdentity({ id: Number(group.id), name: group.name })} subject={`library group ${group.name}`} />}
           actions={[
-            { key: "sequence", label: group.usesSequence ? "Stop auto sequence" : "Enable sequence", disabled: changingSequenceGroupId != null, onClick: () => void setContentGroupSequenceMode(Number(group.id), group.name, !group.usesSequence) },
+            { key: "sequence", label: group.usesSequence ? "Stop auto sequence" : "Enable sequence", disabled: changingSequenceGroupId != null, onClick: () => group.usesSequence ? void setContentGroupSequenceMode(Number(group.id), false) : setPendingSequenceEnable({ id: Number(group.id), name: group.name }) },
             ...(group.editable ? [{ key: "edit", label: "Edit", onClick: () => setEditingGroup({ id: Number(group.id), name: group.name, resource: "content-groups" }) }] : []),
           ]}
         /> : <header className="library-group-heading"><h2 id={`library-group-${group.id}`}>{group.name}</h2><span>{group.items.length} {group.items.length === 1 ? "item" : "items"}</span></header>}
@@ -2884,6 +2977,7 @@ function Workspace() {
       setOptimisticRequests((current) => current.filter(({ requestId }) => !observed.has(requestId)));
     }}
   />;
+  else if (view === "search") screen = <GlobalSearchScreen />;
   else if (view === "calendar") screen = <CalendarScreen generationNotice={calendarGenerationNotice} dismissGenerationNotice={() => setCalendarGenerationNotice(null)} />;
   else if (view === "todos") screen = <TodoScreen />;
   else if (view === "things") screen = <ThingsScreen />;

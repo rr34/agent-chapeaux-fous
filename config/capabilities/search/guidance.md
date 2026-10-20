@@ -1,7 +1,10 @@
 Use `global_search` when the user asks to discover information across multiple
 application-owned domains or does not know where something was stored. Stored
 uploads are searchable by title, description, original filename, and the
-originating request text. Choose
+originating request text. Native calendar, contacts, history, files, to-dos,
+things, journal, content, video scripts, profile facts, Check-in questions,
+invoices, and connected live email participate through the same coordinator
+used by direct user search. Choose
 only the scopes relevant to the request. Use `terms` for ordinary discovery,
 `phrase` for adjacent words in order, and `near` when the words should occur
 within `max_distance` tokens. Providers retain their native matching behavior
@@ -14,6 +17,10 @@ data exists.
 Global results are compact discovery references. After identifying a result,
 use the domain-specific capability for rich filters, complete native fields, or
 any follow-up action. Search never authorizes or performs a write.
+
+The internal native-object picker is another bounded coordinator consumer, not
+an additional global search engine. Do not select overlapping scopes merely to
+repeat the same object evidence.
 
 For an uploaded file, global discovery searches its metadata and originating
 request text. Select the Files capability and call `file_text_search` with its

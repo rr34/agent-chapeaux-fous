@@ -51,3 +51,17 @@ test("to-do and Library groups share descending numbered-item display order", ()
   assert.match(appSource, /const todos = \[\.\.\.filteredTodos\]\.sort\(compareTodoDisplayOrder\)/);
   assert.match(appSource, /group\.items\.sort\(\(left, right\) => compareSequenceValuesDescending/);
 });
+
+test("Library groups expose an explicit automatic-sequencing setting", () => {
+  const start = appSource.indexOf("function LibraryScreen");
+  const end = appSource.indexOf("\nfunction VideoScriptsScreen", start);
+  const librarySource = appSource.slice(start, end);
+
+  assert.match(librarySource, /usesSequence: Boolean\(group\.usesSequence\)/);
+  assert.match(librarySource, /`\/api\/content-groups\/\$\{groupId\}\/sequence`/);
+  assert.match(librarySource, /JSON\.stringify\(\{ usesSequence \}\)/);
+  assert.match(librarySource, /group\.usesSequence \? "Auto sequence" : "Manual numbering"/);
+  assert.match(librarySource, /group\.usesSequence \? "Stop auto sequence" : "Enable sequence"/);
+  assert.match(librarySource, /Existing unnumbered items will be numbered/);
+  assert.doesNotMatch(librarySource, /window\.confirm/);
+});

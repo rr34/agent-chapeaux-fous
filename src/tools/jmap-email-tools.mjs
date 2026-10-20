@@ -525,6 +525,59 @@ const nativeToolContracts = Object.freeze({
   },
 });
 
+export async function searchJmapEmail(client, input) {
+  const accountId = account(client, input.account_id);
+  if (input.in_mailbox && input.in_mailbox_role) {
+    throw new Error("Supply in_mailbox or in_mailbox_role, not both");
+  }
+  const inMailbox = input.in_mailbox_role
+    ? (await mailboxForRole(client, accountId, input.in_mailbox_role)).id
+    : input.in_mailbox;
+  const filter = compact({
+    inMailbox,
+    text: input.text,
+    from: input.from,
+    to: input.to,
+    cc: input.cc,
+    bcc: input.bcc,
+    subject: input.subject,
+    body: input.body,
+    after: input.after_utc,
+    before: input.before_utc,
+    hasAttachment: input.has_attachment,
+    hasKeyword: input.has_keyword,
+    notKeyword: input.not_keyword,
+  });
+  const query = await client.call("Email/query", {
+    accountId,
+    filter,
+    sort: [{ property: input.sort_property, isAscending: input.sort_ascending }],
+    collapseThreads: input.collapse_threads,
+    position: boundedInteger(input.position, 0, 0, Number.MAX_SAFE_INTEGER, "position"),
+    limit: boundedInteger(input.limit, 25, 1, 100, "limit"),
+    calculateTotal: true,
+  });
+  const messages = query.ids.length
+    ? await client.call("Email/get", getArguments(
+      accountId,
+      query.ids,
+      "none",
+      100_000,
+      input.result_format === "ids"
+        ? ["id"]
+        : input.result_format === "compact" ? compactSummaryProperties : summaryProperties,
+    ))
+    : { accountId, state: null, list: [], notFound: [] };
+  return {
+    ...query,
+    resolvedMailboxId: inMailbox ?? null,
+    resultFormat: input.result_format,
+    emailState: messages.state,
+    messages: messages.list.map(identifiedEmail),
+    notFound: messages.notFound,
+  };
+}
+
 export function registerJmapEmailTools(registry, client) {
   registry = registry.withCapability?.("email", toolDescriptions, nativeToolContracts) ?? registry;
   if (!client.health().ready) throw new Error("Cannot register JMAP email tools before the client is ready");
@@ -614,58 +667,7 @@ export function registerJmapEmailTools(registry, client) {
         "collapse_threads", "sort_property", "sort_ascending", "position", "limit", "result_format",
       ],
     },
-    async execute(input) {
-      const accountId = account(client, input.account_id);
-      if (input.in_mailbox && input.in_mailbox_role) {
-        throw new Error("Supply in_mailbox or in_mailbox_role, not both");
-      }
-      const inMailbox = input.in_mailbox_role
-        ? (await mailboxForRole(client, accountId, input.in_mailbox_role)).id
-        : input.in_mailbox;
-      const filter = compact({
-        inMailbox,
-        text: input.text,
-        from: input.from,
-        to: input.to,
-        cc: input.cc,
-        bcc: input.bcc,
-        subject: input.subject,
-        body: input.body,
-        after: input.after_utc,
-        before: input.before_utc,
-        hasAttachment: input.has_attachment,
-        hasKeyword: input.has_keyword,
-        notKeyword: input.not_keyword,
-      });
-      const query = await client.call("Email/query", {
-        accountId,
-        filter,
-        sort: [{ property: input.sort_property, isAscending: input.sort_ascending }],
-        collapseThreads: input.collapse_threads,
-        position: boundedInteger(input.position, 0, 0, Number.MAX_SAFE_INTEGER, "position"),
-        limit: boundedInteger(input.limit, 25, 1, 100, "limit"),
-        calculateTotal: true,
-      });
-      const messages = query.ids.length
-        ? await client.call("Email/get", getArguments(
-          accountId,
-          query.ids,
-          "none",
-          100_000,
-          input.result_format === "ids"
-            ? ["id"]
-            : input.result_format === "compact" ? compactSummaryProperties : summaryProperties,
-        ))
-        : { accountId, state: null, list: [], notFound: [] };
-      return {
-        ...query,
-        resolvedMailboxId: inMailbox ?? null,
-        resultFormat: input.result_format,
-        emailState: messages.state,
-        messages: messages.list.map(identifiedEmail),
-        notFound: messages.notFound,
-      };
-    },
+    execute: (input) => searchJmapEmail(client, input),
   });
 
   registry.register({

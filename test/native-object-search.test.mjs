@@ -86,7 +86,7 @@ test("native object candidates come from selected authoritative tables and rank 
     "agent-slayer://journal-trackers/11");
   assert.equal(searchNativeObjects(database, { query: "family" }).objects[0].ref, "agent-slayer://contacts/7");
   assert.deepEqual(nativeObjectTypes.map(({ table }) => table), [
-    "contacts", "todo_groups", "todo_personal", "physical_item_groups", "physical_items", "journal1_groups", "journal2_trackers", "journal3_entries",
+    "contacts", "todo_groups", "todo_personal", "physical_item_groups", "physical_items", "payment_invoices", "journal1_groups", "journal2_trackers", "journal3_entries",
     "calendar_events", "calendar_routines", "files", "profile_facts",
     "catch_up_questions", "video_scripts", "content_groups", "content_items",
   ]);
@@ -272,7 +272,7 @@ test("composer object selections retain exact searchable identity fields", () =>
   }]);
 });
 
-test("displayed invoices are reread by exact stable reference without entering lexical search", () => {
+test("searchable invoices remain rereadable by exact stable reference", () => {
   let statement = "";
   const database = { prepare(sql) {
     statement = sql;
@@ -296,7 +296,7 @@ test("displayed invoices are reread by exact stable reference without entering l
     matchedOn: ["selected stable reference"], related: [], invoiceId: 51,
     display: "Payer not set — not priced",
   }]);
-  assert.equal(nativeObjectTypes.some(({ domainType }) => domainType === "payments.invoice"), false);
+  assert.equal(nativeObjectTypes.some(({ domainType }) => domainType === "payments.invoice"), true);
   assert.doesNotMatch(statement, /\bcurrency\b/u);
   assert.deepEqual(objectReferenceGroupsFromToolResult({
     toolDefinition: { name: "context:search.native_object_candidates", source: "local" },
