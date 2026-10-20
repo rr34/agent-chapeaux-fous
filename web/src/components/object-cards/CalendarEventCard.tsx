@@ -27,7 +27,7 @@ export function calendarEventTiming(event: CalendarEvent, displayTimeZone?: stri
   const timeZone = displayTimeZone || event.timeZone || "UTC";
   if (!event.endsAtUtc) {
     return {
-      start: event.isAllDay ? "All day" : formatDisplayTime(event.startsAtUtc, timeZone),
+      start: event.isAllDay ? shortDate(event.startsAtUtc, timeZone, false) : formatDisplayTime(event.startsAtUtc, timeZone),
       end: null,
       spansDays: false,
     };
@@ -40,7 +40,7 @@ export function calendarEventTiming(event: CalendarEvent, displayTimeZone?: stri
   const spansDays = startDate !== endDate;
   const crossesYear = startDate.slice(0, 4) !== endDate.slice(0, 4);
   if (event.isAllDay) return {
-    start: spansDays ? `All day · ${shortDate(event.startsAtUtc, timeZone, crossesYear)}` : "All day",
+    start: shortDate(event.startsAtUtc, timeZone, crossesYear),
     end: spansDays ? shortDate(inclusiveEnd, timeZone, crossesYear) : null,
     spansDays,
   };
@@ -111,6 +111,7 @@ export function CalendarEventCard(props: ObjectCardProps & {
     </>
     : null;
   const details = eventDetails || props.details ? <>{eventDetails}{props.details}</> : undefined;
+  const columnarLayout = !props.className?.split(/\s+/u).includes("paper-calendar-event-card");
   return <SimpleObjectCard
     {...props}
     object={{
@@ -119,13 +120,15 @@ export function CalendarEventCard(props: ObjectCardProps & {
     }}
     className={`calendar-event-card${props.className ? ` ${props.className}` : ""}`}
     topEdge={timing ? <time className="calendar-event-time calendar-event-time--start" dateTime={event!.startsAtUtc}>
-      <strong>{timing.start}</strong><span>{!event!.isAllDay && !event!.endsAtUtc ? "Time" : "Start"}</span>
+      <strong>{timing.start}</strong><span>{event!.isAllDay ? "All day" : !event!.endsAtUtc ? "Time" : "Start"}</span>
     </time> : props.topEdge}
     bottomEdge={timing?.end ? <time className="calendar-event-time calendar-event-time--end" dateTime={event!.endsAtUtc!}>
       <strong>{timing.end}</strong><span>End</span>
     </time> : props.bottomEdge}
     compactDetails={compactDetails}
     details={details}
+    detailsInContent={columnarLayout}
+    stackEdges={columnarLayout}
     actions={[...(props.onEdit ? [{ key: "edit", label: "Edit", onClick: props.onEdit }] : []), ...(props.actions || [])]}
   />;
 }

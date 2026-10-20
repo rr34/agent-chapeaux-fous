@@ -15,6 +15,8 @@ export interface ObjectCardProps {
   className?: string;
   as?: ElementType;
   details?: ReactNode;
+  detailsInContent?: boolean;
+  stackEdges?: boolean;
   compactDetails?: ReactNode;
   topEdge?: ReactNode;
   bottomEdge?: ReactNode;

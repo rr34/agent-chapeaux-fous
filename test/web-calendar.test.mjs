@@ -105,18 +105,18 @@ test("the printed day uses an independent fixed weather timeline beside reusable
   assert.doesNotMatch(styles, /\.paper-event-bracket|\.paper-event-connector/);
 });
 
-test("the reusable calendar event card owns top start and bottom end labels", () => {
+test("the reusable calendar event card owns concise date and time edge labels", () => {
   assert.match(calendarCardSource, /export function calendarEventTiming/);
   assert.match(calendarCardSource, /const timeZone = displayTimeZone \|\| event\.timeZone \|\| "UTC"/);
   assert.match(calendarCardSource, /Date\.parse\(event\.endsAtUtc\) - 1/);
   assert.match(calendarCardSource, /const spansDays = startDate !== endDate/);
-  assert.match(calendarCardSource, /start: spansDays \? `\$\{shortDate/);
+  assert.match(calendarCardSource, /start: shortDate\(event\.startsAtUtc, timeZone, crossesYear\)/);
   assert.match(calendarCardSource, /end: spansDays \? `\$\{shortDate/);
   assert.match(calendarCardSource, /topEdge=\{timing \? <time className="calendar-event-time calendar-event-time--start"/);
   assert.match(calendarCardSource, /bottomEdge=\{timing\?\.end \? <time className="calendar-event-time calendar-event-time--end"/);
-  assert.match(calendarCardSource, /<strong>\{timing\.start\}<\/strong><span>\{!event!/);
+  assert.match(calendarCardSource, /<strong>\{timing\.start\}<\/strong><span>\{event!\.isAllDay \? "All day"/);
   assert.match(calendarCardSource, /<strong>\{timing\.end\}<\/strong><span>End<\/span>/);
-  assert.match(calendarCardSource, /!event!\.isAllDay && !event!\.endsAtUtc \? "Time" : "Start"/);
+  assert.match(calendarCardSource, /!event!\.endsAtUtc \? "Time" : "Start"/);
   assert.match(styles, /\.calendar-event-time--start \{[^}]*border-bottom:/s);
   assert.match(styles, /\.calendar-event-time--end \{[^}]*border-top:/s);
 });

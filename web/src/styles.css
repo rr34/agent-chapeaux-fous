@@ -122,18 +122,19 @@ a { color: inherit; }
 .calendar-event-card .compact-object-identity > span:first-child { display: none; }
 .calendar-routine-card .first-class-object-label,
 .calendar-routine-card .compact-object-identity > span:first-child { display: none; }
-.first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) { grid-template-columns: minmax(7.25rem, .55fr) minmax(9rem, .85fr) minmax(12rem, 1.4fr) max-content; grid-template-rows: auto auto; align-items: start; gap: 7px 16px; padding: 12px 14px; }
-.first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-top-edge { grid-column: 1; grid-row: 1; }
-.first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-bottom-edge { grid-column: 1; grid-row: 2; }
+.first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) { grid-template-columns: minmax(7.25rem, .55fr) minmax(9rem, .85fr) minmax(12rem, 1.4fr) max-content; align-items: start; gap: 7px 16px; padding: 12px 14px; }
+.first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-edges { min-width: 0; display: grid; grid-column: 1; gap: 7px; }
+.first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-edges > .first-class-object-top-edge,
+.first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-edges > .first-class-object-bottom-edge { grid-column: 1; }
 .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-content { grid-column: 2 / 4; grid-row: 1; grid-template-columns: minmax(0, .85fr) minmax(0, 1.4fr); align-items: start; column-gap: 18px; }
 .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-content > .first-class-object-title { grid-column: 1; }
 .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-content > .first-class-object-body { grid-column: 2; margin: 0; overflow-wrap: anywhere; }
 .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-content > .first-class-object-badges,
-.first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-content > .first-class-object-attributes { grid-column: 2; }
+.first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-content > .first-class-object-attributes,
+.first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-content > .first-class-object-details { grid-column: 2; overflow-wrap: anywhere; }
 .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) .first-class-object-content:not(:has(> .first-class-object-body)) > .first-class-object-title { grid-column: 1; }
-.first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-details { grid-column: 3; grid-row: 2; overflow-wrap: anywhere; }
-.first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-actions { grid-column: 4; grid-row: 1 / span 2; align-self: start; flex-wrap: nowrap; }
-.calendar-event-time { min-width: 0; display: flex; align-items: baseline; justify-content: flex-start; gap: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-actions { grid-column: 4; grid-row: 1; align-self: start; flex-wrap: nowrap; }
+.calendar-event-time { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-start; gap: 3px 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .calendar-event-time span { font-size: 9px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
 .calendar-event-time strong { color: var(--olive-dark); font: 700 12px/1.15 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .calendar-event-time--start { padding-bottom: 7px; border-bottom: 1px solid var(--line); }
@@ -939,13 +940,12 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
   .first-class-object-card:has(> .first-class-object-leading) > .first-class-object-content { grid-column: 2; }
   .first-class-object-card > .first-class-object-actions,
   .first-class-object-card:has(> .first-class-object-leading) > .first-class-object-actions { grid-column: 1 / -1; justify-content: flex-start; }
-  .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) { grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr); grid-template-rows: auto auto auto auto; }
-  .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-top-edge { grid-column: 1; grid-row: 1; }
-  .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-bottom-edge { grid-column: 1; grid-row: 2; }
-  .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-content { grid-column: 2; grid-row: 1 / span 2; grid-template-columns: minmax(0, 1fr); }
+  .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) { grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr); grid-template-rows: auto auto; }
+  .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-edges { grid-column: 1; grid-row: 1; }
+  .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-content { grid-column: 2; grid-row: 1; grid-template-columns: minmax(0, 1fr); }
   .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-content > .first-class-object-body,
   .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-content > .first-class-object-badges,
-  .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-content > .first-class-object-attributes { grid-column: 1; }
-  .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-details { grid-column: 1 / -1; grid-row: 3; }
-  .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-actions { grid-column: 1 / -1; grid-row: 4; justify-content: flex-start; }
+  .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-content > .first-class-object-attributes,
+  .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-content > .first-class-object-details { grid-column: 1; }
+  .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-actions { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; }
 }

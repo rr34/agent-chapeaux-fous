@@ -78,15 +78,16 @@ test("calendar event cards keep notes and event details behind the shared expans
   assert.match(calendar, /calendarEventTiming\(event, props\.timeZone\)/);
   assert.match(calendar, /topEdge=\{timing \? <time className="calendar-event-time calendar-event-time--start"/);
   assert.match(calendar, /bottomEdge=\{timing\?\.end \? <time className="calendar-event-time calendar-event-time--end"/);
+  assert.match(calendar, /detailsInContent=\{columnarLayout\}/);
+  assert.match(calendar, /stackEdges=\{columnarLayout\}/);
   assert.match(compact, /compact-object-top-edge/);
   assert.match(styles, /\.calendar-event-card,\s*\.calendar-routine-card \{[^}]*border-color: #000;/s);
   assert.match(styles, /\.calendar-event-card > \.first-class-object-content > \.first-class-object-label,[\s\S]*\.calendar-event-card \.compact-object-identity > span:first-child \{ display: none; \}/);
   assert.match(styles, /\.first-class-object-card\.calendar-event-card:not\(\.paper-calendar-event-card\) \{[^}]*grid-template-columns: minmax\(7\.25rem, \.55fr\) minmax\(9rem, \.85fr\) minmax\(12rem, 1\.4fr\) max-content;/s);
-  assert.match(styles, /> \.first-class-object-top-edge \{ grid-column: 1; grid-row: 1; \}/);
-  assert.match(styles, /> \.first-class-object-bottom-edge \{ grid-column: 1; grid-row: 2; \}/);
+  assert.match(styles, /> \.first-class-object-edges \{ min-width: 0; display: grid; grid-column: 1; gap: 7px; \}/);
   assert.match(styles, /> \.first-class-object-content \{ grid-column: 2 \/ 4; grid-row: 1;/);
-  assert.match(styles, /> \.first-class-object-details \{ grid-column: 3; grid-row: 2;[^}]*overflow-wrap: anywhere;/s);
-  assert.match(styles, /> \.first-class-object-actions \{ grid-column: 4; grid-row: 1 \/ span 2;/);
+  assert.match(styles, /> \.first-class-object-content > \.first-class-object-details \{ grid-column: 2; overflow-wrap: anywhere;/);
+  assert.match(styles, /> \.first-class-object-actions \{ grid-column: 4; grid-row: 1;/);
   assert.match(styles, /@media \(max-width: 720px\)[\s\S]*\.first-class-object-card\.calendar-event-card:not\(\.paper-calendar-event-card\) \{[^}]*grid-template-columns: minmax\(5\.5rem, auto\) minmax\(0, 1fr\);/s);
   assert.match(styles, /\.first-class-object-card\.calendar-event-card:not\(\.paper-calendar-event-card\) > \.first-class-object-content > \.first-class-object-body \{[^}]*grid-column: 2;[^}]*margin: 0;[^}]*overflow-wrap: anywhere;/s);
   assert.match(styles, /\.calendar-event-card > \.first-class-object-content > \.first-class-object-body \{[^}]*-webkit-line-clamp: 2;[^}]*font-size: 11px;/s);
@@ -100,6 +101,7 @@ test("calendar routine cards own event-style timing and omit the redundant type 
   assert.match(routine, /calendarEventTiming\(props\.routine, props\.timeZone\)/);
   assert.match(routine, /topEdge=\{timing \? <time className="calendar-event-time calendar-event-time--start"/);
   assert.match(routine, /bottomEdge=\{timing\?\.end \? <time className="calendar-event-time calendar-event-time--end"/);
+  assert.match(routine, /<strong>\{timing\.start\}<\/strong><span>\{props\.routine!\.isAllDay \? "All day" : "Start"\}<\/span>/);
   assert.match(editable, /<CalendarRoutineCard[\s\S]*routine=\{routine\}/);
   assert.doesNotMatch(editable, /\{ label: "When", value: timeLabel \}/);
   assert.match(styles, /\.calendar-event-card,\s*\.calendar-routine-card \{[^}]*border-color: #000;/s);

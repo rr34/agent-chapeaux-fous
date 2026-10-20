@@ -22,7 +22,7 @@ export interface FullObjectCardAction {
 
 export function FullObjectCard({
   object, as: Root = "article", className = "", focus = false,
-  topEdge, bottomEdge, leading, controls, actions = [], details,
+  topEdge, bottomEdge, leading, controls, actions = [], details, detailsInContent = false, stackEdges = false,
 }: {
   object: FullObjectCardData;
   as?: ElementType;
@@ -34,13 +34,20 @@ export function FullObjectCard({
   controls?: ReactNode;
   actions?: FullObjectCardAction[];
   details?: ReactNode;
+  detailsInContent?: boolean;
+  stackEdges?: boolean;
 }) {
   const attributes = (object.attributes || []).filter(({ value }) => String(value).trim());
+  const detailContent = details && <div className="first-class-object-details">{details}</div>;
   return <Root
     className={`first-class-object-card first-class-object-card--full${topEdge ? " has-top-edge" : ""}${bottomEdge ? " has-bottom-edge" : ""}${focus ? " is-focus" : ""}${className ? ` ${className}` : ""}`}
     data-object-type={object.type}
   >
-    {topEdge && <div className="first-class-object-top-edge">{topEdge}</div>}
+    {stackEdges && (topEdge || bottomEdge) && <div className="first-class-object-edges">
+      {topEdge && <div className="first-class-object-top-edge">{topEdge}</div>}
+      {bottomEdge && <div className="first-class-object-bottom-edge">{bottomEdge}</div>}
+    </div>}
+    {!stackEdges && topEdge && <div className="first-class-object-top-edge">{topEdge}</div>}
     {leading && <div className="first-class-object-leading">{leading}</div>}
     <div className="first-class-object-content">
       <span className="first-class-object-label">{object.label}</span>
@@ -52,8 +59,9 @@ export function FullObjectCard({
       {attributes.length > 0 && <dl className="first-class-object-attributes">{attributes.map(({ label, value }) => <div key={`${label}-${value}`}>
         <dt>{label}</dt><dd>{value}</dd>
       </div>)}</dl>}
+      {detailsInContent && detailContent}
     </div>
-    {details && <div className="first-class-object-details">{details}</div>}
+    {!detailsInContent && detailContent}
     {(controls || actions.length > 0) && <div className="first-class-object-actions">
       {controls}
       {actions.map((action) => action.href
@@ -74,6 +82,6 @@ export function FullObjectCard({
           onClick={action.onClick}
         >{action.label}</button>)}
     </div>}
-    {bottomEdge && <div className="first-class-object-bottom-edge">{bottomEdge}</div>}
+    {!stackEdges && bottomEdge && <div className="first-class-object-bottom-edge">{bottomEdge}</div>}
   </Root>;
 }
