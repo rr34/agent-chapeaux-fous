@@ -205,6 +205,121 @@ export function ContactEditor({ contactId, onClose, onChanged }: {
   </EditorFrame>;
 }
 
+interface LibraryContentDraft {
+  groupId: string;
+  sequence: string;
+  contentType: string;
+  title: string;
+  transcript: string;
+  description: string;
+  publishedAt: string;
+  contentHost: string;
+  contentStatus: string;
+  contentUrl: string;
+}
+
+function libraryContentDraft(
+  content: Entity | undefined,
+  groups: Entity[],
+  initialGroupId?: number,
+): LibraryContentDraft {
+  const requestedGroupId = content?.groupId ?? initialGroupId;
+  const groupId = groups.some((group) => String(group.id) === String(requestedGroupId))
+    ? String(requestedGroupId)
+    : String(groups[0]?.id ?? "");
+  return {
+    groupId,
+    sequence: content?.sequence == null ? "" : String(content.sequence),
+    contentType: String(content?.contentType || "mobileUGC_tutorial"),
+    title: String(content?.title || ""),
+    transcript: String(content?.transcript || ""),
+    description: String(content?.description || ""),
+    publishedAt: localDateTimeValue(String(content?.publishedAtUtc || new Date().toISOString())),
+    contentHost: String(content?.contentHost || "youtube"),
+    contentStatus: String(content?.contentStatus || "active"),
+    contentUrl: String(content?.contentUrl || ""),
+  };
+}
+
+export function LibraryContentEditor({ content, groups, initialGroupId, onClose, onChanged }: {
+  content?: Entity;
+  groups: Entity[];
+  initialGroupId?: number;
+  onClose: () => void;
+  onChanged: Changed;
+}) {
+  const creating = content == null;
+  const [draft, setDraft] = useState(() => libraryContentDraft(content, groups, initialGroupId));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const selectedGroup = groups.find((group) => String(group.id) === draft.groupId);
+
+  useEffect(() => {
+    if (!groups.length || groups.some((group) => String(group.id) === draft.groupId)) return;
+    setDraft((current) => ({ ...current, groupId: String(groups[0].id) }));
+  }, [draft.groupId, groups]);
+
+  const save = async (submitEvent: FormEvent) => {
+    submitEvent.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const payload = {
+        ...(!creating ? { version: String(content.version || "") } : {}),
+        groupId: Number(draft.groupId),
+        sequence: draft.sequence ? Number(draft.sequence) : null,
+        contentType: draft.contentType,
+        title: draft.title,
+        transcript: draft.transcript || null,
+        description: draft.description || null,
+        publishedAtUtc: localDateTimeIso(draft.publishedAt),
+        contentHost: draft.contentHost,
+        contentStatus: draft.contentStatus,
+        contentUrl: draft.contentUrl || null,
+      };
+      await api(creating ? "/api/content-items" : `/api/content-items/${Number(content.id)}`, {
+        method: creating ? "POST" : "PATCH",
+        body: JSON.stringify(payload),
+      });
+      await onChanged();
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <EditorFrame title={creating ? "Add content" : "Edit content"} onClose={onClose}>
+    <form onSubmit={(submitEvent) => void save(submitEvent)}>
+      <header className="object-editor-heading"><div><p className="eyebrow">Library</p><h2>{creating ? "Add content" : "Edit content"}</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
+      <label>Title<input autoFocus required maxLength={10_000} value={draft.title} onChange={(change) => setDraft({ ...draft, title: change.target.value })} /></label>
+      <div className="object-editor-grid">
+        <label>Group<select required value={draft.groupId} onChange={(change) => setDraft({ ...draft, groupId: change.target.value })}>
+          {groups.map((group) => <option value={String(group.id)} key={String(group.id)}>{String(group.name || "Untitled group")}</option>)}
+        </select></label>
+        <label>Sequence<input type="number" min="1" step="1" value={draft.sequence} onChange={(change) => setDraft({ ...draft, sequence: change.target.value })} /><span className="field-hint">{selectedGroup?.usesSequence ? "Assigned the next unique number when left blank." : "Optional for this group. Entering a number starts its sequence."}</span></label>
+        <label>Type<select value={draft.contentType} onChange={(change) => setDraft({ ...draft, contentType: change.target.value })}>
+          <option value="mobileUGC_tutorial">Mobile UGC tutorial</option><option value="mobileUGC_ad">Mobile UGC ad</option><option value="webUGC_tutorial">Web UGC tutorial</option><option value="webUGC_ad">Web UGC ad</option><option value="video_ad">Video ad</option><option value="podcast">Podcast</option><option value="image">Image</option><option value="unknown">Unknown</option>
+        </select></label>
+        <label>Status<select value={draft.contentStatus} onChange={(change) => setDraft({ ...draft, contentStatus: change.target.value })}>
+          <option value="active">Active</option><option value="queued">Queued</option><option value="obsolete">Obsolete</option><option value="unused">Unused</option>
+        </select></label>
+        <label>Host<select value={draft.contentHost} onChange={(change) => setDraft({ ...draft, contentHost: change.target.value })}>
+          <option value="youtube">YouTube</option><option value="vimeo">Vimeo</option><option value="spotify">Spotify</option><option value="mytlomdotcom">mytlom.com</option><option value="none">None</option>
+        </select></label>
+        <label>Published<input required type="datetime-local" step="60" value={draft.publishedAt} onChange={(change) => setDraft({ ...draft, publishedAt: change.target.value })} /></label>
+      </div>
+      <label>URL<input type="url" maxLength={2048} placeholder="https://…" value={draft.contentUrl} onChange={(change) => setDraft({ ...draft, contentUrl: change.target.value })} /></label>
+      <label>Description<textarea rows={5} value={draft.description} onChange={(change) => setDraft({ ...draft, description: change.target.value })} /></label>
+      <label>Transcript<textarea rows={10} value={draft.transcript} onChange={(change) => setDraft({ ...draft, transcript: change.target.value })} /></label>
+      {error && <p className="inline-error" role="alert">{error}</p>}
+      {!groups.length && <p className="inline-error" role="alert">Create a library group before adding content.</p>}
+      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={saving || !groups.length}>{saving ? "Saving..." : creating ? "Add content" : "Save content"}</button></footer>
+    </form>
+  </EditorFrame>;
+}
+
 interface CalendarDraft {
   title: string;
   description: string;

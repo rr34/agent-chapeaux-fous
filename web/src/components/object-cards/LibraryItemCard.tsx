@@ -12,5 +12,6 @@ export function LibraryItemCard(props: ObjectCardProps) {
     object={object}
     leading={leading}
     className={`library-item-card${props.className ? ` ${props.className}` : ""}`}
+    actions={[...(props.onEdit ? [{ key: "edit", label: "Edit", onClick: props.onEdit }] : []), ...(props.actions || [])]}
   />;
 }

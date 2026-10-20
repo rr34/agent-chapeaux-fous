@@ -5,7 +5,7 @@ import { CalendarGrid, DailyPaper, DayTimeline } from "./components/DailyPaper";
 import { Empty, ErrorState, Loading } from "./components/State";
 import { RoutineScreen } from "./components/RoutineCalendar";
 import { ObjectMentionInput, ObjectMentionText } from "./components/ObjectMentionInput";
-import { CalendarEventEditor, ContactEditor, TodoEditor, TodoItem } from "./components/EditableItems";
+import { CalendarEventEditor, ContactEditor, LibraryContentEditor, TodoEditor, TodoItem } from "./components/EditableItems";
 import { TrackerSchedule } from "./components/TrackerSchedule";
 import { SectionFilter } from "./components/SectionFilter";
 import { Markdown } from "./components/Markdown";
@@ -1538,6 +1538,8 @@ function LibraryScreen() {
   const [filterQuery, setFilterQuery] = useState("");
   const [serverQuery, setServerQuery] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState("all");
+  const [addingContent, setAddingContent] = useState(false);
+  const [editingContent, setEditingContent] = useState<Entity | null>(null);
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
   const contentParameters = new URLSearchParams({ limit: serverQuery ? "5000" : "1000" });
   if (serverQuery) contentParameters.set("q", serverQuery);
@@ -1573,14 +1575,14 @@ function LibraryScreen() {
     const allGroups = [...grouped.values()];
     return filterQuery.trim() ? allGroups.filter((group) => group.items.length) : allGroups;
   }, [filterQuery, groupData?.groups, selectedGroupId, visibleContent]);
-  const reloadLibrary = () => { void reload(); void reloadGroups(); };
+  const reloadLibrary = async () => { await Promise.all([reload(), reloadGroups()]); };
   const searchLibrary = () => {
     const nextQuery = filterQuery.trim();
     if (nextQuery === serverQuery) void reload();
     else setServerQuery(nextQuery);
   };
   return <>
-    <PageHeading eyebrow="Reference shelf" title="Library" detail="Reusable material and published content." />
+    <PageHeading eyebrow="Reference shelf" title="Library" detail="Reusable material and published content." actions={<button className="button" type="button" onClick={() => setAddingContent(true)}>Add content</button>} />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchLibrary} searching={loading} count={visibleContent.length} noun="item" controls={<SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={groupsLoading}>
       <option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}
     </SectionSelectFilter>} />
@@ -1611,13 +1613,21 @@ function LibraryScreen() {
                 ],
                 badges: [textKey(entity, "contentType").replaceAll("_", " "), textKey(entity, "contentStatus", "status").replaceAll("_", " ")],
               })}
+              onEdit={() => setEditingContent(entity)}
               controls={<ObjectSelectionControls identity={genericEntityIdentity("content", entity)} subject={`library ${title}`} />}
             />;
           })}
         </ul> : <p className="library-group-empty">No items in this group.</p>}
       </section>)}
     </div>}
-    {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={async () => { await Promise.all([reload(), reloadGroups()]); }} />}
+    {addingContent && <LibraryContentEditor
+      groups={groupData?.groups || []}
+      initialGroupId={selectedGroupId === "all" ? undefined : Number(selectedGroupId)}
+      onClose={() => setAddingContent(false)}
+      onChanged={reloadLibrary}
+    />}
+    {editingContent && <LibraryContentEditor content={editingContent} groups={groupData?.groups || []} onClose={() => setEditingContent(null)} onChanged={reloadLibrary} />}
+    {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={reloadLibrary} />}
   </>;
 }
 

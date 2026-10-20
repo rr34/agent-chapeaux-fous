@@ -3,6 +3,8 @@ import fs from "node:fs";
 import test from "node:test";
 
 const appSource = fs.readFileSync(new URL("../web/src/App.tsx", import.meta.url), "utf8");
+const editableItemsSource = fs.readFileSync(new URL("../web/src/components/EditableItems.tsx", import.meta.url), "utf8");
+const libraryCardSource = fs.readFileSync(new URL("../web/src/components/object-cards/LibraryItemCard.tsx", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("../web/src/styles.css", import.meta.url), "utf8");
 
 test("the React library renders content as grouped list rows", () => {
@@ -22,4 +24,21 @@ test("the React library renders content as grouped list rows", () => {
   assert.match(styles, /\.object-card-sequence/);
   assert.doesNotMatch(styles, /\.library-row|\.library-sequence/);
   assert.match(styles, /\.first-class-object-card/);
+});
+
+test("the React library creates and edits content with the shared modal and card action", () => {
+  const start = appSource.indexOf("function LibraryScreen");
+  const end = appSource.indexOf("\nfunction VideoScriptsScreen", start);
+  const librarySource = appSource.slice(start, end);
+
+  assert.match(librarySource, /onClick=\{\(\) => setAddingContent\(true\)\}>Add content<\/button>/);
+  assert.match(librarySource, /onEdit=\{\(\) => setEditingContent\(entity\)\}/);
+  assert.match(librarySource, /\{addingContent && <LibraryContentEditor/);
+  assert.match(librarySource, /\{editingContent && <LibraryContentEditor content=\{editingContent\}/);
+  assert.match(libraryCardSource, /props\.onEdit[\s\S]*label: "Edit"/);
+  assert.match(editableItemsSource, /export function LibraryContentEditor/);
+  assert.match(editableItemsSource, /creating \? "\/api\/content-items" : `\/api\/content-items\/\$\{Number\(content\.id\)\}`/);
+  assert.match(editableItemsSource, /method: creating \? "POST" : "PATCH"/);
+  assert.match(editableItemsSource, /version: String\(content\.version \|\| ""\)/);
+  assert.match(editableItemsSource, /creating \? "Add content" : "Save content"/);
 });
