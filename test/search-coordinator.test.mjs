@@ -57,6 +57,35 @@ test("search coordinator interleaves providers and reports partial failures lite
   assert.equal(result.providers.find(({ scope }) => scope === "broken").error, "provider is offline");
 });
 
+test("global search excludes internal scopes and fills its limit after deduplication", async () => {
+  const coordinator = new SearchCoordinator({ providers: [
+    {
+      id: "first",
+      search() {
+        return { hits: [{ id: "shared", ref: "ref:shared" }, { id: "first-only" }] };
+      },
+    },
+    {
+      id: "second",
+      search() {
+        return { hits: [{ id: "shared", ref: "ref:shared" }, { id: "second-only" }] };
+      },
+    },
+    {
+      id: "internal", global: false,
+      search() { return { hits: [{ id: "internal" }] }; },
+    },
+  ] });
+
+  const result = await coordinator.search({ query: "example", limit: 3 });
+  assert.deepEqual(result.hits.map(({ id }) => id), ["shared", "first-only", "second-only"]);
+  await assert.rejects(
+    coordinator.search({ query: "example", scopes: ["internal"] }),
+    /Unknown search scope: internal/u,
+  );
+  assert.equal((await coordinator.searchScope("internal", { query: "example" })).hits[0].id, "internal");
+});
+
 test("native coordinator searches calendar, contacts, files, and history through one tool", async (context) => {
   const { organizer, ledger, coordinator } = harness(context);
   organizer.createCalendar({

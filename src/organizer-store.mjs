@@ -1275,7 +1275,7 @@ export class OrganizerStore {
       const searchableValues = [
         contact.displayName, contact.givenName, contact.familyName,
         contact.organizationName, contact.notes, ...contact.tags,
-        ...contact.methods.flatMap((method) => [method.label, method.value]),
+        ...contact.methods.flatMap((method) => [method.kind, method.label, method.value]),
       ].filter((value) => value != null).map((value) => String(value).toLocaleLowerCase());
       const matchedQueries = selectedQueries
         .filter(({ normalized }) => searchableValues.some((value) => value.includes(normalized)))

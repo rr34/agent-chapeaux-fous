@@ -86,7 +86,7 @@ test("native object candidates come from selected authoritative tables and rank 
     "agent-slayer://journal-trackers/11");
   assert.equal(searchNativeObjects(database, { query: "family" }).objects[0].ref, "agent-slayer://contacts/7");
   assert.deepEqual(nativeObjectTypes.map(({ table }) => table), [
-    "contacts", "todo_groups", "todo_personal", "physical_item_groups", "physical_items", "payment_invoices", "journal1_groups", "journal2_trackers", "journal3_entries",
+    "contacts", "contact_methods", "todo_groups", "todo_personal", "physical_item_groups", "physical_items", "payment_invoices", "journal1_groups", "journal2_trackers", "journal3_entries",
     "calendar_events", "calendar_routines", "files", "profile_facts",
     "catch_up_questions", "video_scripts", "content_groups", "content_items",
   ]);
@@ -307,6 +307,28 @@ test("searchable invoices remain rereadable by exact stable reference", () => {
     role: "subject", type: "payments.invoice", source: "native:payments",
     objects: [{ id: 51, ref: "agent-slayer://payment-invoices/51", display: "Payer not set — not priced" }],
     sourceEventSeqs: [91],
+  }]);
+});
+
+test("searchable contact methods remain rereadable by exact stable reference", () => {
+  const database = { prepare(sql) {
+    assert.match(sql, /FROM contact_methods/u);
+    assert.match(sql, /contact_id IN \(SELECT contact_id FROM contacts/u);
+    return { get(id) {
+      assert.equal(id, 9);
+      return { title: "Work: alice@example.com" };
+    } };
+  } };
+  const selected = [{
+    mention: "@Work: alice@example.com", type: "contacts.method", source: "native:contacts",
+    id: 9, ref: "agent-slayer://contact-methods/9", display: "Work: alice@example.com",
+  }];
+
+  assert.deepEqual(resolveNativeObjectCandidates(database, selected), [{
+    type: "contact_method", domainType: "contacts.method", source: "native:contacts",
+    table: "contact_methods", id: 9, ref: "agent-slayer://contact-methods/9",
+    label: "Contact method", title: "Work: alice@example.com", detail: "",
+    matchedOn: ["selected stable reference"], related: [],
   }]);
 });
 

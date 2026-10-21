@@ -30,7 +30,7 @@ export const nativeFirstClassObjectTypes = Object.freeze([
   {
     ...integerIdentity,
     capabilityId: "contacts", source: "native:contacts", readTool: "contact_search",
-    id: "contacts.method", searchType: null, table: "contact_methods", key: "contact_method_id",
+    id: "contacts.method", searchType: "contact_method", table: "contact_methods", key: "contact_method_id",
     title: "Contact method", summary: "One address, number, handle, URL, or reachable identity belonging to a contact.",
     aliases: ["contact method", "address", "phone number", "email address"],
     identity: field("contact_method_id", "Stable native contact-method primary ID."),
@@ -41,6 +41,7 @@ export const nativeFirstClassObjectTypes = Object.freeze([
     idFields: ["contact_method_id", "address_method_id"], displayFields: ["method_display"],
     refFields: ["method_ref"], refPrefix: "agent-slayer://contact-methods/",
     inputFields: ["address_method_id"],
+    searchFields: ["label", "value", "method_kind", "contacts.display_name"],
   },
   {
     ...integerIdentity,

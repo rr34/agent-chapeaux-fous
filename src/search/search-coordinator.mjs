@@ -19,16 +19,15 @@ function normalizedQuery(value) {
   return query;
 }
 
-function interleavedHits(results, limit) {
+function interleavedHits(results) {
   const hits = [];
-  for (let index = 0; hits.length < limit; index += 1) {
+  for (let index = 0; ; index += 1) {
     let added = false;
     for (const result of results) {
       const hit = result.hits[index];
       if (!hit) continue;
       hits.push(hit);
       added = true;
-      if (hits.length === limit) break;
     }
     if (!added) break;
   }
@@ -139,6 +138,7 @@ export class SearchCoordinator {
     const selectedQuery = normalizedQuery(query);
     const selectedLimit = boundedInteger(limit, "limit", { minimum: 1, maximum: 100, fallback: 20 });
     const availableScopes = this.listProviders().map(({ id }) => id);
+    const availableScopeSet = new Set(availableScopes);
     if (scopes !== null && !Array.isArray(scopes)) {
       throw inputError("scopes must be an array of search scope names or null.");
     }
@@ -147,7 +147,7 @@ export class SearchCoordinator {
       throw inputError("scopes must contain at least one search scope.");
     }
     for (const scope of selectedScopes) {
-      if (!this.providers.has(scope)) throw inputError(`Unknown search scope: ${scope}`);
+      if (!availableScopeSet.has(scope)) throw inputError(`Unknown search scope: ${scope}`);
     }
 
     const settled = await Promise.all(selectedScopes.map(async (scope) => {
@@ -187,14 +187,15 @@ export class SearchCoordinator {
         };
       }
     }));
-    const hits = deduplicatedHits(interleavedHits(settled, selectedLimit));
+    const uniqueHits = deduplicatedHits(interleavedHits(settled));
+    const hits = uniqueHits.slice(0, selectedLimit);
     return {
       query: selectedQuery,
       requestedMode: mode,
       scopes: selectedScopes,
       count: hits.length,
       hasMore: settled.some((result) => result.hasMore)
-        || settled.reduce((sum, result) => sum + result.hits.length, 0) > hits.length,
+        || uniqueHits.length > hits.length,
       partial: settled.some((result) => result.status === "error" || !result.exhaustive),
       providers: settled.map(({ hits: providerHits, ...result }) => ({
         ...result,

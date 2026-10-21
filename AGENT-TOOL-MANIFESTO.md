@@ -114,30 +114,67 @@ Whole-set replacement may remain available when replacing the set is itself a
 real domain operation, but it is not the sole deletion path for individual
 edges.
 
-Every user-referable native object family must provide:
+### Data operability contract
 
-- deterministic discovery through the one application search coordinator,
-  using a domain-owned provider adapter and explicitly selected searchable
-  fields;
-- an authoritative bounded read path plus create, update, and delete or archive
-  operations wherever those lifecycle transitions are meaningful;
-- batch-shaped reads and mutations by default, with one item represented as a
-  one-item batch, and a documented domain reason for every singleton-only or
-  intentionally unsupported operation;
-- the canonical domain-qualified type, owning source, provider-native ID,
-  stable reference, human display, version or freshness evidence when needed,
-  and source evidence in every result that identifies an object;
-- explicit filtering, ordering, limits, pagination or continuation, and
-  complete, partial, empty, and error states without silent truncation;
-- authorization, complete-batch validation, duplicate-target rejection,
-  transaction or partial-success semantics, optimistic concurrency where stale
-  writes matter, idempotency and replay behavior, and literal effect receipts;
-- explicit lifecycle states, timestamps, units, relationships, and deletion or
-  archival behavior owned by the domain rather than inferred from generic
-  field names; and
-- contract tests proving that the agent tools, HTTP adapters, and interactive
-  UI call the same domain and search services and preserve the same identity,
-  result-state, and mutation semantics.
+The **data operability contract** is the high-level completeness index for every
+user-managed first-class native resource and every resource presented through
+an Agent Slayer-owned MCP. The agent must be able to do the following in a
+systematic way:
+
+1. **Discover** — know that the resource exists, which domain or provider owns
+   it, and which operations and limitations are available.
+2. **Search** — find user-referable objects through the one application search
+   coordinator, using domain-owned providers and explicitly selected searchable
+   fields.
+3. **Identify** — preserve the canonical domain-qualified type, owning source,
+   provider-native ID, stable reference, human display, freshness evidence when
+   needed, and source evidence for every identified object.
+4. **Read** — retrieve authoritative records through bounded reads with useful
+   filters, deterministic ordering, limits, pagination or continuation, and
+   explicit complete, partial, empty, and error states without silent
+   truncation.
+5. **Create, read, update, and delete or archive** — expose the complete
+   meaningful lifecycle for every user-managed object instead of an a la carte
+   selection of whichever operations happened to be implemented first.
+6. **Relate** — store durable typed relationships and expose exact link, read,
+   relationship-attribute update, and unlink operations without requiring
+   reconstruction of sibling edges.
+7. **Operate in batches** — use bounded batch-shaped reads and mutations by
+   default, represent one item as a one-item batch, and document the concrete
+   domain or provider reason for every singleton-only operation.
+8. **Preserve correctness** — enforce authorization, complete-batch validation,
+   duplicate and conflicting-target rejection, transaction or partial-success
+   semantics, optimistic concurrency where stale writes matter, idempotency,
+   replay behavior, and safe retry rules.
+9. **Explain outcomes** — return literal per-item results, effects, failures,
+   continuations, and mutation receipts rather than inferring success from
+   prose.
+10. **Represent lifecycle semantics** — state timestamps, units, status
+    transitions, relationships, and the exact meaning of deletion, archival,
+    cancellation, disabling, provider ownership, and immutable history.
+11. **Work at scale** — keep large records and datasets behind stable
+    references and move or process them through bounded artifacts rather than
+    copying them through model context or issuing one call per record.
+12. **Remain auditable** — record discovery, reads, mutations, approvals,
+    external effects, receipts, retries, and failures in a linear literal trace.
+13. **Stay consistent across surfaces** — agent tools, MCP tools, HTTP adapters,
+    and interactive UI use the same owning domain and search services and
+    preserve the same identity, authorization, result-state, and mutation
+    semantics.
+14. **Describe the contract mechanically** — publish identity, ownership,
+    lifecycle operations, relationship operations, batch shape, effects,
+    schemas, result states, retry behavior, and limitations through versioned
+    machine-readable contracts, with bounded human guidance only where it adds
+    domain meaning.
+
+For native data, capability resource declarations are the exhaustive operability
+matrix. Agent Slayer-owned MCPs publish the same facts through their resource,
+Object Description, object-input binding, Tool Description, and discovery
+contracts. An operation is explicitly available, intentionally unsupported for
+a concrete reason, visibly unimplemented, or provider-managed; omission is not
+a fifth state and never proves that the operation is unavailable. An unrelated
+third-party MCP may expose less metadata, but the catalog reports that limitation
+instead of inventing completeness or silently treating absence as support.
 
 Native data architecture is resource-centric and must remain resource-centric.
 The resource lifecycle declaration is the source of truth; a hand-curated list
@@ -152,42 +189,34 @@ not an assertion that the domain forbids the operation. Absence is never an
 unsupported-operation declaration.
 
 Repository verification compares these declarations with the canonical native
-object catalog and every physical join table in the baseline schema. Startup
-then verifies that every supported cell resolves to a registered tool, every
-declared array batch points to a bounded nonempty input array, and the compiled
-Tool Description classifications agree with the lifecycle. Adding a native
-object, join table, or lifecycle tool without extending this resource contract
-is an incomplete change and must fail verification. System-managed provenance
-and provider-owned resources remain visible as explicit classifications rather
-than disappearing from the completeness matrix. Verification reports known
-unimplemented cells separately from intentional limitations so neither can be
-mistaken for full CRUD support.
+object catalog and every physical join table in the baseline schema, and checks
+that every local first-class object type has one global-search provider owner.
+Startup then verifies that every supported lifecycle cell resolves to a
+registered tool, every declared array batch points to a bounded nonempty input
+array, and the compiled Tool Description classifications agree with the
+lifecycle. Adding a native object, join table, search provider, or lifecycle
+tool without extending these contracts is an incomplete change and must fail
+verification. System-managed provenance and provider-owned resources remain
+visible as explicit classifications rather than disappearing from the
+completeness matrix. Verification reports known unimplemented cells separately
+from intentional limitations so neither can be mistaken for full CRUD support.
 
-The application compiles the repetitive native Tool Description facts from the
-resource lifecycle: protocol/version, CRUD action classes, ordinary effects,
-and default routing language. A registering module supplies only genuine
-domain distinctions that the systematic lifecycle does not already say. The
-Tool Description remains the exact model-facing and MCP wire contract, but for
-native CRUD it is compiled output rather than an independent handwritten
-inventory. Exact execution descriptions, input/output schemas, result states,
-authorization, validation, idempotency, and implementation remain owned by the
-domain tool because those facts are not generic CRUD metadata.
+As specified by the Tool Description contract in section 3A, the application
+compiles protocol/version, CRUD action classes, ordinary effects, and default
+routing language from the resource lifecycle. For native CRUD this is
+compiled output rather than an independent handwritten inventory. Exact
+execution descriptions, schemas, result states, authorization, validation,
+idempotency, and implementation remain owned by the domain tool.
 
-Consistency means consistent protocol envelopes and invariants, not flattening
-every domain into one generic record schema. Domain tools retain their exact
-fields, filters, validation, and rich result shapes. The global search surface
-returns compact normalized discovery hits and stable references; callers then
-use the owning domain read or mutation for complete records and actions. Exact
-inside-artifact search, duplicate detection, and other workflow-specific
-queries remain specialized operations, but they do not become competing global
-discovery engines.
-
-The same coordinator and provider adapters serve agent `global_search`, native
-object candidate selection, and direct user global search. A native HTTP or UI
-adapter may add presentation but may not reimplement matching, ranking,
-completeness, authorization, or result-state semantics. A connected
-provider-owned domain such as live email participates through its authorized
-provider-native search adapter and reports its actual matching behavior.
+Consistency means shared envelopes and invariants, not one generic record
+schema. The global-discovery rules in section 2B govern agent `global_search`,
+native object candidate selection, and direct user search; owning domain tools
+retain their exact fields, rich filters, complete records, validation, and
+actions. Exact inside-artifact search, identity resolution, duplicate detection,
+and other workflow-specific queries remain specialized operations, but they do
+not become competing global discovery engines. Connected provider-owned data,
+such as live email, participates only through its authorized provider adapter
+and reports its actual matching and lifecycle limitations.
 
 # 1. The LLM
 

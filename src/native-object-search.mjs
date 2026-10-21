@@ -31,6 +31,10 @@ const byDomainType = new Map(nativeObjectTypes.map((definition) => [definition.d
 // for ordinary agent context.
 const exactCandidateReads = Object.freeze({
   contact: { display: "display_name", where: "status <> 'inactive'" },
+  contact_method: {
+    display: "COALESCE(NULLIF(CONCAT_WS(': ', label, value), ''), CAST(contact_method_id AS CHAR))",
+    where: "contact_id IN (SELECT contact_id FROM contacts WHERE status <> 'inactive')",
+  },
   todo_group: { display: "name", where: "1 = 1" },
   todo: { display: "text", where: "1 = 1" },
   physical_item_group: { display: "name", where: "1 = 1" },
@@ -186,6 +190,14 @@ function readCandidates(database, tokens, selectedTypes = null, query = "") {
         AND assignment.record_id = CAST(c.contact_id AS CHAR)
         AND tag.is_active = 1 AND LOWER(tag.label) LIKE ?)`],
     "c.display_name, c.contact_id");
+  read("contact_method", `method.contact_method_id AS id,
+      COALESCE(NULLIF(CONCAT_WS(': ', method.label, method.value), ''), CAST(method.contact_method_id AS CHAR)) AS title,
+      method.method_kind, method.label, method.value,
+      method.contact_id AS parent_id, contact.display_name AS parent_title`,
+    "contact_methods AS method JOIN contacts AS contact USING (contact_id)",
+    "contact.status = 'active'",
+    ["method.label", "method.value", "method.method_kind", "contact.display_name"], [],
+    "contact.display_name, method.contact_method_id");
 
   read("todo_group", "g.todo_group_id AS id, g.name AS title",
     "todo_groups AS g", "g.archived_at_utc IS NULL", ["g.name"], [], "g.name, g.todo_group_id");
@@ -323,6 +335,7 @@ function scoreCandidate({ type, row }, tokens) {
   const id = Number(row.id);
   const title = compact(row.title, 160) ?? "";
   const detail = type === "contact" ? [row.contact_kind, row.tag_labels].filter(Boolean).join(" · ")
+    : type === "contact_method" ? [row.parent_title, row.method_kind].filter(Boolean).join(" · ")
     : type === "todo" ? [row.parent_title, row.sequence == null ? null : `#${row.sequence}`, row.status].filter(Boolean).join(" · ")
       : type === "tracker" ? [row.parent_title, row.unit].filter(Boolean).join(" · ")
         : type === "journal_entry" ? [row.parent_title, row.occurred_at_utc].filter(Boolean).join(" · ")
@@ -392,6 +405,9 @@ function relatedFor(database, item) {
       WHERE related_contact_id = ? AND status IN ('todo', 'ai_suggested')
       ORDER BY personal_task_id DESC LIMIT 2`).all(id)
       .map(({ id: relatedId, title }) => relatedObject("todo", relatedId, title));
+  }
+  if (type === "contact_method") {
+    return [relatedObject("contact", row.parent_id, row.parent_title)];
   }
   return [];
 }

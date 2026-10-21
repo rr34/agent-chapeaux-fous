@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  createNativeSearchCoordinator, nativeObjectSearchDomains, registerEmailSearchProvider,
+  createNativeSearchCoordinator, nativeGlobalSearchObjectTypes, registerEmailSearchProvider,
 } from "../src/search/native-search.mjs";
+import { nativeFirstClassObjectTypes } from "../src/native-object-types.mjs";
 import { nativeObjectTypes } from "../src/native-object-search.mjs";
+import { ContactSearchProvider } from "../src/search/providers/contact-search-provider.mjs";
 
 function objectFor(domainType) {
   const definitions = {
@@ -70,18 +72,52 @@ test("global discovery advertises every consolidated native domain while keeping
   assert.equal(objects.objects[0].domainType, "todos.personal_task");
 });
 
-test("every searchable first-class native object type has a global provider owner", () => {
-  const dedicatedProviderTypes = [
-    "calendar.event", "calendar.routine", "contacts.contact", "files.file",
-  ];
-  const globallyOwnedTypes = new Set([
-    ...dedicatedProviderTypes,
-    ...nativeObjectSearchDomains.flatMap(([, , domainTypes]) => domainTypes),
-  ]);
+test("every local first-class native object type has a global provider owner", () => {
+  const localTypes = nativeFirstClassObjectTypes.filter(({ table }) => table).map(({ id }) => id).sort();
   assert.deepEqual(
-    [...globallyOwnedTypes].sort(),
-    nativeObjectTypes.map(({ domainType }) => domainType).sort(),
+    [...nativeGlobalSearchObjectTypes].sort(),
+    localTypes,
   );
+  assert.deepEqual(nativeObjectTypes.map(({ domainType }) => domainType).sort(), localTypes);
+});
+
+test("contact-method matches retain their own first-class identity", async () => {
+  const provider = new ContactSearchProvider({
+    organizer: {
+      searchContacts() {
+        return {
+          queries: ["alice@example.com"], scannedContactCount: 1, scanTruncated: false,
+          totalContactCount: 1, totalMatchCount: 1, hasMore: false,
+          matches: [{
+            matchedQueries: ["alice@example.com"],
+            contact: {
+              id: 4, displayName: "Alice Rivera", organizationName: null, notes: null,
+              version: "v4", tags: [], methods: [{
+                id: 9, kind: "email", label: "Work", value: "alice@example.com",
+              }],
+            },
+          }],
+        };
+      },
+    },
+  });
+  const result = await provider.search({ query: "alice@example.com", mode: "terms", limit: 10 });
+  assert.deepEqual(result.hits.map(({ objectType }) => objectType), [
+    "contacts.contact", "contacts.method",
+  ]);
+  assert.deepEqual(result.hits[1], {
+    provider: "contacts",
+    kind: "contact_method",
+    id: "9",
+    ref: "agent-slayer://contact-methods/9",
+    objectType: "contacts.method",
+    source: "native:contacts",
+    title: "Work: alice@example.com",
+    snippet: "Contact: Alice Rivera",
+    matchedFields: ["method_value"],
+    occurredAtUtc: null,
+    actionRef: { contact_id: 4, contact_method_id: 9, expected_version: "v4" },
+  });
 });
 
 test("live email joins the same coordinator and returns the normalized global hit shape", async () => {

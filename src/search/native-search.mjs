@@ -5,6 +5,7 @@ import { HistorySearchProvider } from "./providers/history-search-provider.mjs";
 import { FileSearchProvider } from "./providers/file-search-provider.mjs";
 import { EmailSearchProvider } from "./providers/email-search-provider.mjs";
 import { NativeObjectDomainSearchProvider } from "./providers/native-object-domain-search-provider.mjs";
+import { nativeFirstClassObjectTypes } from "../native-object-types.mjs";
 
 export const nativeObjectSearchDomains = Object.freeze([
   ["todos", "Native to-do groups and personal tasks.", ["todos.todo_group", "todos.personal_task"]],
@@ -16,6 +17,22 @@ export const nativeObjectSearchDomains = Object.freeze([
   ["catch_up", "Native unresolved Check-in questions.", ["catch_up.question"]],
   ["payments", "Native prepared and sent payment invoices.", ["payments.invoice"]],
 ]);
+
+export const nativeGlobalSearchObjectTypes = Object.freeze([
+  "calendar.event", "calendar.routine",
+  "contacts.contact", "contacts.method",
+  "files.file",
+  ...nativeObjectSearchDomains.flatMap(([, , domainTypes]) => domainTypes),
+]);
+
+const localFirstClassObjectTypes = nativeFirstClassObjectTypes
+  .filter(({ table }) => table)
+  .map(({ id }) => id);
+const missingGlobalSearchOwner = localFirstClassObjectTypes
+  .find((id) => !nativeGlobalSearchObjectTypes.includes(id));
+if (missingGlobalSearchOwner) {
+  throw new Error(`Local first-class object type ${missingGlobalSearchOwner} has no global search provider owner`);
+}
 
 export function createNativeSearchCoordinator({ store, organizer, ledger }) {
   return new SearchCoordinator({ providers: [

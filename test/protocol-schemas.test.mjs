@@ -98,7 +98,18 @@ test("native lifecycle completeness is resource-centric and schema constrained",
     "unsupported", "unimplemented",
   ]);
   assert.match(manifesto, /resource-centric and must remain resource-centric/);
+  assert.match(manifesto, /Data operability contract/);
+  for (const responsibility of [
+    "Discover", "Search", "Identify", "Read", "Create, read, update, and delete or archive",
+    "Relate", "Operate in batches", "Preserve correctness", "Explain outcomes",
+    "Represent lifecycle semantics", "Work at scale", "Remain auditable",
+    "Stay consistent across surfaces", "Describe the contract mechanically",
+  ]) {
+    assert.match(manifesto, new RegExp(`\\*\\*${responsibility.replaceAll("*", "\\*")}\\*\\*`, "u"));
+  }
+  assert.match(manifesto, /Agent Slayer-owned MCPs publish the same facts/);
   assert.match(manifesto, /Every physical native join table is declared\s+exactly once/);
+  assert.match(manifesto, /every local first-class object type has one global-search provider owner/);
   assert.match(manifesto, /compiled output\s+rather than an independent handwritten\s+inventory/);
 });
 
