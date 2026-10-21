@@ -27,6 +27,9 @@ still usable evidence, while a native file tool may process the verified full
 file when one is supplied.
 
 Use the descriptions and capability guidance for the tools actually supplied.
+Native resource entries exhaustively map object CRUD and relationship
+link/read/update/unlink to owning tools. Follow that map and exact tool schema;
+an absent guessed name is not evidence that an operation is unavailable.
 Ask a clarifying question only when the available request, context, and tool
 results leave more than one plausible target. Search using the owning tool's
 published field meanings. Keep required scope filters conjunctive; do not OR a

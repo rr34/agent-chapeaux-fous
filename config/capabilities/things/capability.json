@@ -8,5 +8,89 @@
   "aliases": ["thing", "things", "physical item", "physical items", "possession", "possessions", "belongings", "inventory", "equipment"],
   "readOnlyTools": ["physical_item_group_list", "physical_item_list"],
   "dependentTools": ["todo_list", "video_content_list", "file_get", "contact_search"],
+  "resources": [
+    {
+      "id": "things.physical_item_group",
+      "kind": "object",
+      "management": "user",
+      "operations": {
+        "create": { "tool": "physical_item_group_create", "batch": { "mode": "singleton", "reason": "Group creation resolves one case-insensitive name uniqueness and reactivation decision." } },
+        "read": { "tool": "physical_item_group_list", "batch": { "mode": "collection" } },
+        "update": { "tool": "physical_item_group_update", "batch": { "mode": "singleton", "reason": "The group mutation checks one exact group's current contents before archival." } },
+        "delete": { "tool": "physical_item_group_update", "batch": { "mode": "singleton", "reason": "Archival is rejected unless one exact group is empty." }, "destructive": true }
+      }
+    },
+    {
+      "id": "things.physical_item",
+      "kind": "object",
+      "management": "user",
+      "operations": {
+        "create": { "tool": "physical_item_create", "batch": { "mode": "singleton", "reason": "Creation assigns one exact group and ordered position for one possession record." } },
+        "read": { "tool": "physical_item_list", "batch": { "mode": "collection" } },
+        "update": { "tool": "physical_item_update", "batch": { "mode": "singleton", "reason": "Each update uses the exact item's optimistic version." } },
+        "delete": { "tool": "physical_item_update", "batch": { "mode": "singleton", "reason": "Archival uses the exact item's optimistic version and preserves inventory history." }, "note": "Delete is the archived lifecycle status." }
+      }
+    },
+    {
+      "id": "things.item_todo",
+      "kind": "relationship",
+      "title": "Physical item to-do",
+      "summary": "A meaning-qualified association between a physical item and a personal to-do.",
+      "management": "user",
+      "storage": { "table": "physical_items_todo_join" },
+      "endpoints": ["things.physical_item", "todos.personal_task"],
+      "operations": {
+        "link": { "tool": "physical_item_link_set", "batch": { "mode": "array", "input": "/links" } },
+        "read": { "tool": "physical_item_list", "batch": { "mode": "collection" } },
+        "update": { "tool": "physical_item_link_set", "batch": { "mode": "array", "input": "/links" } },
+        "unlink": { "tool": "physical_item_link_set", "batch": { "mode": "array", "input": "/links" } }
+      }
+    },
+    {
+      "id": "things.item_content",
+      "kind": "relationship",
+      "title": "Physical item content",
+      "summary": "A meaning-qualified association between a physical item and a content-library item.",
+      "management": "user",
+      "storage": { "table": "physical_items_content_join" },
+      "endpoints": ["things.physical_item", "video.content_item"],
+      "operations": {
+        "link": { "tool": "physical_item_link_set", "batch": { "mode": "array", "input": "/links" } },
+        "read": { "tool": "physical_item_list", "batch": { "mode": "collection" } },
+        "update": { "tool": "physical_item_link_set", "batch": { "mode": "array", "input": "/links" } },
+        "unlink": { "tool": "physical_item_link_set", "batch": { "mode": "array", "input": "/links" } }
+      }
+    },
+    {
+      "id": "things.item_file",
+      "kind": "relationship",
+      "title": "Physical item file",
+      "summary": "A role-qualified ordered attachment between a physical item and a durable file.",
+      "management": "user",
+      "storage": { "table": "physical_items_files_join" },
+      "endpoints": ["things.physical_item", "files.file"],
+      "operations": {
+        "link": { "tool": "physical_item_link_set", "batch": { "mode": "array", "input": "/links" } },
+        "read": { "tool": "physical_item_list", "batch": { "mode": "collection" } },
+        "update": { "tool": "physical_item_link_set", "batch": { "mode": "array", "input": "/links" } },
+        "unlink": { "tool": "physical_item_link_set", "batch": { "mode": "array", "input": "/links" } }
+      }
+    },
+    {
+      "id": "things.item_contact",
+      "kind": "relationship",
+      "title": "Physical item contact",
+      "summary": "A meaning-qualified association between a physical item and a contact.",
+      "management": "user",
+      "storage": { "table": "physical_items_contacts_join" },
+      "endpoints": ["things.physical_item", "contacts.contact"],
+      "operations": {
+        "link": { "tool": "physical_item_link_set", "batch": { "mode": "array", "input": "/links" } },
+        "read": { "tool": "physical_item_list", "batch": { "mode": "collection" } },
+        "update": { "tool": "physical_item_link_set", "batch": { "mode": "array", "input": "/links" } },
+        "unlink": { "tool": "physical_item_link_set", "batch": { "mode": "array", "input": "/links" } }
+      }
+    }
+  ],
   "guidance": "guidance.md"
 }

@@ -172,7 +172,9 @@ function runtimeWith({ registry, ledger, runTurn, requests, contextBuilderOverri
 }
 
 function calendarUpdateTool(registry, execute) {
-  registry.withCapability("calendar").register({
+  registry.withCapability("calendar", {}, {
+    calendar_event_update: { allowUnboundInputs: true },
+  }).register({
     name: "calendar_event_update",
     description: "Update or cancel one exact stored calendar event. Null fields preserve their current values.",
     annotations: { readOnlyHint: false, destructiveHint: false },
@@ -245,7 +247,9 @@ test("sequenced to-do creation responses include the group-local sequence from t
   const ledger = fakeLedger();
   const registry = new ToolRegistry();
   registerNativeCapabilities(registry);
-  registry.withCapability("todos").register({
+  registry.withCapability("todos", {}, {
+    todo_add: { allowUnboundInputs: true },
+  }).register({
     name: "todo_add",
     description: "Add one to-do and return its database ID and optional group-local sequence.",
     annotations: { readOnlyHint: false, destructiveHint: false },

@@ -8,52 +8,10 @@ import {
 } from "../todo-list-queries.mjs";
 
 const toolDescriptions = Object.freeze({
-  "todo_add": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Create one non-temporal native personal to-do in an exact stable-ID group, with optional planning prompt, position, fixed billable price, and an optional contact connection established atomically in the same call.",
-    "actionClasses": [
-      "CREATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  },
-  "todo_content_link_set": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Atomically link or unlink up to 500 exact personal to-do and content-library item pairs.",
-    "actionClasses": [
-      "UPDATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  },
-  "todo_group_update": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Atomically rename or delete up to 100 exact native to-do groups; deletion requires every contained task to be terminal or moved elsewhere.",
-    "actionClasses": [
-      "UPDATE",
-      "DELETE"
-    ],
-    "effectClassifications": [
-      "MUTATING",
-      "DESTRUCTIVE"
-    ]
-  },
-  "todo_group_create": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Create or reactivate one native to-do group after the user has confirmed it.",
-    "actionClasses": [
-      "CREATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  },
+  "todo_add": { "summary": "Create one non-temporal native personal to-do in an exact stable-ID group, with optional planning prompt, position, fixed billable price, and an optional contact connection established atomically in the same call." },
+  "todo_content_link_set": { "summary": "Atomically link or unlink up to 500 exact personal to-do and content-library item pairs." },
+  "todo_group_update": { "summary": "Atomically rename or delete up to 100 exact native to-do groups; deletion requires every contained task to be terminal or moved elsewhere." },
+  "todo_group_create": { "summary": "Create or reactivate one native to-do group after the user has confirmed it." },
   "todo_group_daily_paper_pin_set": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
@@ -65,17 +23,7 @@ const toolDescriptions = Object.freeze({
       "MUTATING"
     ]
   },
-  "todo_group_list": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "List active native to-do groups and their open counts so a new task can use the best existing group.",
-    "actionClasses": [
-      "READ"
-    ],
-    "effectClassifications": [
-      "READ-ONLY"
-    ]
-  },
+  "todo_group_list": { "summary": "List active native to-do groups and their open counts so a new task can use the best existing group." },
   "todo_group_sequence_set": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
@@ -87,17 +35,7 @@ const toolDescriptions = Object.freeze({
       "MUTATING"
     ]
   },
-  "todo_list": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Search or read paginated batches of non-temporal native personal to-dos with their connected contacts and linked content by task text, exact IDs, exact group-local sequence numbers, group, status, or completion date.",
-    "actionClasses": [
-      "READ"
-    ],
-    "effectClassifications": [
-      "READ-ONLY"
-    ]
-  },
+  "todo_list": { "summary": "Search or read paginated batches of non-temporal native personal to-dos with their connected contacts and linked content by task text, exact IDs, exact group-local sequence numbers, group, status, or completion date." },
   "todo_position_set": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
@@ -109,17 +47,7 @@ const toolDescriptions = Object.freeze({
       "MUTATING"
     ]
   },
-  "todo_update": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Atomically update up to 500 non-temporal native personal to-dos by stable ID, including their optional contact connection and fixed billable price.",
-    "actionClasses": [
-      "UPDATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  }
+  "todo_update": { "summary": "Atomically update or archive up to 500 non-temporal native personal to-dos by stable ID, including their optional contact connection and fixed billable price." }
 });
 
 const optionalText = { type: ["string", "null"] };

@@ -26,5 +26,49 @@
     "video_script_get",
     "video_content_list"
   ],
+  "resources": [
+    {
+      "id": "video.script",
+      "kind": "object",
+      "management": "user",
+      "operations": {
+        "create": { "tool": "video_script_create", "batch": { "mode": "singleton", "reason": "One script snapshots one exact selected interaction set and provenance chain." } },
+        "read": { "tool": "video_script_get", "batch": { "mode": "singleton", "reason": "One script read includes its exact source requests, version, and latest render state." } },
+        "update": { "unavailable": "unsupported", "reason": "Source-grounded scripts are immutable snapshots; a changed script is created as a new provenance-bearing resource." },
+        "delete": { "unavailable": "unsupported", "reason": "Source-grounded scripts and render history are retained as provenance-bearing artifacts." }
+      }
+    },
+    {
+      "id": "video.content_group",
+      "kind": "object",
+      "management": "user",
+      "operations": {
+        "create": { "tool": "video_content_group_create", "batch": { "mode": "singleton", "reason": "Group creation resolves one case-insensitive name and sequence-mode identity." } },
+        "read": { "tool": "video_content_list", "batch": { "mode": "collection" } },
+        "update": { "tool": "video_content_group_rename", "batch": { "mode": "singleton", "reason": "Rename preserves one exact group's identity, ordering, and membership." }, "note": "Sequence-mode updates use video_content_group_sequence_set." },
+        "delete": { "tool": "video_content_group_archive", "batch": { "mode": "singleton", "reason": "Archiving requires one exact empty group and preserves its stable history." } }
+      }
+    },
+    {
+      "id": "video.content_item",
+      "kind": "object",
+      "management": "user",
+      "operations": {
+        "create": { "tool": "video_content_create", "batch": { "mode": "array", "input": "/items" } },
+        "read": { "tool": "video_content_list", "batch": { "mode": "collection" } },
+        "update": { "tool": "video_content_update", "batch": { "mode": "array", "input": "/updates" } },
+        "delete": { "tool": "video_content_update", "batch": { "mode": "array", "input": "/updates" }, "note": "Delete is represented by the obsolete or unused retained lifecycle status." }
+      }
+    },
+    {
+      "id": "video.script_source",
+      "kind": "relationship",
+      "title": "Video script source",
+      "summary": "An ordered immutable activity-event source captured by a generated video script.",
+      "management": "system",
+      "reason": "Script creation owns immutable source provenance; later CRUD must not rewrite it.",
+      "storage": { "table": "video_script_sources_join" }
+    }
+  ],
   "guidance": "guidance.md"
 }

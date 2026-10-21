@@ -30,5 +30,18 @@
     "tracker_asking_schedule_set",
     "contact_lookup_batch"
   ],
+  "resources": [
+    {
+      "id": "catch_up.question",
+      "kind": "object",
+      "management": "user",
+      "operations": {
+        "create": { "tool": "catch_up_refresh", "batch": { "mode": "collection" }, "note": "Generation reconciles a bounded selected source scope rather than accepting model-authored question rows." },
+        "read": { "tool": "catch_up_list", "batch": { "mode": "collection" } },
+        "update": { "tool": "catch_up_question_update", "batch": { "mode": "singleton", "reason": "One response changes one source-linked question using its optimistic version." } },
+        "delete": { "unavailable": "unsupported", "reason": "Generated questions are reconciled with their source and retained as resolved or deferred workflow history rather than manually deleted." }
+      }
+    }
+  ],
   "guidance": "guidance.md"
 }

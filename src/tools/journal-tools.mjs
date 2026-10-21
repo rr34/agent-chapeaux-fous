@@ -13,83 +13,16 @@ const toolDescriptions = Object.freeze({
       "MUTATING"
     ]
   },
-  "tracker_create": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Create one or more personal-journal trackers without recording journal entries.",
-    "actionClasses": [
-      "CREATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  },
-  "journal_import": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Idempotently import up to 100 personal-journal entries with stable source IDs and explicit occurrence times.",
-    "actionClasses": [
-      "CREATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  },
-  "journal_list": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "List recent personal-journal entries, optionally filtered by tracker, group, source, or UTC occurrence range.",
-    "actionClasses": [
-      "READ"
-    ],
-    "effectClassifications": [
-      "READ-ONLY"
-    ]
-  },
-  "journal_update": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Correct one personal-journal entry by stable ID without changing the tracker's canonical unit.",
-    "actionClasses": [
-      "UPDATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  },
-  "journal_group_rename": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Rename one exact active personal-journal group without changing its stable identity or contained trackers.",
-    "actionClasses": [
-      "UPDATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  },
-  "tracker_list": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "List personal-journal trackers with groups, canonical units, entry counts, and latest occurrence times.",
-    "actionClasses": [
-      "READ"
-    ],
-    "effectClassifications": [
-      "READ-ONLY"
-    ]
-  },
-  "tracker_update": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Rename, regroup by exact group ID, archive, reactivate, or establish the canonical unit of one personal-journal tracker.",
-    "actionClasses": [
-      "UPDATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  }
+  "tracker_create": { "summary": "Create one or more personal-journal trackers without recording journal entries." },
+  "journal_import": { "summary": "Idempotently import up to 100 personal-journal entries with stable source IDs and explicit occurrence times." },
+  "journal_list": { "summary": "List recent personal-journal entries, optionally filtered by tracker, group, source, or UTC occurrence range." },
+  "journal_update": { "summary": "Correct one personal-journal entry by stable ID without changing the tracker's canonical unit." },
+  "journal_entry_delete": { "summary": "Atomically delete up to 100 exact personal-journal entries without changing their trackers or sibling observations." },
+  "journal_group_create": { "summary": "Atomically create or reactivate up to 100 named personal-journal groups without creating trackers or observations." },
+  "journal_group_archive": { "summary": "Atomically archive up to 100 exact empty personal-journal groups while preserving their stable history." },
+  "journal_group_rename": { "summary": "Rename one exact active personal-journal group without changing its stable identity or contained trackers." },
+  "tracker_list": { "summary": "List personal-journal trackers with groups, canonical units, entry counts, and latest occurrence times." },
+  "tracker_update": { "summary": "Rename, regroup by exact group ID, archive, reactivate, or establish the canonical unit of one personal-journal tracker." }
 });
 
 const journalGroupRecordSchema = {
@@ -164,6 +97,33 @@ function requiredText(value, label, maximumLength) {
 function optionalUnit(value) {
   if (value === null || value === undefined || value === "") return null;
   return requiredText(value, "Unit", 100);
+}
+
+function uniquePositiveIntegers(value, label, maximum = 100) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > maximum) {
+    throw new Error(`${label} must contain 1 through ${maximum} ids`);
+  }
+  const values = value.map((item) => {
+    const selected = Number(item);
+    if (!Number.isSafeInteger(selected) || selected < 1) {
+      throw new Error(`${label} must contain only positive integer ids`);
+    }
+    return selected;
+  });
+  if (new Set(values).size !== values.length) throw new Error(`${label} cannot contain duplicates`);
+  return values;
+}
+
+function uniqueNames(value, label, maximum = 100) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > maximum) {
+    throw new Error(`${label} must contain 1 through ${maximum} names`);
+  }
+  const names = value.map((item) => requiredText(item, "Journal group name", 200));
+  const normalized = names.map((name) => name.toLocaleLowerCase("en-US"));
+  if (new Set(normalized).size !== normalized.length) {
+    throw new Error(`${label} cannot contain duplicate names`);
+  }
+  return names;
 }
 
 function normalizedInstant(value, { useNow = false, label = "Timestamp" } = {}) {
@@ -1171,6 +1131,181 @@ export function registerJournalTools(registry, store, ledger) {
         });
         database.exec("COMMIT");
         return result;
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
+    },
+  });
+
+  registry.register({
+    name: "journal_entry_delete",
+    description: "Atomically delete 1 through 100 exact personal-journal entries by stable ID. The complete batch is validated before writing, missing entries are unchanged for safe replay, and deleting an observation never changes or archives its tracker or group.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        journal_entry_ids: {
+          type: "array", minItems: 1, maxItems: 100, uniqueItems: true,
+          items: { type: "integer", minimum: 1 },
+        },
+      },
+      required: ["journal_entry_ids"],
+    },
+    async execute({ journal_entry_ids: journalEntryIds }, context) {
+      const ids = uniquePositiveIntegers(journalEntryIds, "journal_entry_ids");
+      const database = store.requireReady();
+      database.exec("START TRANSACTION");
+      try {
+        const entries = ids.map((id) => databaseEntry(joinedEntry(database, id)));
+        const remove = database.prepare("DELETE FROM journal3_entries WHERE journal_entry_id = ?");
+        const results = ids.map((id, index) => {
+          const deleted = entries[index] ? remove.run(id).changes === 1 : false;
+          return { journal_entry_id: id, status: deleted ? "deleted" : "unchanged", entry: entries[index] };
+        });
+        const deletedCount = results.filter(({ status }) => status === "deleted").length;
+        const response = {
+          selected_entry_count: results.length,
+          deleted_entry_count: deletedCount,
+          unchanged_entry_count: results.length - deletedCount,
+          results,
+        };
+        ledger.append({
+          type: "personal_journal.deleted", status: "complete", actorType: "tool",
+          actorName: "journal_entry_delete", turnId: context.requestId, operationId: context.callId,
+          name: "Personal journal entries deleted",
+          content: `${deletedCount} deleted, ${results.length - deletedCount} unchanged`,
+          payload: response, subjectType: "journal_entry_batch", subjectId: String(results.length),
+        });
+        database.exec("COMMIT");
+        return response;
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
+    },
+  });
+
+  registry.register({
+    name: "journal_group_create",
+    description: "Atomically create or reactivate 1 through 100 named personal-journal groups without creating trackers or placeholder observations. Active exact-name groups are returned unchanged, archived exact-name groups are reactivated, and duplicate names reject the complete batch.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        names: {
+          type: "array", minItems: 1, maxItems: 100, uniqueItems: true,
+          items: { type: "string", minLength: 1, maxLength: 200 },
+        },
+      },
+      required: ["names"],
+    },
+    async execute({ names }, context) {
+      const selectedNames = uniqueNames(names, "names");
+      const database = store.requireReady();
+      const now = new Date().toISOString();
+      database.exec("START TRANSACTION");
+      try {
+        const results = selectedNames.map((name) => {
+          const result = ensureGroup(database, name, now);
+          return {
+            status: result.created ? "created" : result.reactivated ? "reactivated" : "unchanged",
+            group: databaseJournalGroup(result.row),
+          };
+        });
+        const createdCount = results.filter(({ status }) => status === "created").length;
+        const reactivatedCount = results.filter(({ status }) => status === "reactivated").length;
+        const response = {
+          selected_group_count: results.length,
+          created_group_count: createdCount,
+          reactivated_group_count: reactivatedCount,
+          unchanged_group_count: results.length - createdCount - reactivatedCount,
+          results,
+        };
+        ledger.append({
+          type: "personal_journal_group.created_batch", status: "complete", actorType: "tool",
+          actorName: "journal_group_create", turnId: context.requestId, operationId: context.callId,
+          name: "Personal journal groups created",
+          content: `${createdCount} created, ${reactivatedCount} reactivated`,
+          payload: response, subjectType: "journal_group_batch", subjectId: String(results.length),
+        });
+        database.exec("COMMIT");
+        return response;
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
+    },
+  });
+
+  registry.register({
+    name: "journal_group_archive",
+    description: "Atomically archive 1 through 100 exact personal-journal groups by stable ID. General cannot be archived. Every selected active group must have no active trackers; archive or move those trackers first. Already archived groups are unchanged for safe replay, and the complete batch validates before writing.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        journal_group_ids: {
+          type: "array", minItems: 1, maxItems: 100, uniqueItems: true,
+          items: { type: "integer", minimum: 1 },
+        },
+      },
+      required: ["journal_group_ids"],
+    },
+    async execute({ journal_group_ids: journalGroupIds }, context) {
+      const ids = uniquePositiveIntegers(journalGroupIds, "journal_group_ids");
+      const database = store.requireReady();
+      const now = new Date().toISOString();
+      database.exec("START TRANSACTION");
+      try {
+        const groups = ids.map((id) => {
+          const group = database.prepare(
+            "SELECT * FROM journal1_groups WHERE journal_group_id = ?",
+          ).get(id);
+          if (!group) throw new Error(`Journal group ${id} does not exist`);
+          if (group.name.toLocaleLowerCase("en-US") === "general") {
+            throw new Error("General is the permanent catchall and cannot be archived");
+          }
+          if (group.archived_at_utc === null) {
+            const activeTrackerCount = Number(database.prepare(`
+              SELECT COUNT(*) AS count FROM journal2_trackers
+              WHERE journal_group_id = ? AND archived_at_utc IS NULL
+            `).get(id).count);
+            if (activeTrackerCount > 0) {
+              throw new Error(`Archive or move every active tracker before archiving journal group ${id}`);
+            }
+          }
+          return group;
+        });
+        const archive = database.prepare(`
+          UPDATE journal1_groups SET archived_at_utc = ?, updated_at_utc = ?
+          WHERE journal_group_id = ? AND archived_at_utc IS NULL
+        `);
+        const results = groups.map((group) => {
+          const archived = group.archived_at_utc === null
+            ? archive.run(now, now, group.journal_group_id).changes === 1
+            : false;
+          const current = database.prepare(
+            "SELECT * FROM journal1_groups WHERE journal_group_id = ?",
+          ).get(group.journal_group_id);
+          return { status: archived ? "archived" : "unchanged", group: databaseJournalGroup(current) };
+        });
+        const archivedCount = results.filter(({ status }) => status === "archived").length;
+        const response = {
+          selected_group_count: results.length,
+          archived_group_count: archivedCount,
+          unchanged_group_count: results.length - archivedCount,
+          results,
+        };
+        ledger.append({
+          type: "personal_journal_group.archived_batch", status: "complete", actorType: "tool",
+          actorName: "journal_group_archive", turnId: context.requestId, operationId: context.callId,
+          name: "Personal journal groups archived",
+          content: `${archivedCount} archived, ${results.length - archivedCount} unchanged`,
+          payload: response, subjectType: "journal_group_batch", subjectId: String(results.length),
+        });
+        database.exec("COMMIT");
+        return response;
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;

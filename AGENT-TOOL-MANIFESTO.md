@@ -139,6 +139,40 @@ Every user-referable native object family must provide:
   UI call the same domain and search services and preserve the same identity,
   result-state, and mutation semantics.
 
+Native data architecture is resource-centric and must remain resource-centric.
+The resource lifecycle declaration is the source of truth; a hand-curated list
+of tools is not. Every first-class native object is declared exactly once in
+its owning capability package with all four lifecycle cells: create, read,
+update, and delete or archive. Every physical native join table is declared
+exactly once as a relationship resource with link, read, attribute-update, and
+unlink cells. A cell either names its exact owning tool and batch shape, is
+intentionally unsupported for a concrete domain, provider, or immutable-history
+reason, or is explicitly marked as an unimplemented gap. A gap is visible debt,
+not an assertion that the domain forbids the operation. Absence is never an
+unsupported-operation declaration.
+
+Repository verification compares these declarations with the canonical native
+object catalog and every physical join table in the baseline schema. Startup
+then verifies that every supported cell resolves to a registered tool, every
+declared array batch points to a bounded nonempty input array, and the compiled
+Tool Description classifications agree with the lifecycle. Adding a native
+object, join table, or lifecycle tool without extending this resource contract
+is an incomplete change and must fail verification. System-managed provenance
+and provider-owned resources remain visible as explicit classifications rather
+than disappearing from the completeness matrix. Verification reports known
+unimplemented cells separately from intentional limitations so neither can be
+mistaken for full CRUD support.
+
+The application compiles the repetitive native Tool Description facts from the
+resource lifecycle: protocol/version, CRUD action classes, ordinary effects,
+and default routing language. A registering module supplies only genuine
+domain distinctions that the systematic lifecycle does not already say. The
+Tool Description remains the exact model-facing and MCP wire contract, but for
+native CRUD it is compiled output rather than an independent handwritten
+inventory. Exact execution descriptions, input/output schemas, result states,
+authorization, validation, idempotency, and implementation remain owned by the
+domain tool because those facts are not generic CRUD metadata.
+
 Consistency means consistent protocol envelopes and invariants, not flattening
 every domain into one generic record schema. Domain tools retain their exact
 fields, filters, validation, and rich result shapes. The global search surface
@@ -802,6 +836,11 @@ Every native capability is one filesystem package at
 `capability.json` and `guidance.md`. Its manifest conforms to
 `config/protocol-schemas/capability-manifest.v1.schema.json`, its directory name
 equals its stable ID, and its `guidance` field names the sibling guidance file.
+For a capability that owns native data, the same manifest owns its complete
+resource lifecycle declarations. Object declarations reuse the canonical
+Object Description identity instead of duplicating it; relationship
+declarations name their authoritative physical join and endpoints when those
+endpoints are user-facing.
 The shared loader is the only native manifest discovery path. Startup rejects
 schema failures, missing or extra package files, empty guidance, duplicate
 identity, and conflicts between connected tool annotations and manifest
@@ -876,9 +915,11 @@ Native Object Description producers, unbound identifying reads, and
 role-specific object inputs follow the same ownership rule: the registering
 module opts into them explicitly. The shared native object ontology remains the
 structural vocabulary for type identity, ID fields, references, displays, and
-relationships. The registry may compile declarations against that ontology, but
-it must not infer a declaration merely from a tool's machine name. Internal
-registration declarations never enter the provider-facing tool definition.
+relationships. The capability-owned resource lifecycle explicitly maps those
+types and relationships to operations. The registry compiles against that
+mapping and never guesses lifecycle support from a tool's machine name, SQL
+verb, or field spelling. Internal registration declarations never enter the
+provider-facing tool definition.
 
 The MCP extension is an Agent Slayer interoperability contract, not a claim
 that base MCP requires this field. Every tool published by an Agent Slayer
@@ -921,10 +962,15 @@ unsupported. Operation names and summaries come from the same provider-owned
 registry that generates dispatcher schemas and detailed description responses;
 parallel handwritten operation lists are forbidden because they can drift.
 
-Each tool therefore publishes:
+Each tool therefore publishes the following model-facing contract. For native
+resource lifecycle tools, the resource declaration compiles the repetitive
+items; for provider tools and non-lifecycle workflows, the provider continues
+to publish them directly:
 
 - a stable machine name and concise title;
-- a human-authored selection summary of no more than 400 characters;
+- a selection summary of no more than 400 characters, generated for ordinary
+  native lifecycle routing and augmented only by human-authored domain
+  distinctions when needed;
 - validated selection action and effect classifications;
 - a complete execution description stating how and when to use it and what its
   result proves;

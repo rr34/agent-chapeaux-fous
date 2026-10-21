@@ -324,7 +324,7 @@ function toolCatalogEntry(tool) {
   };
 }
 
-function objectCatalogEntry(type, readTool) {
+function objectCatalogEntry(type, readTool, resource = null) {
   return {
     id: type.id,
     title: type.title,
@@ -334,6 +334,11 @@ function objectCatalogEntry(type, readTool) {
     reference: { field: type.reference.field },
     display: { field: type.display.field },
     readTool,
+    ...(resource ? {
+      management: resource.management,
+      ...(resource.reason ? { lifecycleReason: resource.reason } : {}),
+      ...(resource.operations ? { operations: resource.operations } : {}),
+    } : {}),
   };
 }
 
@@ -350,6 +355,8 @@ export function requestCapabilityCatalog(tools) {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([capability, entries]) => {
       const manifest = entries.find(({ capability: declared }) => declared)?.capability;
+      const resources = manifest?.resources ?? [];
+      const resourcesById = new Map(resources.map((resource) => [resource.id, resource]));
       return {
         capability,
         title: manifest?.title ?? capability,
@@ -357,9 +364,10 @@ export function requestCapabilityCatalog(tools) {
         tools: entries.map(toolCatalogEntry),
         objectTypes: entries.flatMap((tool) => (
           tool.metadata?.[objectDescriptionMetadataKey]?.types?.map((type) => (
-            objectCatalogEntry(type, tool.name)
+            objectCatalogEntry(type, tool.name, resourcesById.get(type.id))
           )) ?? []
         )),
+        relationships: resources.filter(({ kind }) => kind === "relationship"),
         contextViews: manifest?.contextViews ?? [],
       };
     });
@@ -526,8 +534,9 @@ export class RequestCompiler {
   }
 
   async #instruction(capability, tools = []) {
-    const manifest = this.capabilityManifest?.(capability)
-      ?? tools.find(({ capability: item }) => item)?.capability
+    const configured = this.capabilityManifest?.(capability);
+    const embedded = tools.find(({ capability: item }) => item)?.capability;
+    const manifest = configured ?? (embedded?.guidance ? embedded : null)
       ?? nativeCapabilityManifest(capability);
     return manifest?.guidance ?? null;
   }

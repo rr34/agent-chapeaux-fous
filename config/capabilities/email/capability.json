@@ -27,5 +27,52 @@
     "email_attachment_get",
     "email_cleanup_receipt_list"
   ],
+  "resources": [
+    {
+      "id": "email.account",
+      "kind": "object",
+      "management": "provider",
+      "reason": "The connected JMAP provider owns account lifecycle; Agent Slayer exposes its authoritative read only."
+    },
+    {
+      "id": "email.mailbox",
+      "kind": "object",
+      "management": "provider",
+      "reason": "The connected JMAP provider owns mailbox lifecycle; this adapter currently exposes mailbox reads and message membership changes."
+    },
+    {
+      "id": "email.identity",
+      "kind": "object",
+      "management": "provider",
+      "reason": "The connected JMAP provider owns sending-identity lifecycle; Agent Slayer exposes its authoritative read only."
+    },
+    {
+      "id": "email.message",
+      "kind": "object",
+      "management": "provider",
+      "reason": "Live JMAP tools expose provider-owned draft creation, reads, updates, recovery, and destruction under the provider contract rather than native database CRUD."
+    },
+    {
+      "id": "email.thread",
+      "kind": "object",
+      "management": "provider",
+      "reason": "JMAP threads are provider-derived message groupings and have no independent native mutation lifecycle."
+    },
+    {
+      "id": "email.blob",
+      "kind": "object",
+      "management": "provider",
+      "reason": "JMAP blobs are immutable provider-owned message or attachment payloads read through their owning message identity."
+    },
+    {
+      "id": "email.correspondence_participant",
+      "kind": "relationship",
+      "title": "Correspondence participant",
+      "summary": "A provider-ingested participant identity retained with one correspondence record.",
+      "management": "provider",
+      "reason": "Correspondence synchronization owns participant roles, addresses, and contact-method evidence.",
+      "storage": { "table": "correspondence_participants_join" }
+    }
+  ],
   "guidance": "guidance.md"
 }

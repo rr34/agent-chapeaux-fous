@@ -43,5 +43,44 @@
     "contact_lookup_batch",
     "contact_duplicate_list"
   ],
+  "resources": [
+    {
+      "id": "contacts.contact",
+      "kind": "object",
+      "management": "user",
+      "operations": {
+        "create": { "tool": "contact_import", "batch": { "mode": "array", "input": "/entries" } },
+        "read": { "tool": "contact_search", "batch": { "mode": "collection" } },
+        "update": { "tool": "contact_update", "batch": { "mode": "array", "input": "/updates" } },
+        "delete": { "tool": "contact_update", "batch": { "mode": "array", "input": "/updates" }, "note": "Delete is logical inactive status so history and references remain intact." }
+      }
+    },
+    {
+      "id": "contacts.method",
+      "kind": "object",
+      "management": "user",
+      "operations": {
+        "create": { "tool": "contact_method_set", "batch": { "mode": "array", "input": "/updates" } },
+        "read": { "tool": "contact_search", "batch": { "mode": "collection" } },
+        "update": { "tool": "contact_method_set", "batch": { "mode": "array", "input": "/updates" } },
+        "delete": { "tool": "contact_method_delete", "batch": { "mode": "array", "input": "/deletions" }, "destructive": true }
+      }
+    },
+    {
+      "id": "contacts.contact_tag",
+      "kind": "relationship",
+      "title": "Contact tag assignment",
+      "summary": "A reusable tag assigned to one native contact.",
+      "management": "user",
+      "storage": { "table": "contacts_tags_join" },
+      "endpoints": ["contacts.contact", "contacts.tag"],
+      "operations": {
+        "link": { "tool": "contact_tag_add_batch", "batch": { "mode": "array", "input": "/contact_ids" } },
+        "read": { "tool": "contact_search", "batch": { "mode": "collection" } },
+        "update": { "tool": "contact_tag_rename", "batch": { "mode": "singleton", "reason": "A tag rename or merge changes one canonical tag across every assignment atomically." } },
+        "unlink": { "tool": "contact_tag_unlink_batch", "batch": { "mode": "array", "input": "/contact_ids" } }
+      }
+    }
+  ],
   "guidance": "guidance.md"
 }

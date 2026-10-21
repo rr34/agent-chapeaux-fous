@@ -235,9 +235,11 @@ metadata.
 `capability.json` and its single declared `guidance.md`. The manifest owns the
 family's stable identity, routing summary, aliases, coordination-guidance
 reference, attachment hints, read-only expectations, and explicit
-cross-capability dependencies. Guidance coordinates tools but cannot redefine
-them. Each tool's exact description, schemas, annotations, and implementation
-remain owned by its registration module. The shared versioned schemas and
+cross-capability dependencies. For native data capabilities it also owns the
+complete resource lifecycle matrix. Guidance coordinates tools but cannot
+redefine them. Resource declarations compile repetitive native Tool Description
+routing facts; each tool's exact schemas, execution semantics, annotations, and
+implementation remain owned by its registration module. The shared versioned schemas and
 validators are the structural source of truth; the daily-paper package is a
 reference example, not a base tool whose semantics other tools inherit. Native
 object producers, unbound identifying reads, and role-specific object inputs
@@ -289,3 +291,14 @@ possession, or a counted set of equivalent possessions, shown in the product's
 work, content, files, and contacts remain exact independent objects connected
 through domain-owned join tables. A physical item is not a generic superclass
 for every first-class object.
+
+**62. Native resource lifecycle** — The exhaustive capability-owned operation
+matrix for one first-class native object or physical native relationship. An
+object declares create, read, update, and delete or archive; a relationship
+declares link, read, attribute update, and unlink. Every cell either names its
+owning tool and batch shape, records a reasoned intentional limitation, or
+labels an unimplemented gap as visible debt. The
+registry compiles ordinary native Tool Description routing facts from this
+matrix, repository verification proves coverage of the object catalog and
+physical join tables, and startup proves supported cells resolve to truthful
+registered schemas. It is a domain contract, not a database-schema interface.

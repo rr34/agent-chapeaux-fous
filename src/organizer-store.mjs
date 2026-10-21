@@ -275,6 +275,64 @@ function contactAddressUpdates(value) {
   });
 }
 
+function contactMethodUpdates(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 100) {
+    throw new OrganizerInputError("updates must contain 1 through 100 contact method updates.");
+  }
+  const seen = new Set();
+  return value.map((update, index) => {
+    if (!update || typeof update !== "object" || Array.isArray(update)) {
+      throw new OrganizerInputError(`updates[${index}] must be an object.`);
+    }
+    const contactId = identifier(update.contactId, `updates[${index}].contactId`);
+    if (seen.has(contactId)) {
+      throw new OrganizerInputError("updates cannot contain the same contact more than once.");
+    }
+    seen.add(contactId);
+    if (typeof update.expectedVersion !== "string" || !update.expectedVersion) {
+      throw new OrganizerInputError(`updates[${index}].expectedVersion is required.`);
+    }
+    const action = enumValue(update.action, contactAddressActions, `updates[${index}].action`);
+    const [method] = contactMethods([{
+      id: update.methodId,
+      kind: update.kind,
+      label: update.label,
+      value: update.value,
+      isPrimary: update.isPrimary,
+      canReceive: update.canReceive,
+    }]);
+    if (action === "add" && method.id !== null) {
+      throw new OrganizerInputError(`updates[${index}].methodId must be null when action is add.`);
+    }
+    if (action === "replace" && method.id === null) {
+      throw new OrganizerInputError(`updates[${index}].methodId is required when action is replace.`);
+    }
+    return { contactId, expectedVersion: update.expectedVersion, action, method };
+  });
+}
+
+function contactMethodDeletions(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 100) {
+    throw new OrganizerInputError("deletions must contain 1 through 100 contact methods.");
+  }
+  const seen = new Set();
+  return value.map((deletion, index) => {
+    if (!deletion || typeof deletion !== "object" || Array.isArray(deletion)) {
+      throw new OrganizerInputError(`deletions[${index}] must be an object.`);
+    }
+    const contactId = identifier(deletion.contactId, `deletions[${index}].contactId`);
+    const methodId = identifier(deletion.methodId, `deletions[${index}].methodId`);
+    if (seen.has(methodId)) {
+      throw new OrganizerInputError("deletions cannot contain duplicate contact method ids.");
+    }
+    seen.add(methodId);
+    if (typeof deletion.expectedVersion !== "string" || !deletion.expectedVersion) {
+      throw new OrganizerInputError(`deletions[${index}].expectedVersion is required.`);
+    }
+    return { contactId, methodId, expectedVersion: deletion.expectedVersion };
+  });
+}
+
 function contactIdentifiers(value) {
   if (!Array.isArray(value) || value.length < 1 || value.length > 10_000) {
     throw new OrganizerInputError("contactIds must contain 1 through 10000 contact ids.");
@@ -1568,6 +1626,225 @@ export class OrganizerStore {
     }
   }
 
+  updateContactMethods(input, activity = {}) {
+    const updates = contactMethodUpdates(input?.updates);
+    this.database.exec("START TRANSACTION");
+    try {
+      const plans = updates.map((update) => {
+        const contact = this.#contact(update.contactId);
+        if (!contact || contact.status === "inactive") {
+          throw new OrganizerInputError(`Contact ${update.contactId} was not found.`, 404);
+        }
+        const exactMethod = contact.methods.find((method) => (
+          method.kind === update.method.kind
+          && normalizedContactMethod(method.kind, method.value) === update.method.normalizedValue
+        ));
+        let target = null;
+        let status = "updated";
+        if (update.action === "replace") {
+          target = contact.methods.find(({ id }) => Number(id) === update.method.id) ?? null;
+          if (!target) {
+            throw new OrganizerInputError(
+              `Contact method ${update.method.id} does not belong to contact ${update.contactId}.`,
+              409,
+            );
+          }
+          const unchanged = target.kind === update.method.kind
+            && target.label === update.method.label
+            && normalizedContactMethod(target.kind, target.value) === update.method.normalizedValue
+            && target.isPrimary === update.method.isPrimary
+            && target.canReceive === update.method.canReceive;
+          if (unchanged) status = "unchanged";
+          else if (exactMethod && exactMethod.id !== target.id) {
+            throw new OrganizerInputError(
+              `Contact ${update.contactId} already has that ${update.method.kind} method.`,
+              409,
+            );
+          }
+        } else if (exactMethod) {
+          const unchanged = exactMethod.label === update.method.label
+            && exactMethod.isPrimary === update.method.isPrimary
+            && exactMethod.canReceive === update.method.canReceive;
+          if (!unchanged) {
+            throw new OrganizerInputError(
+              `Contact ${update.contactId} already has that method; use action=replace and supply its methodId to change its label or delivery settings.`,
+              409,
+            );
+          }
+          target = exactMethod;
+          status = "unchanged";
+        }
+        if (status !== "unchanged" && update.expectedVersion !== contact.version) {
+          throw new OrganizerInputError(
+            `Contact ${update.contactId} changed after it was selected. Search again and retry with its current version.`,
+            409,
+          );
+        }
+        return { ...update, contact, target, status };
+      });
+      const insert = this.database.prepare(`
+        INSERT INTO contact_methods (
+          contact_id, method_kind, label, value, normalized_value, is_primary, can_receive
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      const replace = this.database.prepare(`
+        UPDATE contact_methods
+        SET method_kind = ?, label = ?, value = ?, normalized_value = ?, is_primary = ?, can_receive = ?
+        WHERE contact_method_id = ? AND contact_id = ?
+      `);
+      const clearOtherPrimary = this.database.prepare(`
+        UPDATE contact_methods SET is_primary = 0
+        WHERE contact_id = ? AND method_kind = ? AND contact_method_id <> ?
+      `);
+      const touchContact = this.database.prepare(
+        "UPDATE contacts SET updated_at_utc = ? WHERE contact_id = ?",
+      );
+      const candidateVersion = new Date().toISOString();
+      const results = [];
+      for (const plan of plans) {
+        let methodId = plan.target?.id ?? null;
+        if (plan.status === "updated") {
+          if (plan.target) {
+            replace.run(
+              plan.method.kind, plan.method.label, plan.method.value, plan.method.normalizedValue,
+              plan.method.isPrimary ? 1 : 0, plan.method.canReceive ? 1 : 0,
+              plan.target.id, plan.contactId,
+            );
+          } else {
+            methodId = Number(insert.run(
+              plan.contactId, plan.method.kind, plan.method.label, plan.method.value,
+              plan.method.normalizedValue, plan.method.isPrimary ? 1 : 0,
+              plan.method.canReceive ? 1 : 0,
+            ).lastInsertRowid);
+          }
+          if (plan.method.isPrimary) {
+            clearOtherPrimary.run(plan.contactId, plan.method.kind, methodId);
+          }
+          const nextVersion = candidateVersion > plan.contact.version
+            ? candidateVersion
+            : new Date(new Date(plan.contact.version).getTime() + 1).toISOString();
+          touchContact.run(nextVersion, plan.contactId);
+        }
+        const contact = this.#contact(plan.contactId);
+        results.push({
+          status: plan.status,
+          contact,
+          method: contact.methods.find(({ id }) => Number(id) === methodId),
+        });
+      }
+      const updatedCount = results.filter(({ status }) => status === "updated").length;
+      this.#activity({
+        eventType: "contacts.methods_updated",
+        status: "complete",
+        name: "Contact methods updated",
+        subjectType: "contact_batch",
+        subjectId: plans.length,
+        contentText: `${updatedCount} updated, ${plans.length - updatedCount} unchanged`,
+        payload: {
+          selectedContactCount: plans.length,
+          updatedContactCount: updatedCount,
+          unchangedContactCount: plans.length - updatedCount,
+          contactIds: plans.map(({ contactId }) => contactId),
+        },
+        ...activity,
+      });
+      this.database.exec("COMMIT");
+      return {
+        selectedContactCount: plans.length,
+        updatedContactCount: updatedCount,
+        unchangedContactCount: plans.length - updatedCount,
+        results,
+      };
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      if (error?.code === "ER_DUP_ENTRY") {
+        throw new OrganizerInputError("A contact already has that method.", 409);
+      }
+      throw error;
+    }
+  }
+
+  deleteContactMethods(input, activity = {}) {
+    const deletions = contactMethodDeletions(input?.deletions);
+    this.database.exec("START TRANSACTION");
+    try {
+      const contacts = new Map();
+      const plans = deletions.map((deletion) => {
+        let contact = contacts.get(deletion.contactId);
+        if (!contact) {
+          contact = this.#contact(deletion.contactId);
+          if (!contact || contact.status === "inactive") {
+            throw new OrganizerInputError(`Contact ${deletion.contactId} was not found.`, 404);
+          }
+          contacts.set(deletion.contactId, contact);
+        }
+        const method = contact.methods.find(({ id }) => Number(id) === deletion.methodId) ?? null;
+        if (method && deletion.expectedVersion !== contact.version) {
+          throw new OrganizerInputError(
+            `Contact ${deletion.contactId} changed after it was selected. Search again and retry with its current version.`,
+            409,
+          );
+        }
+        return { ...deletion, contact, method };
+      });
+      const remove = this.database.prepare(`
+        DELETE FROM contact_methods WHERE contact_method_id = ? AND contact_id = ?
+      `);
+      const changedContactIds = new Set();
+      const results = plans.map((plan) => {
+        const deleted = plan.method
+          ? remove.run(plan.methodId, plan.contactId).changes === 1
+          : false;
+        if (deleted) changedContactIds.add(plan.contactId);
+        return {
+          status: deleted ? "deleted" : "unchanged",
+          contactId: plan.contactId,
+          methodId: plan.methodId,
+          method: plan.method,
+        };
+      });
+      const touch = this.database.prepare("UPDATE contacts SET updated_at_utc = ? WHERE contact_id = ?");
+      const candidateVersion = new Date().toISOString();
+      for (const contactId of changedContactIds) {
+        const contact = contacts.get(contactId);
+        const nextVersion = candidateVersion > contact.version
+          ? candidateVersion
+          : new Date(new Date(contact.version).getTime() + 1).toISOString();
+        touch.run(nextVersion, contactId);
+      }
+      const hydrated = results.map((result) => ({
+        ...result,
+        contact: this.#contact(result.contactId),
+      }));
+      const deletedCount = results.filter(({ status }) => status === "deleted").length;
+      this.#activity({
+        eventType: "contacts.methods_deleted",
+        status: "complete",
+        name: "Contact methods deleted",
+        subjectType: "contact_method_batch",
+        subjectId: plans.length,
+        contentText: `${deletedCount} deleted, ${plans.length - deletedCount} unchanged`,
+        payload: {
+          selectedMethodCount: plans.length,
+          deletedMethodCount: deletedCount,
+          unchangedMethodCount: plans.length - deletedCount,
+          contactMethodIds: plans.map(({ methodId }) => methodId),
+        },
+        ...activity,
+      });
+      this.database.exec("COMMIT");
+      return {
+        selectedMethodCount: plans.length,
+        deletedMethodCount: deletedCount,
+        unchangedMethodCount: plans.length - deletedCount,
+        results: hydrated,
+      };
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   bulkContacts(input, activity = {}) {
     const action = enumValue(input?.action, new Set(["add_tag", "delete"]), "action");
     const selections = reviewedContactSelections(input?.contacts);
@@ -1693,6 +1970,77 @@ export class OrganizerStore {
         selectedContactCount: contacts.length,
         taggedContactCount,
         alreadyTaggedContactCount: contacts.length - taggedContactCount,
+      };
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  removeTagFromContacts(input, activity = {}) {
+    const contactIds = contactIdentifiers(input?.contactIds);
+    const requestedTag = contactTags([input?.tag])?.[0];
+    this.database.exec("START TRANSACTION");
+    try {
+      const find = this.database.prepare(`
+        SELECT contact_id, created_at_utc, updated_at_utc
+        FROM contacts WHERE contact_id = ? AND status <> 'inactive'
+      `);
+      const contacts = contactIds.map((contactId) => {
+        const contact = find.get(contactId);
+        if (!contact) throw new OrganizerInputError(`Contact ${contactId} was not found.`, 404);
+        return contact;
+      });
+      const storedTag = this.database.prepare("SELECT * FROM tags WHERE slug = ?")
+        .get(requestedTag.slug);
+      const remove = this.database.prepare(`
+        DELETE FROM contacts_tags_join
+        WHERE tag_id = ? AND record_type = 'contact' AND record_id = ?
+      `);
+      const update = this.database.prepare("UPDATE contacts SET updated_at_utc = ? WHERE contact_id = ?");
+      const candidateVersion = new Date().toISOString();
+      let unlinkedContactCount = 0;
+      for (const contact of contacts) {
+        if (!storedTag) continue;
+        const result = remove.run(storedTag.tag_id, String(contact.contact_id));
+        if (result.changes !== 1) continue;
+        unlinkedContactCount += 1;
+        const version = contact.updated_at_utc ?? contact.created_at_utc;
+        const nextVersion = candidateVersion > version
+          ? candidateVersion
+          : new Date(new Date(version).getTime() + 1).toISOString();
+        update.run(nextVersion, contact.contact_id);
+      }
+      if (storedTag) {
+        const remainingAssignments = Number(this.database.prepare(
+          "SELECT COUNT(*) AS count FROM contacts_tags_join WHERE tag_id = ?",
+        ).get(storedTag.tag_id).count);
+        if (remainingAssignments === 0) {
+          this.database.prepare("DELETE FROM tags WHERE tag_id = ?").run(storedTag.tag_id);
+        }
+      }
+      this.#activity({
+        eventType: "contacts.tag_removed_batch",
+        status: "complete",
+        name: "Tag removed from contact batch",
+        subjectType: "contact_batch",
+        subjectId: contacts.length,
+        contentText: `${requestedTag.label} ← ${contacts.length} contacts`,
+        payload: {
+          tag: storedTag?.label ?? requestedTag.label,
+          selectedContactCount: contacts.length,
+          unlinkedContactCount,
+          alreadyUnlinkedContactCount: contacts.length - unlinkedContactCount,
+          contactIds,
+        },
+        ...activity,
+      });
+      this.database.exec("COMMIT");
+      return {
+        tag: storedTag?.label ?? requestedTag.label,
+        selectedContactCount: contacts.length,
+        unlinkedContactCount,
+        alreadyUnlinkedContactCount: contacts.length - unlinkedContactCount,
       };
     } catch (error) {
       this.database.exec("ROLLBACK");
@@ -2803,7 +3151,7 @@ export class OrganizerStore {
     }
   }
 
-  archiveContentGroup(idValue) {
+  archiveContentGroup(idValue, context = {}) {
     const id = identifier(idValue, "content group id");
     const now = new Date().toISOString();
     this.database.exec("START TRANSACTION");
@@ -2826,6 +3174,12 @@ export class OrganizerStore {
       this.#activity({
         eventType: "content_group.archived", status: "complete", name: "Content group archived",
         subjectType: "content_group", subjectId: id, contentText: archived.name, payload: { group: archived },
+        actorType: context.actorType ?? "user",
+        actorName: context.actorName ?? "Nate",
+        source: context.source ?? "tailnet_web",
+        channel: context.channel ?? "tailnet_web",
+        turnId: context.requestId ?? null,
+        operationId: context.callId ?? null,
       });
       this.database.exec("COMMIT");
       return { group: archived };

@@ -29,6 +29,11 @@ test("video content service creates, reuses, and rejects archived named groups",
       assert.equal(context.actorName, "video_content_group_rename");
       return { group: { ...group, name, previousName: group.name } };
     },
+    archiveContentGroup(groupId, context) {
+      assert.equal(groupId, group.id);
+      assert.equal(context.actorName, "video_content_group_archive");
+      return { group: { ...group, archivedAtUtc: "2026-10-20T12:00:00.000Z" } };
+    },
     setContentGroupSequenceMode(groupId, { usesSequence }, context) {
       assert.equal(groupId, group.id);
       assert.equal(context.actorName, "video_content_group_sequence_set");
@@ -63,6 +68,9 @@ test("video content service creates, reuses, and rejects archived named groups",
     previousName: "What to Watch",
     group: { ...group, name: "Time v3" },
   });
+  assert.equal(content.archiveGroup({ groupId: 7 }, {
+    actorName: "video_content_group_archive",
+  }).group.archivedAtUtc, "2026-10-20T12:00:00.000Z");
   assert.equal(content.setGroupSequenceMode({ groupId: 7, usesSequence: true }, {
     actorName: "video_content_group_sequence_set",
   }).group.usesSequence, true);
@@ -90,6 +98,11 @@ test("content creation tools publish compact identified mutation results", async
     renameGroup({ groupId, name }) {
       assert.equal(groupId, group.id);
       return { renamed: true, previousName: group.name, group: { ...group, name } };
+    },
+    archiveGroup({ groupId }, context) {
+      assert.equal(groupId, group.id);
+      assert.equal(context.actorName, "video_content_group_archive");
+      return { archived: true, group: { ...group, archivedAtUtc: "2026-10-20T12:00:00.000Z" } };
     },
     setGroupSequenceMode({ groupId, usesSequence }) {
       assert.equal(groupId, group.id);
@@ -207,6 +220,14 @@ test("content creation tools publish compact identified mutation results", async
   assert.equal(renamed.previousName, "What to Watch");
   assert.equal(renamed.group.content_group_id, 7);
   assert.equal(renamed.group.content_group_name, "Time v3");
+
+  const archived = await registry.execute("video_content_group_archive", { groupId: 7 });
+  const archiveDefinition = definitions.get("video_content_group_archive");
+  assert.equal(schemaProblem(archived, archiveDefinition.outputSchema, "result"), null);
+  assert.deepEqual(archiveDefinition.inputSchema.required, ["groupId"]);
+  assert.equal(archiveDefinition.metadata["agent-slayer/selection"].actionClasses.includes("DELETE"), true);
+  assert.equal(archived.archived, true);
+  assert.equal(archived.group.content_group_id, 7);
 
   const sequenceResult = await registry.execute("video_content_group_sequence_set", {
     groupId: 7,

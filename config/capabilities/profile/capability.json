@@ -16,5 +16,18 @@
   "readOnlyTools": [
     "profile_fact_list"
   ],
+  "resources": [
+    {
+      "id": "profile.fact",
+      "kind": "object",
+      "management": "user",
+      "operations": {
+        "create": { "tool": "profile_fact_set", "batch": { "mode": "singleton", "reason": "One call records one self-contained durable fact and its source evidence." } },
+        "read": { "tool": "profile_fact_list", "batch": { "mode": "collection" } },
+        "update": { "tool": "profile_fact_set", "batch": { "mode": "singleton", "reason": "Replacement names one exact prior fact and creates one corrected version." } },
+        "delete": { "tool": "profile_fact_delete", "batch": { "mode": "singleton", "reason": "Archival names one exact fact so same-type facts remain untouched." }, "note": "Delete is retained archival." }
+      }
+    }
+  ],
   "guidance": "guidance.md"
 }

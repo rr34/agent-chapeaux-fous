@@ -15,6 +15,12 @@ const manifestSchema = JSON.parse(fs.readFileSync(
 ));
 const validateSchema = new Ajv2020({ allErrors: true }).compile(manifestSchema);
 const packageFiles = new Set(["capability.json", "guidance.md"]);
+const objectOperations = ["create", "read", "update", "delete"];
+const relationshipOperations = ["link", "read", "update", "unlink"];
+const operationAction = Object.freeze({
+  create: "CREATE", link: "CREATE", read: "READ",
+  update: "UPDATE", delete: "DELETE", unlink: "DELETE",
+});
 
 function normalizedSingleLine(value, label) {
   if (value !== value.trim() || /[\r\n\u0000-\u001f]/u.test(value)) {
@@ -58,6 +64,22 @@ function readPackage(capabilityRoot, directoryName) {
   if (new Set(normalizedAliases).size !== normalizedAliases.length) {
     throw new Error(`Capability ${document.id} aliases must be case-insensitively unique`);
   }
+  const resourceIds = (document.resources ?? []).map(({ id }) => id);
+  if (new Set(resourceIds).size !== resourceIds.length) {
+    throw new Error(`Capability ${document.id} resource IDs must be unique`);
+  }
+  for (const resource of document.resources ?? []) {
+    for (const field of [resource.title, resource.summary, resource.reason].filter(Boolean)) {
+      normalizedSingleLine(field, `Capability ${document.id} resource ${resource.id} text`);
+    }
+    const expected = resource.kind === "object" ? objectOperations : relationshipOperations;
+    if (resource.management === "user") {
+      const unexpected = Object.keys(resource.operations).find((name) => !expected.includes(name));
+      if (unexpected) {
+        throw new Error(`Capability ${document.id} resource ${resource.id} cannot declare ${unexpected}`);
+      }
+    }
+  }
   const guidance = fs.readFileSync(path.join(packageRoot, document.guidance), "utf8").trim();
   if (!guidance) throw new Error(`Capability ${document.id} guidance is empty`);
   const { $schema: _schema, guidance: guidanceFile, ...manifest } = document;
@@ -74,7 +96,123 @@ export function loadCapabilityPackages({ capabilityRoot = defaultCapabilityPacka
   const manifests = directories.map((directory) => readPackage(root, directory));
   const ids = manifests.map(({ id }) => id);
   if (new Set(ids).size !== ids.length) throw new Error("Native capability package IDs must be unique");
+  const resourceOwners = new Map();
+  for (const manifest of manifests) {
+    for (const resource of manifest.resources ?? []) {
+      if (resourceOwners.has(resource.id)) {
+        throw new Error(`Native resource ${resource.id} is declared by both ${resourceOwners.get(resource.id)} and ${manifest.id}`);
+      }
+      resourceOwners.set(resource.id, manifest.id);
+    }
+  }
   return Object.freeze(manifests);
+}
+
+export function resourceOperationsForTool(manifests, toolName) {
+  const matches = [];
+  for (const manifest of manifests) {
+    for (const resource of manifest.resources ?? []) {
+      for (const [operation, contract] of Object.entries(resource.operations ?? {})) {
+        if (contract.tool !== toolName) continue;
+        matches.push({ capabilityId: manifest.id, resource, operation, contract });
+      }
+    }
+  }
+  return matches;
+}
+
+export function resourceToolDescriptionDefaults(manifests, toolName) {
+  const operations = resourceOperationsForTool(manifests, toolName);
+  if (!operations.length) return null;
+  const actionClasses = [...new Set(operations.map(({ operation }) => operationAction[operation]))]
+    .sort((left, right) => ["CREATE", "READ", "UPDATE", "DELETE", "EXECUTE"].indexOf(left)
+      - ["CREATE", "READ", "UPDATE", "DELETE", "EXECUTE"].indexOf(right));
+  const mutating = actionClasses.some((action) => action !== "READ");
+  const destructive = operations.some(({ contract }) => contract.destructive === true);
+  const effectClassifications = mutating
+    ? ["MUTATING", ...(destructive ? ["DESTRUCTIVE"] : [])]
+    : ["READ-ONLY"];
+  const resources = [...new Map(operations.map(({ resource }) => [resource.id, resource])).values()];
+  const verbs = actionClasses.map((action) => action.toLocaleLowerCase("en-US")).join(", ");
+  const labels = resources.map((resource) => resource.title ?? resource.id).join(", ");
+  return {
+    summary: `${verbs.slice(0, 1).toLocaleUpperCase("en-US")}${verbs.slice(1)} ${labels} through the authoritative resource lifecycle.`,
+    actionClasses,
+    effectClassifications,
+    operations,
+  };
+}
+
+export function publicResource(resource) {
+  return {
+    id: resource.id,
+    kind: resource.kind,
+    ...(resource.title ? { title: resource.title } : {}),
+    ...(resource.summary ? { summary: resource.summary } : {}),
+    management: resource.management,
+    ...(resource.reason ? { reason: resource.reason } : {}),
+    ...(resource.endpoints ? { endpoints: resource.endpoints } : {}),
+    ...(resource.operations ? {
+      operations: Object.fromEntries(Object.entries(resource.operations).map(([name, operation]) => (
+        operation.unavailable
+          ? [name, { available: false, status: operation.unavailable, reason: operation.reason }]
+          : [name, {
+              available: true,
+              tool: operation.tool,
+              batch: operation.batch.mode,
+              ...(operation.note ? { note: operation.note } : {}),
+            }]
+      ))),
+    } : {}),
+  };
+}
+
+export function validateNativeResourceCoverage(manifests, {
+  objectTypes = [], relationshipTables = [],
+} = {}) {
+  const resources = manifests.flatMap((manifest) => (
+    (manifest.resources ?? []).map((resource) => ({ ...resource, capabilityId: manifest.id }))
+  ));
+  const byId = new Map(resources.map((resource) => [resource.id, resource]));
+  const findings = [];
+  for (const type of objectTypes) {
+    const resource = byId.get(type.id);
+    if (!resource) findings.push(`${type.id} has no native resource declaration`);
+    else if (resource.kind !== "object") findings.push(`${type.id} is not declared as an object resource`);
+    else if (resource.capabilityId !== type.capabilityId) {
+      findings.push(`${type.id} is owned by ${resource.capabilityId}, expected ${type.capabilityId}`);
+    }
+  }
+  const objectIds = new Set(objectTypes.map(({ id }) => id));
+  for (const resource of resources.filter(({ kind }) => kind === "object")) {
+    if (!objectIds.has(resource.id)) findings.push(`${resource.id} has no canonical native object type`);
+  }
+  const declaredTables = new Map();
+  for (const resource of resources.filter(({ kind }) => kind === "relationship")) {
+    const table = resource.storage?.table;
+    if (!table) continue;
+    const previous = declaredTables.get(table);
+    if (previous) findings.push(`${table} is classified by both ${previous} and ${resource.id}`);
+    else declaredTables.set(table, resource.id);
+  }
+  for (const table of relationshipTables) {
+    if (!declaredTables.has(table)) findings.push(`${table} has no native relationship resource declaration`);
+  }
+  for (const [table, id] of declaredTables) {
+    if (!relationshipTables.includes(table)) findings.push(`${id} names non-relationship storage table ${table}`);
+  }
+  if (findings.length) throw new Error(`Native resource coverage mismatch: ${findings.join("; ")}`);
+  return true;
+}
+
+function schemaAtPointer(schema, pointer) {
+  let value = schema;
+  for (const raw of pointer.slice(1).split("/")) {
+    const segment = raw.replaceAll("~1", "/").replaceAll("~0", "~");
+    value = value?.properties?.[segment];
+    if (!value) return null;
+  }
+  return value;
 }
 
 export function validateRegisteredCapabilities(manifests, tools) {
@@ -98,6 +236,34 @@ export function validateRegisteredCapabilities(manifests, tools) {
       if (tool?.capabilityId === manifest.id) {
         findings.push(`${manifest.id}.dependentTools names same-capability tool ${name}`);
       }
+    }
+    const capabilityActive = tools.some((tool) => tool.capabilityId === manifest.id);
+    if (capabilityActive) {
+      for (const resource of manifest.resources ?? []) {
+        for (const [operation, contract] of Object.entries(resource.operations ?? {})) {
+          if (contract.unavailable) continue;
+          const tool = byName.get(contract.tool);
+          if (!tool) findings.push(`${manifest.id}.${resource.id}.${operation} names unavailable tool ${contract.tool}`);
+          else if (contract.batch.mode === "array") {
+            const collection = schemaAtPointer(tool.inputSchema ?? tool.parameters, contract.batch.input);
+            if (collection?.type !== "array" || collection.minItems !== 1 || !Number.isSafeInteger(collection.maxItems)) {
+              findings.push(`${manifest.id}.${resource.id}.${operation} batch path ${contract.batch.input} is not a bounded nonempty array on ${contract.tool}`);
+            }
+          }
+        }
+      }
+    }
+  }
+  for (const tool of tools.filter(({ source }) => String(source ?? "local") === "local")) {
+    const defaults = resourceToolDescriptionDefaults(manifests, tool.name);
+    if (!defaults) continue;
+    const selection = tool.metadata?.["agent-slayer/selection"];
+    if (!selection) continue;
+    if (defaults.actionClasses.some((action) => !selection.actionClasses.includes(action))) {
+      findings.push(`${tool.name} actions do not match its resource operations`);
+    }
+    if (defaults.effectClassifications.some((effect) => !selection.effectClassifications.includes(effect))) {
+      findings.push(`${tool.name} effects do not match its resource operations`);
     }
   }
   if (findings.length) throw new Error(`Native capability registration mismatch: ${findings.join("; ")}`);

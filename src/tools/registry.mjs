@@ -2,6 +2,8 @@ import { withReadResultFilterSchema } from "../search/result-filter.mjs";
 import { applyNativeObjectInputBindings } from "../native-object-input-bindings.mjs";
 import { applyNativeObjectDescription } from "../native-object-descriptions.mjs";
 import { normalizeNativeIdentityScalars } from "../native-object-types.mjs";
+import { nativeCapabilityManifest } from "../native-capabilities.mjs";
+import { publicResource, resourceToolDescriptionDefaults } from "../capability-packages.mjs";
 import { objectDescriptionMetadataKey, validateObjectDescription } from "../object-description.mjs";
 import {
   defineToolDescription, toolDescriptionMetadataKey, validateToolDescription,
@@ -98,11 +100,38 @@ export class ToolRegistry {
 
   withCapability(capabilityId, descriptions = {}, nativeContracts = {}) {
     const registry = this;
+    if (!registry.capabilities.has(capabilityId)) {
+      const manifest = nativeCapabilityManifest(capabilityId);
+      if (manifest) registry.registerCapability(manifest);
+    }
     return {
       register(tool) {
         const selection = descriptions[tool.name];
+        const resourceDefaults = resourceToolDescriptionDefaults(
+          [...registry.capabilities.values()], tool.name,
+        );
+        if (resourceDefaults && selection?.actionClasses
+          && resourceDefaults.actionClasses.some((action) => !selection.actionClasses.includes(action))) {
+          throw new Error(`${tool.name} repeats actionClasses that conflict with its resource lifecycle`);
+        }
+        if (resourceDefaults && selection?.effectClassifications
+          && resourceDefaults.effectClassifications.some((effect) => !selection.effectClassifications.includes(effect))) {
+          throw new Error(`${tool.name} repeats effectClassifications that conflict with its resource lifecycle`);
+        }
+        const compiledSelection = (selection || resourceDefaults) ? {
+          ...(selection ?? {}),
+          ...(resourceDefaults ? {
+            actionClasses: [...new Set([
+              ...resourceDefaults.actionClasses, ...(selection?.actionClasses ?? []),
+            ])],
+            effectClassifications: [...new Set([
+              ...resourceDefaults.effectClassifications, ...(selection?.effectClassifications ?? []),
+            ])],
+            summary: selection?.summary ?? resourceDefaults.summary,
+          } : {}),
+        } : null;
         const nativeContract = nativeContracts[tool.name];
-        const described = selection ? {
+        const described = compiledSelection ? {
           ...tool,
           title: tool.title ?? titleFromName(tool.name),
           ...(nativeContract?.objectTypes ? { nativeObjectTypes: nativeContract.objectTypes } : {}),
@@ -110,7 +139,7 @@ export class ToolRegistry {
           ...(nativeContract?.inputRoles ? { nativeObjectInputRoles: nativeContract.inputRoles } : {}),
           metadata: {
             ...(tool.metadata ?? {}),
-            [toolDescriptionMetadataKey]: defineToolDescription(selection),
+            [toolDescriptionMetadataKey]: defineToolDescription(compiledSelection),
           },
         } : tool;
         registry.register({
@@ -243,9 +272,12 @@ export class ToolRegistry {
       const capability = manifest
         ? Object.fromEntries(Object.entries(manifest).filter(([name, value]) => (
             typeof value !== "function"
-            && !["guidance", "guidanceFile"].includes(name)
+            && !["guidance", "guidanceFile", "resources"].includes(name)
           )))
         : null;
+      if (capability && manifest.resources?.length) {
+        capability.resources = manifest.resources.map(publicResource);
+      }
       const annotations = tool.annotations ?? null;
       return {
         name: tool.name,

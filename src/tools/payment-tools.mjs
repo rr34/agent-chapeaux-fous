@@ -9,21 +9,9 @@ const toolDescriptions = Object.freeze({
     summary: "Create a short-lived signed Stripe Connect authorization link when no merchant account is connected.",
     actionClasses: ["READ"], effectClassifications: ["READ-ONLY"],
   },
-  payment_invoice_list: {
-    protocol: "agent-slayer.tool-description", version: 1,
-    summary: "Read native invoices with task-backed or manual line snapshots, their paid or unpaid payment status, and any observed Stripe lifecycle state.",
-    actionClasses: ["READ"], effectClassifications: ["READ-ONLY"],
-  },
-  payment_invoice_prepare: {
-    protocol: "agent-slayer.tool-description", version: 1,
-    summary: "Immediately create an editable local invoice draft from one or more to-do or manual lines, then report what remains. Never ask first for prices, payer, or due date; they may be left blank. This never requests send confirmation.",
-    actionClasses: ["CREATE"], effectClassifications: ["MUTATING"],
-  },
-  payment_invoice_update: {
-    protocol: "agent-slayer.tool-description", version: 1,
-    summary: "Revise one exact editable local invoice draft without changing its referenced to-dos; update its description, payer, due date, payment methods, line snapshots, line receipt bindings, or appended manual lines.",
-    actionClasses: ["UPDATE"], effectClassifications: ["MUTATING"],
-  },
+  payment_invoice_list: { summary: "Read native invoices with task-backed or manual line snapshots, their paid or unpaid payment status, and any observed Stripe lifecycle state." },
+  payment_invoice_prepare: { summary: "Immediately create an editable local invoice draft from one or more to-do or manual lines, then report what remains. Never ask first for prices, payer, or due date; they may be left blank. This never requests send confirmation." },
+  payment_invoice_update: { summary: "Revise one exact editable local invoice draft and its receipt relationships without changing its referenced to-dos; update its description, payer, due date, payment methods, line snapshots, line receipt bindings, or appended manual lines." },
   payment_invoice_payment_status_set: {
     protocol: "agent-slayer.tool-description", version: 1,
     summary: "Atomically mark one or more exact native invoices paid or unpaid; Stripe-backed invoices keep Stripe-owned payment truth.",

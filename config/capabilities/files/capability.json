@@ -40,5 +40,36 @@
     "file_table_transform_preview",
     "file_search"
   ],
+  "resources": [
+    {
+      "id": "files.file",
+      "kind": "object",
+      "management": "user",
+      "operations": {
+        "create": { "unavailable": "unsupported", "reason": "Durable files enter through user uploads or specialized artifact-producing workflows; no generic model-authored file creation operation is exposed." },
+        "read": { "tool": "file_get", "batch": { "mode": "singleton", "reason": "One exact file metadata read preserves one checksum and provenance identity; collection discovery uses file_search." } },
+        "update": { "tool": "file_update", "batch": { "mode": "singleton", "reason": "Metadata enrichment is scoped to one newly uploaded file and never rewrites its bytes." } },
+        "delete": { "unavailable": "unsupported", "reason": "Stored file bytes and provenance are immutable evidence; no destructive file deletion operation is exposed to the agent." }
+      }
+    },
+    {
+      "id": "files.activity_attachment",
+      "kind": "relationship",
+      "title": "Activity file attachment",
+      "summary": "An ordered role-qualified file attached to an immutable activity event.",
+      "management": "system",
+      "reason": "The activity ledger owns immutable request and result provenance attachments.",
+      "storage": { "table": "activity_event_files_join" }
+    },
+    {
+      "id": "files.correspondence_attachment",
+      "kind": "relationship",
+      "title": "Correspondence file attachment",
+      "summary": "A provider-ingested attachment retained with one correspondence record.",
+      "management": "provider",
+      "reason": "Correspondence synchronization owns attachment identity and lifecycle.",
+      "storage": { "table": "correspondence_files_join" }
+    }
+  ],
   "guidance": "guidance.md"
 }

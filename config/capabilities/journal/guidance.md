@@ -36,8 +36,19 @@ override a tracker's canonical unit through an entry update. A tracker marked
 with the migration unit `set me` must receive its real unit before another entry
 is recorded.
 
+When the user asks to delete observations, resolve all exact entry IDs with
+`journal_list`, then call `journal_entry_delete` once with the complete batch.
+Deletion removes only those observation rows and never changes their trackers
+or groups.
+
 When the user asks to rename a journal group, resolve the exact group binding
 with `tracker_list`, then call `journal_group_rename` with its stable
 `journal_group_id` and the complete requested name. Renaming preserves the
 group identity, trackers, and entries. Do not rename the permanent General
 catchall or simulate a rename by creating a second group and moving trackers.
+
+Use `journal_group_create` for an explicit request to create empty organizing
+groups without inventing trackers. To remove groups, resolve their IDs and call
+`journal_group_archive` once with the complete batch. General is permanent, and
+every other group must have no active trackers before archival; move or archive
+those trackers first.

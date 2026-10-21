@@ -253,6 +253,72 @@ test("journal_group_rename preserves the exact group, trackers, and entries", as
   );
 });
 
+test("journal lifecycle tools batch group creation, entry deletion, and empty-group archival", async (context) => {
+  const { store, request, registry } = journalHarness(context, "Manage journal data");
+  const toolContext = { requestId: request.requestId, requestEventId: request.eventId };
+  const createdGroups = await registry.execute("journal_group_create", {
+    names: ["Notes", "Archive me"],
+  }, { ...toolContext, callId: "journal-groups-create" });
+  assert.deepEqual(
+    [createdGroups.created_group_count, createdGroups.reactivated_group_count, createdGroups.unchanged_group_count],
+    [2, 0, 0],
+  );
+  const replay = await registry.execute("journal_group_create", {
+    names: ["Notes", "Archive me"],
+  }, { ...toolContext, callId: "journal-groups-create-replay" });
+  assert.equal(replay.unchanged_group_count, 2);
+
+  const notesGroup = createdGroups.results.find(({ group }) => group.name === "Notes").group;
+  const emptyGroup = createdGroups.results.find(({ group }) => group.name === "Archive me").group;
+  const entry = await registry.execute("journal_add", {
+    tracker_id: null,
+    tracker: "Scratch notes",
+    journal_group_id: notesGroup.journal_group_id,
+    group: "Notes",
+    content_text: "Temporary observation",
+    number_value: null,
+    tracker_unit: "occurrence",
+    occurred_at_utc: null,
+    create_if_missing: true,
+  }, { ...toolContext, callId: "journal-entry-create" });
+  const deleted = await registry.execute("journal_entry_delete", {
+    journal_entry_ids: [entry.entry.journal_entry_id],
+  }, { ...toolContext, callId: "journal-entry-delete" });
+  assert.deepEqual(
+    [deleted.deleted_entry_count, deleted.unchanged_entry_count],
+    [1, 0],
+  );
+  const deleteReplay = await registry.execute("journal_entry_delete", {
+    journal_entry_ids: [entry.entry.journal_entry_id],
+  }, { ...toolContext, callId: "journal-entry-delete-replay" });
+  assert.equal(deleteReplay.unchanged_entry_count, 1);
+
+  await assert.rejects(registry.execute("journal_group_archive", {
+    journal_group_ids: [notesGroup.journal_group_id],
+  }, { ...toolContext, callId: "journal-group-archive-active" }), /active tracker/);
+  await registry.execute("tracker_update", {
+    tracker_id: entry.tracker.tracker_id,
+    name: null,
+    journal_group_id: null,
+    unit: null,
+    archived: true,
+  }, { ...toolContext, callId: "journal-tracker-archive" });
+  const archived = await registry.execute("journal_group_archive", {
+    journal_group_ids: [notesGroup.journal_group_id, emptyGroup.journal_group_id],
+  }, { ...toolContext, callId: "journal-groups-archive" });
+  assert.deepEqual(
+    [archived.archived_group_count, archived.unchanged_group_count],
+    [2, 0],
+  );
+  assert.equal(Number(store.requireReady().prepare(`
+    SELECT COUNT(*) AS count FROM journal1_groups WHERE archived_at_utc IS NOT NULL
+  `).get().count), 2);
+  const reactivated = await registry.execute("journal_group_create", {
+    names: ["Archive me"],
+  }, { ...toolContext, callId: "journal-group-reactivate" });
+  assert.equal(reactivated.reactivated_group_count, 1);
+});
+
 test("journal_add records text-only events without a boolean or value kind", async (context) => {
   const { request, registry } = journalHarness(context, "Journal a bowel movement");
 

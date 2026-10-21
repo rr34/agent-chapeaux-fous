@@ -43,6 +43,12 @@ export class VideoContent {
     return { renamed: true, previousName, group };
   }
 
+  archiveGroup({ groupId }, context = {}) {
+    const selectedGroupId = positiveInteger(groupId, "Content group ID");
+    const result = this.organizer.archiveContentGroup(selectedGroupId, context);
+    return { archived: true, group: result.group };
+  }
+
   setGroupSequenceMode({ groupId, usesSequence }, context = {}) {
     const selectedGroupId = positiveInteger(groupId, "Content group ID");
     return this.organizer.setContentGroupSequenceMode(

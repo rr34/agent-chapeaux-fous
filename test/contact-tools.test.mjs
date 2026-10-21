@@ -208,6 +208,61 @@ test("contact_address_update changes existing contacts in place and is replay-sa
   `).get().count, 2);
 });
 
+test("contact method lifecycle tools add, replace, and delete every standard method kind", async (context) => {
+  const { organizer, registry, request } = harness(context);
+  const created = organizer.createContact({
+    displayName: "Method Lifecycle",
+    methods: [{ kind: "email", label: "Old", value: "old@example.test", isPrimary: true }],
+  });
+  const toolContext = { requestId: request.requestId, requestEventId: request.eventId, channel: "web" };
+  const added = await registry.execute("contact_method_set", {
+    updates: [{
+      contact_id: created.id,
+      expected_version: created.version,
+      action: "add",
+      contact_method_id: null,
+      method_kind: "phone",
+      label: "Mobile",
+      value: "+1 555 010 1010",
+      is_primary: true,
+      can_receive: true,
+    }],
+  }, { ...toolContext, callId: "contact-method-add" });
+  assert.equal(added.updated_contact_count, 1);
+  const phone = added.results[0].method;
+  assert.equal(phone.kind, "phone");
+
+  const existingEmail = added.results[0].contact.methods.find(({ kind }) => kind === "email");
+  const replaced = await registry.execute("contact_method_set", {
+    updates: [{
+      contact_id: created.id,
+      expected_version: added.results[0].contact.version,
+      action: "replace",
+      contact_method_id: existingEmail.id,
+      method_kind: "email",
+      label: "Current",
+      value: "current@example.test",
+      is_primary: true,
+      can_receive: true,
+    }],
+  }, { ...toolContext, callId: "contact-method-replace" });
+  assert.equal(replaced.results[0].method.id, existingEmail.id);
+  assert.equal(replaced.results[0].method.value, "current@example.test");
+
+  const deleted = await registry.execute("contact_method_delete", {
+    deletions: [{
+      contact_id: created.id,
+      contact_method_id: phone.id,
+      expected_version: replaced.results[0].contact.version,
+    }],
+  }, { ...toolContext, callId: "contact-method-delete" });
+  assert.deepEqual(
+    [deleted.deleted_method_count, deleted.unchanged_method_count],
+    [1, 0],
+  );
+  assert.deepEqual(organizer.getContact(created.id).methods.map(({ kind }) => kind), ["email"]);
+});
+
 test("contact_address_update explicitly adds first or additional addresses and validates batches atomically", async (context) => {
   const { organizer, registry, request } = harness(context);
   const addressless = organizer.createContact({
@@ -644,6 +699,29 @@ test("batch contact lookup and tagging handle 1000 contacts in bounded tool call
     SELECT COUNT(*) AS count FROM activity_events
     WHERE event_type = 'contacts.tag_added_batch'
       AND actor_type = 'tool' AND actor_name = 'contact_tag_add_batch'
+  `).get().count, 2);
+
+  const unlinked = await registry.execute("contact_tag_unlink_batch", {
+    tag: "Big Batch",
+    contact_ids: [ids[0], ids[999]],
+  }, { ...toolContext, callId: "batch-contact-tag-unlink" });
+  assert.deepEqual(
+    [unlinked.selected_contact_count, unlinked.unlinked_contact_count, unlinked.already_unlinked_contact_count],
+    [2, 2, 0],
+  );
+  const unlinkReplay = await registry.execute("contact_tag_unlink_batch", {
+    tag: "Big Batch",
+    contact_ids: [ids[0], ids[999]],
+  }, { ...toolContext, callId: "batch-contact-tag-unlink-replay" });
+  assert.deepEqual(
+    [unlinkReplay.selected_contact_count, unlinkReplay.unlinked_contact_count, unlinkReplay.already_unlinked_contact_count],
+    [2, 0, 2],
+  );
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM contacts_tags_join").get().count, 998);
+  assert.equal(database.prepare(`
+    SELECT COUNT(*) AS count FROM activity_events
+    WHERE event_type = 'contacts.tag_removed_batch'
+      AND actor_type = 'tool' AND actor_name = 'contact_tag_unlink_batch'
   `).get().count, 2);
 });
 

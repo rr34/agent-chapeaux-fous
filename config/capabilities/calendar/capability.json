@@ -23,5 +23,68 @@
     "calendar_event_list",
     "calendar_routine_list"
   ],
+  "resources": [
+    {
+      "id": "calendar.event",
+      "kind": "object",
+      "management": "user",
+      "operations": {
+        "create": { "tool": "calendar_event_add", "batch": { "mode": "singleton", "reason": "One event creation owns one temporal and recurrence validation boundary and one event-scoped receipt." } },
+        "read": { "tool": "calendar_event_search", "batch": { "mode": "collection" } },
+        "update": { "tool": "calendar_event_update", "batch": { "mode": "singleton", "reason": "A stored event or recurring series update has one scope and optimistic event identity." } },
+        "delete": { "tool": "calendar_event_update", "batch": { "mode": "singleton", "reason": "Archival is an event-scoped lifecycle transition handled by the same versioned update." }, "note": "Delete is logical archival through event status, not permanent erasure." }
+      }
+    },
+    {
+      "id": "calendar.routine",
+      "kind": "object",
+      "management": "user",
+      "operations": {
+        "create": { "tool": "calendar_routine_add", "batch": { "mode": "singleton", "reason": "One routine defines one recurrence and generated-event ownership boundary." } },
+        "read": { "tool": "calendar_routine_list", "batch": { "mode": "collection" } },
+        "update": { "tool": "calendar_routine_update", "batch": { "mode": "singleton", "reason": "Routine changes use one optimistic version and never rewrite sibling generated events." } },
+        "delete": { "tool": "calendar_routine_update", "batch": { "mode": "singleton", "reason": "Disabling one versioned routine preserves already generated event history." }, "note": "Delete is the reversible disabled lifecycle state." }
+      }
+    },
+    {
+      "id": "calendar.event_contact",
+      "kind": "relationship",
+      "title": "Calendar event contact",
+      "summary": "A role-qualified connection between one concrete calendar event and one contact.",
+      "management": "user",
+      "storage": { "table": "calendar_event_contacts_join" },
+      "endpoints": ["calendar.event", "contacts.contact"],
+      "operations": {
+        "link": { "tool": "calendar_event_contact_link_set", "batch": { "mode": "array", "input": "/links" } },
+        "read": { "tool": "calendar_event_search", "batch": { "mode": "collection" } },
+        "update": { "tool": "calendar_event_contact_link_set", "batch": { "mode": "array", "input": "/links" }, "note": "Replace the exact role-qualified edge without replacing sibling contacts." },
+        "unlink": { "tool": "calendar_event_contact_link_set", "batch": { "mode": "array", "input": "/links" } }
+      }
+    },
+    {
+      "id": "calendar.event_todo",
+      "kind": "relationship",
+      "title": "Calendar event to-do",
+      "summary": "A work, deadline, or context connection between one concrete calendar event and one personal to-do.",
+      "management": "user",
+      "storage": { "table": "calendar_events_todo_join" },
+      "endpoints": ["calendar.event", "todos.personal_task"],
+      "operations": {
+        "link": { "tool": "calendar_event_todo_link_set", "batch": { "mode": "array", "input": "/links" } },
+        "read": { "tool": "calendar_event_search", "batch": { "mode": "collection" } },
+        "update": { "tool": "calendar_event_todo_link_set", "batch": { "mode": "array", "input": "/links" }, "note": "Set the exact edge kind without reconstructing sibling links." },
+        "unlink": { "tool": "calendar_event_todo_link_set", "batch": { "mode": "array", "input": "/links" } }
+      }
+    },
+    {
+      "id": "calendar.event_correspondence",
+      "kind": "relationship",
+      "title": "Calendar event correspondence provenance",
+      "summary": "A source-owned correspondence link retained with a calendar event.",
+      "management": "system",
+      "reason": "Correspondence ingestion owns this provenance edge; calendar CRUD must not rewrite imported provider evidence.",
+      "storage": { "table": "calendar_events_correspondence_join" }
+    }
+  ],
   "guidance": "guidance.md"
 }

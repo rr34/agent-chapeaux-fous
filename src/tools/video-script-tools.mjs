@@ -11,28 +11,9 @@ const toolDescriptions = Object.freeze({
       "MUTATING"
     ]
   },
-  "video_content_group_create": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Create or reuse one named active content-library group before creating items in it.",
-    "actionClasses": [
-      "CREATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  },
-  "video_content_group_rename": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Rename one exact active content-library group without changing its stable identity or contained items.",
-    "actionClasses": [
-      "UPDATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  },
+  "video_content_group_create": { "summary": "Create or reuse one named active content-library group before creating items in it." },
+  "video_content_group_archive": { "summary": "Archive one exact empty content-library group while preserving its stable history." },
+  "video_content_group_rename": { "summary": "Rename one exact active content-library group without changing its stable identity or contained items." },
   "video_content_group_sequence_set": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
@@ -44,39 +25,9 @@ const toolDescriptions = Object.freeze({
       "MUTATING"
     ]
   },
-  "video_content_create": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Create up to 50 ordinary content-library items in one exact group, preserving explicit metadata and using the current UTC time when publication time is absent.",
-    "actionClasses": [
-      "CREATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  },
-  "video_content_list": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Read one active content-library group's numbered items in ascending sequence order with bounded source-text excerpts and explicit pagination.",
-    "actionClasses": [
-      "READ"
-    ],
-    "effectClassifications": [
-      "READ-ONLY"
-    ]
-  },
-  "video_content_update": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Atomically update up to 50 exact content-library items using versions returned by the owning sequence read.",
-    "actionClasses": [
-      "UPDATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  },
+  "video_content_create": { "summary": "Create up to 50 ordinary content-library items in one exact group, preserving explicit metadata and using the current UTC time when publication time is absent." },
+  "video_content_list": { "summary": "Read one active content-library group's numbered items in ascending sequence order with bounded source-text excerpts and explicit pagination." },
+  "video_content_update": { "summary": "Atomically update, obsolete, or retire up to 50 exact content-library items using versions returned by the owning sequence read." },
   "video_content_file_reconcile_preview": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
@@ -104,28 +55,8 @@ const toolDescriptions = Object.freeze({
       "EXTERNAL"
     ]
   },
-  "video_script_create": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Persist one portable source-grounded chat script from explicitly selected completed interactions without rendering video.",
-    "actionClasses": [
-      "CREATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  },
-  "video_script_get": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Read one exact durable generated-video script by stable ID, including its title, status, source requests, version, and latest render status.",
-    "actionClasses": [
-      "READ"
-    ],
-    "effectClassifications": [
-      "READ-ONLY"
-    ]
-  }
+  "video_script_create": { "summary": "Persist one portable source-grounded chat script from explicitly selected completed interactions without rendering video." },
+  "video_script_get": { "summary": "Read one exact durable generated-video script by stable ID, including its title, status, source requests, version, and latest render status." }
 });
 function stableRef(prefix, id) {
   return `${prefix}${encodeURIComponent(String(id))}`;
@@ -270,6 +201,16 @@ const contentGroupRenameOutputSchema = {
     group: contentGroupSchema,
   },
   required: ["renamed", "previousName", "group"],
+};
+
+const contentGroupArchiveOutputSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    archived: { type: "boolean" },
+    group: contentGroupSchema,
+  },
+  required: ["archived", "group"],
 };
 
 const createdContentSchema = {
@@ -606,6 +547,31 @@ export function registerVideoScriptTools(
       execute(args, context) {
         const result = videoContent.renameGroup(args, {
           ...context, actorType: "tool", actorName: "video_content_group_rename",
+          source: "agent-slayer", channel: context.channel ?? "agent",
+        });
+        return { ...result, group: identifiedContentGroup(result.group) };
+      },
+    });
+
+    capabilityRegistry.register({
+      name: "video_content_group_archive",
+      title: "Archive a content-library group",
+      description: "Archive one exact active content-library group by stable ID. General is permanent and cannot be archived. The group must be empty, so move or retire every contained content item first. Archival preserves the group record and history.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          groupId: {
+            type: "integer", minimum: 1,
+            description: "Stable ID of the exact empty active content-library group to archive.",
+          },
+        },
+        required: ["groupId"],
+      },
+      outputSchema: contentGroupArchiveOutputSchema,
+      async execute(args, context) {
+        const result = videoContent.archiveGroup(args, {
+          ...context, actorType: "tool", actorName: "video_content_group_archive",
           source: "agent-slayer", channel: context.channel ?? "agent",
         });
         return { ...result, group: identifiedContentGroup(result.group) };

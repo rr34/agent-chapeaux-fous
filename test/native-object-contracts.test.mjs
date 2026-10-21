@@ -7,6 +7,7 @@ import {
 import {
   nativeFirstClassObjectTypes, normalizeNativeIdentityScalars,
 } from "../src/native-object-types.mjs";
+import { assertNativeCapabilityRegistrations } from "../src/native-capabilities.mjs";
 import {
   objectReferenceGroupsFromToolResult, objectReferenceProtectedFields,
 } from "../src/object-references.mjs";
@@ -71,6 +72,59 @@ function schemaPropertyPaths(schema, path = "", output = []) {
   }
   return output;
 }
+
+test("native resources compile lifecycle routing and reject silent completeness drift", () => {
+  const registry = nativeRegistry();
+  const definitions = registry.toolDefinitions();
+  assert.doesNotThrow(() => assertNativeCapabilityRegistrations(definitions));
+
+  const byName = new Map(definitions.map((definition) => [definition.name, definition]));
+  assert.deepEqual(
+    byName.get("calendar_event_todo_link_set").metadata["agent-slayer/selection"].actionClasses,
+    ["CREATE", "UPDATE", "DELETE"],
+  );
+  assert.deepEqual(
+    byName.get("profile_fact_set").metadata["agent-slayer/selection"].actionClasses,
+    ["CREATE", "UPDATE"],
+  );
+  assert.deepEqual(
+    byName.get("profile_fact_delete").metadata["agent-slayer/selection"].actionClasses,
+    ["DELETE"],
+  );
+
+  const catalog = requestCapabilityCatalog(definitions);
+  const todos = catalog.find(({ capability }) => capability === "todos");
+  const task = todos.objectTypes.find(({ id }) => id === "todos.personal_task");
+  assert.equal(task.operations.create.tool, "todo_add");
+  assert.equal(task.operations.read.tool, "todo_list");
+  assert.equal(task.operations.update.tool, "todo_update");
+  assert.equal(task.operations.delete.tool, "todo_update");
+  const contentLink = todos.relationships.find(({ id }) => id === "todos.task_content");
+  assert.equal(contentLink.operations.link.tool, "todo_content_link_set");
+  assert.equal(contentLink.operations.unlink.tool, "todo_content_link_set");
+
+  const contacts = catalog.find(({ capability }) => capability === "contacts");
+  const contactTag = contacts.relationships.find(({ id }) => id === "contacts.contact_tag");
+  assert.equal(contactTag.operations.link.tool, "contact_tag_add_batch");
+  assert.equal(contactTag.operations.unlink.tool, "contact_tag_unlink_batch");
+  const method = contacts.objectTypes.find(({ id }) => id === "contacts.method");
+  assert.equal(method.operations.create.tool, "contact_method_set");
+  assert.equal(method.operations.update.tool, "contact_method_set");
+  assert.equal(method.operations.delete.available, true);
+  assert.equal(method.operations.delete.tool, "contact_method_delete");
+
+  const journal = catalog.find(({ capability }) => capability === "journal");
+  const journalGroup = journal.objectTypes.find(({ id }) => id === "journal.group");
+  const journalEntry = journal.objectTypes.find(({ id }) => id === "journal.entry");
+  assert.equal(journalGroup.operations.create.tool, "journal_group_create");
+  assert.equal(journalGroup.operations.delete.tool, "journal_group_archive");
+  assert.equal(journalEntry.operations.delete.tool, "journal_entry_delete");
+  const gaps = catalog.flatMap(({ objectTypes, relationships }) => [
+    ...objectTypes, ...relationships,
+  ]).flatMap(({ operations = {} }) => Object.values(operations))
+    .filter(({ status }) => status === "unimplemented");
+  assert.deepEqual(gaps, []);
+});
 
 test("native authoritative reads publish the same Object Description contract as MCP reads", () => {
   const registry = nativeRegistry();

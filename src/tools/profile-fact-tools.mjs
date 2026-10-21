@@ -1,38 +1,8 @@
 
 const toolDescriptions = Object.freeze({
-  "profile_fact_delete": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Archive one durable profile-fact row by stable ID without affecting other facts of the same type.",
-    "actionClasses": [
-      "UPDATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  },
-  "profile_fact_list": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "List active or archived durable profile facts with stable IDs.",
-    "actionClasses": [
-      "READ"
-    ],
-    "effectClassifications": [
-      "READ-ONLY"
-    ]
-  },
-  "profile_fact_set": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Add or replace one durable cross-task fact, relationship, or lasting preference.",
-    "actionClasses": [
-      "UPDATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  }
+  "profile_fact_delete": { "summary": "Archive one durable profile-fact row by stable ID without affecting other facts of the same type." },
+  "profile_fact_list": { "summary": "List active or archived durable profile facts with stable IDs." },
+  "profile_fact_set": { "summary": "Add or replace one durable cross-task fact, relationship, or lasting preference." }
 });
 const profileFactRecordSchema = {
   type: ["object", "null"],

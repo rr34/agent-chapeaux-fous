@@ -259,8 +259,22 @@ function compactCapabilityCatalog(catalog) {
     const views = (entry.contextViews ?? []).map((view) => (
       `  context:${view.id} — ${view.description ?? view.title ?? view.id}`
     ));
+    const operationNames = (operations = {}) => Object.entries(operations)
+      .map(([name, operation]) => operation.available === true
+        ? name.toLocaleUpperCase("en-US")
+        : `${name.toLocaleUpperCase("en-US")}=UNAVAILABLE`)
+      .join("/");
+    const resources = [
+      ...(entry.objectTypes ?? []).map((resource) => ({
+        id: resource.id, operations: resource.operations,
+      })),
+      ...(entry.relationships ?? []).filter(({ management }) => management === "user"),
+    ].filter(({ operations }) => operations).map((resource) => (
+      `  resource:${resource.id} [${operationNames(resource.operations)}]`
+    ));
     return [
       `- ${entry.capability}${entry.title ? ` (${entry.title})` : ""}: ${entry.summary}`,
+      ...resources,
       ...views,
     ].join("\n");
   }).join("\n");

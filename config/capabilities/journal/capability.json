@@ -38,5 +38,40 @@
     "journal_list",
     "tracker_list"
   ],
+  "resources": [
+    {
+      "id": "journal.group",
+      "kind": "object",
+      "management": "user",
+      "operations": {
+        "create": { "tool": "journal_group_create", "batch": { "mode": "array", "input": "/names" } },
+        "read": { "tool": "tracker_list", "batch": { "mode": "collection" } },
+        "update": { "tool": "journal_group_rename", "batch": { "mode": "singleton", "reason": "Rename preserves one exact group's stable identity and all contained trackers." } },
+        "delete": { "tool": "journal_group_archive", "batch": { "mode": "array", "input": "/journal_group_ids" } }
+      }
+    },
+    {
+      "id": "journal.tracker",
+      "kind": "object",
+      "management": "user",
+      "operations": {
+        "create": { "tool": "tracker_create", "batch": { "mode": "array", "input": "/trackers" } },
+        "read": { "tool": "tracker_list", "batch": { "mode": "collection" } },
+        "update": { "tool": "tracker_update", "batch": { "mode": "singleton", "reason": "One tracker mutation owns one canonical-unit and optimistic history boundary." } },
+        "delete": { "tool": "tracker_update", "batch": { "mode": "singleton", "reason": "Archival preserves one tracker and its observation history." }, "note": "Delete is the reversible archived lifecycle state." }
+      }
+    },
+    {
+      "id": "journal.entry",
+      "kind": "object",
+      "management": "user",
+      "operations": {
+        "create": { "tool": "journal_import", "batch": { "mode": "array", "input": "/entries" }, "note": "Ordinary one-entry recording also uses journal_add." },
+        "read": { "tool": "journal_list", "batch": { "mode": "collection" } },
+        "update": { "tool": "journal_update", "batch": { "mode": "singleton", "reason": "A correction applies to one exact observation without changing its tracker's canonical unit." } },
+        "delete": { "tool": "journal_entry_delete", "batch": { "mode": "array", "input": "/journal_entry_ids" }, "destructive": true }
+      }
+    }
+  ],
   "guidance": "guidance.md"
 }

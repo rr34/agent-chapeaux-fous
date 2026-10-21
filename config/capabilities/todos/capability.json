@@ -25,5 +25,53 @@
   "dependentTools": [
     "video_content_list"
   ],
+  "resources": [
+    {
+      "id": "todos.todo_group",
+      "kind": "object",
+      "management": "user",
+      "operations": {
+        "create": { "tool": "todo_group_create", "batch": { "mode": "singleton", "reason": "Group creation resolves one case-insensitive name uniqueness and reactivation decision." } },
+        "read": { "tool": "todo_group_list", "batch": { "mode": "collection" } },
+        "update": { "tool": "todo_group_update", "batch": { "mode": "array", "input": "/updates" } },
+        "delete": { "tool": "todo_group_update", "batch": { "mode": "array", "input": "/updates" }, "destructive": true, "note": "Delete archives an empty or terminal-only group after complete-batch validation." }
+      }
+    },
+    {
+      "id": "todos.personal_task",
+      "kind": "object",
+      "management": "user",
+      "operations": {
+        "create": { "tool": "todo_add", "batch": { "mode": "singleton", "reason": "Creation assigns one exact group position and optional contact connection as one ordered mutation." } },
+        "read": { "tool": "todo_list", "batch": { "mode": "array", "input": "/queries" } },
+        "update": { "tool": "todo_update", "batch": { "mode": "array", "input": "/updates" } },
+        "delete": { "tool": "todo_update", "batch": { "mode": "array", "input": "/updates" }, "note": "Delete is the retained archive lifecycle status." }
+      }
+    },
+    {
+      "id": "todos.task_content",
+      "kind": "relationship",
+      "title": "To-do content",
+      "summary": "A direct association between a personal to-do and a content-library item.",
+      "management": "user",
+      "storage": { "table": "todo_content_join" },
+      "endpoints": ["todos.personal_task", "video.content_item"],
+      "operations": {
+        "link": { "tool": "todo_content_link_set", "batch": { "mode": "array", "input": "/links" } },
+        "read": { "tool": "todo_list", "batch": { "mode": "array", "input": "/queries" } },
+        "update": { "unavailable": "unsupported", "reason": "This edge has no mutable attributes; link and unlink are its complete lifecycle." },
+        "unlink": { "tool": "todo_content_link_set", "batch": { "mode": "array", "input": "/links" } }
+      }
+    },
+    {
+      "id": "todos.task_correspondence",
+      "kind": "relationship",
+      "title": "To-do correspondence provenance",
+      "summary": "A source-owned correspondence link retained with a personal to-do.",
+      "management": "system",
+      "reason": "Correspondence ingestion owns this provenance edge; to-do CRUD must not rewrite imported provider evidence.",
+      "storage": { "table": "todo_correspondence_join" }
+    }
+  ],
   "guidance": "guidance.md"
 }

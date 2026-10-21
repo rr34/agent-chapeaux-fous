@@ -1,13 +1,13 @@
 import { physicalItemConditions, physicalItemStatuses } from "../physical-items.mjs";
 
 const toolDescriptions = Object.freeze({
-  physical_item_group_list: { protocol: "agent-slayer.tool-description", version: 1, summary: "List active named Things groups and their physical-item counts.", actionClasses: ["READ"], effectClassifications: ["READ-ONLY"] },
-  physical_item_group_create: { protocol: "agent-slayer.tool-description", version: 1, summary: "Create or reactivate one named Things group.", actionClasses: ["CREATE"], effectClassifications: ["MUTATING"] },
-  physical_item_group_update: { protocol: "agent-slayer.tool-description", version: 1, summary: "Rename or archive one exact Things group.", actionClasses: ["UPDATE", "DELETE"], effectClassifications: ["MUTATING", "DESTRUCTIVE"] },
-  physical_item_list: { protocol: "agent-slayer.tool-description", version: 1, summary: "Search or list the user's physical possessions by exact group, status, or descriptive text.", actionClasses: ["READ"], effectClassifications: ["READ-ONLY"] },
-  physical_item_create: { protocol: "agent-slayer.tool-description", version: 1, summary: "Create one physical possession in an exact Things group.", actionClasses: ["CREATE"], effectClassifications: ["MUTATING"] },
-  physical_item_update: { protocol: "agent-slayer.tool-description", version: 1, summary: "Update one exact physical possession while preserving optimistic concurrency.", actionClasses: ["UPDATE"], effectClassifications: ["MUTATING"] },
-  physical_item_link_set: { protocol: "agent-slayer.tool-description", version: 1, summary: "Atomically connect or disconnect physical items and exact to-dos, content, files, or contacts.", actionClasses: ["UPDATE"], effectClassifications: ["MUTATING"] },
+  physical_item_group_list: { summary: "List active named Things groups and their physical-item counts." },
+  physical_item_group_create: { summary: "Create or reactivate one named Things group." },
+  physical_item_group_update: { summary: "Rename or archive one exact Things group." },
+  physical_item_list: { summary: "Search or list the user's physical possessions by exact group, status, or descriptive text." },
+  physical_item_create: { summary: "Create one physical possession in an exact Things group." },
+  physical_item_update: { summary: "Update or archive one exact physical possession while preserving optimistic concurrency." },
+  physical_item_link_set: { summary: "Atomically connect, change, or disconnect physical items and exact to-dos, content, files, or contacts." },
 });
 
 function toolGroup(group) {

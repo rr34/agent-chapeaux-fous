@@ -28,5 +28,33 @@
       "mimeIncludes": ["application/pdf", "image/jpeg", "image/png"]
     }
   ],
+  "resources": [
+    {
+      "id": "payments.invoice",
+      "kind": "object",
+      "management": "user",
+      "operations": {
+        "create": { "tool": "payment_invoice_prepare", "batch": { "mode": "singleton", "reason": "One draft owns one payer, currency, line snapshot set, preview digest, and later confirmation boundary." } },
+        "read": { "tool": "payment_invoice_list", "batch": { "mode": "collection" } },
+        "update": { "tool": "payment_invoice_update", "batch": { "mode": "singleton", "reason": "An invoice revision is guarded by one exact preview digest." } },
+        "delete": { "unavailable": "unsupported", "reason": "Invoices are retained as financial history; no destructive invoice deletion operation is exposed." }
+      }
+    },
+    {
+      "id": "payments.invoice_line_receipt",
+      "kind": "relationship",
+      "title": "Invoice line receipt",
+      "summary": "A snapshot-qualified receipt file attached to one invoice line.",
+      "management": "user",
+      "storage": { "table": "payment_invoice_line_receipts_join" },
+      "endpoints": ["payments.invoice_line", "files.file"],
+      "operations": {
+        "link": { "tool": "payment_invoice_update", "batch": { "mode": "singleton", "reason": "Receipt changes are one part of an exact digest-guarded invoice revision." } },
+        "read": { "tool": "payment_invoice_list", "batch": { "mode": "collection" } },
+        "update": { "tool": "payment_invoice_update", "batch": { "mode": "singleton", "reason": "Receipt snapshot changes are one part of an exact digest-guarded invoice revision." } },
+        "unlink": { "tool": "payment_invoice_update", "batch": { "mode": "singleton", "reason": "Receipt removal is one part of an exact digest-guarded invoice revision." } }
+      }
+    }
+  ],
   "guidance": "guidance.md"
 }

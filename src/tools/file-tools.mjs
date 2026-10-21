@@ -8,17 +8,7 @@ import { readTextAttachment } from "../request-attachments.mjs";
 import { inspectDelimitedText, readDelimitedRecords, transformDelimitedText } from "../tabular-transform.mjs";
 
 const toolDescriptions = Object.freeze({
-  "file_get": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Get authoritative metadata and stable provenance for one durable upload. Use file_read for verified contents.",
-    "actionClasses": [
-      "READ"
-    ],
-    "effectClassifications": [
-      "READ-ONLY"
-    ]
-  },
+  "file_get": { "summary": "Get authoritative metadata and stable provenance for one durable upload. Use file_read for verified contents." },
   "file_jsonl_partition": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
@@ -118,17 +108,7 @@ const toolDescriptions = Object.freeze({
       "READ-ONLY"
     ]
   },
-  "file_update": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Assign an AI-generated title and description to a newly uploaded file without overwriting user-authored metadata.",
-    "actionClasses": [
-      "UPDATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  }
+  "file_update": { "summary": "Assign an AI-generated title and description to a newly uploaded file without overwriting user-authored metadata." }
 });
 
 const scalarSchema = { type: ["string", "number", "boolean", "null"] };

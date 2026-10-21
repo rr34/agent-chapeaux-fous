@@ -5,15 +5,12 @@ const toolDescriptions = Object.freeze({
   "contact_address_update": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
-    "summary": "Atomically add or replace postal addresses on existing contacts using explicit intent, current IDs, and versions, without creating contacts or replacing unrelated contact data.",
-    "actionClasses": [
-      "CREATE",
-      "UPDATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
+    "summary": "Atomically add or replace postal addresses on existing contacts using explicit intent, current IDs, and versions, without replacing unrelated contact data.",
+    "actionClasses": ["CREATE", "UPDATE"],
+    "effectClassifications": ["MUTATING"]
   },
+  "contact_method_set": { "summary": "Atomically add or replace standard contact methods on up to 100 exact contacts with optimistic versions." },
+  "contact_method_delete": { "summary": "Atomically delete up to 100 exact contact methods while preserving every sibling method and contact field." },
   "contact_dedupe_clear": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
@@ -49,17 +46,7 @@ const toolDescriptions = Object.freeze({
       "MUTATING"
     ]
   },
-  "contact_import": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Import up to 200 normalized structured contacts. Use contact_file_import when the source is an attached CSV or vCard.",
-    "actionClasses": [
-      "CREATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  },
+  "contact_import": { "summary": "Import up to 200 normalized structured contacts. Use contact_file_import when the source is an attached CSV or vCard." },
   "contact_lookup_batch": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
@@ -84,50 +71,11 @@ const toolDescriptions = Object.freeze({
       "DESTRUCTIVE"
     ]
   },
-  "contact_search": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Search active contacts by descriptive or partial details using the Contacts UI's matching behavior.",
-    "actionClasses": [
-      "READ"
-    ],
-    "effectClassifications": [
-      "READ-ONLY"
-    ]
-  },
-  "contact_tag_add_batch": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Atomically add one tag to as many as 10,000 contacts while preserving existing tags.",
-    "actionClasses": [
-      "UPDATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  },
-  "contact_tag_rename": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Atomically rename or merge one contact tag across every assigned contact.",
-    "actionClasses": [
-      "UPDATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  },
-  "contact_update": {
-    "protocol": "agent-slayer.tool-description",
-    "version": 1,
-    "summary": "Atomically update standard identity and profile fields on existing contacts while preserving methods, tags, and import identity.",
-    "actionClasses": [
-      "UPDATE"
-    ],
-    "effectClassifications": [
-      "MUTATING"
-    ]
-  }
+  "contact_search": { "summary": "Search active contacts by descriptive or partial details using the Contacts UI's matching behavior." },
+  "contact_tag_add_batch": { "summary": "Atomically add one tag to as many as 10,000 contacts while preserving existing tags." },
+  "contact_tag_unlink_batch": { "summary": "Atomically unlink one tag from as many as 10,000 exact contacts without replacing their other tags." },
+  "contact_tag_rename": { "summary": "Atomically rename or merge one contact tag across every assigned contact." },
+  "contact_update": { "summary": "Atomically update or logically delete standard identity and profile fields on existing contacts while preserving methods, tags, and import identity." }
 });
 
 const tagRecordSchema = {
@@ -1049,7 +997,7 @@ export function registerContactTools(
 
   registry.register({
     name: "contact_update",
-    description: "Atomically update standard fields on 1 through 100 existing visible contacts. Resolve every contact with contact_search or contact_lookup_batch and use its current expected_version. Setting status to inactive logically deletes the contact: it remains stored for history but disappears from ordinary agent search, context, bindings, and relationship targets. This changes only explicitly supplied identity or profile fields and always preserves contact methods, tags, source, external ID, and self identity. Null means leave a value unchanged; use the matching clear flag to remove an optional value. A replay that already matches the requested state is unchanged even with the prior version. Use contact_address_update for postal addresses and the dedicated tag tools for tag additions or global tag renames.",
+    description: "Atomically update standard fields on 1 through 100 existing visible contacts. Resolve every contact with contact_search or contact_lookup_batch and use its current expected_version. Setting status to inactive logically deletes the contact: it remains stored for history but disappears from ordinary agent search, context, bindings, and relationship targets. This changes only explicitly supplied identity or profile fields and always preserves contact methods, tags, source, external ID, and self identity. Null means leave a value unchanged; use the matching clear flag to remove an optional value. A replay that already matches the requested state is unchanged even with the prior version. Use contact_method_set for contact methods and the dedicated tag tools for tag additions, removals, or global tag renames.",
     outputSchema: {
       type: "object",
       additionalProperties: false,
@@ -1224,6 +1172,110 @@ export function registerContactTools(
   });
 
   registry.register({
+    name: "contact_method_set",
+    description: "Atomically add or replace one standard contact method on each of 1 through 100 existing visible contacts. Supports email, phone, postal_address, handle, URL, and other methods. Resolve contacts and replacement methods with contact_search first and supply current contact versions. The complete batch validates before writing, preserves every sibling method and contact field, rejects normalized duplicates, and is safe to replay.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        updates: {
+          type: "array", minItems: 1, maxItems: 100,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              contact_id: { type: "integer", minimum: 1 },
+              expected_version: { type: "string", minLength: 1 },
+              action: { type: "string", enum: ["add", "replace"] },
+              contact_method_id: { type: ["integer", "null"], minimum: 1 },
+              method_kind: { type: "string", enum: ["email", "phone", "postal_address", "handle", "url", "other"] },
+              label: { type: ["string", "null"], maxLength: 100 },
+              value: { type: "string", minLength: 1, maxLength: 2000 },
+              is_primary: { type: "boolean" },
+              can_receive: { type: "boolean" },
+            },
+            required: [
+              "contact_id", "expected_version", "action", "contact_method_id", "method_kind",
+              "label", "value", "is_primary", "can_receive",
+            ],
+          },
+        },
+      },
+      required: ["updates"],
+    },
+    async execute({ updates }, context) {
+      const updated = organizer.updateContactMethods({
+        updates: updates.map((item) => ({
+          contactId: item.contact_id,
+          expectedVersion: item.expected_version,
+          action: item.action,
+          methodId: item.contact_method_id,
+          kind: item.method_kind,
+          label: item.label,
+          value: item.value,
+          isPrimary: item.is_primary,
+          canReceive: item.can_receive,
+        })),
+      }, contactToolActivity(context, "contact_method_set"));
+      return {
+        selected_contact_count: updated.selectedContactCount,
+        updated_contact_count: updated.updatedContactCount,
+        unchanged_contact_count: updated.unchangedContactCount,
+        results: updated.results.map((result) => ({
+          status: result.status,
+          method: result.method,
+          contact: result.contact,
+        })),
+      };
+    },
+  });
+
+  registry.register({
+    name: "contact_method_delete",
+    description: "Atomically delete 1 through 100 exact contact methods from existing visible contacts. Resolve the contacts and methods with contact_search first, then supply each stable contact ID, method ID, and current contact version. The complete batch validates before writing, preserves every sibling method and contact field, and is safe to replay when a named method is already absent.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        deletions: {
+          type: "array", minItems: 1, maxItems: 100,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              contact_id: { type: "integer", minimum: 1 },
+              contact_method_id: { type: "integer", minimum: 1 },
+              expected_version: { type: "string", minLength: 1 },
+            },
+            required: ["contact_id", "contact_method_id", "expected_version"],
+          },
+        },
+      },
+      required: ["deletions"],
+    },
+    async execute({ deletions }, context) {
+      const deleted = organizer.deleteContactMethods({
+        deletions: deletions.map((item) => ({
+          contactId: item.contact_id,
+          methodId: item.contact_method_id,
+          expectedVersion: item.expected_version,
+        })),
+      }, contactToolActivity(context, "contact_method_delete"));
+      return {
+        selected_method_count: deleted.selectedMethodCount,
+        deleted_method_count: deleted.deletedMethodCount,
+        unchanged_method_count: deleted.unchangedMethodCount,
+        results: deleted.results.map((result) => ({
+          status: result.status,
+          contact_method_id: result.methodId,
+          deleted_method: result.method,
+          contact: result.contact,
+        })),
+      };
+    },
+  });
+
+  registry.register({
     name: "contact_tag_add_batch",
     description: "Atomically add one tag to 1 through 10,000 existing visible contacts by ID in a single tool call. Inactive contacts are logically deleted and cannot be tagged. The operation validates every contact before writing, preserves all existing tags, is safe to replay, and reports newly tagged versus already-tagged counts. Use this after one contact_lookup_batch call; never insert contacts_tags_join one row at a time.",
     parameters: {
@@ -1248,6 +1300,35 @@ export function registerContactTools(
         selected_contact_count: tagged.selectedContactCount,
         tagged_contact_count: tagged.taggedContactCount,
         already_tagged_contact_count: tagged.alreadyTaggedContactCount,
+      };
+    },
+  });
+
+  registry.register({
+    name: "contact_tag_unlink_batch",
+    description: "Atomically remove one exact tag from 1 through 10,000 existing visible contacts by ID in a single tool call. The operation validates every contact before writing, preserves every other tag, is safe to replay, and reports newly unlinked versus already-unlinked counts. Use this after one contact_lookup_batch call; never reconstruct or replace each contact's complete tag set.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        tag: { type: "string", minLength: 1, maxLength: 100 },
+        contact_ids: {
+          type: "array", minItems: 1, maxItems: 10000, uniqueItems: true,
+          items: { type: "integer", minimum: 1 },
+        },
+      },
+      required: ["tag", "contact_ids"],
+    },
+    async execute({ tag, contact_ids: contactIds }, context) {
+      const unlinked = organizer.removeTagFromContacts(
+        { tag, contactIds },
+        contactToolActivity(context, "contact_tag_unlink_batch"),
+      );
+      return {
+        tag: unlinked.tag,
+        selected_contact_count: unlinked.selectedContactCount,
+        unlinked_contact_count: unlinked.unlinkedContactCount,
+        already_unlinked_contact_count: unlinked.alreadyUnlinkedContactCount,
       };
     },
   });

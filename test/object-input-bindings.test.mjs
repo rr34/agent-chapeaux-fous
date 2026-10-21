@@ -231,7 +231,10 @@ test("native tool registration declares first-class IDs, including IDs inside ba
 test("database string IDs canonicalize before a native calendar-contact action", () => {
   const registry = new ToolRegistry();
   registry.withCapability("calendar", {
-    calendar_event_contact_link_set: fixtureSelection("Link one exact contact to one exact event."),
+    calendar_event_contact_link_set: {
+      ...fixtureSelection("Link one exact contact to one exact event."),
+      actionClasses: ["CREATE", "UPDATE", "DELETE"],
+    },
   }).register({
     name: "calendar_event_contact_link_set",
     description: "Link a contact to an event.",

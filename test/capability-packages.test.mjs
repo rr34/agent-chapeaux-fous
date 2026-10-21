@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -6,9 +7,12 @@ import test from "node:test";
 import {
   defaultCapabilityPackagesRoot,
   loadCapabilityPackages,
+  validateNativeResourceCoverage,
   validateRegisteredCapabilities,
 } from "../src/capability-packages.mjs";
 import { registerNativeCapabilities } from "../src/native-capabilities.mjs";
+import { nativeFirstClassObjectTypes } from "../src/native-object-types.mjs";
+import { baselineFilename } from "../scripts/agent-schema.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerWebPageTools } from "../src/tools/web-page-tools.mjs";
 
@@ -57,6 +61,19 @@ test("payments declares authoritative reads for its cross-domain object inputs",
   assert.deepEqual(payments.dependentTools, ["contact_search", "todo_list"]);
 });
 
+test("resource declarations exhaustively classify first-class objects and physical joins", () => {
+  const schema = fs.readFileSync(baselineFilename, "utf8");
+  const relationshipTables = [...schema.matchAll(/^CREATE TABLE ([a-z][a-z0-9_]*_join) \(/gmu)]
+    .map(([, table]) => table);
+  const manifests = loadCapabilityPackages();
+  assert.doesNotThrow(() => validateNativeResourceCoverage(manifests, {
+    objectTypes: nativeFirstClassObjectTypes,
+    relationshipTables,
+  }));
+  assert.equal(nativeFirstClassObjectTypes.length, 24);
+  assert.equal(relationshipTables.length, 15);
+});
+
 test("capability package validation rejects schema, identity, and filesystem drift", async context => {
   const invalidId = await temporaryPackage(context, manifest => ({ ...manifest, id: "different" }));
   assert.throws(() => loadCapabilityPackages({ capabilityRoot: invalidId.root }), /directory example must match manifest ID different/);
@@ -67,6 +84,20 @@ test("capability package validation rejects schema, identity, and filesystem dri
 
   const duplicateAlias = await temporaryPackage(context, manifest => ({ ...manifest, aliases: ["Example", "example"] }));
   assert.throws(() => loadCapabilityPackages({ capabilityRoot: duplicateAlias.root }), /case-insensitively unique/);
+
+  const incompleteResource = await temporaryPackage(context, manifest => ({
+    ...manifest,
+    resources: [{
+      id: "example.record", kind: "object", management: "user",
+      operations: {
+        read: { tool: "example_read", batch: { mode: "collection" } },
+      },
+    }],
+  }));
+  assert.throws(
+    () => loadCapabilityPackages({ capabilityRoot: incompleteResource.root }),
+    /must have required property 'create'/,
+  );
 });
 
 test("registered native tools must use declared capabilities and agree with read-only expectations", () => {

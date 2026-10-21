@@ -38,6 +38,11 @@ Enabling numbers every existing unnumbered item after the current maximum;
 disabling preserves existing numbers. Supplying a numbered content item never
 changes this group setting implicitly.
 
+If the user asks to remove a content-library group, resolve the exact group and
+call `video_content_group_archive`. General cannot be archived, and another
+group must be empty before archival; move or retire its items first rather than
+deleting them implicitly.
+
 If the user asks to edit, correct, move, renumber, or otherwise update existing
 content-library items:
 

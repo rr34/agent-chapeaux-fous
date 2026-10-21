@@ -85,6 +85,14 @@ mutations by default. Each exception must have a concrete domain reason. Exact
 identity and stable references, authorization, pagination, concurrency,
 idempotency, transaction or partial-success rules, lifecycle states, and
 literal receipts remain consistent across agent tools and HTTP/UI adapters.
+The architecture is resource-centric: each owning capability manifest declares
+all create/read/update/delete-or-archive cells for its first-class objects and
+all link/read/update/unlink cells for its physical relationships. The registry
+compiles repetitive native Tool Description routing metadata from that matrix,
+and `npm run capabilities:verify` rejects unclassified first-class objects or
+join tables. Unsupported cells remain explicit, reasoned catalog entries rather
+than accidental missing tools; unimplemented cells are separately labeled as
+visible engineering gaps rather than misrepresented as intentional limits.
 The normative cross-domain requirements live in the **Native domain
 consistency invariant** in `AGENT-TOOL-MANIFESTO.md`.
 
@@ -358,6 +366,9 @@ Each native capability is a self-contained package under
 `config/capabilities/<id>/` with exactly two files:
 
 - `capability.json` is the schema-checked identity and routing contract.
+- For capabilities that own native data, `capability.json` also owns the
+  exhaustive object and relationship lifecycle matrix used to compile native
+  CRUD routing and verify completeness.
 - `guidance.md` is bounded execution guidance for coordinating that
   capability's tools.
 

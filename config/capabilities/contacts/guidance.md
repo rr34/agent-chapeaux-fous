@@ -29,17 +29,30 @@ When the user asks to rename a contact tag, call `contact_tag_rename` with the
 current and replacement labels. If the replacement already exists, the tool
 combines the contact assignments without creating duplicate tags.
 
-When the user asks to add or change a postal address on an existing contact,
-resolve that contact with `contact_search` or `contact_lookup_batch`, then call
-`contact_address_update` with the returned contact ID and expected version. Use
-`action=replace` and the existing postal-address method ID when changing an
-address. Use `action=add` and a null method ID only when the user explicitly
-wants a new address, including a second home, work, mailing, or billing address
-on the same contact. Do not infer add when the request could mean replacement;
-ask which existing address to replace or whether to retain both. This tool
-changes the existing contact in place and preserves every unrelated method and
-tag. It preserves every identity field; never use `contact_import` to represent
-an address correction. The same rule applies to an additional address.
+When the user asks to remove a tag from particular contacts, resolve the exact
+contacts once and send all selected IDs to `contact_tag_unlink_batch`. This
+removes only those exact contact/tag edges and preserves every sibling tag.
+
+When the user asks to add or change an email address, phone number, postal
+address, handle, URL, or other method on an existing contact, resolve that
+contact with `contact_search` or `contact_lookup_batch`, then call
+`contact_method_set` with the returned contact ID and expected version. Use
+`action=replace` and the existing method ID when changing one. Use `action=add`
+and a null method ID only when the user explicitly wants an additional method,
+including a second home, work, mailing, or billing address.
+Do not infer add when the request could mean replacement; ask which existing
+method to replace or whether to retain both. The focused
+`contact_address_update` remains available for postal-address-only workflows.
+Both tools change the existing contact in place and preserve every unrelated
+method, tag, and identity field; never use `contact_import` to represent a
+method correction. In particular, never use `contact_import` to represent
+an address correction.
+
+When the user asks to remove an email address, phone number, postal address,
+handle, URL, or other contact method, resolve the exact contact and method with
+`contact_search`, then call `contact_method_delete` once with the complete
+batch of stable contact IDs, method IDs, and current contact versions. This
+deletes only the selected methods and preserves every sibling method.
 
 When the user asks to change an existing contact's birthday, name,
 organization, notes, kind, or status, resolve that contact with

@@ -10,6 +10,10 @@ const toolDescriptionSchemaPath = new URL(
   "../config/protocol-schemas/tool-description.v1.schema.json",
   import.meta.url,
 );
+const capabilityManifestSchemaPath = new URL(
+  "../config/protocol-schemas/capability-manifest.v1.schema.json",
+  import.meta.url,
+);
 const objectDescriptionSchemaPath = new URL(
   "../config/protocol-schemas/object-description.v1.schema.json",
   import.meta.url,
@@ -76,6 +80,26 @@ test("the manifesto publishes one authoritative layered Tool Description contrac
   assert.match(manifesto, /config\/protocol-schemas\/tool-description\.v1\.schema\.json/);
   assert.match(manifesto, /_meta\["agent-slayer\/selection"\]/);
   assert.match(manifesto, /`operations\.exhaustive=true`/);
+});
+
+test("native lifecycle completeness is resource-centric and schema constrained", () => {
+  const schema = JSON.parse(fs.readFileSync(capabilityManifestSchemaPath, "utf8"));
+  const manifesto = fs.readFileSync(manifestoPath, "utf8");
+  const resource = schema.$defs.resource;
+  assert.deepEqual(resource.properties.kind.enum, ["object", "relationship"]);
+  assert.deepEqual(resource.properties.management.enum, ["user", "system", "provider"]);
+  assert.deepEqual(Object.keys(resource.properties.operations.properties), [
+    "create", "read", "update", "delete", "link", "unlink",
+  ]);
+  assert.deepEqual(schema.$defs.resourceBatch.properties.mode.enum, [
+    "array", "collection", "singleton",
+  ]);
+  assert.deepEqual(schema.$defs.resourceOperation.oneOf[1].properties.unavailable.enum, [
+    "unsupported", "unimplemented",
+  ]);
+  assert.match(manifesto, /resource-centric and must remain resource-centric/);
+  assert.match(manifesto, /Every physical native join table is declared\s+exactly once/);
+  assert.match(manifesto, /compiled output\s+rather than an independent handwritten\s+inventory/);
 });
 
 test("the manifesto publishes a versioned remote Object Description and provider test obligation", () => {
