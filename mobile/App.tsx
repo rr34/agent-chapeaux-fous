@@ -9,6 +9,7 @@ import { StatusBar } from 'expo-status-bar';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   AppState,
   FlatList,
   Keyboard,
@@ -41,6 +42,15 @@ import {
 import { colors } from './src/theme';
 import type { AgentRequest, ConnectionSettings, Health } from './src/types';
 
+const voiceRecordingOptions = {
+  ...RecordingPresets.HIGH_QUALITY,
+  isMeteringEnabled: true,
+};
+
+const meterHistoryLength = 18;
+
+type RecordingPhase = 'idle' | 'recording' | 'cancelling' | 'sending';
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong.';
 }
@@ -54,6 +64,12 @@ function formatDuration(milliseconds: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function normalizeMetering(decibels: number | undefined): number {
+  if (decibels === undefined || !Number.isFinite(decibels)) return 0;
+  const normalized = Math.max(0, Math.min(1, (decibels + 55) / 55));
+  return Math.pow(normalized, 0.55);
 }
 
 function ConnectionModal({
@@ -308,14 +324,19 @@ function AgentScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [composer, setComposer] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [recordingPhase, setRecordingPhase] = useState<RecordingPhase>('idle');
+  const [meterHistory, setMeterHistory] = useState<number[]>(
+    () => Array.from({ length: meterHistoryLength }, () => 0),
+  );
   const [notice, setNotice] = useState('');
   const [draftBody, setDraftBody] = useState('');
   const [showDraft, setShowDraft] = useState(false);
   const list = useRef<FlatList<AgentRequest>>(null);
   const listPositioned = useRef(false);
   const listNearEnd = useRef(true);
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const recording = useAudioRecorderState(recorder, 200);
+  const recordingPulse = useRef(new Animated.Value(1)).current;
+  const recorder = useAudioRecorder(voiceRecordingOptions);
+  const recording = useAudioRecorderState(recorder, 100);
 
   const scrollToLatest = useCallback((animated = false) => {
     requestAnimationFrame(() => list.current?.scrollToEnd({ animated }));
@@ -366,6 +387,27 @@ function AgentScreen() {
     }
   }, [requests.length, scrollToLatest]);
 
+  useEffect(() => {
+    if (recordingPhase !== 'recording') {
+      recordingPulse.setValue(1);
+      return;
+    }
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(recordingPulse, { toValue: 0.3, duration: 650, useNativeDriver: true }),
+        Animated.timing(recordingPulse, { toValue: 1, duration: 650, useNativeDriver: true }),
+      ]),
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [recordingPhase, recordingPulse]);
+
+  useEffect(() => {
+    if (recordingPhase !== 'recording') return;
+    const level = normalizeMetering(recording.metering);
+    setMeterHistory((history) => [...history.slice(1), level]);
+  }, [recording.durationMillis, recording.metering, recordingPhase]);
+
   const send = async () => {
     const text = composer.trim();
     if (!settings || !text || submitting) return;
@@ -384,44 +426,55 @@ function AgentScreen() {
     }
   };
 
-  const toggleRecording = async () => {
-    if (!settings || submitting) return;
-    if (recording.isRecording) {
-      setSubmitting(true);
-      setNotice('Finishing recording…');
-      try {
-        await recorder.stop();
-        const uri = recorder.uri ?? recorder.getStatus().url;
-        if (!uri) throw new Error('The phone did not produce a recording file.');
-        setNotice('Uploading voice request…');
-        await submitVoice(settings, uri);
-        setNotice('Voice request queued.');
-        await refresh(true);
-      } catch (error) {
-        setNotice(errorMessage(error));
-      } finally {
-        setSubmitting(false);
-      }
-      return;
-    }
+  const startRecording = async () => {
+    if (!settings || submitting || recordingPhase !== 'idle') return;
     try {
       const permission = await requestRecordingPermissionsAsync();
       if (!permission.granted) throw new Error('Microphone permission is required for voice requests.');
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await recorder.prepareToRecordAsync();
+      setMeterHistory(Array.from({ length: meterHistoryLength }, () => 0));
       recorder.record();
-      setNotice('Recording. Tap the red button to submit.');
+      setRecordingPhase('recording');
+      setNotice('Recording…');
     } catch (error) {
+      setRecordingPhase('idle');
       setNotice(errorMessage(error));
     }
   };
 
+  const sendRecording = async () => {
+    if (!settings || submitting || recordingPhase !== 'recording') return;
+    setRecordingPhase('sending');
+    setSubmitting(true);
+    setNotice('Saving recording…');
+    try {
+      await recorder.stop();
+      const uri = recorder.uri ?? recorder.getStatus().url;
+      if (!uri) throw new Error('The phone did not produce a recording file.');
+      setNotice('Uploading voice request…');
+      await submitVoice(settings, uri);
+      setNotice('Voice request queued.');
+      await refresh(true);
+      scrollToLatest(true);
+    } catch (error) {
+      setNotice(errorMessage(error));
+    } finally {
+      setSubmitting(false);
+      setRecordingPhase('idle');
+    }
+  };
+
   const cancelRecording = async () => {
+    if (recordingPhase !== 'recording') return;
+    setRecordingPhase('cancelling');
     try {
       await recorder.stop();
       setNotice('Recording discarded.');
     } catch (error) {
       setNotice(errorMessage(error));
+    } finally {
+      setRecordingPhase('idle');
     }
   };
 
@@ -512,18 +565,70 @@ function AgentScreen() {
         />
 
         {!!notice && <Text numberOfLines={2} style={styles.notice}>{notice}</Text>}
-        {recording.isRecording ? (
+        {recordingPhase !== 'idle' ? (
           <View style={styles.recordingBar}>
-            <Pressable onPress={cancelRecording} style={styles.cancelRecording}><Text style={styles.cancelRecordingText}>DISCARD</Text></Pressable>
-            <Text style={styles.recordingTime}>{formatDuration(recording.durationMillis)}</Text>
-            <Pressable onPress={toggleRecording} style={styles.stopRecording}><View style={styles.stopSquare} /></Pressable>
+            <Pressable
+              accessibilityLabel="Cancel and discard voice recording"
+              accessibilityRole="button"
+              disabled={recordingPhase !== 'recording'}
+              onPress={cancelRecording}
+              style={({ pressed }) => [
+                styles.cancelRecording,
+                pressed && styles.recordingControlPressed,
+                recordingPhase !== 'recording' && styles.disabled,
+              ]}
+            >
+              <Text style={styles.cancelRecordingIcon}>×</Text>
+              <Text style={styles.cancelRecordingText}>CANCEL</Text>
+            </Pressable>
+            <View style={styles.recordingPanel}>
+              <View style={styles.recordingReadout}>
+                <Animated.View style={[styles.recordingDot, { opacity: recordingPulse }]} />
+                <Text style={styles.recordingLabel}>
+                  {recordingPhase === 'sending' ? 'SENDING' : recordingPhase === 'cancelling' ? 'DISCARDING' : 'RECORDING'}
+                </Text>
+                <Text style={styles.recordingTime}>{formatDuration(recording.durationMillis)}</Text>
+              </View>
+              <View accessibilityLabel="Live voice waveform" style={styles.audioMeter}>
+                <View style={styles.audioMeterBaseline} />
+                {meterHistory.map((level, index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.audioMeterBar,
+                      {
+                        height: 4 + Math.round(30 * level),
+                        opacity: 0.35 + (0.65 * level),
+                      },
+                    ]}
+                  />
+                ))}
+              </View>
+            </View>
+            <Pressable
+              accessibilityLabel="Send voice recording"
+              accessibilityRole="button"
+              disabled={recordingPhase !== 'recording'}
+              onPress={sendRecording}
+              style={({ pressed }) => [
+                styles.voiceSendButton,
+                pressed && styles.primaryButtonPressed,
+                recordingPhase !== 'recording' && styles.disabled,
+              ]}
+            >
+              {recordingPhase === 'sending' ? (
+                <ActivityIndicator color={colors.ink} size="small" />
+              ) : (
+                <Text style={styles.sendGlyph}>↑</Text>
+              )}
+            </Pressable>
           </View>
         ) : (
           <View style={styles.composer}>
             <Pressable
               accessibilityLabel="Record voice request"
               disabled={!settings || submitting}
-              onPress={toggleRecording}
+              onPress={startRecording}
               style={({ pressed }) => [styles.micButton, pressed && styles.micButtonPressed, (!settings || submitting) && styles.disabled]}
             >
               <View style={styles.micGlyph}><View style={styles.micStem} /></View>
@@ -602,12 +707,20 @@ const styles = StyleSheet.create({
   micStem: { position: 'absolute', bottom: -6, width: 8, height: 5, borderLeftWidth: 2, borderRightWidth: 2, borderBottomWidth: 2, borderColor: colors.ink, borderBottomLeftRadius: 4, borderBottomRightRadius: 4 },
   sendButton: { width: 46, height: 46, borderRadius: 23, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   sendGlyph: { color: colors.ink, fontSize: 25, fontWeight: '500', marginTop: -2 },
-  recordingBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, backgroundColor: colors.surface },
-  cancelRecording: { padding: 10 },
-  cancelRecordingText: { color: colors.muted, fontSize: 11, fontWeight: '800', letterSpacing: 1.2 },
-  recordingTime: { color: colors.ink, fontVariant: ['tabular-nums'], fontSize: 19, fontWeight: '700' },
-  stopRecording: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
-  stopSquare: { width: 16, height: 16, borderRadius: 3, backgroundColor: colors.ink },
+  recordingBar: { minHeight: 86, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, backgroundColor: colors.surface },
+  cancelRecording: { width: 58, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
+  cancelRecordingIcon: { color: colors.muted, fontSize: 24, fontWeight: '300', lineHeight: 23 },
+  cancelRecordingText: { color: colors.muted, fontSize: 8, fontWeight: '900', letterSpacing: 1.1, marginTop: 2 },
+  recordingControlPressed: { backgroundColor: colors.elevated },
+  recordingPanel: { flex: 1, minHeight: 66, justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 7, borderRadius: 16, backgroundColor: colors.elevated, borderWidth: 1, borderColor: colors.border },
+  recordingReadout: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  recordingDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.accent },
+  recordingLabel: { flex: 1, color: colors.accent, fontSize: 8, fontWeight: '900', letterSpacing: 1.1 },
+  recordingTime: { color: colors.ink, fontVariant: ['tabular-nums'], fontSize: 13, fontWeight: '700' },
+  audioMeter: { position: 'relative', height: 38, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 2 },
+  audioMeterBaseline: { position: 'absolute', left: 0, right: 0, height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
+  audioMeterBar: { flex: 1, maxWidth: 4, minHeight: 4, borderRadius: 2, backgroundColor: colors.accent },
+  voiceSendButton: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   setupPage: { flex: 1, backgroundColor: colors.background },
   setupKeyboardView: { flex: 1 },
   setupContent: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 24 },
