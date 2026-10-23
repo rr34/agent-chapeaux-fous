@@ -16,6 +16,7 @@ import { TodoPdfService } from "./todo-pdf.mjs";
 import { PrintableReportService } from "./printable-report.mjs";
 import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
+import { CorrespondenceSyncService } from "./correspondence-sync.mjs";
 import { ObjectNetworkService } from "./object-network.mjs";
 import { PaymentService } from "./payments.mjs";
 import { normalizeSelectedObjectCandidates, registerNativeObjectContextView } from "./native-object-search.mjs";
@@ -72,6 +73,9 @@ const identity = runtimeIdentity(config.repositoryRoot);
 const store = new SlayerDatabase(config.databaseTarget);
 const ledger = new Ledger(store);
 const organizer = store.status.ready ? new OrganizerStore(config.databaseTarget) : null;
+const correspondenceSync = store.status.ready
+  ? new CorrespondenceSyncService({ databaseTarget: config.databaseTarget })
+  : null;
 const payments = store.status.ready ? new PaymentService({ store, config, ledger }) : null;
 const catchUp = store.status.ready ? new CatchUpService(store, organizer, ledger) : null;
 const profileFacts = new ProfileFacts({ store, ledger });
@@ -490,6 +494,14 @@ const server = http.createServer(async (request, response) => {
     }
     if (!store.status.ready) {
       sendJson(response, 503, { error: store.status.reason });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/mobile/correspondence-sync") {
+      sendJson(response, 200, correspondenceSync.synchronize(await readJson(request, 4 * 1024 * 1024)));
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/mobile/correspondence-sync/status") {
+      sendJson(response, 200, correspondenceSync.status(url.searchParams.get("deviceId")));
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/payments/stripe/status") {
@@ -1383,6 +1395,7 @@ async function shutdown() {
   await modelTransport.close();
   await mcp.close();
   organizer?.close();
+  correspondenceSync?.close();
   store.close();
 }
 

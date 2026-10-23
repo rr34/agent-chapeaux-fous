@@ -16,7 +16,10 @@
     "android": {
       "package": "com.timev3.technologyagent",
       "permissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_CONTACTS",
+        "android.permission.READ_CALL_LOG",
+        "android.permission.READ_SMS"
       ],
       "predictiveBackGestureEnabled": true
     },

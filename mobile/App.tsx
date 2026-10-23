@@ -26,17 +26,22 @@ import {
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
-import TimeV3Native from './modules/time-v3-native/src/TimeV3NativeModule';
+import TimeV3Native, {
+  type CorrespondencePermissions,
+} from './modules/time-v3-native/src/TimeV3NativeModule';
 import {
   ApiError,
   fetchRequests,
+  synchronizeCorrespondence,
   submitText,
   submitVoice,
   verifyConnection,
 } from './src/api';
 import { productionServerUrl } from './src/config';
 import {
+  loadCorrespondenceCursor,
   loadConnectionSettings,
+  saveCorrespondenceCursor,
   saveConnectionSettings,
 } from './src/storage';
 import { colors } from './src/theme';
@@ -267,6 +272,155 @@ function MessageDraftModal({
   );
 }
 
+const noCorrespondencePermissions: CorrespondencePermissions = {
+  contacts: false,
+  calls: false,
+  messages: false,
+};
+
+function PermissionRow({ label, granted }: { label: string; granted: boolean }) {
+  return (
+    <View style={styles.permissionRow}>
+      <Text style={styles.permissionLabel}>{label}</Text>
+      <Text style={[styles.permissionState, granted && styles.permissionGranted]}>
+        {granted ? 'ALLOWED' : 'NOT ALLOWED'}
+      </Text>
+    </View>
+  );
+}
+
+function CorrespondenceSyncModal({
+  visible,
+  settings,
+  onClose,
+}: {
+  visible: boolean;
+  settings: ConnectionSettings;
+  onClose: () => void;
+}) {
+  const [permissions, setPermissions] = useState<CorrespondencePermissions>(noCorrespondencePermissions);
+  const [checking, setChecking] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [progress, setProgress] = useState('');
+  const [error, setError] = useState('');
+
+  const refreshPermissions = useCallback(async () => {
+    if (typeof TimeV3Native.getCorrespondencePermissions !== 'function') {
+      throw new Error('This installed app does not contain the phone synchronizer yet. Install the new Android build first.');
+    }
+    const result = await TimeV3Native.getCorrespondencePermissions();
+    setPermissions(result);
+    return result;
+  }, []);
+
+  useEffect(() => {
+    if (!visible) return;
+    setChecking(true);
+    setError('');
+    void refreshPermissions()
+      .catch((caught) => setError(errorMessage(caught)))
+      .finally(() => setChecking(false));
+  }, [refreshPermissions, visible]);
+
+  const requestPermissions = async () => {
+    setChecking(true);
+    setError('');
+    try {
+      await TimeV3Native.requestCorrespondencePermissions();
+      await refreshPermissions();
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const synchronize = async () => {
+    setSyncing(true);
+    setError('');
+    setProgress('Reading phone data…');
+    try {
+      let cursor = await loadCorrespondenceCursor();
+      const totals = { contacts: 0, created: 0, updated: 0 };
+      for (let batchNumber = 1; batchNumber <= 10_000; batchNumber += 1) {
+        const batch = await TimeV3Native.readCorrespondenceBatch(cursor, 100);
+        setPermissions(batch.permissions);
+        if (!batch.permissions.contacts && !batch.permissions.calls && !batch.permissions.messages) {
+          throw new Error('Allow at least one phone-data permission before synchronizing.');
+        }
+        setProgress(
+          `Batch ${batchNumber}: sending ${batch.contacts.length} contacts and ${batch.correspondence.length} communications…`,
+        );
+        const accepted = await synchronizeCorrespondence(settings, batch);
+        await saveCorrespondenceCursor(batch.nextCursor);
+        cursor = batch.nextCursor;
+        totals.contacts += accepted.contacts.received;
+        totals.created += accepted.correspondence.created;
+        totals.updated += accepted.correspondence.updated;
+        const more = Object.values(batch.hasMore).some(Boolean);
+        if (!more) {
+          setProgress(
+            `Complete: ${totals.contacts} contacts read, ${totals.created} new and ${totals.updated} refreshed communications.`,
+          );
+          return;
+        }
+      }
+      throw new Error('Synchronization stopped after 10,000 batches. Run it again to continue.');
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const allGranted = permissions.contacts && permissions.calls && permissions.messages;
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={syncing ? undefined : onClose}>
+      <SafeAreaView style={styles.syncPage} edges={['top', 'bottom']}>
+        <ScrollView contentContainerStyle={styles.syncContent}>
+          <Text style={styles.setupEyebrow}>PHONE CORRESPONDENCE</Text>
+          <Text style={styles.syncTitle}>Synchronize this phone</Text>
+          <Text style={styles.syncCopy}>
+            Copy contacts, call history, SMS, and the text portions of MMS into Time V3. The first run reads existing history; later runs continue from the last server-confirmed position.
+          </Text>
+          <View style={styles.permissionCard}>
+            <PermissionRow label="Contacts" granted={permissions.contacts} />
+            <PermissionRow label="Call history" granted={permissions.calls} />
+            <PermissionRow label="SMS and MMS" granted={permissions.messages} />
+          </View>
+          {!allGranted && (
+            <Pressable
+              accessibilityRole="button"
+              disabled={checking || syncing}
+              onPress={requestPermissions}
+              style={({ pressed }) => [styles.secondaryWideButton, pressed && styles.recordingControlPressed, (checking || syncing) && styles.disabled]}
+            >
+              {checking ? <ActivityIndicator color={colors.accent} /> : <Text style={styles.secondaryWideButtonText}>ALLOW PHONE ACCESS</Text>}
+            </Pressable>
+          )}
+          <Pressable
+            accessibilityRole="button"
+            disabled={checking || syncing}
+            onPress={synchronize}
+            style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryButtonPressed, (checking || syncing) && styles.disabled]}
+          >
+            {syncing ? <ActivityIndicator color={colors.ink} /> : <Text style={styles.primaryButtonText}>SYNC NOW</Text>}
+          </Pressable>
+          {!!progress && <Text style={styles.syncProgress}>{progress}</Text>}
+          {!!error && <Text selectable style={styles.formError}>{error}</Text>}
+          <Text style={styles.syncFootnote}>
+            Android does not expose WhatsApp or every RCS conversation through these phone databases. Those sources require separate integrations. MMS attachments are not uploaded in this version.
+          </Text>
+          <Pressable disabled={syncing} onPress={onClose} style={[styles.textButton, syncing && styles.disabled]}>
+            <Text style={styles.textButtonLabel}>Close</Text>
+          </Pressable>
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
 function sameRequestPresentation(left: AgentRequest, right: AgentRequest): boolean {
   return left.requestId === right.requestId
     && left.channel === right.channel
@@ -331,6 +485,7 @@ function AgentScreen() {
   const [notice, setNotice] = useState('');
   const [draftBody, setDraftBody] = useState('');
   const [showDraft, setShowDraft] = useState(false);
+  const [showCorrespondenceSync, setShowCorrespondenceSync] = useState(false);
   const list = useRef<FlatList<AgentRequest>>(null);
   const listPositioned = useRef(false);
   const listNearEnd = useRef(true);
@@ -508,6 +663,13 @@ function AgentScreen() {
         }}
       />
       <MessageDraftModal visible={showDraft} initialBody={draftBody} onClose={() => setShowDraft(false)} />
+      {settings && (
+        <CorrespondenceSyncModal
+          visible={showCorrespondenceSync}
+          settings={settings}
+          onClose={() => setShowCorrespondenceSync(false)}
+        />
+      )}
       <View style={styles.header}>
         <View style={styles.brandBlock}>
           <Text style={styles.brand}>TIME V3</Text>
@@ -518,6 +680,14 @@ function AgentScreen() {
           </View>
         </View>
         <View style={styles.headerActions}>
+          <Pressable
+            accessibilityLabel="Synchronize phone correspondence"
+            disabled={!settings}
+            onPress={() => setShowCorrespondenceSync(true)}
+            style={[styles.headerButton, !settings && styles.disabled]}
+          >
+            <Text style={styles.headerButtonText}>SYNC</Text>
+          </Pressable>
           <Pressable accessibilityLabel="Open an SMS draft" onPress={() => openDraft()} style={styles.headerButton}>
             <Text style={styles.headerButtonText}>SMS</Text>
           </Pressable>
@@ -748,4 +918,17 @@ const styles = StyleSheet.create({
   modalActions: { flexDirection: 'row', gap: 10, marginTop: 18 },
   secondaryButton: { flex: 0.65, minHeight: 46, borderRadius: 10, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   secondaryButtonText: { color: colors.muted, fontSize: 12, fontWeight: '800' },
+  syncPage: { flex: 1, backgroundColor: colors.background },
+  syncContent: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 42, paddingBottom: 24 },
+  syncTitle: { color: colors.ink, fontSize: 30, fontWeight: '800', letterSpacing: -0.5, marginBottom: 12 },
+  syncCopy: { color: colors.muted, fontSize: 15, lineHeight: 22, marginBottom: 24 },
+  permissionCard: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 14, paddingHorizontal: 16, marginBottom: 8 },
+  permissionRow: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  permissionLabel: { color: colors.ink, fontSize: 15, fontWeight: '600' },
+  permissionState: { color: colors.error, fontSize: 9, fontWeight: '900', letterSpacing: 1 },
+  permissionGranted: { color: colors.success },
+  secondaryWideButton: { minHeight: 52, borderRadius: 12, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', marginTop: 14 },
+  secondaryWideButtonText: { color: colors.accent, fontSize: 11, fontWeight: '900', letterSpacing: 1.3 },
+  syncProgress: { color: colors.success, backgroundColor: colors.surface, borderRadius: 10, padding: 12, fontSize: 13, lineHeight: 19, marginTop: 16 },
+  syncFootnote: { color: colors.dim, fontSize: 12, lineHeight: 18, marginTop: 22 },
 });

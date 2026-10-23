@@ -1,4 +1,24 @@
+import type { CorrespondenceBatch } from '../modules/time-v3-native/src/TimeV3NativeModule';
 import type { AgentRequest, ConnectionSettings, Health } from './types';
+
+export type CorrespondenceSyncResult = {
+  protocol: 'timev3.android-correspondence-sync';
+  version: 1;
+  status: 'complete';
+  synchronizedAtUtc: string;
+  contacts: {
+    received: number;
+    created: number;
+    updated: number;
+    matched: number;
+    methodsCreated: number;
+  };
+  correspondence: {
+    received: number;
+    created: number;
+    updated: number;
+  };
+};
 
 const developmentHttpHosts = new Set(['localhost', '127.0.0.1', '10.0.2.2']);
 
@@ -104,6 +124,23 @@ export async function submitVoice(
     method: 'POST',
     headers: { 'Content-Type': audio.type || 'audio/mp4' },
     body: audio,
+  }, 60_000);
+}
+
+export async function synchronizeCorrespondence(
+  settings: ConnectionSettings,
+  batch: CorrespondenceBatch,
+): Promise<CorrespondenceSyncResult> {
+  return requestJson(settings, '/api/mobile/correspondence-sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      protocol: 'timev3.android-correspondence-sync',
+      version: 1,
+      deviceId: batch.deviceId,
+      contacts: batch.contacts,
+      correspondence: batch.correspondence,
+    }),
   }, 60_000);
 }
 

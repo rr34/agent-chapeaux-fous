@@ -1,0 +1,501 @@
+import { createHash, randomUUID } from "node:crypto";
+import { openApplicationDatabase } from "./database-connection.mjs";
+import { safeJson } from "./redaction.mjs";
+
+const protocol = "timev3.android-correspondence-sync";
+const protocolVersion = 1;
+const correspondenceMedia = new Set(["sms", "mms", "call"]);
+const directions = new Set(["inbound", "outbound"]);
+const callDispositions = new Set(["answered", "missed"]);
+const deliveryStatuses = new Set(["sent", "delivered", "failed", "unknown"]);
+
+export class CorrespondenceSyncInputError extends Error {
+  constructor(message, statusCode = 400) {
+    super(message);
+    this.name = "CorrespondenceSyncInputError";
+    this.statusCode = statusCode;
+  }
+}
+
+function requiredText(value, label, maximum) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new CorrespondenceSyncInputError(`${label} is required.`);
+  }
+  const result = value.trim();
+  if (result.length > maximum) throw new CorrespondenceSyncInputError(`${label} is too long.`);
+  return result;
+}
+
+function optionalText(value, label, maximum) {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string") throw new CorrespondenceSyncInputError(`${label} must be text.`);
+  const result = value.trim();
+  if (result.length > maximum) throw new CorrespondenceSyncInputError(`${label} is too long.`);
+  return result || null;
+}
+
+function optionalBody(value, label, maximum) {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string") throw new CorrespondenceSyncInputError(`${label} must be text.`);
+  if (value.length > maximum) throw new CorrespondenceSyncInputError(`${label} is too long.`);
+  return value;
+}
+
+function boundedArray(value, label, maximum) {
+  if (!Array.isArray(value) || value.length > maximum) {
+    throw new CorrespondenceSyncInputError(`${label} must be an array of at most ${maximum} items.`);
+  }
+  return value;
+}
+
+function enumValue(value, allowed, label) {
+  if (!allowed.has(value)) throw new CorrespondenceSyncInputError(`${label} is invalid.`);
+  return value;
+}
+
+function optionalNonnegativeInteger(value, label) {
+  if (value == null) return null;
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new CorrespondenceSyncInputError(`${label} must be a nonnegative integer.`);
+  }
+  return value;
+}
+
+function utcInstant(milliseconds, label) {
+  if (!Number.isSafeInteger(milliseconds) || milliseconds < 0) {
+    throw new CorrespondenceSyncInputError(`${label} must be a Unix timestamp in milliseconds.`);
+  }
+  const date = new Date(milliseconds);
+  if (!Number.isFinite(date.getTime())) {
+    throw new CorrespondenceSyncInputError(`${label} is not a valid timestamp.`);
+  }
+  return date.toISOString();
+}
+
+function normalizePhone(value) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return null;
+  const digits = trimmed.replace(/\D/gu, "");
+  if (!digits) return trimmed.toLocaleLowerCase().replace(/\s+/gu, " ");
+  return trimmed.startsWith("+") ? `+${digits}` : digits;
+}
+
+function normalizeEmail(value) {
+  const result = String(value ?? "").trim().toLocaleLowerCase();
+  return result || null;
+}
+
+function canonicalHtml(value) {
+  if (value == null) return null;
+  const text = String(value);
+  const escaped = text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;")
+    .replace(/\r\n?|\n/gu, "<br>");
+  return escaped || null;
+}
+
+function normalizedContact(input, index) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new CorrespondenceSyncInputError(`contacts[${index}] must be an object.`);
+  }
+  const methods = boundedArray(input.methods ?? [], `contacts[${index}].methods`, 100).map((method, methodIndex) => {
+    if (!method || typeof method !== "object" || Array.isArray(method)) {
+      throw new CorrespondenceSyncInputError(`contacts[${index}].methods[${methodIndex}] must be an object.`);
+    }
+    const kind = enumValue(method.kind, new Set(["phone", "email"]), `contacts[${index}].methods[${methodIndex}].kind`);
+    const value = requiredText(method.value, `contacts[${index}].methods[${methodIndex}].value`, 2000);
+    return {
+      kind,
+      label: optionalText(method.label, `contacts[${index}].methods[${methodIndex}].label`, 255),
+      value,
+      normalizedValue: kind === "phone" ? normalizePhone(value) : normalizeEmail(value),
+      isPrimary: method.isPrimary === true,
+    };
+  });
+  const uniqueMethods = [];
+  const methodKeys = new Set();
+  for (const method of methods) {
+    if (method.normalizedValue && method.normalizedValue.length > 512) {
+      throw new CorrespondenceSyncInputError(`contacts[${index}] contains a method that is too long to match.`);
+    }
+    const key = `${method.kind}\u0000${method.normalizedValue}`;
+    if (!method.normalizedValue || methodKeys.has(key)) continue;
+    methodKeys.add(key);
+    uniqueMethods.push(method);
+  }
+  return {
+    externalId: createHash("sha256")
+      .update(requiredText(input.externalId, `contacts[${index}].externalId`, 512))
+      .digest("hex"),
+    displayName: requiredText(input.displayName, `contacts[${index}].displayName`, 500),
+    givenName: optionalText(input.givenName, `contacts[${index}].givenName`, 255),
+    familyName: optionalText(input.familyName, `contacts[${index}].familyName`, 255),
+    organizationName: optionalText(input.organizationName, `contacts[${index}].organizationName`, 500),
+    methods: uniqueMethods,
+  };
+}
+
+function normalizedCorrespondence(input, index, deviceId) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new CorrespondenceSyncInputError(`correspondence[${index}] must be an object.`);
+  }
+  const medium = enumValue(input.medium, correspondenceMedia, `correspondence[${index}].medium`);
+  const direction = enumValue(input.direction, directions, `correspondence[${index}].direction`);
+  const account = optionalText(input.account, `correspondence[${index}].account`, 96) ?? "default";
+  if (!/^[A-Za-z0-9._:@+-]+$/u.test(account)) {
+    throw new CorrespondenceSyncInputError(`correspondence[${index}].account contains unsupported characters.`);
+  }
+  const sourceAccountKey = `android:${deviceId}:${account}`;
+  const occurredAtUtc = utcInstant(input.occurredAtMs, `correspondence[${index}].occurredAtMs`);
+  const fallbackAddress = optionalText(input.address, `correspondence[${index}].address`, 512);
+  const suppliedParticipants = boundedArray(input.participants ?? [], `correspondence[${index}].participants`, 100)
+    .map((participant, participantIndex) => {
+      if (!participant || typeof participant !== "object" || Array.isArray(participant)) {
+        throw new CorrespondenceSyncInputError(
+          `correspondence[${index}].participants[${participantIndex}] must be an object.`,
+        );
+      }
+      return {
+        addressValue: requiredText(
+          participant.address,
+          `correspondence[${index}].participants[${participantIndex}].address`,
+          512,
+        ),
+        displayName: optionalText(
+          participant.displayName,
+          `correspondence[${index}].participants[${participantIndex}].displayName`,
+          500,
+        ),
+      };
+    });
+  const participantKeys = new Set();
+  const participants = suppliedParticipants.filter((participant) => {
+    const key = participant.addressValue;
+    if (participantKeys.has(key)) return false;
+    participantKeys.add(key);
+    return true;
+  });
+  if (participants.length === 0 && fallbackAddress) {
+    participants.push({
+      addressValue: fallbackAddress,
+      displayName: optionalText(input.displayName, `correspondence[${index}].displayName`, 500),
+    });
+  }
+  const deliveryStatus = medium === "call"
+    ? null
+    : enumValue(input.deliveryStatus ?? "unknown", deliveryStatuses, `correspondence[${index}].deliveryStatus`);
+  const callDisposition = medium === "call"
+    ? enumValue(input.callDisposition, callDispositions, `correspondence[${index}].callDisposition`)
+    : null;
+  const callDurationSeconds = medium === "call"
+    ? optionalNonnegativeInteger(input.callDurationSeconds, `correspondence[${index}].callDurationSeconds`)
+    : null;
+  const sentAtUtc = direction === "outbound"
+    ? (input.sentAtMs == null ? occurredAtUtc : utcInstant(input.sentAtMs, `correspondence[${index}].sentAtMs`))
+    : null;
+  const receivedAtUtc = direction === "inbound"
+    ? (input.receivedAtMs == null ? occurredAtUtc : utcInstant(input.receivedAtMs, `correspondence[${index}].receivedAtMs`))
+    : null;
+  const threadKey = optionalText(input.threadKey, `correspondence[${index}].threadKey`, 255);
+  const externalId = requiredText(input.externalId, `correspondence[${index}].externalId`, 255);
+  if (threadKey !== null && !/^[\x20-\x7E]+$/u.test(threadKey)) {
+    throw new CorrespondenceSyncInputError(`correspondence[${index}].threadKey must be ASCII.`);
+  }
+  if (!/^[\x20-\x7E]+$/u.test(externalId)) {
+    throw new CorrespondenceSyncInputError(`correspondence[${index}].externalId must be ASCII.`);
+  }
+  return {
+    medium,
+    direction,
+    sourceAccountKey,
+    threadKey,
+    externalId,
+    body: medium === "call" ? null : canonicalHtml(optionalBody(input.body, `correspondence[${index}].body`, 2_000_000)),
+    deliveryStatus,
+    callDisposition,
+    callDurationSeconds,
+    providerStatus: optionalText(input.providerStatus, `correspondence[${index}].providerStatus`, 64),
+    occurredAtUtc,
+    sentAtUtc,
+    receivedAtUtc,
+    participants,
+  };
+}
+
+export function normalizeAndroidSyncBatch(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new CorrespondenceSyncInputError("The synchronization body must be an object.");
+  }
+  if (input.protocol !== protocol || input.version !== protocolVersion) {
+    throw new CorrespondenceSyncInputError(`Expected ${protocol} version ${protocolVersion}.`);
+  }
+  const deviceId = requiredText(input.deviceId, "deviceId", 128);
+  if (!/^[A-Za-z0-9._-]{8,128}$/u.test(deviceId)) {
+    throw new CorrespondenceSyncInputError("deviceId must be an opaque ASCII identifier.");
+  }
+  const contacts = boundedArray(input.contacts ?? [], "contacts", 250)
+    .map((contact, index) => normalizedContact(contact, index));
+  const correspondence = boundedArray(input.correspondence ?? [], "correspondence", 500)
+    .map((item, index) => normalizedCorrespondence(item, index, deviceId));
+  const duplicateKeys = new Set();
+  for (const item of correspondence) {
+    const key = `${item.medium}\u0000${item.sourceAccountKey}\u0000${item.externalId}`;
+    if (duplicateKeys.has(key)) {
+      throw new CorrespondenceSyncInputError("A synchronization batch cannot contain duplicate correspondence identities.");
+    }
+    duplicateKeys.add(key);
+  }
+  return { protocol, version: protocolVersion, deviceId, contacts, correspondence };
+}
+
+function contactMethodMatch(database, methods) {
+  const find = database.prepare(`
+    SELECT DISTINCT method.contact_id
+    FROM contact_methods AS method
+    JOIN contacts AS contact USING (contact_id)
+    WHERE method.method_kind = ? AND method.normalized_value = ? AND contact.status = 'active'
+  `);
+  const matches = new Set();
+  for (const method of methods) {
+    for (const row of find.all(method.kind, method.normalizedValue)) matches.add(Number(row.contact_id));
+  }
+  return matches.size === 1 ? [...matches][0] : null;
+}
+
+function appendContactMethods(database, contactId, methods) {
+  const existing = database.prepare(`
+    SELECT method_kind, normalized_value FROM contact_methods WHERE contact_id = ?
+  `).all(contactId);
+  const keys = new Set(existing.map((method) => `${method.method_kind}\u0000${method.normalized_value}`));
+  const insert = database.prepare(`
+    INSERT INTO contact_methods (
+      contact_id, method_kind, label, value, normalized_value, is_primary, can_receive
+    ) VALUES (?, ?, ?, ?, ?, ?, 1)
+  `);
+  let inserted = 0;
+  for (const method of methods) {
+    const key = `${method.kind}\u0000${method.normalizedValue}`;
+    if (keys.has(key)) continue;
+    insert.run(
+      contactId, method.kind, method.label, method.value, method.normalizedValue,
+      method.isPrimary ? 1 : 0,
+    );
+    keys.add(key);
+    inserted += 1;
+  }
+  return inserted;
+}
+
+function upsertContacts(database, batch, now) {
+  const source = `android:${batch.deviceId}`;
+  const findImported = database.prepare(`
+    SELECT contact_id FROM contacts WHERE source = ? AND external_id = ? ORDER BY contact_id LIMIT 1
+  `);
+  const insert = database.prepare(`
+    INSERT INTO contacts (
+      contact_kind, display_name, given_name, family_name, organization_name,
+      status, source, external_id, updated_at_utc
+    ) VALUES ('person', ?, ?, ?, ?, 'active', ?, ?, ?)
+  `);
+  const updateImported = database.prepare(`
+    UPDATE contacts SET display_name = ?, given_name = ?, family_name = ?,
+      organization_name = ?, updated_at_utc = ? WHERE contact_id = ?
+  `);
+  const counts = { created: 0, updated: 0, matched: 0, methodsCreated: 0 };
+  for (const contact of batch.contacts) {
+    const imported = findImported.get(source, contact.externalId);
+    let contactId = imported ? Number(imported.contact_id) : contactMethodMatch(database, contact.methods);
+    if (imported) {
+      updateImported.run(
+        contact.displayName, contact.givenName, contact.familyName,
+        contact.organizationName, now, contactId,
+      );
+      counts.updated += 1;
+    } else if (contactId !== null) {
+      counts.matched += 1;
+    } else {
+      const created = insert.run(
+        contact.displayName, contact.givenName, contact.familyName,
+        contact.organizationName, source, contact.externalId, now,
+      );
+      contactId = Number(created.lastInsertRowid);
+      counts.created += 1;
+    }
+    counts.methodsCreated += appendContactMethods(database, contactId, contact.methods);
+  }
+  return counts;
+}
+
+function resolvedParticipant(database, addressValue) {
+  const normalized = normalizePhone(addressValue);
+  if (!normalized) return { contactId: null, contactMethodId: null };
+  const rows = database.prepare(`
+    SELECT method.contact_method_id, method.contact_id
+    FROM contact_methods AS method
+    JOIN contacts AS contact USING (contact_id)
+    WHERE method.method_kind = 'phone' AND method.normalized_value = ? AND contact.status = 'active'
+    ORDER BY method.contact_id, method.contact_method_id
+  `).all(normalized);
+  const contactIds = new Set(rows.map(({ contact_id: id }) => Number(id)));
+  return contactIds.size === 1
+    ? { contactId: Number(rows[0].contact_id), contactMethodId: Number(rows[0].contact_method_id) }
+    : { contactId: null, contactMethodId: null };
+}
+
+function upsertCorrespondence(database, batch, sourceEventId) {
+  const find = database.prepare(`
+    SELECT correspondence_id FROM correspondence
+    WHERE medium = ? AND source_account_key = ? AND external_id = ?
+  `);
+  const insert = database.prepare(`
+    INSERT INTO correspondence (
+      medium, direction, source_account_key, thread_key, external_id, body,
+      delivery_status, call_disposition, call_duration_seconds, provider_status,
+      occurred_at_utc, sent_at_utc, received_at_utc, source_event_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const update = database.prepare(`
+    UPDATE correspondence SET direction = ?, thread_key = ?, body = ?,
+      delivery_status = ?, call_disposition = ?, call_duration_seconds = ?,
+      provider_status = ?, occurred_at_utc = ?, sent_at_utc = ?, received_at_utc = ?
+    WHERE correspondence_id = ?
+  `);
+  const deleteParticipants = database.prepare(
+    "DELETE FROM correspondence_participants_join WHERE correspondence_id = ?",
+  );
+  const insertParticipant = database.prepare(`
+    INSERT INTO correspondence_participants_join (
+      correspondence_id, participant_role, contact_id, contact_method_id,
+      address_value, display_name
+    ) VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  const counts = { created: 0, updated: 0 };
+  for (const item of batch.correspondence) {
+    const existing = find.get(item.medium, item.sourceAccountKey, item.externalId);
+    let correspondenceId;
+    if (existing) {
+      correspondenceId = Number(existing.correspondence_id);
+      update.run(
+        item.direction, item.threadKey, item.body, item.deliveryStatus,
+        item.callDisposition, item.callDurationSeconds, item.providerStatus,
+        item.occurredAtUtc, item.sentAtUtc, item.receivedAtUtc, correspondenceId,
+      );
+      counts.updated += 1;
+    } else {
+      const created = insert.run(
+        item.medium, item.direction, item.sourceAccountKey, item.threadKey,
+        item.externalId, item.body, item.deliveryStatus, item.callDisposition,
+        item.callDurationSeconds, item.providerStatus, item.occurredAtUtc,
+        item.sentAtUtc, item.receivedAtUtc, sourceEventId,
+      );
+      correspondenceId = Number(created.lastInsertRowid);
+      counts.created += 1;
+    }
+    deleteParticipants.run(correspondenceId);
+    for (const itemParticipant of item.participants) {
+      const participant = resolvedParticipant(database, itemParticipant.addressValue);
+      insertParticipant.run(
+        correspondenceId,
+        item.direction === "inbound" ? "sender" : "recipient",
+        participant.contactId,
+        participant.contactMethodId,
+        itemParticipant.addressValue,
+        itemParticipant.displayName,
+      );
+    }
+  }
+  return counts;
+}
+
+export class CorrespondenceSyncService {
+  constructor({ databaseTarget }) {
+    this.database = openApplicationDatabase(databaseTarget);
+  }
+
+  close() {
+    this.database.close();
+  }
+
+  synchronize(input) {
+    const batch = normalizeAndroidSyncBatch(input);
+    const eventId = randomUUID();
+    const now = new Date().toISOString();
+    this.database.exec("START TRANSACTION");
+    try {
+      this.database.prepare(`
+        INSERT INTO activity_events (
+          event_id, event_type, event_phase, status, actor_type, actor_name,
+          source, channel, name, content_text, payload_json, subject_type, subject_id
+        ) VALUES (?, 'correspondence.sync', 'point', 'complete', 'external', ?,
+          'android_phone', 'mobile', 'Phone correspondence synchronized', ?, ?,
+          'correspondence_sync_batch', ?)
+      `).run(
+        eventId,
+        batch.deviceId,
+        `${batch.contacts.length} contacts and ${batch.correspondence.length} communications received`,
+        safeJson({
+          protocol: batch.protocol,
+          version: batch.version,
+          deviceId: batch.deviceId,
+          receivedContacts: batch.contacts.length,
+          receivedCorrespondence: batch.correspondence.length,
+        }),
+        eventId,
+      );
+      const contacts = upsertContacts(this.database, batch, now);
+      const correspondence = upsertCorrespondence(this.database, batch, eventId);
+      const result = {
+        protocol: batch.protocol,
+        version: batch.version,
+        status: "complete",
+        synchronizedAtUtc: now,
+        contacts: { received: batch.contacts.length, ...contacts },
+        correspondence: { received: batch.correspondence.length, ...correspondence },
+      };
+      this.database.prepare(`
+        UPDATE activity_events SET content_text = ?, payload_json = ? WHERE event_id = ?
+      `).run(
+        `${correspondence.created} new and ${correspondence.updated} refreshed communications; ${contacts.created} new contacts`,
+        safeJson({ ...result, deviceId: batch.deviceId }),
+        eventId,
+      );
+      this.database.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  status(deviceIdValue = null) {
+    const deviceId = deviceIdValue == null ? null : requiredText(deviceIdValue, "deviceId", 128);
+    if (deviceId !== null && !/^[A-Za-z0-9._-]{8,128}$/u.test(deviceId)) {
+      throw new CorrespondenceSyncInputError("deviceId must be an opaque ASCII identifier.");
+    }
+    const prefix = deviceId ? `android:${deviceId}:%` : "android:%";
+    const rows = this.database.prepare(`
+      SELECT medium, COUNT(*) AS count, MAX(occurred_at_utc) AS latest_at_utc
+      FROM correspondence WHERE source_account_key LIKE ?
+      GROUP BY medium ORDER BY CAST(medium AS CHAR)
+    `).all(prefix);
+    return {
+      deviceId,
+      media: rows.map((row) => ({
+        medium: row.medium,
+        count: Number(row.count),
+        latestAtUtc: row.latest_at_utc ?? null,
+      })),
+    };
+  }
+}
+
+export const androidCorrespondenceSyncProtocol = Object.freeze({
+  name: protocol,
+  version: protocolVersion,
+  maximumContactsPerBatch: 250,
+  maximumCorrespondencePerBatch: 500,
+});

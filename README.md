@@ -96,6 +96,32 @@ visible engineering gaps rather than misrepresented as intentional limits.
 The normative cross-domain requirements live in the **Native domain
 consistency invariant** in `AGENT-TOOL-MANIFESTO.md`.
 
+### Android correspondence synchronization contract
+
+The Android app imports phone contacts, call history, SMS, and the textual
+parts of MMS through one authenticated server-owned synchronization endpoint.
+The phone reads those operating-system providers only after their individual
+runtime permissions are granted. Synchronization is a visible foreground
+action: the app must report permission state, progress, completion, and errors
+literally rather than implying that an unavailable source was synchronized.
+
+Each source has its own stable `(timestamp, provider ID)` cursor. The phone may
+persist a returned cursor only after the server atomically commits the complete
+batch. Retrying an unacknowledged batch is safe because correspondence identity
+is unique by medium, source account, and provider ID. The server preserves
+complete available message text as canonical escaped HTML, source timestamps,
+direction, delivery or call status, duration, observed participants, and exact
+observed addresses. It links an address to a contact only when normalized
+matching identifies exactly one contact. Android contacts first match their
+stable source identity, then one unambiguous existing method; otherwise the
+server creates an Android-sourced contact. A synchronization batch and its
+literal activity event commit or roll back together.
+
+This provider-backed path does not claim access to WhatsApp or all RCS data;
+those require separate source integrations. The initial MMS path preserves
+text and participants but does not upload binary attachments. Provider
+deletions are not inferred from absence in an incremental batch.
+
 ## Hats and the user manual
 
 Users may make one or more roles explicit with the convention:
