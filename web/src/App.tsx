@@ -45,7 +45,7 @@ import type {
 import hatOutlineUrl from "./assets/logo-outline-hat.svg";
 
 const navigation = [
-  ["agent", "Agent"], ["search", "Search"], ["hats", "Hats"], ["calendar", "Calendar"], ["routine", "Routine"],
+  ["agent", "Agent"], ["search", "Search"], ["hats", "Hats"], ["routine", "Routine"], ["calendar", "Calendar"],
   ["journal", "Journal"], ["contacts", "Contacts"], ["things", "Things"], ["todos", "To do"],
   ["files", "Files"], ["content", "Library"], ["payments", "Payments"], ["ai-usage", "AI Usage"],
   ["video-scripts", "Video Scripts"],
@@ -184,7 +184,11 @@ function compareTodoDisplayOrder(left: Entity, right: Entity) {
 function PageHeading({ eyebrow, title, detail, groupFilter, actions }: {
   eyebrow: string; title: string; detail?: string; groupFilter?: ReactNode; actions?: ReactNode;
 }) {
-  return <header className="page-heading"><div className="page-heading-copy"><p className="eyebrow">{eyebrow}</p><div className="page-heading-title"><h1>{title}</h1>{groupFilter}</div>{detail && <p>{detail}</p>}</div>{actions && <div className="heading-actions">{actions}</div>}</header>;
+  return <header className={`page-heading${groupFilter ? " page-heading--grouped" : ""}`}>
+    <div className="page-heading-copy"><p className="eyebrow">{eyebrow}</p><h1>{title}</h1>{detail && <p>{detail}</p>}</div>
+    {groupFilter && <div className="heading-group-yard">{groupFilter}</div>}
+    {actions && <div className="heading-actions">{actions}</div>}
+  </header>;
 }
 
 type GroupFilterOption = { value: string; label: string; count: number };

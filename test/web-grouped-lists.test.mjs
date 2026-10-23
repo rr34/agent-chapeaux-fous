@@ -94,6 +94,18 @@ test("the requested grouped sections put counted one-click filters beside their 
   assert.match(styles, /\.heading-group-button\.is-active/);
 });
 
+test("desktop group filters use the heading width and group cards stay horizontally compact", () => {
+  assert.match(appSource, /className=\{`page-heading\$\{groupFilter \? " page-heading--grouped" : ""\}`\}/);
+  assert.match(appSource, /heading-group-yard/);
+  assert.match(styles, /\.page-heading--grouped \{[^}]*display: grid;[^}]*grid-template-columns:/);
+  assert.match(styles, /\.heading-group-yard \{[^}]*border-left: 1px solid var\(--line\)/);
+  assert.match(styles, /\.heading-group-filter \{[^}]*flex-wrap: wrap/);
+  assert.match(styles, /\.todo-group-card, \.library-group-card, \.journal-group-card, \.physical-item-group-card \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto auto/);
+  assert.match(styles, /\.todo-group-card \.first-class-object-content[^}]*display: flex;[^}]*flex-wrap: wrap/);
+  assert.match(styles, /\.todo-group-card \.first-class-object-details[^}]*grid-column: auto/);
+  assert.match(styles, /@media \(max-width: 700px\)[\s\S]*\.page-heading--grouped \{ display: flex; \}/);
+});
+
 test("contacts expose a tag filter and combine it with group and text filtering", () => {
   const contacts = screenSource("ContactsScreen", "LibraryScreen");
   assert.match(contacts, /<SectionSelectFilter label="Tag"/);
@@ -137,6 +149,6 @@ test("persisted group headers expose the shared editor while synthetic groups do
 test("workspace sections use the intended navigation order", () => {
   assert.match(
     appSource,
-    /\["agent", "Agent"\], \["search", "Search"\], \["hats", "Hats"\], \["calendar", "Calendar"\], \["routine", "Routine"\],\s*\["journal", "Journal"\], \["contacts", "Contacts"\], \["things", "Things"\], \["todos", "To do"\],\s*\["files", "Files"\], \["content", "Library"\], \["payments", "Payments"\], \["ai-usage", "AI Usage"\],\s*\["video-scripts", "Video Scripts"\]/,
+    /\["agent", "Agent"\], \["search", "Search"\], \["hats", "Hats"\], \["routine", "Routine"\], \["calendar", "Calendar"\],\s*\["journal", "Journal"\], \["contacts", "Contacts"\], \["things", "Things"\], \["todos", "To do"\],\s*\["files", "Files"\], \["content", "Library"\], \["payments", "Payments"\], \["ai-usage", "AI Usage"\],\s*\["video-scripts", "Video Scripts"\]/,
   );
 });
