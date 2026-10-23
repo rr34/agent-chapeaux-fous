@@ -803,8 +803,10 @@ export class Ledger {
       : null;
     const selectedObjectCandidates = Array.isArray(request.payload?.selectedObjectCandidates)
       ? request.payload.selectedObjectCandidates.map(({
-        mention, type, source, id, ref, display,
-      }) => ({ mention, type, source, id, ref, display }))
+        mention, type, source, id, ref, display, occurrenceStartsAtUtc,
+      }) => ({ mention, type, source, id, ref, display,
+        ...(occurrenceStartsAtUtc ? { occurrenceStartsAtUtc } : {}),
+      }))
       : [];
     const attachedObjectCount = selectedObjectCandidates.length + (
       Array.isArray(request.payload?.referencedRequestIds)

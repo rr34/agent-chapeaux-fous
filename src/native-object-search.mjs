@@ -85,6 +85,19 @@ function compact(value, maximum) {
   return text ? text.slice(0, maximum) : null;
 }
 
+function canonicalOccurrenceStartsAtUtc(value, definition, index) {
+  if (value == null) return null;
+  if (definition?.domainType !== "calendar.event" || typeof value !== "string"
+      || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)) {
+    throw new TypeError(`selectedObjectCandidates[${index}].occurrenceStartsAtUtc is not a valid calendar occurrence identity.`);
+  }
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString() !== value) {
+    throw new TypeError(`selectedObjectCandidates[${index}].occurrenceStartsAtUtc is not a valid calendar occurrence identity.`);
+  }
+  return value;
+}
+
 function descriptiveObjectMention(display, label, id) {
   const suffix = ` — ${label} #${String(id)}`;
   const maximumDisplayCharacters = Math.max(1, 499 - suffix.length);
@@ -106,6 +119,9 @@ export function normalizeSelectedObjectCandidates(value, { maximum = maximumSele
     const id = canonicalCandidateId(candidate?.id, definition);
     const display = compact(candidate?.display, 500);
     const mention = compact(candidate?.mention, 500);
+    const occurrenceStartsAtUtc = canonicalOccurrenceStartsAtUtc(
+      candidate?.occurrenceStartsAtUtc, definition, index,
+    );
     const expectedRef = id == null ? null : `${definition.refPrefix}${encodeURIComponent(String(id))}`;
     const acceptedMentions = display && id != null
       ? new Set([`@${display}`, descriptiveObjectMention(display, definition.label, id)])
@@ -114,10 +130,13 @@ export function normalizeSelectedObjectCandidates(value, { maximum = maximumSele
         || candidate?.ref !== expectedRef) {
       throw new TypeError(`selectedObjectCandidates[${index}] is not a valid ${definition.label} identity.`);
     }
-    if (seen.has(expectedRef)) continue;
-    seen.add(expectedRef);
+    const selectionKey = `${expectedRef}\n${occurrenceStartsAtUtc ?? "object"}`;
+    if (seen.has(selectionKey)) continue;
+    seen.add(selectionKey);
     output.push({ mention, type: definition.domainType, source: definition.source,
-      id, ref: expectedRef, display });
+      id, ref: expectedRef, display,
+      ...(occurrenceStartsAtUtc ? { occurrenceStartsAtUtc } : {}),
+    });
   }
   return output;
 }
@@ -442,10 +461,12 @@ export function resolveNativeObjectCandidates(database, selectedCandidates = [])
   for (const selection of normalized) {
     const definition = selectableByDomainType.get(selection.type);
     const read = exactCandidateReads[definition.type];
-    const row = database.prepare(`SELECT ${read.display} AS title FROM ${definition.table}
+    const row = database.prepare(`SELECT ${read.display} AS title${
+      selection.occurrenceStartsAtUtc ? ", recurrence_rule" : ""
+    } FROM ${definition.table}
       WHERE ${definition.key} = ? AND ${read.where} LIMIT 1`).get(selection.id);
     const title = compact(row?.title, 160);
-    if (!title) continue;
+    if (!title || (selection.occurrenceStartsAtUtc && !row?.recurrence_rule)) continue;
     const producerFields = definition.type === definition.domainType ? {
       [definition.producerIdentityField]: selection.id,
       [definition.producerReferenceField]: selection.ref,
@@ -456,6 +477,9 @@ export function resolveNativeObjectCandidates(database, selectedCandidates = [])
       table: definition.table, id: selection.id, ref: selection.ref,
       label: definition.label, title, detail: "", matchedOn: ["selected stable reference"],
       related: [], ...producerFields,
+      ...(selection.occurrenceStartsAtUtc ? {
+        occurrenceStartsAtUtc: selection.occurrenceStartsAtUtc,
+      } : {}),
     });
   }
   return resolved;
@@ -475,7 +499,15 @@ export function registerNativeObjectContextView(registry, organizer, searchCoord
       const selected = typeof organizer.resolveNativeObjectCandidates === "function"
         ? organizer.resolveNativeObjectCandidates(selectedObjectCandidates)
         : [];
-      const objects = [...selected, ...result.objects]
+      const selectedOccurrences = selected.flatMap((object) => object.occurrenceStartsAtUtc ? [{
+        type: object.domainType,
+        id: object.id,
+        ref: object.ref,
+        display: object.title,
+        occurrenceStartsAtUtc: object.occurrenceStartsAtUtc,
+      }] : []);
+      const selectedObjects = selected.map(({ occurrenceStartsAtUtc: _occurrence, ...object }) => object);
+      const objects = [...selectedObjects, ...result.objects]
         .filter((object, index, values) => values.findIndex(({ ref }) => ref === object.ref) === index);
       return {
         source: result.source,
@@ -484,10 +516,11 @@ export function registerNativeObjectContextView(registry, organizer, searchCoord
           objects,
           selectedCount: selectedObjectCandidates.length,
           resolvedSelectedCount: selected.length,
+          ...(selectedOccurrences.length ? { selectedOccurrences } : {}),
           lexicalCandidateCount: result.objects.length,
         },
         count: objects.length,
-        text: JSON.stringify({ objects }),
+        text: JSON.stringify({ objects, ...(selectedOccurrences.length ? { selectedOccurrences } : {}) }),
       };
     },
   });

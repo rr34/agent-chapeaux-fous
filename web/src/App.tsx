@@ -9,7 +9,7 @@ import { CalendarEventEditor, ContactEditor, LibraryContentEditor, PhysicalItemE
 import { TrackerSchedule } from "./components/TrackerSchedule";
 import { SectionFilter } from "./components/SectionFilter";
 import { Markdown } from "./components/Markdown";
-import { ObjectSelectionProvider } from "./components/ObjectSelectionContext";
+import { ObjectSelectionProvider, objectSelectionKey } from "./components/ObjectSelectionContext";
 import { ContactCard } from "./components/object-cards/ContactCard";
 import { FileCard } from "./components/object-cards/FileCard";
 import { InvoiceCard } from "./components/object-cards/InvoiceCard";
@@ -2943,9 +2943,10 @@ function Workspace() {
   const [traceError, setTraceError] = useState<unknown>(null);
   const go = (next: string) => { setView(next); history.replaceState(null, "", `#${next}`); };
   const toggleObjectSelection = (identity: SelectedObjectCandidate) => {
-    const selected = agentObjectSelections.find(({ ref }) => ref === identity.ref);
+    const identityKey = objectSelectionKey(identity);
+    const selected = agentObjectSelections.find((candidate) => objectSelectionKey(candidate) === identityKey);
     if (selected) {
-      setAgentObjectSelections((current) => current.filter(({ ref }) => ref !== identity.ref));
+      setAgentObjectSelections((current) => current.filter((candidate) => objectSelectionKey(candidate) !== identityKey));
       if (selected.selectionOrigin === "mention") {
         setAgentDraft((current) => current.replaceAll(selected.mention, "").replace(/ {2,}/gu, " ").trimStart());
       }
@@ -2960,7 +2961,8 @@ function Workspace() {
     setAgentObjectSelections((current) => [...current, { ...identity, selectionOrigin: "card" }]);
   };
   const reuseObjectMention = (selection: PersistedObjectCandidate) => {
-    const existingSelection = agentObjectSelections.find(({ ref }) => ref === selection.ref);
+    const selectionKey = objectSelectionKey(selection);
+    const existingSelection = agentObjectSelections.find((candidate) => objectSelectionKey(candidate) === selectionKey);
     const existingMentionStart = agentDraft.indexOf(selection.mention);
     if (!existingSelection && agentObjectSelections.length >= maximumObjectReferences) {
       setAgentSelectionNotice(`A request can reference at most ${maximumObjectReferences} objects. Nothing was selected or truncated.`);
@@ -2986,7 +2988,7 @@ function Workspace() {
       cursor = inserted.cursor;
     }
     setAgentObjectSelections((current) => [
-      ...current.filter(({ ref }) => ref !== selection.ref),
+      ...current.filter((candidate) => objectSelectionKey(candidate) !== selectionKey),
       stagedSelection,
     ]);
     setAgentSelectionNotice(existingMentionStart < 0

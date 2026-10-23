@@ -1028,7 +1028,36 @@ export class OrganizerStore {
   }
 
   resolveNativeObjectCandidates(selectedCandidates = []) {
-    return resolveNativeObjectCandidates(this.database, selectedCandidates);
+    const resolved = resolveNativeObjectCandidates(this.database, selectedCandidates);
+    const occurrences = resolved
+      .filter(({ occurrenceStartsAtUtc }) => occurrenceStartsAtUtc)
+      .sort((left, right) => left.occurrenceStartsAtUtc.localeCompare(right.occurrenceStartsAtUtc));
+    if (!occurrences.length) return resolved;
+
+    const verified = new Set();
+    for (let start = 0; start < occurrences.length;) {
+      let end = start + 1;
+      const fromMs = Date.parse(occurrences[start].occurrenceStartsAtUtc);
+      while (end < occurrences.length
+          && Date.parse(occurrences[end].occurrenceStartsAtUtc) - fromMs < 369 * dayMilliseconds) {
+        end += 1;
+      }
+      const toMs = Date.parse(occurrences[end - 1].occurrenceStartsAtUtc) + 1;
+      for (const occurrence of this.listCalendar({
+        from: new Date(fromMs).toISOString(),
+        to: new Date(toMs).toISOString(),
+        strictBounds: true,
+        includeBirthdays: false,
+      })) {
+        if (!occurrence.isGeneratedOccurrence || occurrence.seriesId == null) continue;
+        verified.add(`${occurrence.seriesId}\n${occurrence.startsAtUtc}`);
+      }
+      start = end;
+    }
+
+    return resolved.filter(({ id, occurrenceStartsAtUtc }) => (
+      !occurrenceStartsAtUtc || verified.has(`${id}\n${occurrenceStartsAtUtc}`)
+    ));
   }
 
   filterModelVisibleObjectReferences(groups = []) {

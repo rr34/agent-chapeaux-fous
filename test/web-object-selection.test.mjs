@@ -17,11 +17,21 @@ test("every card selection stages one exact object in the shared Agent request s
   assert.match(controls, /selection\.toggleSelection\(identity\)/);
   assert.match(network, /selection\.toggleSelection/);
   assert.match(context, /ObjectSelectionContext\.Provider/);
+  assert.match(context, /occurrenceStartsAtUtc/);
+  assert.match(context, /objectSelectionKey/);
   assert.match(app, /<ObjectSelectionProvider selections=\{agentObjectSelections\} toggleSelection=\{toggleObjectSelection\}>/);
   assert.match(app, /selectionOrigin: "card"/);
   const toggleStart = app.indexOf("const toggleObjectSelection =");
   const toggleEnd = app.indexOf("const reuseObjectMention =", toggleStart);
   assert.doesNotMatch(app.slice(toggleStart, toggleEnd), /insertObjectMentions/);
+});
+
+test("recurring occurrence cards retain their timestamp and select independently", () => {
+  assert.match(controls, /event\.isGeneratedOccurrence/);
+  assert.match(controls, /occurrenceStartsAtUtc: event\.startsAtUtc/);
+  assert.match(controls, /objectSelectionKey\(identity\)/);
+  assert.match(app, /objectSelectionKey\(candidate\) === identityKey/);
+  assert.match(app, /objectSelectionKey\(candidate\) !== identityKey/);
 });
 
 test("the composer counts selections by object type without duplicating selected cards", () => {

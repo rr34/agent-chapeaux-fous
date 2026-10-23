@@ -63,7 +63,7 @@ test("clicking a submitted object mention stages it in the next request", () => 
   assert.match(app, /const reuseObjectMention = \(selection: PersistedObjectCandidate\) =>/);
   assert.match(app, /insertObjectMentions\(agentDraft, \[selection\.mention\], agentComposerSelection\)/);
   assert.match(app, /selectionOrigin: "mention"/);
-  assert.match(app, /current\.filter\(\(\{ ref \}\) => ref !== selection\.ref\)/);
+  assert.match(app, /current\.filter\(\(candidate\) => objectSelectionKey\(candidate\) !== selectionKey\)/);
   assert.match(app, /is already in the next request/);
   assert.match(app, /onReuseObjectMention=\{reuseObjectMention\}/);
 });

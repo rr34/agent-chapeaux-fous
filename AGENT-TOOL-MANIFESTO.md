@@ -423,6 +423,16 @@ Retrieved evidence passes through the search engine before it enters later
 model context. The LLM decides what the user meant; the application verifies
 identity.
 
+A checked computed RRULE calendar occurrence retains one additional typed
+selection qualifier: its exact original UTC occurrence start. The recurring
+master remains the first-class calendar-event identity and tool-bound object;
+the qualifier identifies which generated occurrence of that master the user
+checked. Selection deduplication uses the master reference plus this qualifier,
+so multiple checked occurrences of one series remain distinct. The server
+validates the compact qualifier and rereads the master before execution. It
+does not retain arbitrary card-detail prose, and the qualifier neither creates
+a new first-class object nor authorizes a calendar mutation.
+
 The interaction surface may also present the durable request history as an
 object stream beside the complete conversation view. Each interaction shows the
 hat or accepted capability family that performed the work, followed by bounded

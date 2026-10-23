@@ -145,6 +145,43 @@ test("orientation contains families and selections but no exact tool catalog", (
   assert.match(commonSenseInstructions, /not proof that every member is a current target/i);
 });
 
+test("orientation and execution preserve exact selected recurring occurrences", () => {
+  const selectedObjectCandidates = ["2026-10-21T20:15:00.000Z", "2026-10-28T20:15:00.000Z"]
+    .map((occurrenceStartsAtUtc) => ({
+      mention: "@Vince Art Class", type: "calendar.event", source: "native:calendar",
+      id: 2948, ref: "agent-slayer://calendar-events/2948", display: "Vince Art Class",
+      occurrenceStartsAtUtc,
+    }));
+  const orientation = commonSenseContext({
+    requestId: "request-occurrences",
+    requestEventSeq: 9,
+    requestText: "Move these to Thursday.",
+    recentConversation: [],
+    capabilityCatalog: [{
+      capability: "calendar", title: "Calendar", summary: "Manage calendar events.",
+      tools: [], contextViews: [],
+    }],
+    selectedObjectCandidates,
+  });
+  assert.match(orientation, /2026-10-21T20:15:00\.000Z/u);
+  assert.match(orientation, /2026-10-28T20:15:00\.000Z/u);
+  assert.match(orientation, /one-occurrence rather than whole-series scope/u);
+
+  const execution = commonSenseExecutionInstructions(
+    validCore(), [], [], [], selectedObjectCandidates,
+  );
+  assert.match(execution, /Exact selected calendar occurrences/u);
+  assert.match(execution, /several entries share one recurring-master ref/u);
+  assert.match(execution, /2026-10-28T20:15:00\.000Z/u);
+
+  const audit = auditContext({
+    core: validCore(), receipts: [], executorResponse: "Done.",
+    selectedObjectCandidates,
+  });
+  assert.match(audit, /Exact selected calendar occurrences/u);
+  assert.match(audit, /2026-10-21T20:15:00\.000Z/u);
+});
+
 test("orientation omits empty sections and serializes calendar evidence", () => {
   const context = commonSenseContext({
     requestId: "request-2",

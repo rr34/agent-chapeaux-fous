@@ -217,7 +217,11 @@ composer shows only the selected count while the source cards remain the sole
 object visualization. The optional `@` picker can also search native objects in
 fixed domain groups and insert an inline mention. Both paths retain the exact
 type, source, primary ID, stable reference, and display name in request
-metadata. The server validates each identity tuple, automatically rereads it
+metadata. When a checked calendar card is a computed RRULE occurrence, the
+metadata also retains its exact original UTC occurrence start as a typed
+qualifier; that qualifier distinguishes multiple checked occurrences of the
+same recurring master without copying the card's presentation text. The server
+validates each identity tuple and occurrence qualifier, automatically rereads it
 through the bounded native-object context view, and exposes the verified exact
 binding to execution. The orienter refers to selected objects only by their
 stable references. Selection identifies an object; it never authorizes a write.

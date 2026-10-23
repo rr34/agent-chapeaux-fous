@@ -281,9 +281,18 @@ function compactCapabilityCatalog(catalog) {
 }
 
 function selectedObjects(selectedObjectCandidates) {
-  return selectedObjectCandidates.map(({ mention, type, source, id, ref, display }) => ({
+  return selectedObjectCandidates.map(({
+    mention, type, source, id, ref, display, occurrenceStartsAtUtc,
+  }) => ({
     mention, type, source, id, ref, display,
+    ...(occurrenceStartsAtUtc ? { occurrenceStartsAtUtc } : {}),
   }));
+}
+
+function selectedCalendarOccurrenceScopes(selectedObjectCandidates) {
+  return selectedObjectCandidates.flatMap(({
+    type, id, ref, display, occurrenceStartsAtUtc,
+  }) => occurrenceStartsAtUtc ? [{ type, id, ref, display, occurrenceStartsAtUtc }] : []);
 }
 
 export function commonSenseContext({
@@ -314,7 +323,7 @@ export function commonSenseContext({
     "",
     ...(selected.length ? [
       "## Explicit composer selections",
-      "These objects were explicitly selected with the request. Treat words such as this, that, these, those, it, and them as referring to these selections when ordinary language supports it. The application will verify their exact identities after orientation.",
+      "These objects were explicitly selected with the request. Treat words such as this, that, these, those, it, and them as referring to these selections when ordinary language supports it. The application will verify their exact identities after orientation. For a calendar selection, occurrenceStartsAtUtc identifies the exact computed occurrence the user checked; it establishes one-occurrence rather than whole-series scope, and multiple qualified selections from the same event remain distinct.",
       JSON.stringify(selected, null, 2),
       "",
     ] : []),
@@ -359,7 +368,9 @@ export function commonSenseContext({
 
 export function commonSenseExecutionInstructions(
   core, objectReferences, confirmedActionReferences = [], referenceSets = [],
+  selectedObjectCandidates = [],
 ) {
+  const selectedOccurrences = selectedCalendarOccurrenceScopes(selectedObjectCandidates);
   return [
     "# Accepted common-sense core",
     "Carry out the ordinary-language objective below. The requested outcome, exact bound targets, and explicit constraints remain authoritative. Tool results are authoritative for current facts. When current evidence contradicts a factual premise in the request, explain the discrepancy and use the evidenced current scope; never fabricate missing records or silently replace an exact bound set or explicitly requested historical snapshot. Handle each action completely and use bulk tools for batch targets when available. A successful owning-domain read is sufficient evidence for facts it returned: do not use generic database, schema, or receipt tools to rediscover, validate, recount, or reinterpret those same facts. Use those generic reads only for a specific required fact absent from the current owning result. For non-completeness-sensitive bulk analysis, project read results to the needed fields with result_filter, including nested dot paths, and retain the correlation and pagination fields needed to judge completeness.",
@@ -369,6 +380,12 @@ export function commonSenseExecutionInstructions(
     "These are the exact application-verified identities relevant to the request. Use their IDs directly. Do not rediscover an explicitly selected object by searching its display name. A singleton tool must not silently choose one object from a batch; use a bulk-shaped operation or clearly report the limitation.",
     JSON.stringify(compactObjectReferenceContext(objectReferences), null, 2),
     "",
+    ...(selectedOccurrences.length ? [
+      "# Exact selected calendar occurrences",
+      "Each entry is a separate composer-selected occurrence, even when several entries share one recurring-master ref. Use the master ID with the exact occurrenceStartsAtUtc as the original occurrence identity. This selection establishes occurrence scope; do not ask whether the user meant the whole series.",
+      JSON.stringify(selectedOccurrences, null, 2),
+      "",
+    ] : []),
     "# Verified object and relationship sets",
     "Object sets are exact membership snapshots. Relationship sets are exact typed directed edge snapshots: preserve each fromRef → toRef pair and its fromType → toType contract; never infer a Cartesian product or collapse multiple targets to one endpoint.",
     JSON.stringify(compactReferenceSets(referenceSets), null, 2),
@@ -383,7 +400,9 @@ export function commonSenseExecutionInstructions(
 
 export function auditContext({
   core, receipts, executorResponse, deterministicFindings = [], reasons = [], callableTools = [],
+  selectedObjectCandidates = [],
 }) {
+  const selectedOccurrences = selectedCalendarOccurrenceScopes(selectedObjectCandidates);
   return [
     "# Exceptional completion audit",
     "This request triggered a semantic audit because deterministic receipt checks were insufficient. Compare the accepted common-sense objective with literal receipts and the proposed response. The requested outcome and exact bound scope remain authoritative, while receipts are authoritative for current facts. An explicitly reconciled factual premise is not an omitted target; never demand nonexistent current records unless the request identifies an exact bound set or historical snapshot. Do not treat cancellation, archival, deletion, creation, or update as interchangeable unless the owning tool contract or receipt explicitly establishes that meaning.",
@@ -394,6 +413,11 @@ export function auditContext({
     "## Accepted common-sense core",
     JSON.stringify(core, null, 2),
     "",
+    ...(selectedOccurrences.length ? [
+      "## Exact selected calendar occurrences",
+      JSON.stringify(selectedOccurrences, null, 2),
+      "",
+    ] : []),
     "## Tool receipts",
     JSON.stringify(receipts, null, 2),
     "",

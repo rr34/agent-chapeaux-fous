@@ -272,6 +272,84 @@ test("composer object selections retain exact searchable identity fields", () =>
   }]);
 });
 
+test("composer calendar selections retain distinct exact occurrences of one recurring master", () => {
+  const base = {
+    mention: "@Vince Art Class",
+    type: "calendar.event",
+    source: "native:calendar",
+    id: 2948,
+    ref: "agent-slayer://calendar-events/2948",
+    display: "Vince Art Class",
+  };
+  const first = { ...base, occurrenceStartsAtUtc: "2026-10-21T20:15:00.000Z" };
+  const second = { ...base, occurrenceStartsAtUtc: "2026-10-28T20:15:00.000Z" };
+
+  assert.deepEqual(normalizeSelectedObjectCandidates([first, second, first]), [first, second]);
+  assert.throws(() => normalizeSelectedObjectCandidates([{
+    ...first, occurrenceStartsAtUtc: "2026-10-21 20:15",
+  }]), /not a valid calendar occurrence identity/u);
+  assert.throws(() => normalizeSelectedObjectCandidates([{
+    mention: "@Task", type: "todos.personal_task", source: "native:todos",
+    id: 7, ref: "agent-slayer://todos/7", display: "Task",
+    occurrenceStartsAtUtc: "2026-10-21T20:15:00.000Z",
+  }]), /not a valid calendar occurrence identity/u);
+});
+
+test("exact occurrence selections reread a recurring master and reject a non-recurring event", () => {
+  const rows = new Map([
+    [2948, { title: "Vince Art Class", recurrence_rule: "FREQ=WEEKLY;BYDAY=WE" }],
+    [3000, { title: "One-time meeting", recurrence_rule: null }],
+  ]);
+  const database = { prepare(sql) {
+    assert.match(sql, /recurrence_rule/u);
+    return { get(id) { return rows.get(id); } };
+  } };
+  const selection = (id, display) => ({
+    mention: `@${display}`, type: "calendar.event", source: "native:calendar",
+    id, ref: `agent-slayer://calendar-events/${id}`, display,
+    occurrenceStartsAtUtc: "2026-10-21T20:15:00.000Z",
+  });
+
+  const resolved = resolveNativeObjectCandidates(database, [
+    selection(2948, "Vince Art Class"), selection(3000, "One-time meeting"),
+  ]);
+  assert.equal(resolved.length, 1);
+  assert.equal(resolved[0].id, 2948);
+  assert.equal(resolved[0].occurrenceStartsAtUtc, "2026-10-21T20:15:00.000Z");
+});
+
+test("the organizer verifies selected occurrence timestamps against the current expanded series", () => {
+  const database = { prepare() {
+    return { get() { return { title: "Vince Art Class", recurrence_rule: "FREQ=WEEKLY;BYDAY=WE" }; } };
+  } };
+  const selectedCandidates = ["2026-10-21T20:15:00.000Z", "2026-10-28T20:15:00.000Z"]
+    .map((occurrenceStartsAtUtc) => ({
+      mention: "@Vince Art Class", type: "calendar.event", source: "native:calendar",
+      id: 2948, ref: "agent-slayer://calendar-events/2948", display: "Vince Art Class",
+      occurrenceStartsAtUtc,
+    }));
+  const holder = {
+    database,
+    listCalendar({ from, to, strictBounds, includeBirthdays }) {
+      assert.equal(from, "2026-10-21T20:15:00.000Z");
+      assert.equal(to, "2026-10-28T20:15:00.001Z");
+      assert.equal(strictBounds, true);
+      assert.equal(includeBirthdays, false);
+      return [{
+        id: "recurrence:2948:2026-10-21T20:15:00.000Z",
+        seriesId: 2948,
+        startsAtUtc: "2026-10-21T20:15:00.000Z",
+        isGeneratedOccurrence: true,
+      }];
+    },
+  };
+
+  const resolved = OrganizerStore.prototype.resolveNativeObjectCandidates.call(holder, selectedCandidates);
+  assert.deepEqual(resolved.map(({ occurrenceStartsAtUtc }) => occurrenceStartsAtUtc), [
+    "2026-10-21T20:15:00.000Z",
+  ]);
+});
+
 test("searchable invoices remain rereadable by exact stable reference", () => {
   let statement = "";
   const database = { prepare(sql) {

@@ -2,7 +2,7 @@ import type { CalendarEvent, Entity, LinkedTodo, RequestRecord, SelectedObjectCa
 import { formatDisplayDate, formatDisplayTime } from "../date-format";
 import { ObjectNetworkButton } from "./ObjectNetworkButton";
 import { ObjectCardSelectionCheckbox } from "./object-cards/ObjectCardButtons";
-import { useObjectSelection } from "./ObjectSelectionContext";
+import { objectSelectionKey, useObjectSelection } from "./ObjectSelectionContext";
 
 function concise(value: unknown, maximum = 200) {
   const text = String(value ?? "").replace(/\s+/gu, " ").trim();
@@ -50,7 +50,8 @@ export function ObjectSelectionControls({ identity, subject }: {
   subject: string;
 }) {
   const selection = useObjectSelection();
-  const selected = selection?.selections.some(({ ref }) => ref === identity.ref) ?? false;
+  const identityKey = objectSelectionKey(identity);
+  const selected = selection?.selections.some((candidate) => objectSelectionKey(candidate) === identityKey) ?? false;
   const label = `${selected ? "Remove" : "Select"} ${subject} ${selected ? "from" : "for"} the next Agent request`;
   return <span className="object-card-controls">
     <ObjectNetworkButton identity={identity} subject={subject} />
@@ -101,10 +102,13 @@ export function calendarEventIdentity(event: CalendarEvent, timeZone?: string) {
     event.location ? `Where: ${concise(event.location, 120)}` : null,
     referenceCode(codes),
   ].filter(Boolean).join("\n");
-  return nativeReference({
+  const identity = nativeReference({
     type: "calendar.event", source: "native:calendar", id: numericEventId,
     collection: "calendar-events", label: "Calendar event", display: event.title, detail,
   });
+  return event.isGeneratedOccurrence
+    ? { ...identity, occurrenceStartsAtUtc: event.startsAtUtc }
+    : identity;
 }
 
 export function todoIdentity(todo: Entity | LinkedTodo) {

@@ -54,12 +54,17 @@ Do not confuse a calendar routine with an RRULE recurring calendar-event master.
 When updating an RRULE event, distinguish just one computed occurrence from the
 whole series. A plan for one computed RRULE occurrence belongs to
 `calendar_event_occurrence_update` with the series ID and exact original
-occurrence start from `calendar_event_list`.
+occurrence start from `calendar_event_list` or an exact composer-selected
+occurrence. A composer selection carrying `occurrenceStartsAtUtc` identifies
+that one computed occurrence; several such selections from the same master
+identify those exact occurrences independently and do not imply a series-wide
+change.
 Use `calendar_event_update` with `scope="series"` only when the user requests a
 whole-series change: it changes the recurring master and all generated past and
 future occurrences, while separately edited exceptions are not rewritten. Use
 `scope="event"` for a one-time event, a routine-generated concrete event, or an
 already materialized RRULE exception. If the request does not establish scope,
 explain the effect and offer “just this occurrence” or “the whole series” before
-making changes. An explicit date or whole-series request already establishes
-scope; do not ask again. State the applied scope when confirming the change.
+making changes. An explicit date, whole-series request, or exact
+composer-selected occurrence already establishes scope; do not ask again.
+State the applied scope when confirming the change.

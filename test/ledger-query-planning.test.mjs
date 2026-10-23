@@ -99,12 +99,13 @@ test("initial incremental loading projects only feed fields for recent requests"
     ...requestRow("turn-1", 1),
     payload_json: JSON.stringify({
       selectedObjectCandidates: [{
-        mention: "@Lucas Ruffing — Contact #7",
-        type: "contacts.contact",
-        source: "native:contacts",
-        id: 7,
-        ref: "agent-slayer://contacts/7",
-        display: "Lucas Ruffing",
+        mention: "@Vince Art Class",
+        type: "calendar.event",
+        source: "native:calendar",
+        id: 2948,
+        ref: "agent-slayer://calendar-events/2948",
+        display: "Vince Art Class",
+        occurrenceStartsAtUtc: "2026-10-21T20:15:00.000Z",
       }],
       referencedRequestIds: ["exchange-1", "exchange-2"],
     }),
@@ -147,12 +148,13 @@ test("initial incremental loading projects only feed fields for recent requests"
   assert.equal(result.requests[0].status, "complete");
   assert.equal(result.requests[0].attachedObjectCount, 3);
   assert.deepEqual(result.requests[0].selectedObjectCandidates, [{
-    mention: "@Lucas Ruffing — Contact #7",
-    type: "contacts.contact",
-    source: "native:contacts",
-    id: 7,
-    ref: "agent-slayer://contacts/7",
-    display: "Lucas Ruffing",
+    mention: "@Vince Art Class",
+    type: "calendar.event",
+    source: "native:calendar",
+    id: 2948,
+    ref: "agent-slayer://calendar-events/2948",
+    display: "Vince Art Class",
+    occurrenceStartsAtUtc: "2026-10-21T20:15:00.000Z",
   }]);
   assert.equal("steps" in result.requests[0], false);
   assert.equal("objectActivity" in result.requests[0], false);

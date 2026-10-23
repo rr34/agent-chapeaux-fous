@@ -6,6 +6,12 @@ interface ObjectSelectionValue {
   toggleSelection: (identity: SelectedObjectCandidate) => void;
 }
 
+export function objectSelectionKey({ ref, occurrenceStartsAtUtc }: Pick<
+  SelectedObjectCandidate, "ref" | "occurrenceStartsAtUtc"
+>) {
+  return occurrenceStartsAtUtc ? `${ref}\noccurrence:${occurrenceStartsAtUtc}` : ref;
+}
+
 const ObjectSelectionContext = createContext<ObjectSelectionValue | null>(null);
 
 export function ObjectSelectionProvider({ selections, toggleSelection, children }: ObjectSelectionValue & { children: ReactNode }) {

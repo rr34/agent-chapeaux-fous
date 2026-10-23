@@ -208,6 +208,7 @@ export interface SelectedObjectCandidate {
   display: string;
   label: string;
   detail?: string;
+  occurrenceStartsAtUtc?: string;
   referencedRequestId?: string;
   selectionOrigin?: "card" | "mention";
 }
@@ -219,6 +220,7 @@ export interface PersistedObjectCandidate {
   id: number | string;
   ref: string;
   display: string;
+  occurrenceStartsAtUtc?: string;
 }
 
 export interface NetworkObject {
