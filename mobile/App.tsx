@@ -6,16 +6,18 @@ import {
   useAudioRecorderState,
 } from 'expo-audio';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -23,15 +25,15 @@ import {
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
-import ChapeauxNative from './modules/chapeaux-native/src/ChapeauxNativeModule';
+import TimeV3Native from './modules/time-v3-native/src/TimeV3NativeModule';
 import {
   ApiError,
   fetchRequests,
-  normalizeBaseUrl,
   submitText,
   submitVoice,
   verifyConnection,
 } from './src/api';
+import { productionServerUrl } from './src/config';
 import {
   loadConnectionSettings,
   saveConnectionSettings,
@@ -65,24 +67,44 @@ function ConnectionModal({
   onConnected: (settings: ConnectionSettings, health: Health) => void;
   onCancel: (() => void) | null;
 }) {
-  const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? '');
   const [accessToken, setAccessToken] = useState(initial?.accessToken ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const setupScrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
     if (!visible) return;
-    setBaseUrl(initial?.baseUrl ?? '');
     setAccessToken(initial?.accessToken ?? '');
     setError('');
   }, [initial, visible]);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSubscription = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardHeight(event.endCoordinates.height);
+      setTimeout(() => setupScrollRef.current?.scrollToEnd({ animated: true }), 50);
+      setTimeout(() => setupScrollRef.current?.scrollToEnd({ animated: true }), 300);
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
+  const revealFormActions = () => {
+    setTimeout(() => setupScrollRef.current?.scrollToEnd({ animated: true }), 100);
+    setTimeout(() => setupScrollRef.current?.scrollToEnd({ animated: true }), 350);
+  };
 
   const connect = async () => {
     setBusy(true);
     setError('');
     try {
-      const settings = { baseUrl: normalizeBaseUrl(baseUrl), accessToken: accessToken.trim() };
-      if (!settings.accessToken) throw new ApiError('Enter the Time v3 Agent access token.');
+      const settings = { baseUrl: productionServerUrl, accessToken: accessToken.trim() };
+      if (!settings.accessToken) throw new ApiError('Enter the Time V3 Technology Agent access token.');
       const health = await verifyConnection(settings);
       await saveConnectionSettings(settings);
       onConnected(settings, health);
@@ -96,48 +118,67 @@ function ConnectionModal({
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onCancel ?? undefined}>
       <SafeAreaView style={styles.setupPage} edges={['top', 'bottom']}>
-        <View style={styles.setupMark}><Text style={styles.setupMarkText}>CF</Text></View>
-        <Text style={styles.setupEyebrow}>PRIVATE CONNECTION</Text>
-        <Text style={styles.setupTitle}>Connect your agent</Text>
-        <Text style={styles.setupCopy}>
-          Enter the public HTTPS address of your Time v3 Agent server. The access token is stored in the phone’s secure credential store.
-        </Text>
-        <Text style={styles.fieldLabel}>SERVER URL</Text>
-        <TextInput
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="url"
-          placeholder="https://agent.example.com"
-          placeholderTextColor={colors.dim}
-          style={styles.field}
-          value={baseUrl}
-          onChangeText={setBaseUrl}
-        />
-        <Text style={styles.fieldLabel}>ACCESS TOKEN</Text>
-        <TextInput
-          autoCapitalize="none"
-          autoCorrect={false}
-          placeholder="Paste your server token"
-          placeholderTextColor={colors.dim}
-          secureTextEntry
-          style={styles.field}
-          value={accessToken}
-          onChangeText={setAccessToken}
-        />
-        {!!error && <Text style={styles.formError}>{error}</Text>}
-        <Pressable
-          accessibilityRole="button"
-          disabled={busy}
-          onPress={connect}
-          style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryButtonPressed, busy && styles.disabled]}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.setupKeyboardView}
         >
-          {busy ? <ActivityIndicator color={colors.ink} /> : <Text style={styles.primaryButtonText}>TEST & CONNECT</Text>}
-        </Pressable>
-        {onCancel && (
-          <Pressable onPress={onCancel} style={styles.textButton}>
-            <Text style={styles.textButtonLabel}>Cancel</Text>
-          </Pressable>
-        )}
+          <ScrollView
+            ref={setupScrollRef}
+            contentContainerStyle={[
+              styles.setupContent,
+              keyboardHeight > 0 && styles.setupContentKeyboard,
+              keyboardHeight > 0 && { paddingBottom: keyboardHeight + 48 },
+            ]}
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            keyboardShouldPersistTaps="always"
+            onContentSizeChange={() => {
+              if (keyboardHeight > 0) setupScrollRef.current?.scrollToEnd({ animated: false });
+            }}
+          >
+            {keyboardHeight === 0 && <View style={styles.setupMark}><Text style={styles.setupMarkText}>T3</Text></View>}
+            {keyboardHeight === 0 && <Text style={styles.setupEyebrow}>PRIVATE CONNECTION</Text>}
+            <Text style={styles.setupTitle}>Connect your agent</Text>
+            {keyboardHeight === 0 && (
+              <Text style={styles.setupCopy}>
+                Enter your access token. The production server address is built into the app, and the token is stored in the phone’s secure credential store.
+              </Text>
+            )}
+            <Text style={styles.fieldLabel}>SERVER URL</Text>
+            <TextInput
+              editable={false}
+              style={styles.field}
+              value={productionServerUrl}
+            />
+            <Text style={styles.fieldLabel}>ACCESS TOKEN</Text>
+            <TextInput
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="Paste your server token"
+              placeholderTextColor={colors.dim}
+              returnKeyType="done"
+              secureTextEntry
+              style={styles.field}
+              value={accessToken}
+              onChangeText={setAccessToken}
+              onFocus={revealFormActions}
+              onSubmitEditing={Keyboard.dismiss}
+            />
+            {!!error && <Text style={styles.formError}>{error}</Text>}
+            <Pressable
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={connect}
+              style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryButtonPressed, busy && styles.disabled]}
+            >
+              {busy ? <ActivityIndicator color={colors.ink} /> : <Text style={styles.primaryButtonText}>TEST & CONNECT</Text>}
+            </Pressable>
+            {onCancel && (
+              <Pressable onPress={onCancel} style={styles.textButton}>
+                <Text style={styles.textButtonLabel}>Cancel</Text>
+              </Pressable>
+            )}
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </Modal>
   );
@@ -169,7 +210,7 @@ function MessageDraftModal({
       return;
     }
     try {
-      await ChapeauxNative.composeText(recipient.trim(), body.trim());
+      await TimeV3Native.composeText(recipient.trim(), body.trim());
       onClose();
     } catch (caught) {
       setError(errorMessage(caught));
@@ -210,7 +251,26 @@ function MessageDraftModal({
   );
 }
 
-function RequestCard({ request, onDraft }: { request: AgentRequest; onDraft: (text: string) => void }) {
+function sameRequestPresentation(left: AgentRequest, right: AgentRequest): boolean {
+  return left.requestId === right.requestId
+    && left.channel === right.channel
+    && left.submittedAtMs === right.submittedAtMs
+    && left.status === right.status
+    && left.request === right.request
+    && left.response === right.response
+    && left.error === right.error
+    && left.progress?.label === right.progress?.label;
+}
+
+function reconcileRequests(current: AgentRequest[], incoming: AgentRequest[]): AgentRequest[] {
+  const currentById = new Map(current.map((request) => [request.requestId, request]));
+  return incoming.map((request) => {
+    const existing = currentById.get(request.requestId);
+    return existing && sameRequestPresentation(existing, request) ? existing : request;
+  });
+}
+
+const RequestCard = memo(function RequestCard({ request, onDraft }: { request: AgentRequest; onDraft: (text: string) => void }) {
   const active = request.status === 'queued' || request.status === 'processing';
   return (
     <View style={styles.exchange}>
@@ -227,7 +287,7 @@ function RequestCard({ request, onDraft }: { request: AgentRequest; onDraft: (te
       )}
       {!!request.response && (
         <View style={styles.agentBlock}>
-          <Text style={styles.agentLabel}>TIME v3 AGENT</Text>
+          <Text style={styles.agentLabel}>TIME V3 TECHNOLOGY AGENT</Text>
           <Text selectable style={styles.agentText}>{request.response}</Text>
           <Pressable onPress={() => onDraft(request.response ?? '')} style={styles.draftAction}>
             <Text style={styles.draftActionText}>USE AS MESSAGE DRAFT</Text>
@@ -237,7 +297,7 @@ function RequestCard({ request, onDraft }: { request: AgentRequest; onDraft: (te
       {!!request.error && <Text selectable style={styles.requestError}>{request.error}</Text>}
     </View>
   );
-}
+});
 
 function AgentScreen() {
   const [booting, setBooting] = useState(true);
@@ -252,8 +312,14 @@ function AgentScreen() {
   const [draftBody, setDraftBody] = useState('');
   const [showDraft, setShowDraft] = useState(false);
   const list = useRef<FlatList<AgentRequest>>(null);
+  const listPositioned = useRef(false);
+  const listNearEnd = useRef(true);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recording = useAudioRecorderState(recorder, 200);
+
+  const scrollToLatest = useCallback((animated = false) => {
+    requestAnimationFrame(() => list.current?.scrollToEnd({ animated }));
+  }, []);
 
   useEffect(() => {
     void loadConnectionSettings()
@@ -269,8 +335,8 @@ function AgentScreen() {
     if (!settings) return;
     if (!quiet) setRefreshing(true);
     try {
-      const next = await fetchRequests(settings);
-      setRequests(next.reverse());
+      const next = await fetchRequests(settings, 20);
+      setRequests((current) => reconcileRequests(current, next.reverse()));
       if (quiet) setNotice('');
     } catch (error) {
       setNotice(errorMessage(error));
@@ -285,9 +351,20 @@ function AgentScreen() {
     void refresh();
     const interval = setInterval(() => {
       if (AppState.currentState === 'active') void refresh(true);
-    }, 1_500);
+    }, 2_500);
     return () => clearInterval(interval);
   }, [refresh, settings]);
+
+  useEffect(() => {
+    if (!requests.length) return;
+    if (!listPositioned.current || listNearEnd.current) {
+      const timeout = setTimeout(() => {
+        scrollToLatest(false);
+        listPositioned.current = true;
+      }, 50);
+      return () => clearTimeout(timeout);
+    }
+  }, [requests.length, scrollToLatest]);
 
   const send = async () => {
     const text = composer.trim();
@@ -299,7 +376,7 @@ function AgentScreen() {
       setComposer('');
       setNotice('Request queued.');
       await refresh(true);
-      requestAnimationFrame(() => list.current?.scrollToEnd({ animated: true }));
+      scrollToLatest(true);
     } catch (error) {
       setNotice(errorMessage(error));
     } finally {
@@ -348,10 +425,10 @@ function AgentScreen() {
     }
   };
 
-  const openDraft = (body = '') => {
+  const openDraft = useCallback((body = '') => {
     setDraftBody(body);
     setShowDraft(true);
-  };
+  }, []);
 
   const connectionLabel = useMemo(() => {
     if (!settings) return 'NOT CONNECTED';
@@ -379,8 +456,9 @@ function AgentScreen() {
       />
       <MessageDraftModal visible={showDraft} initialBody={draftBody} onClose={() => setShowDraft(false)} />
       <View style={styles.header}>
-        <View>
-          <Text style={styles.brand}>TIME v3 AGENT</Text>
+        <View style={styles.brandBlock}>
+          <Text style={styles.brand}>TIME V3</Text>
+          <Text style={styles.brandDetail}>TECHNOLOGY AGENT</Text>
           <View style={styles.connectionRow}>
             <View style={[styles.connectionDot, settings && styles.connectionDotOn]} />
             <Text style={styles.connectionText}>{connectionLabel}</Text>
@@ -396,23 +474,43 @@ function AgentScreen() {
         </View>
       </View>
 
-      <FlatList
-        ref={list}
-        data={requests}
-        keyExtractor={(item) => item.requestId}
-        renderItem={({ item }) => <RequestCard request={item} onDraft={openDraft} />}
-        contentContainerStyle={requests.length ? styles.list : styles.emptyList}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={colors.accent} />}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyMonogram}>CF</Text>
-            <Text style={styles.emptyTitle}>{settings ? 'Ready when you are' : 'Connect your server'}</Text>
-            <Text style={styles.emptyCopy}>Type an exact request or hold a thought in your voice. The server preserves the full interaction trace.</Text>
-          </View>
-        }
-      />
+      <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={0} style={styles.conversation}>
+        <FlatList
+          ref={list}
+          data={requests}
+          initialNumToRender={4}
+          keyExtractor={(item) => item.requestId}
+          maxToRenderPerBatch={4}
+          removeClippedSubviews={Platform.OS === 'android'}
+          renderItem={({ item }) => <RequestCard request={item} onDraft={openDraft} />}
+          contentContainerStyle={requests.length ? styles.list : styles.emptyList}
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          keyboardShouldPersistTaps="handled"
+          onContentSizeChange={() => {
+            if (!listPositioned.current || listNearEnd.current) {
+              scrollToLatest(false);
+              listPositioned.current = true;
+            }
+          }}
+          onScroll={({ nativeEvent }) => {
+            const distanceFromEnd = nativeEvent.contentSize.height
+              - nativeEvent.layoutMeasurement.height
+              - nativeEvent.contentOffset.y;
+            listNearEnd.current = distanceFromEnd < 120;
+          }}
+          scrollEventThrottle={16}
+          updateCellsBatchingPeriod={80}
+          windowSize={5}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={colors.accent} />}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Text style={styles.emptyMonogram}>T3</Text>
+              <Text style={styles.emptyTitle}>{settings ? 'Ready when you are' : 'Connect your server'}</Text>
+              <Text style={styles.emptyCopy}>Type an exact request or hold a thought in your voice. The server preserves the full interaction trace.</Text>
+            </View>
+          }
+        />
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={8}>
         {!!notice && <Text numberOfLines={2} style={styles.notice}>{notice}</Text>}
         {recording.isRecording ? (
           <View style={styles.recordingBar}>
@@ -434,7 +532,8 @@ function AgentScreen() {
               editable={!!settings && !submitting}
               multiline
               onChangeText={setComposer}
-              placeholder={settings ? 'Ask Time v3 Agent…' : 'Connect the server first'}
+              onFocus={() => setTimeout(() => scrollToLatest(true), 300)}
+              placeholder={settings ? 'Ask Time V3 Technology Agent…' : 'Connect the server first'}
               placeholderTextColor={colors.dim}
               style={styles.composerInput}
               textAlignVertical="top"
@@ -462,8 +561,11 @@ export default function App() {
 const styles = StyleSheet.create({
   boot: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background },
   page: { flex: 1, backgroundColor: colors.background },
+  conversation: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  brandBlock: { flex: 1, marginRight: 12 },
   brand: { color: colors.ink, fontSize: 18, fontWeight: '900', letterSpacing: 2.1 },
+  brandDetail: { color: colors.ink, fontSize: 9, fontWeight: '800', letterSpacing: 1.7, marginTop: 1 },
   connectionRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
   connectionDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.dim },
   connectionDotOn: { backgroundColor: colors.success },
@@ -506,7 +608,10 @@ const styles = StyleSheet.create({
   recordingTime: { color: colors.ink, fontVariant: ['tabular-nums'], fontSize: 19, fontWeight: '700' },
   stopRecording: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   stopSquare: { width: 16, height: 16, borderRadius: 3, backgroundColor: colors.ink },
-  setupPage: { flex: 1, backgroundColor: colors.background, paddingHorizontal: 24, justifyContent: 'center' },
+  setupPage: { flex: 1, backgroundColor: colors.background },
+  setupKeyboardView: { flex: 1 },
+  setupContent: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 24 },
+  setupContentKeyboard: { justifyContent: 'flex-start', paddingTop: 16 },
   setupMark: { width: 64, height: 64, borderRadius: 32, borderWidth: 1, borderColor: colors.gold, alignItems: 'center', justifyContent: 'center', marginBottom: 28 },
   setupMarkText: { color: colors.gold, fontSize: 20, fontWeight: '300', letterSpacing: 1.5 },
   setupEyebrow: { color: colors.accent, fontSize: 10, fontWeight: '900', letterSpacing: 2, marginBottom: 10 },

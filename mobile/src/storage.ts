@@ -1,29 +1,45 @@
 import * as SecureStore from 'expo-secure-store';
 
+import { productionServerUrl } from './config';
 import type { ConnectionSettings } from './types';
 
-const baseUrlKey = 'chapeaux.server.base-url';
-const accessTokenKey = 'chapeaux.server.access-token';
+const obsoleteBaseUrlKey = 'time-v3-technology-agent.server.base-url';
+const accessTokenKey = 'time-v3-technology-agent.server.access-token';
+const legacyBaseUrlKey = 'chapeaux.server.base-url';
+const legacyAccessTokenKey = 'chapeaux.server.access-token';
 
 export async function loadConnectionSettings(): Promise<ConnectionSettings | null> {
-  const [baseUrl, accessToken] = await Promise.all([
-    SecureStore.getItemAsync(baseUrlKey),
-    SecureStore.getItemAsync(accessTokenKey),
+  const accessToken = await SecureStore.getItemAsync(accessTokenKey);
+  if (accessToken) return { baseUrl: productionServerUrl, accessToken };
+
+  const legacyAccessToken = await SecureStore.getItemAsync(legacyAccessTokenKey);
+  if (!legacyAccessToken) return null;
+
+  const settings = { baseUrl: productionServerUrl, accessToken: legacyAccessToken };
+  await saveConnectionSettings(settings);
+  await Promise.all([
+    SecureStore.deleteItemAsync(obsoleteBaseUrlKey),
+    SecureStore.deleteItemAsync(legacyBaseUrlKey),
+    SecureStore.deleteItemAsync(legacyAccessTokenKey),
   ]);
-  return baseUrl && accessToken ? { baseUrl, accessToken } : null;
+  return settings;
 }
 
-export async function saveConnectionSettings(settings: ConnectionSettings): Promise<void> {
+export async function saveConnectionSettings({ accessToken }: ConnectionSettings): Promise<void> {
   await Promise.all([
-    SecureStore.setItemAsync(baseUrlKey, settings.baseUrl),
-    SecureStore.setItemAsync(accessTokenKey, settings.accessToken),
+    SecureStore.setItemAsync(accessTokenKey, accessToken),
+    SecureStore.deleteItemAsync(obsoleteBaseUrlKey),
+    SecureStore.deleteItemAsync(legacyBaseUrlKey),
+    SecureStore.deleteItemAsync(legacyAccessTokenKey),
   ]);
 }
 
 export async function clearConnectionSettings(): Promise<void> {
   await Promise.all([
-    SecureStore.deleteItemAsync(baseUrlKey),
     SecureStore.deleteItemAsync(accessTokenKey),
+    SecureStore.deleteItemAsync(obsoleteBaseUrlKey),
+    SecureStore.deleteItemAsync(legacyBaseUrlKey),
+    SecureStore.deleteItemAsync(legacyAccessTokenKey),
   ]);
 }
 

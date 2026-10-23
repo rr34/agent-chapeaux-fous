@@ -2,6 +2,8 @@
 .expo-shared/
 /android/
 /ios/
+/modules/*/android/build/
+/modules/*/ios/build/
 node_modules/
 dist/
 *.jks

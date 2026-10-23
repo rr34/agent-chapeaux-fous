@@ -1,0 +1,10 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["TimeV3NativeModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.timev3native.TimeV3NativeModule"]
+  }
+}
+

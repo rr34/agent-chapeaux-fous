@@ -1,20 +1,20 @@
 {
   "expo": {
-    "name": "Time v3 Agent",
-    "slug": "chapeaux-fous",
+    "name": "Time V3 Technology Agent",
+    "slug": "time-v3-technology-agent",
     "version": "0.1.0",
     "orientation": "portrait",
-    "scheme": "chapeauxfous",
+    "scheme": "timev3technologyagent",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.chapeauxfous.mobile",
+      "bundleIdentifier": "com.timev3.technologyagent",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Time v3 Agent records voice requests that you explicitly submit to your agent."
+        "NSMicrophoneUsageDescription": "Time V3 Technology Agent records voice requests that you explicitly submit to your agent."
       }
     },
     "android": {
-      "package": "com.chapeauxfous.mobile",
+      "package": "com.timev3.technologyagent",
       "permissions": [
         "android.permission.RECORD_AUDIO"
       ],
@@ -26,7 +26,7 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "Allow Time v3 Agent to record voice requests you explicitly submit."
+          "microphonePermission": "Allow Time V3 Technology Agent to record voice requests you explicitly submit."
         }
       ],
       "expo-asset"
