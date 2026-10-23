@@ -12,7 +12,7 @@ test("the React to-do page starts with open tasks and opts into completed tasks"
   assert.match(appSource, /const scope = showCompleted \? "all" : "active"/);
   assert.match(appSource, /todo\.status === "todo" \|\| todo\.status === "ai_suggested" \|\| \(showCompleted && todo\.status === "complete"\)/);
   assert.match(appSource, />Show completed<\/label>/);
-  assert.match(appSource, /<SectionFilter[^>]*controls=\{<>[\s\S]*className="todo-completed-filter"/);
+  assert.match(appSource, /<SectionFilter[^>]*controls=\{<label className="todo-completed-filter"/);
   assert.match(styles, /\.todo-completed-filter input \{[^}]*width: 24px;[^}]*height: 24px;/);
 });
 
@@ -60,9 +60,9 @@ test("the React to-do page can filter its visible tasks by group", () => {
   assert.match(appSource, /const \[selectedGroupId, setSelectedGroupId\] = useState\("all"\)/);
   assert.match(appSource, /useApi<\{ groups: Entity\[\] \}>\("\/api\/todo-groups"\)/);
   assert.match(appSource, /selectedGroupId === "all"/);
-  assert.match(appSource, /<option value="all">All groups<\/option>/);
-  assert.match(appSource, /<SectionFilter[^>]*controls=\{<>\s*<SectionSelectFilter label="Group"/);
-  assert.match(styles, /\.section-filter-controls/);
+  assert.match(appSource, /groupFilter=\{<GroupButtonFilter value=\{selectedGroupId\}/);
+  assert.match(appSource, /const buttons = \[\{ value: "all", label: "All groups", count: totalCount \}, \.\.\.options\]/);
+  assert.match(styles, /\.heading-group-button/);
 });
 
 test("to-do cards use the workspace-wide Agent selection instead of a section-only batch bar", () => {

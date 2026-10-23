@@ -50,10 +50,17 @@ a { color: inherit; }
 
 .workspace { width: 100%; max-width: 1560px; margin: 0 auto; padding: 42px clamp(24px, 4vw, 68px) var(--agent-composer-clearance); overflow: hidden; }
 .page-heading { display: flex; align-items: end; justify-content: space-between; gap: 30px; margin: 0 0 30px; }
+.page-heading-copy { min-width: 0; }
+.page-heading-title { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 18px; }
 .page-heading h1 { margin: 3px 0 3px; font: 600 clamp(36px, 5vw, 64px)/.98 "Newsreader", Georgia, serif; letter-spacing: -.035em; }
-.page-heading > div:first-child > p:last-child { color: var(--muted); max-width: 660px; margin: 10px 0 0; }
+.page-heading-copy > p:last-child:not(.eyebrow) { color: var(--muted); max-width: 660px; margin: 10px 0 0; }
 .eyebrow, .paper-kicker { margin: 0; color: var(--olive); font-size: 11px; font-weight: 700; letter-spacing: .15em; text-transform: uppercase; }
 .heading-actions { display: flex; align-items: end; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+.heading-group-filter { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.heading-group-button { min-height: 32px; padding: 6px 10px; border: 1px solid #b9c0b2; border-radius: 999px; color: var(--olive-dark); background: transparent; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.heading-group-button:hover { border-color: var(--olive-dark); background: var(--olive-soft); }
+.heading-group-button.is-active { color: white; border-color: var(--olive-dark); background: var(--olive-dark); }
+.heading-group-button:disabled { opacity: .5; cursor: wait; }
 .section-filter { display: flex; align-items: end; gap: 16px; margin: -12px 0 24px; padding: 14px 16px; }
 .section-filter-field { display: grid; flex: 1; gap: 6px; max-width: 680px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .section-filter-search { flex: 0 0 auto; }
@@ -779,6 +786,8 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .app-shell { --agent-composer-bottom: 10px; --agent-composer-gap: 24px; }
   .workspace { padding: 24px 14px var(--agent-composer-clearance); }
   .page-heading { align-items: stretch; flex-direction: column; }
+  .page-heading-title { align-items: flex-start; flex-direction: column; }
+  .heading-group-filter { width: 100%; }
   .heading-actions { justify-content: stretch; }
   .heading-actions > * { flex: 1; }
   .composer-conversation-reset-confirmation { align-items: stretch; flex-direction: column; }

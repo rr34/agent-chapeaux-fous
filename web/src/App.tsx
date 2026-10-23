@@ -181,10 +181,32 @@ function compareTodoDisplayOrder(left: Entity, right: Entity) {
   return leftCompletedAt === rightCompletedAt ? 0 : rightCompletedAt > leftCompletedAt ? 1 : -1;
 }
 
-function PageHeading({ eyebrow, title, detail, actions }: {
-  eyebrow: string; title: string; detail?: string; actions?: ReactNode;
+function PageHeading({ eyebrow, title, detail, groupFilter, actions }: {
+  eyebrow: string; title: string; detail?: string; groupFilter?: ReactNode; actions?: ReactNode;
 }) {
-  return <header className="page-heading"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1>{detail && <p>{detail}</p>}</div>{actions && <div className="heading-actions">{actions}</div>}</header>;
+  return <header className="page-heading"><div className="page-heading-copy"><p className="eyebrow">{eyebrow}</p><div className="page-heading-title"><h1>{title}</h1>{groupFilter}</div>{detail && <p>{detail}</p>}</div>{actions && <div className="heading-actions">{actions}</div>}</header>;
+}
+
+type GroupFilterOption = { value: string; label: string; count: number };
+
+function GroupButtonFilter({ value, onChange, options, totalCount, disabled = false }: {
+  value: string;
+  onChange: (value: string) => void;
+  options: GroupFilterOption[];
+  totalCount: number;
+  disabled?: boolean;
+}) {
+  const buttons = [{ value: "all", label: "All groups", count: totalCount }, ...options];
+  return <div className="heading-group-filter" role="group" aria-label="Filter by group">
+    {buttons.map((option) => <button
+      className={`heading-group-button${option.value === value ? " is-active" : ""}`}
+      type="button"
+      aria-pressed={option.value === value}
+      disabled={disabled}
+      onClick={() => onChange(option.value)}
+      key={option.value}
+    >{option.label} ({option.count})</button>)}
+  </div>;
 }
 
 function SectionSelectFilter({ label, value, onChange, disabled = false, children }: {
@@ -1432,6 +1454,16 @@ function TodoScreen() {
   const statusTodos = (data?.todos || []).filter((todo) =>
     todo.status === "todo" || todo.status === "ai_suggested" || (showCompleted && todo.status === "complete"),
   );
+  const todoGroupCounts = new Map<string, number>();
+  for (const todo of statusTodos) {
+    const groupId = String(readKey(todo, "groupId") ?? "");
+    todoGroupCounts.set(groupId, (todoGroupCounts.get(groupId) || 0) + 1);
+  }
+  const todoGroupOptions = (groupData?.groups || []).map((group) => ({
+    value: String(group.id),
+    label: textKey(group, "name") || "Untitled group",
+    count: todoGroupCounts.get(String(group.id)) || 0,
+  }));
   const groupTodos = selectedGroupId === "all"
     ? statusTodos
     : statusTodos.filter((todo) => String(readKey(todo, "groupId")) === selectedGroupId);
@@ -1541,13 +1573,8 @@ function TodoScreen() {
     if (nextQuery === serverQuery) void reload();
     else setServerQuery(nextQuery);
   };
-  return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} actions={<><button className="button" type="button" onClick={() => setAddingTodo(true)}>Add to-do</button><button className="button button--quiet" type="button" onClick={() => void generatePdf()} disabled={generatingPdf || loading || groupsLoading || Boolean(error || groupError)}>{generatingPdf ? "Making PDF…" : "Print PDF"}</button></>} />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchTodos} searching={loading} count={todos.length} noun="to-do" controls={<>
-      <SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={groupsLoading}>
-        <option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}
-      </SectionSelectFilter>
-      <label className="todo-completed-filter"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} />Show completed</label>
-    </>} />
+  return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={todoGroupOptions} totalCount={statusTodos.length} disabled={groupsLoading} />} actions={<><button className="button" type="button" onClick={() => setAddingTodo(true)}>Add to-do</button><button className="button button--quiet" type="button" onClick={() => void generatePdf()} disabled={generatingPdf || loading || groupsLoading || Boolean(error || groupError)}>{generatingPdf ? "Making PDF…" : "Print PDF"}</button></>} />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchTodos} searching={loading} count={todos.length} noun="to-do" controls={<label className="todo-completed-filter"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} />Show completed</label>} />
     {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{pdfError && <ErrorState error={pdfError} retry={() => void generatePdf()} dismiss={() => setPdfError(null)} />}{reorderError && <p className="inline-error" role="alert">{reorderError}</p>}{!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No to-do groups or items match the filter." : showCompleted ? "No to-do groups yet." : "No to-do groups yet."}</Empty>}<div className="group-list">{groups.map((group) => {
       const orderedTodoIds = group.todos.map((todo) => Number(todo.id));
       return <section className="todo-group" key={group.id} aria-label={`${group.name} to-do group`}>
@@ -1716,6 +1743,16 @@ function ThingsScreen() {
   const { data, error, loading, reload } = useApi<{ items: Entity[] }>(`/api/physical-items?${parameters}`);
   const { data: groupData, error: groupError, loading: groupsLoading, reload: reloadGroups } = useApi<{ groups: Entity[] }>("/api/physical-item-groups");
   const items = data?.items || [];
+  const thingGroupCounts = new Map<string, number>();
+  for (const item of items) {
+    const groupId = String(readKey(item, "groupId") ?? "");
+    thingGroupCounts.set(groupId, (thingGroupCounts.get(groupId) || 0) + 1);
+  }
+  const thingGroupOptions = (groupData?.groups || []).map((group) => ({
+    value: String(group.id),
+    label: textKey(group, "name") || "Untitled group",
+    count: thingGroupCounts.get(String(group.id)) || 0,
+  }));
   const visibleItems = items.filter((item) =>
     (selectedGroupId === "all" || String(item.groupId) === selectedGroupId)
     && matchesSearch(item, filterQuery),
@@ -1742,11 +1779,8 @@ function ThingsScreen() {
     else setServerQuery(nextQuery);
   };
   return <>
-    <PageHeading eyebrow="Physical possessions" title="Things" detail="The physical items you own, use, store, lend, or maintain." actions={<><button className="button button--quiet" type="button" onClick={() => setAddingGroup(true)}>Add group</button><button className="button" type="button" disabled={!groupData?.groups?.length} onClick={() => setAddingItem(true)}>Add thing</button></>} />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={search} searching={loading} count={visibleItems.length} noun="thing" controls={<>
-      <SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={groupsLoading}><option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}</SectionSelectFilter>
-      <SectionSelectFilter label="Status" value={selectedStatus} onChange={setSelectedStatus}><option value="current">Current</option><option value="active">Active</option><option value="loaned">Loaned</option><option value="lost">Lost</option><option value="disposed">Disposed</option><option value="archived">Archived</option></SectionSelectFilter>
-    </>} />
+    <PageHeading eyebrow="Physical possessions" title="Things" detail="The physical items you own, use, store, lend, or maintain." groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={thingGroupOptions} totalCount={items.length} disabled={groupsLoading} />} actions={<><button className="button button--quiet" type="button" onClick={() => setAddingGroup(true)}>Add group</button><button className="button" type="button" disabled={!groupData?.groups?.length} onClick={() => setAddingItem(true)}>Add thing</button></>} />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={search} searching={loading} count={visibleItems.length} noun="thing" controls={<SectionSelectFilter label="Status" value={selectedStatus} onChange={setSelectedStatus}><option value="current">Current</option><option value="active">Active</option><option value="loaned">Loaned</option><option value="lost">Lost</option><option value="disposed">Disposed</option><option value="archived">Archived</option></SectionSelectFilter>} />
     {(loading || groupsLoading) && <Loading />}
     {error && <ErrorState error={error} retry={reloadThings} />}
     {groupError && <ErrorState error={groupError} retry={reloadThings} />}
@@ -1801,6 +1835,16 @@ function LibraryScreen() {
   const { data, error, loading, reload } = useApi<{ content: Entity[] }>(`/api/content-items?${contentParameters}`);
   const { data: groupData, error: groupError, loading: groupsLoading, reload: reloadGroups } = useApi<{ groups: Entity[] }>("/api/content-groups");
   const content = data?.content || [];
+  const libraryGroupCounts = new Map<string, number>();
+  for (const item of content) {
+    const groupId = String(readKey(item, "groupId") ?? "");
+    libraryGroupCounts.set(groupId, (libraryGroupCounts.get(groupId) || 0) + 1);
+  }
+  const libraryGroupOptions = (groupData?.groups || []).map((group) => ({
+    value: String(group.id),
+    label: textKey(group, "name") || "Untitled group",
+    count: libraryGroupCounts.get(String(group.id)) || 0,
+  }));
   const visibleContent = content.filter((entity) =>
     (selectedGroupId === "all" || String(readKey(entity, "groupId")) === selectedGroupId)
     && matchesSearch(entity, filterQuery),
@@ -1859,10 +1903,8 @@ function LibraryScreen() {
     else setServerQuery(nextQuery);
   };
   return <>
-    <PageHeading eyebrow="Reference shelf" title="Library" detail="Reusable material and published content." actions={<button className="button" type="button" onClick={() => setAddingContent(true)}>Add content</button>} />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchLibrary} searching={loading} count={visibleContent.length} noun="item" controls={<SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={groupsLoading}>
-      <option value="all">All groups</option>{groupData?.groups?.map((group) => <option value={String(group.id)} key={String(group.id)}>{textKey(group, "name")}</option>)}
-    </SectionSelectFilter>} />
+    <PageHeading eyebrow="Reference shelf" title="Library" detail="Reusable material and published content." groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={libraryGroupOptions} totalCount={content.length} disabled={groupsLoading} />} actions={<button className="button" type="button" onClick={() => setAddingContent(true)}>Add content</button>} />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchLibrary} searching={loading} count={visibleContent.length} noun="item" />
     {(loading || groupsLoading) && <Loading />}
     {error && <ErrorState error={error} retry={reloadLibrary} />}
     {groupError && <ErrorState error={groupError} retry={reloadLibrary} />}
@@ -2005,6 +2047,11 @@ function FilesScreen() {
       const rightIndex = fileGroupOrder.indexOf(right);
       return (leftIndex < 0 ? fileGroupOrder.length : leftIndex) - (rightIndex < 0 ? fileGroupOrder.length : rightIndex);
     }), [files]);
+  const fileGroupButtons = fileGroupOptions.map((kind) => ({
+    value: kind,
+    label: fileGroupLabels[kind] || `${kind.replaceAll("_", " ")} files`,
+    count: files.filter((file) => (textKey(file, "mediaKind") || "other") === kind).length,
+  }));
   const visibleFiles = files.filter((file) =>
     (selectedMediaKind === "all" || textKey(file, "mediaKind") === selectedMediaKind)
     && matchesSearch(file, filterQuery),
@@ -2029,10 +2076,8 @@ function FilesScreen() {
     else setServerQuery(nextQuery);
   };
   return <>
-    <PageHeading eyebrow="Durable artifacts" title="Files" detail="Uploads, generated documents, and their source evidence." />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchFiles} searching={loading} count={visibleFiles.length} noun="file" controls={<SectionSelectFilter label="Group" value={selectedMediaKind} onChange={setSelectedMediaKind} disabled={!fileGroupOptions.length}>
-      <option value="all">All groups</option>{fileGroupOptions.map((kind) => <option value={kind} key={kind}>{fileGroupLabels[kind] || `${kind.replaceAll("_", " ")} files`}</option>)}
-    </SectionSelectFilter>} />
+    <PageHeading eyebrow="Durable artifacts" title="Files" detail="Uploads, generated documents, and their source evidence." groupFilter={<GroupButtonFilter value={selectedMediaKind} onChange={setSelectedMediaKind} options={fileGroupButtons} totalCount={files.length} disabled={loading} />} />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchFiles} searching={loading} count={visibleFiles.length} noun="file" />
     {loading && <Loading />}
     {error && <ErrorState error={error} retry={reload} />}
     {!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No files match the filter." : "Nothing here yet."}</Empty>}
@@ -2109,12 +2154,14 @@ function JournalScreen() {
   const journalTrackers = trackers?.trackers || [];
   const journalEntries = entries?.entries || [];
   const journalGroupOptions = useMemo(() => {
-    const groups = new Map<string, string>();
+    const groups = new Map<string, { name: string; count: number }>();
     for (const item of [...journalTrackers, ...journalEntries]) {
       const id = String(readKey(item, "groupId") ?? `name:${textKey(item, "groupName") || "Journal"}`);
-      if (!groups.has(id)) groups.set(id, textKey(item, "groupName") || "Journal");
+      const group = groups.get(id) || { name: textKey(item, "groupName") || "Journal", count: 0 };
+      group.count += 1;
+      groups.set(id, group);
     }
-    return [...groups].map(([id, name]) => ({ id, name }));
+    return [...groups].map(([value, group]) => ({ value, label: group.name, count: group.count }));
   }, [journalEntries, journalTrackers]);
   const visibleTrackers = journalTrackers.filter((tracker) =>
     (selectedGroupId === "all" || String(readKey(tracker, "groupId") ?? `name:${textKey(tracker, "groupName") || "Journal"}`) === selectedGroupId)
@@ -2150,10 +2197,8 @@ function JournalScreen() {
     else setServerQuery(nextQuery);
   };
   return <>
-    <PageHeading eyebrow="A record of lived time" title="Journal" detail="Trackers and recent entries, kept alongside the calendar without pretending they are appointments." />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchJournal} searching={loading || entriesLoading} count={visibleCount} noun="result" controls={<SectionSelectFilter label="Group" value={selectedGroupId} onChange={setSelectedGroupId} disabled={!journalGroupOptions.length}>
-      <option value="all">All groups</option>{journalGroupOptions.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}
-    </SectionSelectFilter>} />
+    <PageHeading eyebrow="A record of lived time" title="Journal" detail="Trackers and recent entries, kept alongside the calendar without pretending they are appointments." groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={journalGroupOptions} totalCount={journalTrackers.length + journalEntries.length} disabled={loading || entriesLoading} />} />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchJournal} searching={loading || entriesLoading} count={visibleCount} noun="result" />
     {(loading || entriesLoading) && <Loading />}
     {error && <ErrorState error={error} retry={reloadJournal} />}
     {entryError && <ErrorState error={entryError} retry={reloadJournal} />}

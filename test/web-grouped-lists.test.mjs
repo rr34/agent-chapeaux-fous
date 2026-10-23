@@ -60,28 +60,38 @@ test("grouped list rows have shared and responsive styling", () => {
   assert.doesNotMatch(styles, /\.library-row|\.library-sequence/);
 });
 
-test("every grouped section puts its group selector in the text-filter card", () => {
+test("the requested grouped sections put counted one-click filters beside their headings", () => {
+  const todos = screenSource("TodoScreen", "ContactsScreen");
+  const things = screenSource("ThingsScreen", "LibraryScreen");
   const contacts = screenSource("ContactsScreen", "LibraryScreen");
   const library = screenSource("LibraryScreen", "VideoScriptsScreen");
   const scripts = screenSource("VideoScriptsScreen", "FilesScreen");
   const files = screenSource("FilesScreen", "GenericScreen");
   const journal = screenSource("JournalScreen", "UsageScreen");
 
+  for (const source of [todos, things, library, files, journal]) {
+    assert.match(source, /groupFilter=\{<GroupButtonFilter/);
+    assert.doesNotMatch(source, /<SectionSelectFilter label="Group"/);
+  }
+  assert.match(appSource, /role="group" aria-label="Filter by group"/);
+  assert.match(appSource, />\{option\.label\} \(\{option\.count\}\)<\/button>/);
+  assert.match(appSource, /aria-pressed=\{option\.value === value\}/);
+  assert.match(todos, /count: todoGroupCounts\.get\(String\(group\.id\)\) \|\| 0/);
+  assert.match(things, /count: thingGroupCounts\.get\(String\(group\.id\)\) \|\| 0/);
+  assert.match(library, /count: libraryGroupCounts\.get\(String\(group\.id\)\) \|\| 0/);
+  assert.match(files, /count: files\.filter/);
+  assert.match(journal, /group\.count \+= 1/);
+
+  // Unrequested synthetic groupings retain their existing selects.
   assert.match(library, /selectedGroupId === "all"/);
-  assert.match(library, /<SectionSelectFilter label="Group"/);
   assert.match(scripts, /selectedStatus === "all"/);
   assert.match(scripts, /<SectionSelectFilter label="Group"/);
   assert.match(files, /selectedMediaKind === "all"/);
-  assert.match(files, /<SectionSelectFilter label="Group"/);
   assert.match(contacts, /selectedKind === "all"/);
   assert.match(contacts, /<SectionSelectFilter label="Group"/);
   assert.match(journal, /selectedGroupId === "all"/);
-  assert.match(journal, /<SectionSelectFilter label="Group"/);
-  assert.match(styles, /\.section-select-filter/);
-  for (const source of [contacts, library, scripts, files, journal]) {
-    assert.match(source, /<SectionFilter[^>]*controls=\{(?:<>\s*)?<SectionSelectFilter label="Group"/s);
-  }
-  assert.match(styles, /\.section-filter-controls/);
+  assert.match(styles, /\.heading-group-filter/);
+  assert.match(styles, /\.heading-group-button\.is-active/);
 });
 
 test("contacts expose a tag filter and combine it with group and text filtering", () => {
