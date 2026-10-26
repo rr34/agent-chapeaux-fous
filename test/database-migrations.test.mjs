@@ -27,6 +27,50 @@ const block = (version, name = `migration-${version}`, sql = `SELECT ${version};
   return `-- migration ${label}: ${name}\n${sql}\n-- end migration ${label}\n`;
 };
 
+test("cross-device correspondence alias integrity requires sparse identity storage", async () => {
+  const requiredAliasColumns = [
+    "correspondence_source_alias_id", "correspondence_id", "medium",
+    "source_account_key", "thread_key", "external_id", "provider_status",
+    "source_event_id", "first_observed_at_utc", "last_observed_at_utc",
+  ];
+  const connection = ({ tables = [{ TABLE_NAME: "correspondence_source_aliases", TABLE_TYPE: "BASE TABLE" }],
+    aliasColumns = requiredAliasColumns } = {}) => ({ async query(sql) {
+    if (sql.includes("information_schema.TABLES")) return [tables];
+    if (sql.includes("information_schema.COLUMNS")) return [[
+      { TABLE_NAME: "correspondence", COLUMN_NAME: "dedupe_fingerprint", COLUMN_TYPE: "char(64)", IS_NULLABLE: "YES" },
+      ...aliasColumns.map((COLUMN_NAME) => ({ TABLE_NAME: "correspondence_source_aliases", COLUMN_NAME })),
+    ]];
+    if (sql.includes("information_schema.STATISTICS")) return [[
+      ...["medium", "dedupe_fingerprint"].map((COLUMN_NAME, index) => ({
+        TABLE_NAME: "correspondence", INDEX_NAME: "correspondence_dedupe",
+        COLUMN_NAME, SEQ_IN_INDEX: index + 1, NON_UNIQUE: 1,
+      })),
+      ...["correspondence_id", "correspondence_source_alias_id"].map((COLUMN_NAME, index) => ({
+        TABLE_NAME: "correspondence_source_aliases", INDEX_NAME: "correspondence_source_alias_canonical",
+        COLUMN_NAME, SEQ_IN_INDEX: index + 1, NON_UNIQUE: 1,
+      })),
+      ...["medium", "source_account_key", "external_id"].map((COLUMN_NAME, index) => ({
+        TABLE_NAME: "correspondence_source_aliases", INDEX_NAME: "correspondence_source_alias_identity",
+        COLUMN_NAME, SEQ_IN_INDEX: index + 1, NON_UNIQUE: 0,
+      })),
+    ]];
+    if (sql.includes("information_schema.KEY_COLUMN_USAGE")) return [[
+      { CONSTRAINT_NAME: "correspondence_source_alias_correspondence", COLUMN_NAME: "correspondence_id", REFERENCED_TABLE_NAME: "correspondence", REFERENCED_COLUMN_NAME: "correspondence_id" },
+      { CONSTRAINT_NAME: "correspondence_source_alias_event_fk", COLUMN_NAME: "source_event_id", REFERENCED_TABLE_NAME: "activity_events", REFERENCED_COLUMN_NAME: "event_id" },
+    ]];
+    throw new Error(`Unexpected SQL: ${sql}`);
+  } });
+  await assertMigrationSpecificIntegrity(connection(), { version: 57 }, "test_database");
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ tables: [] }), { version: 57 }, "test_database"),
+    /correspondence_source_aliases/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ aliasColumns: requiredAliasColumns.slice(1) }), { version: 57 }, "test_database"),
+    /correspondence source alias columns/u,
+  );
+});
+
 test("explicit content-group sequence integrity requires a non-null boolean setting", async () => {
   const connection = ({ columns = [{ COLUMN_NAME: "uses_sequence", IS_NULLABLE: "NO", COLUMN_DEFAULT: "0" }],
     constraints = [{ CONSTRAINT_NAME: "content_groups_sequence", CONSTRAINT_TYPE: "CHECK" }],
@@ -492,11 +536,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56]);
-  for (let current = 29; current <= 56; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57]);
+  for (let current = 29; current <= 57; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 56 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 57 - current }, (_, index) => current + index + 1),
     );
   }
 });

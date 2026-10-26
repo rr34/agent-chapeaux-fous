@@ -57,7 +57,9 @@ test("phone synchronization atomically imports contacts and replay-safe correspo
   assert.deepEqual(first.contacts, {
     received: 1, created: 1, updated: 0, matched: 0, methodsCreated: 2,
   });
-  assert.deepEqual(first.correspondence, { received: 3, created: 3, updated: 0 });
+  assert.deepEqual(first.correspondence, {
+    received: 3, created: 3, updated: 0, deduplicated: 0,
+  });
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM correspondence").get().count, 3);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM correspondence_participants_join").get().count, 4);
   assert.equal(
@@ -75,7 +77,9 @@ test("phone synchronization atomically imports contacts and replay-safe correspo
   assert.equal(participants[1].contact_id, null);
 
   const replay = service.synchronize(phoneBatch());
-  assert.deepEqual(replay.correspondence, { received: 3, created: 0, updated: 3 });
+  assert.deepEqual(replay.correspondence, {
+    received: 3, created: 0, updated: 3, deduplicated: 0,
+  });
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM correspondence").get().count, 3);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM contacts").get().count, 1);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM activity_events WHERE event_type = 'correspondence.sync'").get().count, 2);
@@ -84,4 +88,25 @@ test("phone synchronization atomically imports contacts and replay-safe correspo
     { medium: "mms", count: 1, latestAtUtc: "2027-01-15T08:00:02.000Z" },
     { medium: "sms", count: 1, latestAtUtc: "2027-01-15T08:00:00.123Z" },
   ]);
+
+  const oldPhone = structuredClone(phoneBatch());
+  oldPhone.deviceId = "fedcba9876543210fedcba9876543210";
+  for (const item of oldPhone.correspondence) item.externalId = `old-${item.externalId}`;
+  const crossDevice = service.synchronize(oldPhone);
+  assert.deepEqual(crossDevice.correspondence, {
+    received: 3, created: 0, updated: 0, deduplicated: 3,
+  });
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM correspondence").get().count, 3);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM correspondence_source_aliases").get().count, 3);
+  assert.deepEqual(service.status(oldPhone.deviceId).media, [
+    { medium: "call", count: 1, latestAtUtc: "2027-01-15T08:00:01.000Z" },
+    { medium: "mms", count: 1, latestAtUtc: "2027-01-15T08:00:02.000Z" },
+    { medium: "sms", count: 1, latestAtUtc: "2027-01-15T08:00:00.123Z" },
+  ]);
+
+  const oldPhoneReplay = service.synchronize(oldPhone);
+  assert.deepEqual(oldPhoneReplay.correspondence, {
+    received: 3, created: 0, updated: 3, deduplicated: 0,
+  });
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM correspondence_source_aliases").get().count, 3);
 });

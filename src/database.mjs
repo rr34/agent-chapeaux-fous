@@ -1,6 +1,6 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 
-export const requiredDatabaseSchemaVersion = 56;
+export const requiredDatabaseSchemaVersion = 57;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -24,9 +24,14 @@ export const requiredDatabaseShape = {
   tags: ["tag_id", "slug", "label", "is_active"],
   correspondence: [
     "correspondence_id", "medium", "direction", "source_account_key", "thread_key",
-    "external_id", "internet_message_id", "in_reply_to_id", "subject", "body",
+    "external_id", "dedupe_fingerprint", "internet_message_id", "in_reply_to_id", "subject", "body",
     "delivery_status", "call_disposition", "call_duration_seconds", "provider_status",
     "occurred_at_utc", "sent_at_utc", "received_at_utc", "source_event_id", "created_at_utc",
+  ],
+  correspondence_source_aliases: [
+    "correspondence_source_alias_id", "correspondence_id", "medium",
+    "source_account_key", "thread_key", "external_id", "provider_status",
+    "source_event_id", "first_observed_at_utc", "last_observed_at_utc",
   ],
   jmap_email_sync_state: ["source_account_key", "email_state", "synchronized_at_utc"],
   correspondence_files_join: ["correspondence_id", "file_id", "attachment_role"],
@@ -181,6 +186,7 @@ export const requiredEnumColumns = {
     delivery_status: ["draft", "sent", "delivered", "failed", "unknown"],
     call_disposition: ["answered", "missed"],
   },
+  correspondence_source_aliases: { medium: ["sms", "mms", "call"] },
   correspondence_files_join: { attachment_role: ["attachment", "inline", "recording", "other"] },
   correspondence_participants_join: { participant_role: ["from", "to", "cc", "bcc", "reply_to", "sender", "recipient"] },
 };

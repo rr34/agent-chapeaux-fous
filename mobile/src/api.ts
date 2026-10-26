@@ -17,6 +17,7 @@ export type CorrespondenceSyncResult = {
     received: number;
     created: number;
     updated: number;
+    deduplicated: number;
   };
 };
 

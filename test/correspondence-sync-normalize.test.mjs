@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  androidCorrespondenceDedupeFingerprint,
   CorrespondenceSyncInputError,
   normalizeAndroidSyncBatch,
 } from "../src/correspondence-sync.mjs";
@@ -55,4 +56,30 @@ test("Android correspondence normalization rejects unsafe identities and duplica
   assert.throws(() => normalizeAndroidSyncBatch(batch({ correspondence: [item, item] })), {
     message: "A synchronization batch cannot contain duplicate correspondence identities.",
   });
+});
+
+test("cross-device fingerprints ignore provider identity but preserve communication identity", () => {
+  const first = normalizeAndroidSyncBatch(batch({
+    correspondence: [{
+      medium: "sms", direction: "inbound", account: "sim_1", externalId: "10",
+      threadKey: "sms:4", body: "same message", occurredAtMs: 1_800_000_000_123,
+      participants: [{ address: "+1 (555) 010-0200", displayName: "Alex" }],
+    }],
+  })).correspondence[0];
+  const second = normalizeAndroidSyncBatch(batch({
+    deviceId: "fedcba9876543210fedcba9876543210",
+    correspondence: [{
+      medium: "sms", direction: "inbound", account: "sim_2", externalId: "999",
+      threadKey: "sms:88", body: "same message", occurredAtMs: 1_800_000_000_123,
+      participants: [{ address: "15550100200", displayName: "A. Rivera" }],
+    }],
+  })).correspondence[0];
+  assert.equal(
+    androidCorrespondenceDedupeFingerprint(first),
+    androidCorrespondenceDedupeFingerprint(second),
+  );
+  assert.notEqual(
+    androidCorrespondenceDedupeFingerprint(first),
+    androidCorrespondenceDedupeFingerprint({ ...second, body: "different message" }),
+  );
 });

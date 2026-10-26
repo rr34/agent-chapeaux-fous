@@ -13,7 +13,18 @@ import {
 
 const schemaSource = fs.readFileSync(baselineFilename, "utf8");
 
+export function baselineBeforeCorrespondenceAliases(source) {
+  return source
+    .replace(/^    dedupe_fingerprint[^\n]+\n/mu, "")
+    .replace(/^    KEY correspondence_dedupe[^\n]+\n/mu, "")
+    .replace(/^    CONSTRAINT correspondence_dedupe_fingerprint[^\n]+\n/mu, "")
+    .replace(/CREATE TABLE correspondence_source_aliases \([\s\S]*?\n\) ENGINE=InnoDB[^\n]*;\n\n/u, "")
+    .replace("Target: MariaDB 10.11, schema version 57.", "Target: MariaDB 10.11, schema version 56.")
+    .replace("VALUES (1, 57,", "VALUES (1, 56,");
+}
+
 export function baselineBeforeContentGroupSequence(source) {
+  source = baselineBeforeCorrespondenceAliases(source);
   return source
     .replace(/^    uses_sequence\s+TINYINT[^\n]+\n/mu, "")
     .replace(/^    CONSTRAINT content_groups_sequence[^\n]+\n/mu, "")

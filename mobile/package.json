@@ -6,6 +6,11 @@
   "scripts": {
     "start": "expo start --dev-client",
     "android": "expo run:android",
+    "android:build:debug": "cd android && ./gradlew :app:assembleDebug",
+    "phone:pair": "node scripts/android-device.mjs pair",
+    "phone:connect": "node scripts/android-device.mjs connect",
+    "phone:install": "node scripts/android-device.mjs install",
+    "phone:inspect": "node scripts/android-device.mjs inspect",
     "prebuild": "expo prebuild",
     "typecheck": "tsc --noEmit",
     "doctor": "npx expo-doctor"

@@ -11,6 +11,22 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 57: Cross-device correspondence aliases
+
+Adds one nullable conservative deduplication fingerprint to canonical
+correspondence and a sparse alias table for second and later Android source
+identities. The first phone identity remains on `correspondence`; an alias row
+is created only when one unambiguous SMS, MMS, or call already exists from a
+different device. Ambiguous candidates remain separate. Existing phone rows
+receive their fingerprints inside the next explicit foreground phone-sync
+transaction rather than during the DDL migration.
+
+Apply with writers stopped because the matching application requires schema
+version 57. `ALTER TABLE` takes a metadata lock and builds a secondary index;
+the new alias table is empty. Every DDL clause is guarded so a partial MariaDB
+commit can be inspected and the complete migration replayed before writers are
+restarted.
+
 ## Version 56: Explicit Library sequencing
 
 Adds `content_groups.uses_sequence` as the authoritative automatic-numbering

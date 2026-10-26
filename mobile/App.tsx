@@ -14,6 +14,7 @@ import {
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -278,6 +279,8 @@ const noCorrespondencePermissions: CorrespondencePermissions = {
   messages: false,
 };
 
+const requiredCorrespondenceShellVersion = 2;
+
 function PermissionRow({ label, granted }: { label: string; granted: boolean }) {
   return (
     <View style={styles.permissionRow}>
@@ -305,6 +308,12 @@ function CorrespondenceSyncModal({
   const [error, setError] = useState('');
 
   const refreshPermissions = useCallback(async () => {
+    const installedVersion = Number(TimeV3Native.nativeShellVersion ?? 0);
+    if (installedVersion < requiredCorrespondenceShellVersion) {
+      throw new Error(
+        `The installed Android shell is version ${installedVersion || 'legacy'}; phone synchronization requires version ${requiredCorrespondenceShellVersion}. Install the current APK over Wi-Fi.`,
+      );
+    }
     if (typeof TimeV3Native.getCorrespondencePermissions !== 'function') {
       throw new Error('This installed app does not contain the phone synchronizer yet. Install the new Android build first.');
     }
@@ -322,12 +331,28 @@ function CorrespondenceSyncModal({
       .finally(() => setChecking(false));
   }, [refreshPermissions, visible]);
 
+  useEffect(() => {
+    if (!visible) return;
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void refreshPermissions().catch((caught) => setError(errorMessage(caught)));
+    });
+    return () => subscription.remove();
+  }, [refreshPermissions, visible]);
+
   const requestPermissions = async () => {
     setChecking(true);
     setError('');
     try {
       await TimeV3Native.requestCorrespondencePermissions();
-      await refreshPermissions();
+      const result = await refreshPermissions();
+      const denied = [
+        !result.contacts && 'Contacts',
+        !result.calls && 'Call history',
+        !result.messages && 'SMS and MMS',
+      ].filter(Boolean);
+      if (denied.length) {
+        setError(`Android did not grant: ${denied.join(', ')}. Nothing from those sources can be read or sent. Open Android settings below to review the permissions.`);
+      }
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -338,10 +363,15 @@ function CorrespondenceSyncModal({
   const synchronize = async () => {
     setSyncing(true);
     setError('');
-    setProgress('Reading phone data…');
+    setProgress('Checking Android permissions…');
     try {
+      const granted = await refreshPermissions();
+      if (!granted.contacts && !granted.calls && !granted.messages) {
+        throw new Error('No phone-data permissions are granted. Nothing was read or sent to the server.');
+      }
+      setProgress('Reading phone data…');
       let cursor = await loadCorrespondenceCursor();
-      const totals = { contacts: 0, created: 0, updated: 0 };
+      const totals = { contacts: 0, created: 0, updated: 0, deduplicated: 0 };
       for (let batchNumber = 1; batchNumber <= 10_000; batchNumber += 1) {
         const batch = await TimeV3Native.readCorrespondenceBatch(cursor, 100);
         setPermissions(batch.permissions);
@@ -357,16 +387,18 @@ function CorrespondenceSyncModal({
         totals.contacts += accepted.contacts.received;
         totals.created += accepted.correspondence.created;
         totals.updated += accepted.correspondence.updated;
+        totals.deduplicated += accepted.correspondence.deduplicated;
         const more = Object.values(batch.hasMore).some(Boolean);
         if (!more) {
           setProgress(
-            `Complete: ${totals.contacts} contacts read, ${totals.created} new and ${totals.updated} refreshed communications.`,
+            `Complete: ${totals.contacts} contacts read, ${totals.created} new, ${totals.deduplicated} cross-device duplicates linked, and ${totals.updated} refreshed communications.`,
           );
           return;
         }
       }
       throw new Error('Synchronization stopped after 10,000 batches. Run it again to continue.');
     } catch (caught) {
+      setProgress('');
       setError(errorMessage(caught));
     } finally {
       setSyncing(false);
@@ -374,6 +406,16 @@ function CorrespondenceSyncModal({
   };
 
   const allGranted = permissions.contacts && permissions.calls && permissions.messages;
+  const anyGranted = permissions.contacts || permissions.calls || permissions.messages;
+
+  const openAndroidSettings = async () => {
+    setError('');
+    try {
+      await Linking.openSettings();
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  };
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={syncing ? undefined : onClose}>
@@ -390,20 +432,30 @@ function CorrespondenceSyncModal({
             <PermissionRow label="SMS and MMS" granted={permissions.messages} />
           </View>
           {!allGranted && (
-            <Pressable
-              accessibilityRole="button"
-              disabled={checking || syncing}
-              onPress={requestPermissions}
-              style={({ pressed }) => [styles.secondaryWideButton, pressed && styles.recordingControlPressed, (checking || syncing) && styles.disabled]}
-            >
-              {checking ? <ActivityIndicator color={colors.accent} /> : <Text style={styles.secondaryWideButtonText}>ALLOW PHONE ACCESS</Text>}
-            </Pressable>
+            <>
+              <Pressable
+                accessibilityRole="button"
+                disabled={checking || syncing}
+                onPress={requestPermissions}
+                style={({ pressed }) => [styles.secondaryWideButton, pressed && styles.recordingControlPressed, (checking || syncing) && styles.disabled]}
+              >
+                {checking ? <ActivityIndicator color={colors.accent} /> : <Text style={styles.secondaryWideButtonText}>ALLOW PHONE ACCESS</Text>}
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={checking || syncing}
+                onPress={openAndroidSettings}
+                style={({ pressed }) => [styles.secondaryWideButton, pressed && styles.recordingControlPressed, (checking || syncing) && styles.disabled]}
+              >
+                <Text style={styles.secondaryWideButtonText}>OPEN ANDROID SETTINGS</Text>
+              </Pressable>
+            </>
           )}
           <Pressable
             accessibilityRole="button"
-            disabled={checking || syncing}
+            disabled={checking || syncing || !anyGranted}
             onPress={synchronize}
-            style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryButtonPressed, (checking || syncing) && styles.disabled]}
+            style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryButtonPressed, (checking || syncing || !anyGranted) && styles.disabled]}
           >
             {syncing ? <ActivityIndicator color={colors.ink} /> : <Text style={styles.primaryButtonText}>SYNC NOW</Text>}
           </Pressable>
@@ -411,6 +463,9 @@ function CorrespondenceSyncModal({
           {!!error && <Text selectable style={styles.formError}>{error}</Text>}
           <Text style={styles.syncFootnote}>
             Android does not expose WhatsApp or every RCS conversation through these phone databases. Those sources require separate integrations. MMS attachments are not uploaded in this version.
+          </Text>
+          <Text style={styles.syncVersion}>
+            Android shell {Number(TimeV3Native.nativeShellVersion ?? 0) || 'legacy'} · required {requiredCorrespondenceShellVersion}
           </Text>
           <Pressable disabled={syncing} onPress={onClose} style={[styles.textButton, syncing && styles.disabled]}>
             <Text style={styles.textButtonLabel}>Close</Text>
@@ -931,4 +986,5 @@ const styles = StyleSheet.create({
   secondaryWideButtonText: { color: colors.accent, fontSize: 11, fontWeight: '900', letterSpacing: 1.3 },
   syncProgress: { color: colors.success, backgroundColor: colors.surface, borderRadius: 10, padding: 12, fontSize: 13, lineHeight: 19, marginTop: 16 },
   syncFootnote: { color: colors.dim, fontSize: 12, lineHeight: 18, marginTop: 22 },
+  syncVersion: { color: colors.dim, fontSize: 10, lineHeight: 16, marginTop: 10, textTransform: 'uppercase', letterSpacing: 0.7 },
 });

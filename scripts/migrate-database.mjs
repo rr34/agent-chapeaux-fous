@@ -354,6 +354,82 @@ async function assertVersion32Integrity(connection, databaseName) {
 }
 
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
+  if (migration.version === 57) {
+    const [tables] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'correspondence_source_aliases'`,
+    [databaseName]);
+    if (tables.length !== 1 || tables[0].TABLE_TYPE !== "BASE TABLE") {
+      throw new Error("Migration 0057 did not establish correspondence_source_aliases");
+    }
+    const [columns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND (
+        (TABLE_NAME = 'correspondence' AND COLUMN_NAME = 'dedupe_fingerprint')
+        OR TABLE_NAME = 'correspondence_source_aliases'
+      )`, [databaseName]);
+    const fingerprint = columns.find((row) => (
+      row.TABLE_NAME === "correspondence" && row.COLUMN_NAME === "dedupe_fingerprint"
+    ));
+    if (!fingerprint || fingerprint.COLUMN_TYPE !== "char(64)" || fingerprint.IS_NULLABLE !== "YES") {
+      throw new Error("Migration 0057 did not establish nullable correspondence.dedupe_fingerprint");
+    }
+    const requiredAliasColumns = [
+      "correspondence_source_alias_id", "correspondence_id", "medium",
+      "source_account_key", "thread_key", "external_id", "provider_status",
+      "source_event_id", "first_observed_at_utc", "last_observed_at_utc",
+    ];
+    const aliasColumns = new Set(columns
+      .filter((row) => row.TABLE_NAME === "correspondence_source_aliases")
+      .map((row) => row.COLUMN_NAME));
+    const missingColumns = requiredAliasColumns.filter((name) => !aliasColumns.has(name));
+    if (missingColumns.length > 0) {
+      throw new Error(`Migration 0057 is missing correspondence source alias columns: ${missingColumns.join(", ")}`);
+    }
+    const [indexes] = await connection.query(`SELECT TABLE_NAME, INDEX_NAME, COLUMN_NAME,
+        SEQ_IN_INDEX, NON_UNIQUE
+      FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = ? AND (
+        (TABLE_NAME = 'correspondence' AND INDEX_NAME = 'correspondence_dedupe')
+        OR (TABLE_NAME = 'correspondence_source_aliases'
+          AND INDEX_NAME IN ('correspondence_source_alias_identity',
+            'correspondence_source_alias_canonical'))
+      ) ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX`, [databaseName]);
+    const indexColumns = (table, name) => indexes
+      .filter((row) => row.TABLE_NAME === table && row.INDEX_NAME === name)
+      .map((row) => row.COLUMN_NAME);
+    if (JSON.stringify(indexColumns("correspondence", "correspondence_dedupe"))
+      !== JSON.stringify(["medium", "dedupe_fingerprint"])) {
+      throw new Error("Migration 0057 is missing correspondence_dedupe");
+    }
+    const identityIndex = indexes.filter((row) => (
+      row.TABLE_NAME === "correspondence_source_aliases"
+      && row.INDEX_NAME === "correspondence_source_alias_identity"
+    ));
+    if (identityIndex.some((row) => Number(row.NON_UNIQUE) !== 0)
+      || JSON.stringify(identityIndex.map((row) => row.COLUMN_NAME))
+        !== JSON.stringify(["medium", "source_account_key", "external_id"])) {
+      throw new Error("Migration 0057 is missing the unique correspondence source alias identity");
+    }
+    if (JSON.stringify(indexColumns("correspondence_source_aliases", "correspondence_source_alias_canonical"))
+      !== JSON.stringify(["correspondence_id", "correspondence_source_alias_id"])) {
+      throw new Error("Migration 0057 is missing the canonical correspondence alias index");
+    }
+    const [keys] = await connection.query(`SELECT CONSTRAINT_NAME, COLUMN_NAME,
+        REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+      FROM information_schema.KEY_COLUMN_USAGE
+      WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME = 'correspondence_source_aliases'
+        AND REFERENCED_TABLE_NAME IS NOT NULL`, [databaseName]);
+    for (const [name, column, table, target] of [
+      ["correspondence_source_alias_correspondence", "correspondence_id", "correspondence", "correspondence_id"],
+      ["correspondence_source_alias_event_fk", "source_event_id", "activity_events", "event_id"],
+    ]) {
+      if (!keys.some((row) => row.CONSTRAINT_NAME === name && row.COLUMN_NAME === column
+        && row.REFERENCED_TABLE_NAME === table && row.REFERENCED_COLUMN_NAME === target)) {
+        throw new Error(`Migration 0057 is missing foreign key ${name}`);
+      }
+    }
+  }
   if (migration.version === 56) {
     const [columns] = await connection.query(`SELECT COLUMN_NAME, IS_NULLABLE, COLUMN_DEFAULT
       FROM information_schema.COLUMNS

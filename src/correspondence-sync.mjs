@@ -98,6 +98,53 @@ function canonicalHtml(value) {
   return escaped || null;
 }
 
+function canonicalInstant(value) {
+  if (value instanceof Date) return value.toISOString();
+  const source = String(value ?? "").trim();
+  const parsed = new Date(/Z$|[+-]\d\d:\d\d$/u.test(source)
+    ? source
+    : `${source.replace(" ", "T")}Z`);
+  if (!Number.isFinite(parsed.getTime())) {
+    throw new Error(`Cannot fingerprint invalid correspondence timestamp: ${source || "empty"}`);
+  }
+  return parsed.toISOString();
+}
+
+function normalizedParticipantAddress(value) {
+  const source = String(value ?? "").trim();
+  if (!source) return null;
+  if (source.includes("@")) return normalizeEmail(source);
+  const digits = source.replace(/\D/gu, "");
+  return digits || source.toLocaleLowerCase().replace(/\s+/gu, " ");
+}
+
+export function androidCorrespondenceDedupeIdentity(item) {
+  const participants = [...new Set((item.participants ?? [])
+    .map((participant) => normalizedParticipantAddress(
+      participant.addressValue ?? participant.address,
+    ))
+    .filter(Boolean))].sort();
+  return JSON.stringify({
+    version: 1,
+    medium: item.medium,
+    direction: item.direction,
+    occurredAtUtc: canonicalInstant(item.occurredAtUtc ?? item.occurred_at_utc),
+    participants,
+    body: item.medium === "call" ? null : (item.body ?? null),
+    callDisposition: item.medium === "call"
+      ? (item.callDisposition ?? item.call_disposition ?? null)
+      : null,
+    callDurationSeconds: item.medium === "call" && (item.callDurationSeconds
+      ?? item.call_duration_seconds) != null
+      ? Number(item.callDurationSeconds ?? item.call_duration_seconds)
+      : null,
+  });
+}
+
+export function androidCorrespondenceDedupeFingerprint(item) {
+  return createHash("sha256").update(androidCorrespondenceDedupeIdentity(item)).digest("hex");
+}
+
 function normalizedContact(input, index) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new CorrespondenceSyncInputError(`contacts[${index}] must be an object.`);
@@ -223,6 +270,7 @@ function normalizedCorrespondence(input, index, deviceId) {
     sentAtUtc,
     receivedAtUtc,
     participants,
+    deviceId,
   };
 }
 
@@ -346,17 +394,64 @@ function resolvedParticipant(database, addressValue) {
     : { contactId: null, contactMethodId: null };
 }
 
-function upsertCorrespondence(database, batch, sourceEventId) {
+function backfillPhoneFingerprints(database) {
+  const rows = database.prepare(`
+    SELECT correspondence.correspondence_id, correspondence.medium,
+      correspondence.direction, correspondence.body,
+      correspondence.call_disposition, correspondence.call_duration_seconds,
+      correspondence.occurred_at_utc, participant.address_value
+    FROM correspondence
+    LEFT JOIN correspondence_participants_join AS participant
+      USING (correspondence_id)
+    WHERE correspondence.medium IN ('sms', 'mms', 'call')
+      AND correspondence.source_account_key LIKE 'android:%'
+      AND correspondence.dedupe_fingerprint IS NULL
+    ORDER BY correspondence.correspondence_id, participant.address_value
+  `).all();
+  const records = new Map();
+  for (const row of rows) {
+    const id = Number(row.correspondence_id);
+    if (!records.has(id)) records.set(id, { ...row, participants: [] });
+    if (row.address_value) records.get(id).participants.push({ addressValue: row.address_value });
+  }
+  const update = database.prepare(`
+    UPDATE correspondence SET dedupe_fingerprint = ?
+    WHERE correspondence_id = ? AND dedupe_fingerprint IS NULL
+  `);
+  for (const [id, item] of records) {
+    update.run(androidCorrespondenceDedupeFingerprint(item), id);
+  }
+}
+
+function upsertCorrespondence(database, batch, sourceEventId, now) {
+  backfillPhoneFingerprints(database);
   const find = database.prepare(`
     SELECT correspondence_id FROM correspondence
     WHERE medium = ? AND source_account_key = ? AND external_id = ?
+  `);
+  const findAlias = database.prepare(`
+    SELECT correspondence_id FROM correspondence_source_aliases
+    WHERE medium = ? AND source_account_key = ? AND external_id = ?
+  `);
+  const findFingerprintCandidates = database.prepare(`
+    SELECT correspondence_id, medium, direction, source_account_key, body,
+      call_disposition, call_duration_seconds, occurred_at_utc
+    FROM correspondence
+    WHERE medium = ? AND dedupe_fingerprint = ?
+      AND source_account_key LIKE 'android:%'
+    ORDER BY correspondence_id
+  `);
+  const readParticipants = database.prepare(`
+    SELECT address_value FROM correspondence_participants_join
+    WHERE correspondence_id = ? ORDER BY address_value
   `);
   const insert = database.prepare(`
     INSERT INTO correspondence (
       medium, direction, source_account_key, thread_key, external_id, body,
       delivery_status, call_disposition, call_duration_seconds, provider_status,
-      occurred_at_utc, sent_at_utc, received_at_utc, source_event_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      occurred_at_utc, sent_at_utc, received_at_utc, source_event_id,
+      dedupe_fingerprint
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const update = database.prepare(`
     UPDATE correspondence SET direction = ?, thread_key = ?, body = ?,
@@ -373,10 +468,23 @@ function upsertCorrespondence(database, batch, sourceEventId) {
       address_value, display_name
     ) VALUES (?, ?, ?, ?, ?, ?)
   `);
-  const counts = { created: 0, updated: 0 };
+  const insertAlias = database.prepare(`
+    INSERT INTO correspondence_source_aliases (
+      correspondence_id, medium, source_account_key, thread_key, external_id,
+      provider_status, source_event_id, first_observed_at_utc, last_observed_at_utc
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const updateAlias = database.prepare(`
+    UPDATE correspondence_source_aliases
+    SET thread_key = ?, provider_status = ?, last_observed_at_utc = ?
+    WHERE medium = ? AND source_account_key = ? AND external_id = ?
+  `);
+  const counts = { created: 0, updated: 0, deduplicated: 0 };
   for (const item of batch.correspondence) {
     const existing = find.get(item.medium, item.sourceAccountKey, item.externalId);
+    const alias = existing ? null : findAlias.get(item.medium, item.sourceAccountKey, item.externalId);
     let correspondenceId;
+    let replaceParticipants = true;
     if (existing) {
       correspondenceId = Number(existing.correspondence_id);
       update.run(
@@ -385,16 +493,45 @@ function upsertCorrespondence(database, batch, sourceEventId) {
         item.occurredAtUtc, item.sentAtUtc, item.receivedAtUtc, correspondenceId,
       );
       counts.updated += 1;
-    } else {
-      const created = insert.run(
-        item.medium, item.direction, item.sourceAccountKey, item.threadKey,
-        item.externalId, item.body, item.deliveryStatus, item.callDisposition,
-        item.callDurationSeconds, item.providerStatus, item.occurredAtUtc,
-        item.sentAtUtc, item.receivedAtUtc, sourceEventId,
+    } else if (alias) {
+      correspondenceId = Number(alias.correspondence_id);
+      replaceParticipants = false;
+      updateAlias.run(
+        item.threadKey, item.providerStatus, now,
+        item.medium, item.sourceAccountKey, item.externalId,
       );
-      correspondenceId = Number(created.lastInsertRowid);
-      counts.created += 1;
+      counts.updated += 1;
+    } else {
+      const identity = androidCorrespondenceDedupeIdentity(item);
+      const fingerprint = androidCorrespondenceDedupeFingerprint(item);
+      const devicePrefix = `android:${item.deviceId}:`;
+      const candidates = findFingerprintCandidates.all(item.medium, fingerprint)
+        .filter((candidate) => !String(candidate.source_account_key ?? "").startsWith(devicePrefix))
+        .filter((candidate) => androidCorrespondenceDedupeIdentity({
+          ...candidate,
+          participants: readParticipants.all(candidate.correspondence_id)
+            .map(({ address_value: addressValue }) => ({ addressValue })),
+        }) === identity);
+      if (candidates.length === 1) {
+        correspondenceId = Number(candidates[0].correspondence_id);
+        replaceParticipants = false;
+        insertAlias.run(
+          correspondenceId, item.medium, item.sourceAccountKey, item.threadKey,
+          item.externalId, item.providerStatus, sourceEventId, now, now,
+        );
+        counts.deduplicated += 1;
+      } else {
+        const created = insert.run(
+          item.medium, item.direction, item.sourceAccountKey, item.threadKey,
+          item.externalId, item.body, item.deliveryStatus, item.callDisposition,
+          item.callDurationSeconds, item.providerStatus, item.occurredAtUtc,
+          item.sentAtUtc, item.receivedAtUtc, sourceEventId, fingerprint,
+        );
+        correspondenceId = Number(created.lastInsertRowid);
+        counts.created += 1;
+      }
     }
+    if (!replaceParticipants) continue;
     deleteParticipants.run(correspondenceId);
     for (const itemParticipant of item.participants) {
       const participant = resolvedParticipant(database, itemParticipant.addressValue);
@@ -447,7 +584,7 @@ export class CorrespondenceSyncService {
         eventId,
       );
       const contacts = upsertContacts(this.database, batch, now);
-      const correspondence = upsertCorrespondence(this.database, batch, eventId);
+      const correspondence = upsertCorrespondence(this.database, batch, eventId, now);
       const result = {
         protocol: batch.protocol,
         version: batch.version,
@@ -459,7 +596,7 @@ export class CorrespondenceSyncService {
       this.database.prepare(`
         UPDATE activity_events SET content_text = ?, payload_json = ? WHERE event_id = ?
       `).run(
-        `${correspondence.created} new and ${correspondence.updated} refreshed communications; ${contacts.created} new contacts`,
+        `${correspondence.created} new, ${correspondence.deduplicated} cross-device duplicates linked, and ${correspondence.updated} refreshed communications; ${contacts.created} new contacts`,
         safeJson({ ...result, deviceId: batch.deviceId }),
         eventId,
       );
@@ -479,9 +616,18 @@ export class CorrespondenceSyncService {
     const prefix = deviceId ? `android:${deviceId}:%` : "android:%";
     const rows = this.database.prepare(`
       SELECT medium, COUNT(*) AS count, MAX(occurred_at_utc) AS latest_at_utc
-      FROM correspondence WHERE source_account_key LIKE ?
-      GROUP BY medium ORDER BY CAST(medium AS CHAR)
-    `).all(prefix);
+      FROM (
+        SELECT correspondence_id, medium, occurred_at_utc
+        FROM correspondence WHERE source_account_key LIKE ?
+        UNION
+        SELECT correspondence.correspondence_id, correspondence.medium,
+          correspondence.occurred_at_utc
+        FROM correspondence_source_aliases AS alias
+        JOIN correspondence USING (correspondence_id)
+        WHERE alias.source_account_key LIKE ?
+      ) AS observed
+      GROUP BY medium ORDER BY medium
+    `).all(prefix, prefix);
     return {
       deviceId,
       media: rows.map((row) => ({

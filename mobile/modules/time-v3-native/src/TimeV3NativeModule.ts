@@ -68,6 +68,8 @@ export type CorrespondenceBatch = {
 };
 
 declare class TimeV3NativeModule extends NativeModule {
+  readonly nativeShellVersion: number;
+  readonly nativeCapabilities: string[];
   composeText(recipient: string, body: string): Promise<void>;
   getCorrespondencePermissions(): Promise<CorrespondencePermissions>;
   requestCorrespondencePermissions(): Promise<unknown>;

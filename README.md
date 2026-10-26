@@ -108,19 +108,64 @@ literally rather than implying that an unavailable source was synchronized.
 Each source has its own stable `(timestamp, provider ID)` cursor. The phone may
 persist a returned cursor only after the server atomically commits the complete
 batch. Retrying an unacknowledged batch is safe because correspondence identity
-is unique by medium, source account, and provider ID. The server preserves
-complete available message text as canonical escaped HTML, source timestamps,
-direction, delivery or call status, duration, observed participants, and exact
-observed addresses. It links an address to a contact only when normalized
-matching identifies exactly one contact. Android contacts first match their
-stable source identity, then one unambiguous existing method; otherwise the
-server creates an Android-sourced contact. A synchronization batch and its
-literal activity event commit or roll back together.
+is unique by medium, source account, and provider ID across both the canonical
+row and its sparse source aliases. For a previously unseen source identity, the
+server computes a conservative fingerprint from the communication medium,
+direction, exact source timestamp, normalized participants, complete body, and
+call state. It links a second Android phone identity only when exactly one
+substantively identical canonical record from another device matches; no match
+or multiple matches creates a separate correspondence record. The first source
+identity remains on `correspondence`, and only second and later observations
+use `correspondence_source_aliases`.
+
+The server preserves complete available message text as canonical escaped HTML,
+source timestamps, direction, delivery or call status, duration, observed
+participants, and exact observed addresses. It links an address to a contact
+only when normalized matching identifies exactly one contact. Android contacts
+first match their stable source identity, then one unambiguous existing method;
+otherwise the server creates an Android-sourced contact. A synchronization
+batch, its aliases, and its literal activity event commit or roll back together.
 
 This provider-backed path does not claim access to WhatsApp or all RCS data;
 those require separate source integrations. The initial MMS path preserves
 text and participants but does not upload binary attachments. Provider
 deletions are not inferred from absence in an incremental batch.
+
+### Android native-shell and wireless installation contract
+
+Expo/Metro updates TypeScript and other bundled application code without
+replacing the installed Android package. Changes to an Android manifest,
+Kotlin module, native dependency, application identity, or packaged resource
+require a newly built APK. The native module publishes a monotonically
+increasing `nativeShellVersion` and explicit capability names; JavaScript that
+requires a newer shell must report that mismatch literally and must not present
+missing native access as an ordinary permission denial.
+
+The ordinary development installation path is Android Wireless Debugging, not
+USB. On the phone, enable **Developer options → Wireless debugging**, choose
+**Pair device with pairing code**, and use the pairing address and pairing port:
+
+```bash
+cd mobile
+npm run phone:pair -- PHONE_IP:PAIRING_PORT
+```
+
+Then use the separate address and port shown on the main Wireless debugging
+screen, build, connect, and install while retaining application data:
+
+```bash
+npm run android:build:debug
+npm run phone:connect -- PHONE_IP:DEBUG_PORT
+npm run phone:install
+npm run phone:inspect
+```
+
+The wrapper prefers the current Windows Android SDK `adb.exe` when running
+under WSL, accepts an explicit binary through `ANDROID_ADB`, and falls back to
+`adb` on `PATH`. Installation uses `-r -g`: replace the native shell while
+retaining app data and grant the permissions declared by that APK. JavaScript-
+only work continues through the visible Expo terminal and does not require an
+APK build or installation.
 
 ## Hats and the user manual
 

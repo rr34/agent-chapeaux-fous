@@ -69,19 +69,19 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 56", () => {
+test("the authoritative MariaDB baseline is complete at schema version 57", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
-  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 43);
+  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 44);
   assert.equal(statements.filter((statement) => /^CREATE (?:SQL SECURITY INVOKER )?VIEW\b/iu.test(statement)).length, 8);
   assert.equal(statements.filter((statement) => /^CREATE TRIGGER\b/iu.test(statement)).length, 7);
-  assert.equal(source.match(/\bENUM\(/gu)?.length, 35);
-  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 67);
-  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 87);
+  assert.equal(source.match(/\bENUM\(/gu)?.length, 36);
+  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 69);
+  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 89);
   assert.doesNotMatch(source, /\b(?:[A-Za-z_][A-Za-z0-9_]*_at_utc|ask_after|resolved_at|routine_occurrence_key)\s+VARCHAR\(/u);
   assert.equal(
     Object.values(requiredEnumColumns).reduce((count, fields) => count + Object.keys(fields).length, 0),
-    35,
+    36,
   );
   for (const [tableName, fields] of Object.entries(requiredEnumColumns)) {
     const table = statements.find((statement) => statement.startsWith(`CREATE TABLE ${tableName} `));
@@ -161,6 +161,11 @@ test("the authoritative MariaDB baseline is complete at schema version 56", () =
   assert.match(invoiceLineReceiptsTable, /KEY payment_invoice_line_receipts_file \(file_id, payment_invoice_line_id\)/u);
   assert.match(invoiceLineReceiptsTable, /REFERENCES files\(file_id\) ON DELETE RESTRICT/u);
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE correspondence_participants_join ")));
+  const sourceAliases = statements.find((statement) => statement.startsWith("CREATE TABLE correspondence_source_aliases "));
+  assert.ok(sourceAliases);
+  assert.match(sourceAliases, /UNIQUE KEY correspondence_source_alias_identity \(medium, source_account_key, external_id\)/u);
+  assert.match(sourceAliases, /REFERENCES correspondence\(correspondence_id\) ON DELETE CASCADE/u);
+  assert.match(sourceAliases, /REFERENCES activity_events\(event_id\) ON DELETE SET NULL/u);
   assert.doesNotMatch(source, /CREATE TABLE (?:payment_invoice_line_receipts|correspondence_participants)\s*\(/u);
   const relationshipView = statements.find((statement) => statement.startsWith("CREATE SQL SECURITY INVOKER VIEW object_relationship_edges "));
   assert.ok(relationshipView);
@@ -172,7 +177,7 @@ test("the authoritative MariaDB baseline is complete at schema version 56", () =
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 56, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 57, 'Chapeaux Fous MariaDB database'\)$/);
   assert.equal(
     requiredDatabaseSchemaVersion,
     readMigrationLedger(path.join(root, "db", "migrations.sql")).at(-1).version,

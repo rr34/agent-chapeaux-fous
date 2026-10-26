@@ -16,6 +16,48 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0057: cross-device-correspondence-aliases
+-- writer downtime: required while the correspondence importer and schema move
+-- to cross-device canonicalization together.
+-- locking: ALTER TABLE takes a metadata lock and builds one nullable secondary
+-- index. CREATE TABLE adds an empty sparse alias table and does not scan message
+-- bodies. Existing phone fingerprints are populated lazily inside the next
+-- explicit foreground synchronization transaction.
+-- recovery: MariaDB DDL commits implicitly. The guarded column, index,
+-- constraint, and table creation are replayable after a partial commit. Keep
+-- writers stopped and replay the complete migration before starting the
+-- version-57 application.
+
+ALTER TABLE correspondence
+  ADD COLUMN IF NOT EXISTS dedupe_fingerprint CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL
+    COMMENT 'Nullable versioned-algorithm SHA-256 used only to find conservative cross-device duplicate candidates for Android SMS, MMS, and calls. A matching digest is never sufficient when multiple canonical rows match.'
+    AFTER external_id,
+  ADD INDEX IF NOT EXISTS correspondence_dedupe (medium, dedupe_fingerprint),
+  ADD CONSTRAINT IF NOT EXISTS correspondence_dedupe_fingerprint
+    CHECK (dedupe_fingerprint IS NULL OR dedupe_fingerprint REGEXP '^[0-9a-f]{64}$');
+
+CREATE TABLE IF NOT EXISTS correspondence_source_aliases (
+    correspondence_source_alias_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for one additional provider observation of a canonical correspondence record.',
+    correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Canonical correspondence record also observed through this additional source identity.',
+    medium ENUM('sms', 'mms', 'call') NOT NULL COMMENT 'Communication medium used with the source account and external identifier. It must equal the canonical correspondence medium. sms: SMS text message. mms: Multimedia messaging service message. call: Telephone call.',
+    source_account_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Additional phone, SIM, or service account that observed the canonical communication.',
+    thread_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Source-local conversation identifier observed on this additional device.',
+    external_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Provider-assigned identifier on this additional source device.',
+    provider_status VARCHAR(64) COMMENT 'Latest source-specific status observed through this alias when it contains detail not retained canonically.',
+    source_event_id VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Synchronization event that first established this additional source identity.',
+    first_observed_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this additional source identity was first synchronized.',
+    last_observed_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this additional source identity was most recently synchronized.',
+    PRIMARY KEY (correspondence_source_alias_id),
+    UNIQUE KEY correspondence_source_alias_identity (medium, source_account_key, external_id),
+    KEY correspondence_source_alias_canonical (correspondence_id, correspondence_source_alias_id),
+    KEY correspondence_source_alias_event (source_event_id),
+    CONSTRAINT correspondence_source_alias_correspondence FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE,
+    CONSTRAINT correspondence_source_alias_event_fk FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
+    CONSTRAINT correspondence_source_alias_observed CHECK (last_observed_at_utc >= first_observed_at_utc)
+) ENGINE=InnoDB COMMENT='Stores only second and later provider identities for one canonical SMS, MMS, or call observed on multiple Android phones. The first source identity remains on correspondence. Exact source identity provides replay safety; conservative fingerprint matching selects a canonical candidate, and ambiguous candidates remain separate. Sensitivity: Contains private device/account identifiers, message and call provenance, and provider state.';
+
+-- end migration 0057
+
 -- migration 0056: explicit-content-group-sequencing
 -- writer downtime: required while the content-group setting and matching
 -- application behavior are installed together.

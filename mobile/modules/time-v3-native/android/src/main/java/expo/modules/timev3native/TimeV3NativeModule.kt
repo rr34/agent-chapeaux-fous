@@ -52,6 +52,16 @@ class TimeV3NativeModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("TimeV3Native")
 
+    Constant("nativeShellVersion") { 2 }
+    Constant("nativeCapabilities") {
+      listOf(
+        "compose_text_v1",
+        "contacts_read_v1",
+        "call_log_read_v1",
+        "sms_mms_read_v1",
+      )
+    }
+
     AsyncFunction("composeText") { recipient: String, body: String ->
       val context = requireContext()
       val destination = if (recipient.isBlank()) "smsto:" else "smsto:${Uri.encode(recipient)}"
