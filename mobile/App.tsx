@@ -279,7 +279,7 @@ const noCorrespondencePermissions: CorrespondencePermissions = {
   messages: false,
 };
 
-const requiredCorrespondenceShellVersion = 2;
+const requiredCorrespondenceShellVersion = 3;
 
 function PermissionRow({ label, granted }: { label: string; granted: boolean }) {
   return (
@@ -371,7 +371,17 @@ function CorrespondenceSyncModal({
       }
       setProgress('Reading phone data…');
       let cursor = await loadCorrespondenceCursor();
-      const totals = { contacts: 0, created: 0, updated: 0, deduplicated: 0 };
+      const totals = {
+        contactsRead: 0,
+        contactsCreated: 0,
+        contactsMatched: 0,
+        contactNamesUpdated: 0,
+        contactMethodsCreated: 0,
+        contactObservationsCreated: 0,
+        correspondenceCreated: 0,
+        correspondenceUpdated: 0,
+        correspondenceDeduplicated: 0,
+      };
       for (let batchNumber = 1; batchNumber <= 10_000; batchNumber += 1) {
         const batch = await TimeV3Native.readCorrespondenceBatch(cursor, 100);
         setPermissions(batch.permissions);
@@ -384,14 +394,19 @@ function CorrespondenceSyncModal({
         const accepted = await synchronizeCorrespondence(settings, batch);
         await saveCorrespondenceCursor(batch.nextCursor);
         cursor = batch.nextCursor;
-        totals.contacts += accepted.contacts.received;
-        totals.created += accepted.correspondence.created;
-        totals.updated += accepted.correspondence.updated;
-        totals.deduplicated += accepted.correspondence.deduplicated;
+        totals.contactsRead += accepted.contacts.received;
+        totals.contactsCreated += accepted.contacts.created;
+        totals.contactsMatched += accepted.contacts.matched;
+        totals.contactNamesUpdated += accepted.contacts.updated;
+        totals.contactMethodsCreated += accepted.contacts.methodsCreated;
+        totals.contactObservationsCreated += accepted.contacts.observationsCreated ?? 0;
+        totals.correspondenceCreated += accepted.correspondence.created;
+        totals.correspondenceUpdated += accepted.correspondence.updated;
+        totals.correspondenceDeduplicated += accepted.correspondence.deduplicated;
         const more = Object.values(batch.hasMore).some(Boolean);
         if (!more) {
           setProgress(
-            `Complete: ${totals.contacts} contacts read, ${totals.created} new, ${totals.deduplicated} cross-device duplicates linked, and ${totals.updated} refreshed communications.`,
+            `Complete: ${totals.contactsRead} contacts read; ${totals.contactsCreated} created, ${totals.contactsMatched} matched, ${totals.contactNamesUpdated} names updated, and ${totals.contactMethodsCreated} methods added. ${totals.contactObservationsCreated} phone contact identities recorded. Communications: ${totals.correspondenceCreated} new, ${totals.correspondenceDeduplicated} cross-device duplicates linked, and ${totals.correspondenceUpdated} refreshed.`,
           );
           return;
         }

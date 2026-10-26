@@ -178,6 +178,9 @@ function normalizedContact(input, index) {
     externalId: createHash("sha256")
       .update(requiredText(input.externalId, `contacts[${index}].externalId`, 512))
       .digest("hex"),
+    providerUpdatedAtUtc: input.updatedAtMs == null
+      ? null
+      : utcInstant(input.updatedAtMs, `contacts[${index}].updatedAtMs`),
     displayName: requiredText(input.displayName, `contacts[${index}].displayName`, 500),
     givenName: optionalText(input.givenName, `contacts[${index}].givenName`, 255),
     familyName: optionalText(input.familyName, `contacts[${index}].familyName`, 255),
@@ -338,10 +341,40 @@ function appendContactMethods(database, contactId, methods) {
   return inserted;
 }
 
-function upsertContacts(database, batch, now) {
+function sameContactNames(row, contact) {
+  return row.display_name === contact.displayName
+    && row.given_name === contact.givenName
+    && row.family_name === contact.familyName
+    && row.organization_name === contact.organizationName;
+}
+
+function instantMilliseconds(value) {
+  if (value == null) return null;
+  const milliseconds = new Date(canonicalInstant(value)).getTime();
+  return Number.isFinite(milliseconds) ? milliseconds : null;
+}
+
+function upsertContacts(database, batch, eventId, now) {
   const source = `android:${batch.deviceId}`;
+  const findObservation = database.prepare(`
+    SELECT contact_id, provider_updated_at_utc
+    FROM contact_source_aliases
+    WHERE source = ? AND external_id = ?
+    LIMIT 1
+  `);
   const findImported = database.prepare(`
     SELECT contact_id FROM contacts WHERE source = ? AND external_id = ? ORDER BY contact_id LIMIT 1
+  `);
+  const findContact = database.prepare(`
+    SELECT display_name, given_name, family_name, organization_name, updated_at_utc
+    FROM contacts WHERE contact_id = ?
+  `);
+  const findLatestObservation = database.prepare(`
+    SELECT provider_updated_at_utc
+    FROM contact_source_aliases
+    WHERE contact_id = ? AND provider_updated_at_utc IS NOT NULL
+    ORDER BY provider_updated_at_utc DESC, contact_source_alias_id DESC
+    LIMIT 1
   `);
   const insert = database.prepare(`
     INSERT INTO contacts (
@@ -353,25 +386,90 @@ function upsertContacts(database, batch, now) {
     UPDATE contacts SET display_name = ?, given_name = ?, family_name = ?,
       organization_name = ?, updated_at_utc = ? WHERE contact_id = ?
   `);
-  const counts = { created: 0, updated: 0, matched: 0, methodsCreated: 0 };
+  const insertObservation = database.prepare(`
+    INSERT INTO contact_source_aliases (
+      contact_id, source, external_id, observed_display_name, observed_given_name,
+      observed_family_name, observed_organization_name, provider_updated_at_utc,
+      source_event_id, first_observed_at_utc, last_observed_at_utc
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const updateObservation = database.prepare(`
+    UPDATE contact_source_aliases
+    SET observed_display_name = ?, observed_given_name = ?, observed_family_name = ?,
+      observed_organization_name = ?, provider_updated_at_utc = ?, last_observed_at_utc = ?
+    WHERE source = ? AND external_id = ?
+  `);
+  const touchObservation = database.prepare(`
+    UPDATE contact_source_aliases SET last_observed_at_utc = ?
+    WHERE source = ? AND external_id = ?
+  `);
+  const counts = {
+    created: 0,
+    updated: 0,
+    matched: 0,
+    observationsCreated: 0,
+    methodsCreated: 0,
+  };
   for (const contact of batch.contacts) {
-    const imported = findImported.get(source, contact.externalId);
-    let contactId = imported ? Number(imported.contact_id) : contactMethodMatch(database, contact.methods);
-    if (imported) {
+    const observation = findObservation.get(source, contact.externalId);
+    const imported = observation ? null : findImported.get(source, contact.externalId);
+    let contactId = observation
+      ? Number(observation.contact_id)
+      : imported
+        ? Number(imported.contact_id)
+        : contactMethodMatch(database, contact.methods);
+    const methodMatched = !observation && !imported && contactId !== null;
+    let created = false;
+    if (contactId === null) {
+      const inserted = insert.run(
+        contact.displayName, contact.givenName, contact.familyName,
+        contact.organizationName, source, contact.externalId, now,
+      );
+      contactId = Number(inserted.lastInsertRowid);
+      counts.created += 1;
+      created = true;
+    } else if (methodMatched) {
+      counts.matched += 1;
+    }
+
+    const incomingUpdatedAt = instantMilliseconds(contact.providerUpdatedAtUtc);
+    const latest = findLatestObservation.get(contactId);
+    const latestUpdatedAt = instantMilliseconds(latest?.provider_updated_at_utc);
+    const sourceOwnsCanonical = imported !== undefined && imported !== null;
+    const canonical = findContact.get(contactId);
+    const canonicalUpdatedAt = instantMilliseconds(canonical.updated_at_utc);
+    const incomingIsAuthoritative = incomingUpdatedAt !== null
+      ? latestUpdatedAt !== null
+        ? incomingUpdatedAt > latestUpdatedAt
+        : canonicalUpdatedAt === null || incomingUpdatedAt > canonicalUpdatedAt
+      : sourceOwnsCanonical;
+    if (!created && incomingIsAuthoritative && !sameContactNames(canonical, contact)) {
       updateImported.run(
         contact.displayName, contact.givenName, contact.familyName,
         contact.organizationName, now, contactId,
       );
       counts.updated += 1;
-    } else if (contactId !== null) {
-      counts.matched += 1;
-    } else {
-      const created = insert.run(
-        contact.displayName, contact.givenName, contact.familyName,
-        contact.organizationName, source, contact.externalId, now,
+    }
+
+    if (!observation) {
+      insertObservation.run(
+        contactId, source, contact.externalId, contact.displayName, contact.givenName,
+        contact.familyName, contact.organizationName, contact.providerUpdatedAtUtc,
+        eventId, now, now,
       );
-      contactId = Number(created.lastInsertRowid);
-      counts.created += 1;
+      counts.observationsCreated += 1;
+    } else {
+      const observedUpdatedAt = instantMilliseconds(observation.provider_updated_at_utc);
+      if (incomingUpdatedAt !== null
+        && (observedUpdatedAt === null || incomingUpdatedAt >= observedUpdatedAt)) {
+        updateObservation.run(
+          contact.displayName, contact.givenName, contact.familyName,
+          contact.organizationName, contact.providerUpdatedAtUtc, now,
+          source, contact.externalId,
+        );
+      } else {
+        touchObservation.run(now, source, contact.externalId);
+      }
     }
     counts.methodsCreated += appendContactMethods(database, contactId, contact.methods);
   }
@@ -583,7 +681,7 @@ export class CorrespondenceSyncService {
         }),
         eventId,
       );
-      const contacts = upsertContacts(this.database, batch, now);
+      const contacts = upsertContacts(this.database, batch, eventId, now);
       const correspondence = upsertCorrespondence(this.database, batch, eventId, now);
       const result = {
         protocol: batch.protocol,
@@ -596,7 +694,7 @@ export class CorrespondenceSyncService {
       this.database.prepare(`
         UPDATE activity_events SET content_text = ?, payload_json = ? WHERE event_id = ?
       `).run(
-        `${correspondence.created} new, ${correspondence.deduplicated} cross-device duplicates linked, and ${correspondence.updated} refreshed communications; ${contacts.created} new contacts`,
+        `${correspondence.created} new, ${correspondence.deduplicated} cross-device duplicates linked, and ${correspondence.updated} refreshed communications; ${contacts.created} new, ${contacts.matched} matched, and ${contacts.updated} renamed contacts`,
         safeJson({ ...result, deviceId: batch.deviceId }),
         eventId,
       );

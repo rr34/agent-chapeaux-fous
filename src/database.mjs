@@ -1,6 +1,6 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 
-export const requiredDatabaseSchemaVersion = 57;
+export const requiredDatabaseSchemaVersion = 58;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -20,6 +20,12 @@ export const requiredDatabaseShape = {
   contact_methods: [
     "contact_method_id", "contact_id", "method_kind", "label", "value",
     "normalized_value", "is_primary", "can_receive",
+  ],
+  contact_source_aliases: [
+    "contact_source_alias_id", "contact_id", "source", "external_id",
+    "observed_display_name", "observed_given_name", "observed_family_name",
+    "observed_organization_name", "provider_updated_at_utc", "source_event_id",
+    "first_observed_at_utc", "last_observed_at_utc",
   ],
   tags: ["tag_id", "slug", "label", "is_active"],
   correspondence: [

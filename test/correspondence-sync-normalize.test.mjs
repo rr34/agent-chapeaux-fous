@@ -41,6 +41,26 @@ test("Android correspondence normalization preserves complete plain text and ded
   }]);
 });
 
+test("Android contact normalization retains the provider modification instant", () => {
+  const normalized = normalizeAndroidSyncBatch(batch({
+    contacts: [{
+      externalId: "lookup-key",
+      updatedAtMs: 1_800_000_000_123,
+      displayName: "John Smith",
+      methods: [],
+    }],
+  }));
+  assert.equal(normalized.contacts[0].providerUpdatedAtUtc, "2027-01-15T08:00:00.123Z");
+  assert.throws(() => normalizeAndroidSyncBatch(batch({
+    contacts: [{
+      externalId: "lookup-key",
+      updatedAtMs: -1,
+      displayName: "John Smith",
+      methods: [],
+    }],
+  })), /contacts\[0\]\.updatedAtMs/u);
+});
+
 test("Android correspondence normalization rejects unsafe identities and duplicate records", () => {
   assert.throws(() => normalizeAndroidSyncBatch(batch({
     correspondence: [{

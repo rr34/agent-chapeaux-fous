@@ -11,6 +11,7 @@ export type CorrespondenceSyncResult = {
     created: number;
     updated: number;
     matched: number;
+    observationsCreated: number;
     methodsCreated: number;
   };
   correspondence: {

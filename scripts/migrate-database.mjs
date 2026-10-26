@@ -354,6 +354,64 @@ async function assertVersion32Integrity(connection, databaseName) {
 }
 
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
+  if (migration.version === 58) {
+    const [tables] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'contact_source_aliases'`,
+    [databaseName]);
+    if (tables.length !== 1 || tables[0].TABLE_TYPE !== "BASE TABLE") {
+      throw new Error("Migration 0058 did not establish contact_source_aliases");
+    }
+    const [columns] = await connection.query(`SELECT COLUMN_NAME, IS_NULLABLE
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'contact_source_aliases'`, [databaseName]);
+    const requiredColumns = [
+      "contact_source_alias_id", "contact_id", "source", "external_id",
+      "observed_display_name", "observed_given_name", "observed_family_name",
+      "observed_organization_name", "provider_updated_at_utc", "source_event_id",
+      "first_observed_at_utc", "last_observed_at_utc",
+    ];
+    const columnNames = new Set(columns.map((row) => row.COLUMN_NAME));
+    const missingColumns = requiredColumns.filter((name) => !columnNames.has(name));
+    if (missingColumns.length > 0) {
+      throw new Error(`Migration 0058 is missing contact source alias columns: ${missingColumns.join(", ")}`);
+    }
+    if (columns.find((row) => row.COLUMN_NAME === "provider_updated_at_utc")?.IS_NULLABLE !== "YES") {
+      throw new Error("Migration 0058 must allow legacy contact observations without a provider update instant");
+    }
+    const [indexes] = await connection.query(`SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX, NON_UNIQUE
+      FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'contact_source_aliases'
+        AND INDEX_NAME IN ('contact_source_alias_identity', 'contact_source_alias_canonical')
+      ORDER BY INDEX_NAME, SEQ_IN_INDEX`, [databaseName]);
+    const indexColumns = (name) => indexes
+      .filter((row) => row.INDEX_NAME === name)
+      .map((row) => row.COLUMN_NAME);
+    const identity = indexes.filter((row) => row.INDEX_NAME === "contact_source_alias_identity");
+    if (identity.some((row) => Number(row.NON_UNIQUE) !== 0)
+      || JSON.stringify(indexColumns("contact_source_alias_identity"))
+        !== JSON.stringify(["source", "external_id"])) {
+      throw new Error("Migration 0058 is missing the unique contact source alias identity");
+    }
+    if (JSON.stringify(indexColumns("contact_source_alias_canonical"))
+      !== JSON.stringify(["contact_id", "provider_updated_at_utc", "contact_source_alias_id"])) {
+      throw new Error("Migration 0058 is missing the canonical contact source alias index");
+    }
+    const [keys] = await connection.query(`SELECT CONSTRAINT_NAME, COLUMN_NAME,
+        REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+      FROM information_schema.KEY_COLUMN_USAGE
+      WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME = 'contact_source_aliases'
+        AND REFERENCED_TABLE_NAME IS NOT NULL`, [databaseName]);
+    for (const [name, column, table, target] of [
+      ["contact_source_alias_contact", "contact_id", "contacts", "contact_id"],
+      ["contact_source_alias_event_fk", "source_event_id", "activity_events", "event_id"],
+    ]) {
+      if (!keys.some((row) => row.CONSTRAINT_NAME === name && row.COLUMN_NAME === column
+        && row.REFERENCED_TABLE_NAME === table && row.REFERENCED_COLUMN_NAME === target)) {
+        throw new Error(`Migration 0058 is missing foreign key ${name}`);
+      }
+    }
+  }
   if (migration.version === 57) {
     const [tables] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE
       FROM information_schema.TABLES

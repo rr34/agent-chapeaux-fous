@@ -126,6 +126,18 @@ first match their stable source identity, then one unambiguous existing method;
 otherwise the server creates an Android-sourced contact. A synchronization
 batch, its aliases, and its literal activity event commit or roll back together.
 
+Every synchronized Android contact identity is retained in
+`contact_source_aliases`, including identities whose canonical contact was
+created by that phone. Each observation preserves the most recently supplied
+name fields and Android modification instant. Exact source identity takes
+precedence over later method changes. A newly observed identity may match one
+existing contact by an unambiguous normalized phone number or email; the newest
+known Android observation may update that canonical contact's display, given,
+family, and organization names. An older observation from another phone remains
+recorded but cannot replace a newer phone spelling. Contact methods are appended
+conservatively; absence from an incremental batch does not delete methods or
+contacts.
+
 This provider-backed path does not claim access to WhatsApp or all RCS data;
 those require separate source integrations. The initial MMS path preserves
 text and participants but does not upload binary attachments. Provider

@@ -52,11 +52,12 @@ class TimeV3NativeModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("TimeV3Native")
 
-    Constant("nativeShellVersion") { 2 }
+    Constant("nativeShellVersion") { 3 }
     Constant("nativeCapabilities") {
       listOf(
         "compose_text_v1",
         "contacts_read_v1",
+        "contact_change_time_v1",
         "call_log_read_v1",
         "sms_mms_read_v1",
       )
@@ -194,6 +195,7 @@ class TimeV3NativeModule : Module() {
         val details = readContactDetails(context, contactId)
         rows += mapOf(
           "externalId" to (result.string(ContactsContract.Contacts.LOOKUP_KEY) ?: contactId.toString()),
+          "updatedAtMs" to updatedAt.toDouble(),
           "displayName" to displayName,
           "givenName" to details["givenName"],
           "familyName" to details["familyName"],

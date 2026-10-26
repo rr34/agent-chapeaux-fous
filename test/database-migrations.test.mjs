@@ -27,6 +27,48 @@ const block = (version, name = `migration-${version}`, sql = `SELECT ${version};
   return `-- migration ${label}: ${name}\n${sql}\n-- end migration ${label}\n`;
 };
 
+test("Android contact source alias integrity requires identity, chronology, and provenance", async () => {
+  const requiredColumns = [
+    "contact_source_alias_id", "contact_id", "source", "external_id",
+    "observed_display_name", "observed_given_name", "observed_family_name",
+    "observed_organization_name", "provider_updated_at_utc", "source_event_id",
+    "first_observed_at_utc", "last_observed_at_utc",
+  ];
+  const connection = ({ tables = [{ TABLE_NAME: "contact_source_aliases", TABLE_TYPE: "BASE TABLE" }],
+    columns = requiredColumns.map((COLUMN_NAME) => ({
+      COLUMN_NAME,
+      IS_NULLABLE: COLUMN_NAME === "provider_updated_at_utc" ? "YES" : "NO",
+    })) } = {}) => ({ async query(sql) {
+    if (sql.includes("information_schema.TABLES")) return [tables];
+    if (sql.includes("information_schema.COLUMNS")) return [columns];
+    if (sql.includes("information_schema.STATISTICS")) return [[
+      ...["source", "external_id"].map((COLUMN_NAME, index) => ({
+        INDEX_NAME: "contact_source_alias_identity", COLUMN_NAME,
+        SEQ_IN_INDEX: index + 1, NON_UNIQUE: 0,
+      })),
+      ...["contact_id", "provider_updated_at_utc", "contact_source_alias_id"]
+        .map((COLUMN_NAME, index) => ({
+          INDEX_NAME: "contact_source_alias_canonical", COLUMN_NAME,
+          SEQ_IN_INDEX: index + 1, NON_UNIQUE: 1,
+        })),
+    ]];
+    if (sql.includes("information_schema.KEY_COLUMN_USAGE")) return [[
+      { CONSTRAINT_NAME: "contact_source_alias_contact", COLUMN_NAME: "contact_id", REFERENCED_TABLE_NAME: "contacts", REFERENCED_COLUMN_NAME: "contact_id" },
+      { CONSTRAINT_NAME: "contact_source_alias_event_fk", COLUMN_NAME: "source_event_id", REFERENCED_TABLE_NAME: "activity_events", REFERENCED_COLUMN_NAME: "event_id" },
+    ]];
+    throw new Error(`Unexpected SQL: ${sql}`);
+  } });
+  await assertMigrationSpecificIntegrity(connection(), { version: 58 }, "test_database");
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ tables: [] }), { version: 58 }, "test_database"),
+    /contact_source_aliases/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ columns: requiredColumns.slice(1).map((COLUMN_NAME) => ({ COLUMN_NAME, IS_NULLABLE: "YES" })) }), { version: 58 }, "test_database"),
+    /contact source alias columns/u,
+  );
+});
+
 test("cross-device correspondence alias integrity requires sparse identity storage", async () => {
   const requiredAliasColumns = [
     "correspondence_source_alias_id", "correspondence_id", "medium",
@@ -536,11 +578,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57]);
-  for (let current = 29; current <= 57; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58]);
+  for (let current = 29; current <= 58; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 57 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 58 - current }, (_, index) => current + index + 1),
     );
   }
 });

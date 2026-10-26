@@ -34,7 +34,7 @@ test("cross-device correspondence migration is sparse and deduplicates a later p
     writersStopped: true,
     output: { write() {} },
   };
-  assert.deepEqual((await runDatabaseMigrations(options)).applied, [57]);
+  assert.deepEqual((await runDatabaseMigrations(options)).applied, [57, 58]);
   await verifyDatabase(database);
   assert.equal(database.prepare(`
     SELECT dedupe_fingerprint FROM correspondence WHERE correspondence_id = 1

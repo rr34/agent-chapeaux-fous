@@ -19,6 +19,7 @@ export type CorrespondenceCursor = {
 
 export type AndroidContact = {
   externalId: string;
+  updatedAtMs: number;
   displayName: string;
   givenName: string | null;
   familyName: string | null;

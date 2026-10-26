@@ -16,6 +16,40 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0058: android-contact-source-aliases
+-- writer downtime: required while the contact importer and schema move to
+-- persistent Android identity and modification-time conflict handling together.
+-- locking: CREATE TABLE adds one empty provenance table and takes metadata locks
+-- on contacts and activity_events while its foreign keys are established. No
+-- existing contact rows are scanned or rewritten.
+-- recovery: MariaDB DDL commits implicitly. The guarded table creation is
+-- replayable after a partial commit. Keep writers stopped and replay the complete
+-- migration before starting the version-58 application.
+
+CREATE TABLE IF NOT EXISTS contact_source_aliases (
+    contact_source_alias_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for one Android provider identity observed for a canonical contact.',
+    contact_id BIGINT UNSIGNED NOT NULL COMMENT 'Canonical contact represented by this Android provider identity.',
+    source VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Stable Android device source in the form android followed by the opaque device identifier.',
+    external_id VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'SHA-256 digest of the Android provider lookup key; unique within source.',
+    observed_display_name VARCHAR(500) NOT NULL COMMENT 'Complete display name most recently observed for this provider identity.',
+    observed_given_name VARCHAR(255) COMMENT 'Given name most recently observed for this provider identity.',
+    observed_family_name VARCHAR(255) COMMENT 'Family name most recently observed for this provider identity.',
+    observed_organization_name VARCHAR(500) COMMENT 'Organization name most recently observed for this provider identity.',
+    provider_updated_at_utc DATETIME(3) COMMENT 'Android contact modification instant for the stored observation. Null only for an observation received from a legacy native shell that did not provide it.',
+    source_event_id VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Synchronization event that first established this Android provider identity.',
+    first_observed_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this provider identity was first synchronized.',
+    last_observed_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this provider identity was most recently synchronized.',
+    PRIMARY KEY (contact_source_alias_id),
+    UNIQUE KEY contact_source_alias_identity (source, external_id),
+    KEY contact_source_alias_canonical (contact_id, provider_updated_at_utc, contact_source_alias_id),
+    KEY contact_source_alias_event (source_event_id),
+    CONSTRAINT contact_source_alias_contact FOREIGN KEY (contact_id) REFERENCES contacts(contact_id) ON DELETE CASCADE,
+    CONSTRAINT contact_source_alias_event_fk FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
+    CONSTRAINT contact_source_alias_observed CHECK (last_observed_at_utc >= first_observed_at_utc)
+) ENGINE=InnoDB COMMENT='Maps every synchronized Android contact identity to one canonical contact and retains its latest observed name and provider modification time. Exact identity is resolved before method matching; the newest known Android observation may update canonical name fields without creating a duplicate contact. Sensitivity: Contains private address-book names, device provenance, and source identifiers.';
+
+-- end migration 0058
+
 -- migration 0057: cross-device-correspondence-aliases
 -- writer downtime: required while the correspondence importer and schema move
 -- to cross-device canonicalization together.

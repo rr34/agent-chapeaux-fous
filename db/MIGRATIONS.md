@@ -11,6 +11,18 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 58: Android contact source aliases
+
+Adds the authoritative mapping from every synchronized Android contact identity
+to its canonical contact, including the latest observed name fields and Android
+modification instant. Exact source identity is resolved before phone/email
+matching. A newer Android observation may update canonical name fields, while a
+late older-phone observation remains recorded without overwriting a newer name.
+
+Apply with writers stopped because the contact importer requires the table.
+The migration creates an empty table and does not rewrite existing contacts.
+Its guarded creation is replayable after a partial MariaDB DDL commit.
+
 ## Version 57: Cross-device correspondence aliases
 
 Adds one nullable conservative deduplication fingerprint to canonical
