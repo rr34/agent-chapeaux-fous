@@ -7,7 +7,9 @@ import {
   commonSenseCoreSchema,
   commonSenseExecutionInstructions,
   commonSenseInstructions,
+  completionAuditSchema,
   coreTargetRefs,
+  normalizeCompletionAudit,
   parseStructuredModelOutput,
 } from "../src/common-sense-core.mjs";
 
@@ -71,6 +73,32 @@ test("read-only work is answer mode and current receipts can correct factual pre
   assert.match(audit, /receipts are authoritative for current facts/i);
   assert.match(auditInstructions, /factual premises about current data/i);
   assert.match(auditInstructions, /preserve exact bound sets/i);
+});
+
+test("completion audits distinguish missing user intent from executable repair", () => {
+  assert.match(completionAuditSchema.properties.outcome.description, /callable tools do not resolve/i);
+  assert.match(completionAuditSchema.properties.repairInstructions.description, /asking the user is not a repair/i);
+  assert.match(auditInstructions, /requiresUserInput=true/i);
+  assert.match(auditInstructions, /existence of callable.*tools does not make.*repairable/i);
+
+  const contradictory = {
+    version: 1,
+    outcome: "repair_needed",
+    requiresUserInput: true,
+    missingInformation: ["Should the replacement morning routine run daily or weekdays only?"],
+    summary: "The source routines have conflicting recurrences.",
+    satisfied: ["The exact source routines were read."],
+    remaining: ["Choose one recurrence for the replacement routine."],
+    repairInstructions: ["Ask the user to choose daily or weekdays."],
+  };
+  const parsed = parseStructuredModelOutput(
+    JSON.stringify(contradictory), completionAuditSchema, "Audit",
+  );
+  assert.deepEqual(normalizeCompletionAudit(parsed), {
+    ...contradictory,
+    outcome: "needs_information",
+    repairInstructions: [],
+  });
 });
 
 test("the core rejects unavailable capability families, context views, and object references", () => {

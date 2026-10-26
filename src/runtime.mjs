@@ -32,6 +32,7 @@ import {
   commonSenseInstructions,
   completionAuditSchema,
   coreTargetRefs,
+  normalizeCompletionAudit,
   parseStructuredModelOutput,
 } from "./common-sense-core.mjs";
 import {
@@ -783,7 +784,10 @@ export class SlayerRuntime {
         },
       });
       responseRecorded = true;
-      const value = parseStructuredModelOutput(result.text, outputSchema, label);
+      const parsedValue = parseStructuredModelOutput(result.text, outputSchema, label);
+      const value = outputSchema === completionAuditSchema
+        ? normalizeCompletionAudit(parsedValue)
+        : parsedValue;
       this.ledger.append({
         type: "agent.step", phase: "end", status: "complete", actorType: "service",
         actorName: "Structured turn workflow", channel, turnId: requestId, operationId,
@@ -1586,9 +1590,9 @@ export class SlayerRuntime {
       outputSchema: completionAuditSchema,
       runTimeoutMs: remainingTimeoutMs(),
     });
-    return repairAudit.value.outcome === "complete"
-      ? repair.text
-      : blockedAuditResponse(repairAudit.value);
+    if (repairAudit.value.outcome === "complete"
+      || repairAudit.value.outcome === "needs_information") return repair.text;
+    return blockedAuditResponse(repairAudit.value);
   }
 
   async run(args) {

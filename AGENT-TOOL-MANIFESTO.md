@@ -682,6 +682,13 @@ conflicting or failed receipts that may have been recovered, unknown tool
 effects, or an action lacking successful mutation evidence. Unknown effects are
 treated conservatively.
 
+An action that pauses for a material user-controlled choice is
+`needs_information`, even when all required read and mutation tools are
+callable. Tool availability cannot resolve missing user intent. `repair_needed`
+is reserved for remaining work whose inputs and authorization are already
+established and which can continue without another user answer; asking the user
+is not repair work.
+
 Completion of an authorized mutation requires a successful receipt for the
 exact bound tool and arguments. Status reads and receipt inspection provide
 evidence for audit; the exact mutation receipt proves completion.

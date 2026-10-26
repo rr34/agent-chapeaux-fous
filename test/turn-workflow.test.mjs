@@ -570,6 +570,8 @@ test("explicit batch selections are verified once and stay one bulk action", asy
         return completed(JSON.stringify({
           version: 1,
           outcome: "complete",
+          requiresUserInput: false,
+          missingInformation: [],
           summary: "The complete explicit selection was updated successfully after the incomplete call was rejected.",
           satisfied: ["All three explicitly selected to-dos were completed."],
           remaining: [],
@@ -1070,6 +1072,8 @@ test("destructive language triggers the exceptional semantic audit", async () =>
       return completed(JSON.stringify({
         version: 1,
         outcome: "blocked",
+        requiresUserInput: false,
+        missingInformation: [],
         summary: "The repaired receipts do not prove permanent deletion.",
         satisfied: ["The event was cancelled."],
         remaining: ["Permanent deletion remains unverified."],
@@ -1087,6 +1091,85 @@ test("destructive language triggers the exceptional semantic audit", async () =>
     "- Permanent deletion remains unverified.",
   ].join("\n"));
   assert.equal(requests.length, 3);
+});
+
+test("a material user choice ends audit as needs information instead of starting repair", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  registry.withCapability("calendar").register({
+    name: "calendar_routine_list",
+    description: "List reusable calendar routines.",
+    annotations: { readOnlyHint: true, destructiveHint: false },
+    parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
+    async execute() {
+      return {
+        routines: [
+          { calendar_routine_id: 14, title: "Morning Exercise", recurrence_rule: "FREQ=DAILY;INTERVAL=1" },
+          { calendar_routine_id: 15, title: "Morning Meditation", recurrence_rule: "FREQ=DAILY;INTERVAL=1" },
+          { calendar_routine_id: 21, title: "Morning Video Creation", recurrence_rule: "FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,TU,WE,TH,FR" },
+        ],
+      };
+    },
+  });
+  const question = "Should the new 45-minute morning routine run daily or on weekdays only?";
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) return completed(JSON.stringify(core({
+        objective: "Replace three morning routines with one 45-minute morning routine.",
+        conversationSummary: "The user wants three selected routines combined into one.",
+        actions: [{ instruction: "Create one replacement routine and disable the three originals.", targetRefs: [] }],
+      })));
+      if (index === 1) {
+        const result = await payload.onToolCall({
+          callId: "list-routines",
+          tool: "calendar_routine_list",
+          arguments: {
+            result_filter: {
+              collection_path: null,
+              query: null,
+              match_mode: "all_terms",
+              include_fields: [],
+              exclude_fields: [],
+              max_items: 20,
+              max_characters: 20000,
+            },
+          },
+        });
+        assert.equal(result.ok, true);
+        return completed(question);
+      }
+      assert.equal(index, 2);
+      assert.match(payload.developerInstructions, /ACTION_WITHOUT_MUTATION_RECEIPT/);
+      assert.match(payload.baseInstructions, /callable read or mutation tools does not make an unknown user preference repairable/i);
+      assert.match(payload.outputSchema.properties.outcome.description, /needs_information/);
+      return completed(JSON.stringify({
+        version: 1,
+        outcome: "repair_needed",
+        requiresUserInput: true,
+        missingInformation: ["Choose whether the replacement routine recurs daily or on weekdays only."],
+        summary: "The selected routines have conflicting recurrence schedules.",
+        satisfied: ["The three source routines and their recurrences were read."],
+        remaining: ["Choose one recurrence before creating the replacement routine."],
+        repairInstructions: ["Ask the user to choose daily or weekdays."],
+      }));
+    },
+  });
+
+  assert.equal(await runtime.run({
+    requestId: "request-combine-routines", requestEventId: "event-current",
+    text: "Combine these into one 45-minute morning routine.",
+  }), question);
+  assert.equal(requests.length, 3, "needs information must not start a repair interaction");
+  const audit = ledger.events.find(({ name, phase }) => (
+    name === "Audit exceptional outcome" && phase === "end"
+  ));
+  assert.equal(audit.payload.result.outcome, "needs_information");
+  assert.deepEqual(audit.payload.result.repairInstructions, []);
 });
 
 test("an exceptional repair is audited again before its response is accepted", async () => {
@@ -1130,6 +1213,8 @@ test("an exceptional repair is audited again before its response is accepted", a
       if (index === 2) return completed(JSON.stringify({
         version: 1,
         outcome: "repair_needed",
+        requiresUserInput: false,
+        missingInformation: [],
         summary: "Cancellation did not satisfy deletion.",
         satisfied: ["The event was cancelled."],
         remaining: ["The event must be permanently deleted."],
@@ -1150,6 +1235,8 @@ test("an exceptional repair is audited again before its response is accepted", a
       return completed(JSON.stringify({
         version: 1,
         outcome: "complete",
+        requiresUserInput: false,
+        missingInformation: [],
         summary: "The repaired receipt proves permanent deletion.",
         satisfied: ["Calendar event 3165 was permanently deleted."],
         remaining: [],

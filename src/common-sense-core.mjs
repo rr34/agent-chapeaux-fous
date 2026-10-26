@@ -223,14 +223,45 @@ export const completionAuditSchema = {
   additionalProperties: false,
   properties: {
     version: { type: "integer", enum: [1] },
-    outcome: { type: "string", enum: ["complete", "needs_information", "repair_needed", "blocked"] },
+    outcome: {
+      type: "string",
+      enum: ["complete", "needs_information", "repair_needed", "blocked"],
+      description: "Use complete only when receipts prove the requested end state. Use needs_information when a material user-controlled choice or value is still required; callable tools do not resolve that missing intent. Use repair_needed only when the remaining work can proceed now from existing authorization and evidence without another user answer. Use blocked only for a terminal operational or authorization barrier that repair cannot resolve in this request.",
+    },
+    requiresUserInput: {
+      type: "boolean",
+      description: "True when correct continuation requires the user to supply or choose material information that is not established by the request, context, or receipts. Tool availability is irrelevant to this value.",
+    },
+    missingInformation: {
+      ...textList(12, 1_000),
+      description: "Exact material questions or choices only the user can resolve. When nonempty, requiresUserInput must be true and the outcome is needs_information.",
+    },
     summary: text(2_000),
     satisfied: textList(30),
     remaining: textList(30),
-    repairInstructions: textList(30),
+    repairInstructions: {
+      ...textList(30),
+      description: "Application work that can execute immediately without new user input. Keep empty for complete and needs_information outcomes; asking the user is not a repair instruction.",
+    },
   },
-  required: ["version", "outcome", "summary", "satisfied", "remaining", "repairInstructions"],
+  required: [
+    "version", "outcome", "requiresUserInput", "missingInformation", "summary", "satisfied",
+    "remaining", "repairInstructions",
+  ],
 };
+
+export function normalizeCompletionAudit(value) {
+  const requiresUserInput = value.requiresUserInput === true
+    || value.outcome === "needs_information"
+    || value.missingInformation.length > 0;
+  if (!requiresUserInput) return value;
+  return {
+    ...value,
+    outcome: "needs_information",
+    requiresUserInput: true,
+    repairInstructions: [],
+  };
+}
 
 export function parseStructuredModelOutput(value, schema, label) {
   let parsed;
@@ -450,6 +481,8 @@ export const auditInstructions = [
   "You are the exceptional completion-audit phase of Time v3 Agent. Produce only the schema-constrained audit result.",
   "Judge the ordinary-language end state from tool receipts and tool contracts, not from confidence in the proposed response.",
   "Distinguish the requested outcome and exact bound scope from factual premises about current data. When authoritative receipts contradict a premise and the proposed response explicitly reconciles the discrepancy while covering the evidenced current scope, do not demand nonexistent records; preserve exact bound sets and explicitly requested historical snapshots.",
+  "When correct continuation requires a material choice or value that only the user can supply, set requiresUserInput=true, list the exact missingInformation, and use outcome=needs_information. The existence of callable read or mutation tools does not make an unknown user preference repairable. Asking the user is not repair work.",
+  "Use repair_needed only when every input needed for the remaining application work is already established and that work can proceed immediately without another user answer.",
   "Unresolved target identity is not proof that a capability is unavailable. When a callable owning read can resolve the target and a callable mutation contract states the requested effect, require repair rather than reporting a terminal block.",
 ].join("\n");
 
