@@ -57,7 +57,7 @@ const toolDescriptions = Object.freeze({
     ]
   },
   "calendar_routine_list": { "summary": "List reusable calendar routine definitions separately from generated calendar events." },
-  "calendar_routine_update": { "summary": "Update or disable one calendar routine without rewriting events already generated." }
+  "calendar_routine_update": { "summary": "Update one calendar routine or perform its reversible delete lifecycle by disabling it without rewriting events already generated." }
 });
 
 const contactRecordSchema = {
@@ -808,26 +808,32 @@ export function registerCalendarTools(
 
   registry.register({
     name: "calendar_routine_update",
-    description: "Update or disable a reusable calendar routine. Already generated calendar events remain concrete records.",
+    description: "Update or disable a reusable calendar routine. For an ordinary delete or remove request, disabled=true is the routine resource's reversible delete lifecycle: it stops generating new events while its definition and already generated calendar events remain. Report that literal retained-state effect rather than claiming permanent erasure. Null leaves every optional update field unchanged; use an empty string to clear description, location_text, ends_at_utc, or planning_prompt_text.",
     outputSchema: { type: "object", properties: { routine: calendarRoutineRecordSchema } },
     parameters: { type: "object", additionalProperties: false, properties: {
       calendar_routine_id: { type: "integer", minimum: 1 }, version: { type: "string" },
-      title: optionalText, description: optionalText, location_text: optionalText,
-      starts_at_utc: optionalText, ends_at_utc: optionalText, time_zone: optionalText,
-      is_all_day: { type: ["boolean", "null"] }, recurrence: recurrenceSchema,
-      planning_prompt_text: optionalText, disabled: { type: ["boolean", "null"] },
+      title: { ...optionalText, description: "New routine title. Null leaves it unchanged; an updated title must not be empty." },
+      description: { ...optionalText, description: "New routine description. Null leaves it unchanged; an empty string clears it." },
+      location_text: { ...optionalText, description: "New routine location. Null leaves it unchanged; an empty string clears it." },
+      starts_at_utc: { ...optionalText, description: "New first occurrence start. Null leaves it unchanged; it cannot be cleared." },
+      ends_at_utc: { ...optionalText, description: "New first occurrence end. Null leaves it unchanged; an empty string clears it." },
+      time_zone: { ...optionalText, description: "New IANA time zone. Null leaves it unchanged; it cannot be cleared." },
+      is_all_day: { type: ["boolean", "null"], description: "New all-day state. Null leaves it unchanged." },
+      recurrence: { ...recurrenceSchema, description: "New structured recurrence. Null leaves it unchanged; a routine's recurrence cannot be cleared." },
+      planning_prompt_text: { ...optionalText, description: "New planning question. Null leaves it unchanged; an empty string clears it." },
+      disabled: { type: ["boolean", "null"], description: "True disables the routine and stops new event generation; false re-enables it; null leaves it unchanged." },
     }, required: ["calendar_routine_id", "version"] },
     async execute(input, context) {
       const update = { version: input.version };
       if (input.title != null) update.title = input.title;
-      if (Object.hasOwn(input, "description")) update.description = input.description;
-      if (Object.hasOwn(input, "location_text")) update.location = input.location_text;
+      if (input.description != null) update.description = input.description;
+      if (input.location_text != null) update.location = input.location_text;
       if (input.starts_at_utc != null) update.startsAtUtc = normalizedIso(input.starts_at_utc, "starts_at_utc", { required: true });
-      if (Object.hasOwn(input, "ends_at_utc")) update.endsAtUtc = normalizedIso(input.ends_at_utc, "ends_at_utc");
+      if (input.ends_at_utc != null) update.endsAtUtc = normalizedIso(input.ends_at_utc, "ends_at_utc");
       if (input.time_zone != null) update.timeZone = validateTimeZone(input.time_zone);
       if (input.is_all_day != null) update.isAllDay = input.is_all_day;
       if (input.recurrence != null) update.recurrenceRule = buildRecurrenceRule(input.recurrence);
-      if (Object.hasOwn(input, "planning_prompt_text")) update.planningPromptText = input.planning_prompt_text;
+      if (input.planning_prompt_text != null) update.planningPromptText = input.planning_prompt_text;
       if (input.disabled != null) update.disabled = input.disabled;
       const routine = organizer.updateCalendarRoutine(input.calendar_routine_id, update,
         { actorType: "tool", actorName: "calendar_routine_update", source: "agent-slayer",

@@ -192,6 +192,27 @@ function calendarUpdateTool(registry, execute) {
   });
 }
 
+function calendarRoutineUpdateTool(registry, execute) {
+  registry.withCapability("calendar", {}, {
+    calendar_routine_update: { allowUnboundInputs: true },
+  }).register({
+    name: "calendar_routine_update",
+    description: "Update or disable one reusable calendar routine.",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        calendar_routine_id: { type: "integer", minimum: 1 },
+        version: { type: "string" },
+        disabled: { type: ["boolean", "null"] },
+      },
+      required: ["calendar_routine_id", "version", "disabled"],
+    },
+    execute,
+  });
+}
+
 test("the normal mutation path is one common-sense call plus execution and skips semantic audit", async () => {
   const requests = [];
   const ledger = fakeLedger();
@@ -1036,14 +1057,18 @@ test("date inconsistency gets one exceptional correction before tools are expose
   assert.equal(requests.length, 3);
 });
 
-test("destructive language triggers the exceptional semantic audit", async () => {
+test("a declared reversible delete lifecycle satisfies ordinary delete language", async () => {
   const requests = [];
   const ledger = fakeLedger();
   const registry = new ToolRegistry();
   registerNativeCapabilities(registry);
-  calendarUpdateTool(registry, async () => ({
+  calendarRoutineUpdateTool(registry, async () => ({
     updated: true,
-    event: { calendar_event_id: 3165, status: "cancelled" },
+    routine: {
+      calendar_routine_id: 14,
+      title: "Morning Exercise",
+      disabled_at_utc: "2026-10-26T02:35:57.409Z",
+    },
   }));
   const runtime = runtimeWith({
     registry,
@@ -1052,44 +1077,44 @@ test("destructive language triggers the exceptional semantic audit", async () =>
     runTurn: async (payload, index) => {
       if (index === 0) {
         return completed(JSON.stringify(core({
-          objective: "Delete calendar event 3165.",
-          conversationSummary: "The user explicitly asked to delete one calendar event.",
-          actions: [{ instruction: "Delete calendar event 3165.", targetRefs: [] }],
+          objective: "Delete calendar routine 14.",
+          conversationSummary: "The user explicitly asked to delete one calendar routine.",
+          actions: [{ instruction: "Delete calendar routine 14.", targetRefs: [] }],
         })));
       }
       if (index === 1) {
         const result = await payload.onToolCall({
-          callId: "cancel-event",
-          tool: "calendar_event_update",
-          arguments: { calendar_event_id: 3165, title: null, status: "cancelled" },
+          callId: "disable-routine",
+          tool: "calendar_routine_update",
+          arguments: {
+            calendar_routine_id: 14,
+            version: "2026-09-23T18:26:40.652Z",
+            disabled: true,
+          },
         });
         assert.equal(result.ok, true);
-        return completed("Archived the event.");
+        return completed("Disabled Morning Exercise, so it will not generate new events. Its already-generated events remain connected to the retained routine history.");
       }
       assert.equal(index, 2);
       assert.match(payload.developerInstructions, /DESTRUCTIVE_INTENT_SEMANTICS/);
-      assert.match(payload.developerInstructions, /not.*interchangeable/si);
+      assert.match(payload.developerInstructions, /Delete is the reversible disabled lifecycle state/);
+      assert.match(payload.baseInstructions, /successful receipt proving that state satisfies an ordinary delete request/i);
       return completed(JSON.stringify({
         version: 1,
-        outcome: "blocked",
+        outcome: "complete",
         requiresUserInput: false,
         missingInformation: [],
-        summary: "The repaired receipts do not prove permanent deletion.",
-        satisfied: ["The event was cancelled."],
-        remaining: ["Permanent deletion remains unverified."],
+        summary: "The declared routine delete lifecycle was completed and reported literally.",
+        satisfied: ["Routine 14 was disabled, stopping new event generation while retaining its definition and already-generated events."],
+        remaining: [],
         repairInstructions: [],
       }));
     },
   });
 
   assert.equal(await runtime.run({
-    requestId: "request-delete", requestEventId: "event-current", text: "Delete calendar event 3165.",
-  }), [
-    "I completed part of the request, but I couldn't complete everything requested.",
-    "",
-    "Still incomplete:",
-    "- Permanent deletion remains unverified.",
-  ].join("\n"));
+    requestId: "request-delete", requestEventId: "event-current", text: "Delete calendar routine 14.",
+  }), "Disabled Morning Exercise, so it will not generate new events. Its already-generated events remain connected to the retained routine history.");
   assert.equal(requests.length, 3);
 });
 
@@ -1200,8 +1225,8 @@ test("an exceptional repair is audited again before its response is accepted", a
     requests,
     runTurn: async (payload, index) => {
       if (index === 0) return completed(JSON.stringify(core({
-        objective: "Delete calendar event 3165.",
-        actions: [{ instruction: "Delete calendar event 3165.", targetRefs: [] }],
+        objective: "Permanently erase calendar event 3165 without retaining it as archived history.",
+        actions: [{ instruction: "Permanently erase calendar event 3165 without retaining it.", targetRefs: [] }],
       })));
       if (index === 1) {
         await payload.onToolCall({
@@ -1247,7 +1272,7 @@ test("an exceptional repair is audited again before its response is accepted", a
 
   assert.equal(await runtime.run({
     requestId: "request-delete-repair", requestEventId: "event-current",
-    text: "Delete calendar event 3165.",
+    text: "Permanently erase calendar event 3165; do not retain archived history.",
   }), "Deleted the event permanently.");
   assert.equal(requests.length, 5);
 });

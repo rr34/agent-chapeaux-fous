@@ -80,6 +80,10 @@ test("completion audits distinguish missing user intent from executable repair",
   assert.match(completionAuditSchema.properties.repairInstructions.description, /asking the user is not a repair/i);
   assert.match(auditInstructions, /requiresUserInput=true/i);
   assert.match(auditInstructions, /existence of callable.*tools does not make.*repairable/i);
+  assert.match(auditInstructions, /ordinary delete, remove, and archive language through the owning resourceLifecycle/i);
+  assert.match(auditInstructions, /never claim permanent erasure/i);
+  assert.match(auditInstructions, /qualitative filters such as morning/i);
+  assert.match(auditInstructions, /borderline candidate.*needs_information.*never repair_needed/i);
 
   const contradictory = {
     version: 1,

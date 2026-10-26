@@ -689,6 +689,14 @@ is reserved for remaining work whose inputs and authorization are already
 established and which can continue without another user answer; asking the user
 is not repair work.
 
+Ordinary user-facing delete, remove, and archive language resolves through the
+owning resource's declared delete lifecycle. When that lifecycle is archival,
+disabling, cancellation, or another retained inactive state, its successful
+owning receipt completes the ordinary deletion request. The response states the
+literal effect and retained history rather than claiming permanent erasure. An
+explicit request for physical or permanent erasure remains distinct and cannot
+be satisfied by a reversible lifecycle transition.
+
 Completion of an authorized mutation requires a successful receipt for the
 exact bound tool and arguments. Status reads and receipt inspection provide
 evidence for audit; the exact mutation receipt proves completion.

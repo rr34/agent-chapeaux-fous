@@ -42,6 +42,11 @@ Use `calendar_routine_add`, `calendar_routine_list`, and
 `calendar_routine_update` for reusable routines and habits. A calendar routine
 is a temporal definition, not a task template. `calendar_routine_generate`
 materializes missing concrete events for a bounded range and is safe to repeat.
+For an ordinary request to delete or remove a routine, set `disabled=true` with
+`calendar_routine_update`. This is the routine resource's declared reversible
+delete lifecycle: the routine stops generating new events while its definition
+and links to already generated events remain as history. Already generated
+events are not cancelled. Describe that literal outcome, never permanent erasure.
 Each materialized event is independently editable: move or otherwise change its
 returned `calendar_event_id` with `calendar_event_update` and `scope="event"`.
 Its `calendar_routine_id` and `routine_occurrence_key` retain its relationship

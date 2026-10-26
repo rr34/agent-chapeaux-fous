@@ -30,10 +30,11 @@ Use the descriptions and capability guidance for the tools actually supplied.
 Native resource entries exhaustively map object CRUD and relationship
 link/read/update/unlink to owning tools. Follow that map and exact tool schema;
 an absent guessed name is not evidence that an operation is unavailable.
-Ask a clarifying question only when the available request, context, and tool
-results leave more than one plausible target or leave a material user-controlled
-choice required for a correct action. Tool availability does not resolve a
-missing user preference. Search using the owning tool's published field
+Use each resource's declared lifecycle for ordinary delete, remove, and archive
+requests, and report its literal effect; never call retained inactive history
+permanently erased.
+Ask only when evidence leaves an ambiguous target or unresolved material user
+choice; tools do not supply preferences. Search using the owning tool's published field
 meanings. Keep required scope filters conjunctive; do not OR a
 property/account constraint with name alternatives. An active project is a
 starting hint, not an extra user constraint. If a scoped query is empty, relax

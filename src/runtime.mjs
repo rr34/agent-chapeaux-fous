@@ -190,15 +190,30 @@ function exceptionalAuditReasons({ core, receipts, registry, findings, requestTe
 function callableToolCatalog(tools) {
   return tools
     .filter(({ name }) => !["request_capabilities", "request_tools"].includes(name))
-    .map(({ name, title, description, source, upstreamName, capabilityId, annotations }) => ({
-      name,
-      title: title ?? null,
-      description,
-      source,
-      upstreamName: upstreamName ?? null,
-      capabilityId: capabilityId ?? null,
-      annotations: annotations ?? null,
-    }));
+    .map(({ name, title, description, source, upstreamName, capabilityId, capability, annotations }) => {
+      const resourceLifecycle = (capability?.resources ?? []).flatMap((resource) => (
+        Object.entries(resource.operations ?? {})
+          .filter(([, operation]) => operation.available === true && operation.tool === name)
+          .map(([operationName, operation]) => ({
+            resource: resource.id,
+            kind: resource.kind,
+            management: resource.management,
+            operation: operationName,
+            batch: operation.batch,
+            ...(operation.note ? { note: operation.note } : {}),
+          }))
+      ));
+      return {
+        name,
+        title: title ?? null,
+        description,
+        source,
+        upstreamName: upstreamName ?? null,
+        capabilityId: capabilityId ?? null,
+        annotations: annotations ?? null,
+        ...(resourceLifecycle.length ? { resourceLifecycle } : {}),
+      };
+    });
 }
 
 function serializedBytes(value) {

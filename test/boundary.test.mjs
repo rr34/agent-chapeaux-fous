@@ -70,8 +70,10 @@ test("base instructions stay universal while capability fragments retain domain 
   assert.match(baseInstructions, /Never infer or\s+announce a hat the user did not speak/);
   assert.match(baseInstructions, /inspect its metadata, visible structure,\s+headers, and relevant records/);
   assert.match(baseInstructions, /never ask the user to\s+identify information plainly visible in the attachment/);
-  assert.match(baseInstructions, /material user-controlled\s+choice required for a correct action/);
-  assert.match(baseInstructions, /Tool availability does not resolve a\s+missing user preference/);
+  assert.match(baseInstructions, /declared lifecycle for ordinary delete, remove, and archive\s+requests/);
+  assert.match(baseInstructions, /never call retained inactive history\s+permanently erased/);
+  assert.match(baseInstructions, /unresolved material user\s+choice/);
+  assert.match(baseInstructions, /tools do not supply preferences/);
   assert.match(baseInstructions, /original requested outcome and full scope authoritative/);
   assert.match(baseInstructions, /missing information as\s+parameters for the original task/);
   assert.match(baseInstructions, /accepts your offered action,\s+perform it/);

@@ -411,6 +411,62 @@ test("a routine-generated concrete event moves independently without changing it
   assert.deepEqual(organizer.getCalendar(sibling.id), siblingBefore);
 });
 
+test("disabling a routine preserves fields passed as null and supports explicit empty-string clears", async (context) => {
+  const { registry } = calendarFixture(context);
+  const created = await registry.execute("calendar_routine_add", {
+    title: "Morning Exercise",
+    description: "Start the day moving",
+    location_text: "Home gym",
+    starts_at_utc: "2026-09-14T10:00:00.000Z",
+    ends_at_utc: "2026-09-14T10:45:00.000Z",
+    time_zone: "America/New_York",
+    is_all_day: false,
+    recurrence: {
+      frequency: "WEEKLY",
+      interval: 1,
+      weekdays: ["MO", "TU", "WE", "TH", "FR"],
+      count: null,
+      until_date: null,
+      time_zone: "America/New_York",
+    },
+    planning_prompt_text: "Which workout will you do?",
+  });
+
+  const disabled = await registry.execute("calendar_routine_update", {
+    calendar_routine_id: created.routine.calendar_routine_id,
+    version: created.routine.version,
+    title: null,
+    description: null,
+    location_text: null,
+    starts_at_utc: null,
+    ends_at_utc: null,
+    time_zone: null,
+    is_all_day: null,
+    recurrence: null,
+    planning_prompt_text: null,
+    disabled: true,
+  });
+  assert.equal(disabled.routine.description, "Start the day moving");
+  assert.equal(disabled.routine.location_text, "Home gym");
+  assert.equal(disabled.routine.first_ends_at_utc, "2026-09-14T10:45:00.000Z");
+  assert.equal(disabled.routine.planning_prompt_text, "Which workout will you do?");
+  assert.ok(disabled.routine.disabled_at_utc);
+
+  const cleared = await registry.execute("calendar_routine_update", {
+    calendar_routine_id: disabled.routine.calendar_routine_id,
+    version: disabled.routine.version,
+    description: "",
+    location_text: "",
+    ends_at_utc: "",
+    planning_prompt_text: "",
+  });
+  assert.equal(cleared.routine.description, null);
+  assert.equal(cleared.routine.location_text, null);
+  assert.equal(cleared.routine.first_ends_at_utc, null);
+  assert.equal(cleared.routine.planning_prompt_text, null);
+  assert.ok(cleared.routine.disabled_at_utc);
+});
+
 test("calendar events store and clear an optional planning prompt", async (context) => {
   const { registry } = calendarFixture(context);
   const created = await registry.execute("calendar_event_add", {
