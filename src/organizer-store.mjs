@@ -984,6 +984,19 @@ function publicJournalTracker(row) {
   };
 }
 
+function publicJournalGroup(row) {
+  if (!row) return null;
+  return {
+    id: row.journal_group_id,
+    name: row.name,
+    trackerCount: Number(row.tracker_count ?? 0),
+    entryCount: Number(row.entry_count ?? 0),
+    archivedAtUtc: row.archived_at_utc,
+    createdAtUtc: row.created_at_utc,
+    updatedAtUtc: row.updated_at_utc,
+  };
+}
+
 function publicJournalEntry(row) {
   if (!row) return null;
   return {
@@ -4133,6 +4146,100 @@ export class OrganizerStore {
       numericAverages: averagesByTracker.get(row.tracker_id) ?? emptyAverages,
       numericHistory: numericHistoryByTracker.get(row.tracker_id) ?? [],
     }));
+  }
+
+  listJournalGroups({ includeArchived = false } = {}) {
+    return this.database.prepare(`
+      SELECT journal_group.*,
+             COUNT(DISTINCT tracker.tracker_id) AS tracker_count,
+             COUNT(entry.journal_entry_id) AS entry_count
+      FROM journal1_groups AS journal_group
+      LEFT JOIN journal2_trackers AS tracker USING (journal_group_id)
+      LEFT JOIN journal3_entries AS entry USING (tracker_id)
+      ${includeArchived ? "" : "WHERE journal_group.archived_at_utc IS NULL"}
+      GROUP BY journal_group.journal_group_id
+      ORDER BY journal_group.name, journal_group.journal_group_id
+    `).all().map(publicJournalGroup);
+  }
+
+  createJournalTracker(input) {
+    const name = requiredText(input?.name, "name", 200);
+    const unit = requiredText(input?.unit, "unit", 100);
+    if (unit.toLowerCase() === "set me") {
+      throw new OrganizerInputError("New journal trackers require a real canonical unit, not set me.");
+    }
+    const groupId = input?.groupId == null || input.groupId === ""
+      ? null
+      : identifier(input.groupId, "journal group id");
+    const groupName = groupId === null ? requiredText(input?.groupName, "groupName", 200) : null;
+    const now = new Date().toISOString();
+
+    this.database.exec("START TRANSACTION");
+    try {
+      const existingTracker = this.database.prepare(
+        "SELECT tracker_id, name FROM journal2_trackers WHERE name = ?",
+      ).get(name);
+      if (existingTracker) {
+        throw new OrganizerInputError(
+          `A journal tracker named ${existingTracker.name} already exists.`,
+          409,
+        );
+      }
+
+      let group;
+      if (groupId !== null) {
+        group = this.database.prepare(`
+          SELECT * FROM journal1_groups
+          WHERE journal_group_id = ? AND archived_at_utc IS NULL
+        `).get(groupId);
+        if (!group) throw new OrganizerInputError("Journal group not found.", 404);
+      } else {
+        group = this.database.prepare("SELECT * FROM journal1_groups WHERE name = ?").get(groupName);
+        if (group) {
+          const message = group.archived_at_utc == null
+            ? "That journal group already exists; select it from the group list."
+            : "That journal group is archived.";
+          throw new OrganizerInputError(message, 409);
+        }
+        const insertedGroup = this.database.prepare(`
+          INSERT INTO journal1_groups (name, updated_at_utc) VALUES (?, ?)
+        `).run(groupName, now);
+        group = this.database.prepare(
+          "SELECT * FROM journal1_groups WHERE journal_group_id = ?",
+        ).get(Number(insertedGroup.lastInsertRowid));
+      }
+
+      const insertedTracker = this.database.prepare(`
+        INSERT INTO journal2_trackers (journal_group_id, name, unit, updated_at_utc)
+        VALUES (?, ?, ?, ?)
+      `).run(group.journal_group_id, name, unit, now);
+      const trackerId = Number(insertedTracker.lastInsertRowid);
+      const tracker = publicJournalTracker(this.database.prepare(`
+        SELECT tracker.*, journal_group.name AS group_name,
+               journal_group.archived_at_utc AS group_archived_at_utc,
+               0 AS entry_count, NULL AS last_recorded_at_utc
+        FROM journal2_trackers AS tracker
+        JOIN journal1_groups AS journal_group USING (journal_group_id)
+        WHERE tracker.tracker_id = ?
+      `).get(trackerId));
+      this.#activity({
+        eventType: "personal_journal_tracker.created",
+        status: "complete",
+        name: "Personal journal tracker created",
+        subjectType: "tracker",
+        subjectId: tracker.id,
+        contentText: tracker.name,
+        payload: { tracker },
+      });
+      this.database.exec("COMMIT");
+      return tracker;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      if (error?.code === "ER_DUP_ENTRY") {
+        throw new OrganizerInputError("A journal tracker or group with that name already exists.", 409);
+      }
+      throw error;
+    }
   }
 
   listJournalEntries({ trackerId = null, groupId = null, limit = 200, query = null } = {}) {

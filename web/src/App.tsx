@@ -5,7 +5,7 @@ import { CalendarGrid, DailyPaper, DayTimeline } from "./components/DailyPaper";
 import { Empty, ErrorState, Loading } from "./components/State";
 import { RoutineScreen } from "./components/RoutineCalendar";
 import { ObjectMentionInput, ObjectMentionText } from "./components/ObjectMentionInput";
-import { CalendarEventEditor, ContactEditor, LibraryContentEditor, PhysicalItemEditor, TodoEditor, TodoItem } from "./components/EditableItems";
+import { CalendarEventEditor, ContactEditor, JournalTrackerEditor, LibraryContentEditor, PhysicalItemEditor, TodoEditor, TodoItem } from "./components/EditableItems";
 import { TrackerSchedule } from "./components/TrackerSchedule";
 import { SectionFilter } from "./components/SectionFilter";
 import { Markdown } from "./components/Markdown";
@@ -2150,11 +2150,13 @@ function JournalScreen() {
   const [filterQuery, setFilterQuery] = useState("");
   const [serverQuery, setServerQuery] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState("all");
+  const [addingTracker, setAddingTracker] = useState(false);
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
   const journalParameters = new URLSearchParams({ limit: "500" });
   if (serverQuery) journalParameters.set("q", serverQuery);
   const { data: trackers, error, loading, reload } = useApi<{ trackers: Entity[] }>(`/api/journal-trackers?${journalParameters}`);
   const { data: entries, error: entryError, loading: entriesLoading, reload: reloadEntries } = useApi<{ entries: Entity[] }>(`/api/journal-entries?${journalParameters}`);
+  const { data: groupData, error: groupError, loading: groupsLoading, reload: reloadGroups } = useApi<{ groups: Entity[] }>("/api/journal-groups");
   const journalTrackers = trackers?.trackers || [];
   const journalEntries = entries?.entries || [];
   const journalGroupOptions = useMemo(() => {
@@ -2194,18 +2196,19 @@ function JournalScreen() {
     }
     return [...grouped.values()];
   }, [visibleEntries, visibleTrackers]);
-  const reloadJournal = () => { void reload(); void reloadEntries(); };
+  const reloadJournal = async () => { await Promise.all([reload(), reloadEntries(), reloadGroups()]); };
   const searchJournal = () => {
     const nextQuery = filterQuery.trim();
     if (nextQuery === serverQuery) reloadJournal();
     else setServerQuery(nextQuery);
   };
   return <>
-    <PageHeading eyebrow="A record of lived time" title="Journal" detail="Trackers and recent entries, kept alongside the calendar without pretending they are appointments." groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={journalGroupOptions} totalCount={journalTrackers.length + journalEntries.length} disabled={loading || entriesLoading} />} />
+    <PageHeading eyebrow="A record of lived time" title="Journal" detail="Trackers and recent entries, kept alongside the calendar without pretending they are appointments." groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={journalGroupOptions} totalCount={journalTrackers.length + journalEntries.length} disabled={loading || entriesLoading} />} actions={<button className="button" type="button" disabled={groupsLoading || Boolean(groupError)} onClick={() => setAddingTracker(true)}>Add tracker</button>} />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchJournal} searching={loading || entriesLoading} count={visibleCount} noun="result" />
     {(loading || entriesLoading) && <Loading />}
     {error && <ErrorState error={error} retry={reloadJournal} />}
     {entryError && <ErrorState error={entryError} retry={reloadJournal} />}
+    {groupError && <ErrorState error={groupError} retry={reloadJournal} />}
     {!loading && !entriesLoading && !error && !entryError && !visibleCount && <Empty>{filterQuery.trim() ? "No journal items match the filter." : "No journal items yet."}</Empty>}
     {!loading && !entriesLoading && !error && !entryError && Boolean(groups.length) && <div className="library-groups">
       {groups.map((group) => {
@@ -2251,7 +2254,13 @@ function JournalScreen() {
         </section>;
       })}
     </div>}
-    {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={async () => { await Promise.all([reload(), reloadEntries()]); }} />}
+    {addingTracker && <JournalTrackerEditor
+      groups={groupData?.groups || []}
+      initialGroupId={selectedGroupId === "all" ? undefined : Number(selectedGroupId)}
+      onClose={() => setAddingTracker(false)}
+      onChanged={reloadJournal}
+    />}
+    {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={reloadJournal} />}
   </>;
 }
 

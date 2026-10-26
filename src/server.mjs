@@ -1248,6 +1248,18 @@ const server = http.createServer(async (request, response) => {
       });
       return;
     }
+    if (request.method === "POST" && url.pathname === "/api/journal-trackers") {
+      sendJson(response, 201, { tracker: organizer.createJournalTracker(await readJson(request)) });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/journal-groups") {
+      sendJson(response, 200, {
+        groups: organizer.listJournalGroups({
+          includeArchived: url.searchParams.get("includeArchived") === "true",
+        }),
+      });
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/journal-entries") {
       sendJson(response, 200, {
         entries: organizer.listJournalEntries({

@@ -52,6 +52,17 @@ test("journal trackers and entries share lists under their persisted journal gro
   assert.match(source, /type: "journal\.entry"/);
 });
 
+test("the Journal heading opens a tracker-only editor", () => {
+  const source = screenSource("JournalScreen", "UsageScreen");
+  const editors = fs.readFileSync(new URL("../web/src/components/EditableItems.tsx", import.meta.url), "utf8");
+  assert.match(source, />Add tracker<\/button>/);
+  assert.match(source, /<JournalTrackerEditor/);
+  assert.match(editors, /export function JournalTrackerEditor/);
+  assert.match(editors, /api\("\/api\/journal-trackers"/);
+  assert.doesNotMatch(editors.slice(editors.indexOf("export function JournalTrackerEditor"), editors.indexOf("interface PhysicalItemDraft")), /journal-entries/);
+  assert.match(serverSource, /organizer\.createJournalTracker/);
+});
+
 test("grouped list rows have shared and responsive styling", () => {
   assert.match(styles, /\.library-groups/);
   assert.match(styles, /\.library-list/);

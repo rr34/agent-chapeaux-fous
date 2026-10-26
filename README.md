@@ -560,6 +560,9 @@ controls which exact tool schemas are callable.
   without fabricating an initial journal entry. Exact-ID corrections update an original entry without
   creating a duplicate. Bounded imports use generic source and external IDs for
   safe replay without source-specific application code.
+  The React Journal screen's **Add tracker** action opens a tracker editor for
+  the name, canonical unit, and existing or new group; saving creates the
+  tracker without inventing an initial observation.
 - `contact_file_import` parses a complete attached CSV or vCard/VCF directly,
   importing up to 10,000 contacts in one transaction without asking the model
   to reproduce every row. The model maps CSV headers from a bounded preview;

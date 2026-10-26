@@ -320,6 +320,75 @@ export function LibraryContentEditor({ content, groups, initialGroupId, onClose,
   </EditorFrame>;
 }
 
+interface JournalTrackerDraft {
+  name: string;
+  unit: string;
+  groupId: string;
+  groupName: string;
+}
+
+export function JournalTrackerEditor({ groups, initialGroupId, onClose, onChanged }: {
+  groups: Entity[];
+  initialGroupId?: number;
+  onClose: () => void;
+  onChanged: Changed;
+}) {
+  const initialGroup = groups.some((group) => Number(group.id) === initialGroupId)
+    ? String(initialGroupId)
+    : groups.length ? String(groups[0].id) : "new";
+  const [draft, setDraft] = useState<JournalTrackerDraft>({
+    name: "", unit: "", groupId: initialGroup, groupName: groups.length ? "" : "General",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const creatingGroup = draft.groupId === "new";
+
+  useEffect(() => {
+    if (draft.groupId === "new" || groups.some((group) => String(group.id) === draft.groupId)) return;
+    setDraft((current) => ({ ...current, groupId: groups.length ? String(groups[0].id) : "new" }));
+  }, [draft.groupId, groups]);
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await api("/api/journal-trackers", {
+        method: "POST",
+        body: JSON.stringify({
+          name: draft.name.trim(),
+          unit: draft.unit.trim(),
+          groupId: creatingGroup ? null : Number(draft.groupId),
+          groupName: creatingGroup ? draft.groupName.trim() : null,
+        }),
+      });
+      await onChanged();
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not create the tracker.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <EditorFrame title="Add journal tracker" onClose={onClose}>
+    <form onSubmit={(event) => void save(event)}>
+      <header className="object-editor-heading"><div><p className="eyebrow">Journal</p><h2>Add tracker</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
+      <label>Tracker name<input autoFocus required maxLength={200} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+      <div className="object-editor-grid">
+        <label>Group<select required value={draft.groupId} onChange={(event) => setDraft({ ...draft, groupId: event.target.value })}>
+          {groups.map((group) => <option value={String(group.id)} key={String(group.id)}>{String(group.name || "Untitled group")}</option>)}
+          <option value="new">Create a new group…</option>
+        </select></label>
+        <label>Canonical unit<input required maxLength={100} placeholder="kg, reps, out of 10, occurrence…" value={draft.unit} onChange={(event) => setDraft({ ...draft, unit: event.target.value })} /><span className="field-hint">Used by every numeric entry in this tracker.</span></label>
+      </div>
+      {creatingGroup && <label>New group name<input required maxLength={200} value={draft.groupName} onChange={(event) => setDraft({ ...draft, groupName: event.target.value })} /></label>}
+      {error && <p className="inline-error" role="alert">{error}</p>}
+      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={saving || !draft.name.trim() || !draft.unit.trim() || (creatingGroup && !draft.groupName.trim())}>{saving ? "Saving…" : "Add tracker"}</button></footer>
+    </form>
+  </EditorFrame>;
+}
+
 interface PhysicalItemDraft {
   groupId: string;
   name: string;

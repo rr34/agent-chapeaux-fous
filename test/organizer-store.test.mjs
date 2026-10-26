@@ -886,6 +886,48 @@ test("personal journal entries and grouped trackers are available to the web org
   }
 });
 
+test("the web organizer creates a journal tracker without fabricating an entry", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.target);
+  try {
+    const created = organizer.createJournalTracker({
+      name: "Push-ups",
+      groupId: null,
+      groupName: "Exercise",
+      unit: "reps",
+    });
+    assert.equal(created.name, "Push-ups");
+    assert.equal(created.groupName, "Exercise");
+    assert.equal(created.unit, "reps");
+    assert.equal(created.entryCount, 0);
+    assert.equal(organizer.listJournalEntries({ trackerId: created.id }).length, 0);
+    assert.deepEqual(organizer.listJournalGroups().map(({ name, trackerCount, entryCount }) => ({ name, trackerCount, entryCount })), [
+      { name: "Exercise", trackerCount: 1, entryCount: 0 },
+    ]);
+
+    const sameGroup = organizer.createJournalTracker({
+      name: "Running",
+      groupId: created.groupId,
+      unit: "km",
+    });
+    assert.equal(sameGroup.groupId, created.groupId);
+    assert.throws(
+      () => organizer.createJournalTracker({ name: "push-UPS", groupId: created.groupId, unit: "count" }),
+      (error) => error instanceof OrganizerInputError && error.statusCode === 409,
+    );
+    assert.throws(
+      () => organizer.createJournalTracker({ name: "Cycling", groupName: "exercise", unit: "km" }),
+      (error) => error instanceof OrganizerInputError && error.statusCode === 409,
+    );
+    assert.equal(organizer.database.prepare(
+      "SELECT COUNT(*) AS count FROM activity_events WHERE event_type = 'personal_journal_tracker.created'",
+    ).get().count, 2);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("numeric journal averages give each recorded local day one equal weight", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.target);
