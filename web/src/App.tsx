@@ -2573,6 +2573,8 @@ function InvoiceEditor({ invoice, contacts, files, onClose, onChanged }: {
   const status = textKey(invoice, "status");
   const expired = Date.parse(textKey(invoice, "preparationExpiresAtUtc")) <= Date.now();
   const editable = status === "prepared" && !invoice.stripeInvoiceId;
+  const payerEditable = editable || (status === "paid" && !invoice.stripeInvoiceId);
+  const payerOnlyCorrection = payerEditable && !editable;
   const originalContactId = readKey(invoice, "payerContactId") == null ? "" : String(readKey(invoice, "payerContactId"));
   const selectedContact = contacts.find((contact) => String(contact.id) === contactId) ?? null;
   const payerEmail = contactId === originalContactId
@@ -2644,28 +2646,35 @@ function InvoiceEditor({ invoice, contacts, files, onClose, onChanged }: {
   };
   const save = async (event: FormEvent) => {
     event.preventDefault();
-    if (!editable || editingLocked) return;
+    if (!payerEditable || editingLocked) return;
     setSaving(true);
     setError("");
     try {
+      const serializedLines = lines.map((line) => ({
+        position: line.position,
+        description: line.description.trim(),
+        amountMinor: invoiceDraftAmountMinor(line.amount, currency),
+      }));
+      const update = payerOnlyCorrection ? {
+        previewDigest: textKey(invoice, "previewDigest"),
+        contactId: contactId ? Number(contactId) : null,
+        paymentMethodPolicy,
+        lines: serializedLines,
+      } : {
+        previewDigest: textKey(invoice, "previewDigest"),
+        contactId: contactId ? Number(contactId) : null,
+        dueOn: dueOn || null,
+        paymentMethodPolicy,
+        description: description.trim() || null,
+        lines: serializedLines,
+        receiptUpdates: lines.map((line) => ({
+          position: line.position,
+          fileId: line.receiptFileId ? Number(line.receiptFileId) : null,
+        })),
+      };
       const result = await api<{ invoice: Entity }>(`/api/payment-invoices/${invoiceId}`, {
         method: "PATCH",
-        body: JSON.stringify({
-          previewDigest: textKey(invoice, "previewDigest"),
-          contactId: contactId ? Number(contactId) : null,
-          dueOn: dueOn || null,
-          paymentMethodPolicy,
-          description: description.trim() || null,
-          lines: lines.map((line) => ({
-            position: line.position,
-            description: line.description.trim(),
-            amountMinor: invoiceDraftAmountMinor(line.amount, currency),
-          })),
-          receiptUpdates: lines.map((line) => ({
-            position: line.position,
-            fileId: line.receiptFileId ? Number(line.receiptFileId) : null,
-          })),
-        }),
+        body: JSON.stringify(update),
       });
       await onChanged(result.invoice);
     } catch (caught) {
@@ -2741,7 +2750,7 @@ function InvoiceEditor({ invoice, contacts, files, onClose, onChanged }: {
       <form onSubmit={(event) => void save(event)}>
         <header className="object-editor-heading"><div><p className="eyebrow">Invoice #{invoiceId}</p><h2 id="invoice-editor-title">{textKey(invoice, "payerName") || "Invoice draft"}</h2></div><button className="button button--quiet" type="button" disabled={busy} onClick={onClose}>Close</button></header>
         <div className="invoice-create-grid">
-          <label>Payer <span className="field-hint">Optional until sending</span><select value={contactId} disabled={!editable || editingLocked} onChange={(event) => setContactId(event.target.value)}><option value="">No payer selected</option>{contacts.map((contact) => <option value={String(contact.id)} key={String(contact.id)}>{textKey(contact, "displayName")}{invoiceContactEmail(contact) ? ` — ${invoiceContactEmail(contact)}` : " — no receivable email"}</option>)}</select></label>
+          <label>Payer <span className="field-hint">{payerOnlyCorrection ? "Correctable on this local paid invoice" : "Optional until sending"}</span><select value={contactId} disabled={!payerEditable || editingLocked} onChange={(event) => setContactId(event.target.value)}><option value="">No payer selected</option>{contacts.map((contact) => <option value={String(contact.id)} key={String(contact.id)}>{textKey(contact, "displayName")}{invoiceContactEmail(contact) ? ` — ${invoiceContactEmail(contact)}` : " — no receivable email"}</option>)}</select></label>
           <label>Due date <span className="field-hint">Optional until sending</span><input type="date" min={localToday()} value={dueOn} disabled={!editable || editingLocked} onChange={(event) => setDueOn(event.target.value)} /></label>
         </div>
         <div className="invoice-editor-summary">
@@ -2795,7 +2804,9 @@ function InvoiceEditor({ invoice, contacts, files, onClose, onChanged }: {
         {editable && <div className="invoice-line-toolbar"><span>{lines.length} of 100 lines</span><button className="button button--quiet" type="button" disabled={editingLocked || lines.length >= 100} onClick={addLine}>Add line</button></div>}
         {editable
           ? <p className="object-editor-note">Payer, due date, and a positive invoice total are required only when you send. Individual lines may be $0.00. Saving creates a new preview digest and expiry, invalidating any earlier send confirmation.</p>
-          : <p className="object-editor-state">This invoice has left local preview status, so its details and line snapshots are read-only.</p>}
+          : payerOnlyCorrection
+            ? <p className="object-editor-note">This local paid invoice is read-only except for correcting its payer contact.</p>
+            : <p className="object-editor-state">This invoice has left local preview status, so its details and line snapshots are read-only.</p>}
         {editable && !sendReady && <p className="object-editor-state">This draft is saved. Add a payer with a receivable email, a due date, and a positive invoice total before sending. Zero-dollar lines are allowed.</p>}
         {sendable && hasChanges && <p className="object-editor-state">Save your line changes before previewing, downloading, or sending this invoice.</p>}
         {confirmingSend && <section className="invoice-send-confirmation" aria-label="Confirm invoice send">
@@ -2803,7 +2814,7 @@ function InvoiceEditor({ invoice, contacts, files, onClose, onChanged }: {
           <div><button className="button button--quiet" type="button" disabled={sending} onClick={() => setConfirmingSend(false)}>Not yet</button><button className="button" type="button" disabled={sending} onClick={() => void send()}>{sending ? "Sending…" : "Yes, send invoice"}</button></div>
         </section>}
         {error && <p className="form-error" role="alert">{error}</p>}
-        <footer className="object-editor-actions"><div className="invoice-pdf-actions"><button className="button button--quiet" type="button" disabled={busy || confirmingSend || hasChanges} onClick={() => void previewPdf()}>{openingPdf ? "Opening preview…" : "Preview PDF"}</button><button className="button button--quiet" type="button" disabled={busy || confirmingSend || hasChanges} onClick={() => void downloadPdf()}>{downloadingPdf ? "Downloading…" : "Download PDF"}</button>{Boolean(invoice.stripeInvoiceId) && <button className="button button--quiet" type="button" disabled={busy || confirmingSend} onClick={() => void openStripePdf()}>{openingPdf ? "Opening PDF…" : "Open Stripe PDF"}</button>}</div><button className="button button--quiet" type="button" disabled={busy} onClick={onClose}>{editable ? "Cancel" : "Close"}</button>{editable && <button className="button button--quiet" type="submit" disabled={editingLocked || !lines.length || !hasChanges}>{saving ? "Saving…" : "Save changes"}</button>}{sendable && !confirmingSend && <button className="button" type="button" disabled={busy || hasChanges} onClick={() => { setError(""); setConfirmingSend(true); }}>{sendLabel}</button>}</footer>
+        <footer className="object-editor-actions"><div className="invoice-pdf-actions"><button className="button button--quiet" type="button" disabled={busy || confirmingSend || hasChanges} onClick={() => void previewPdf()}>{openingPdf ? "Opening preview…" : "Preview PDF"}</button><button className="button button--quiet" type="button" disabled={busy || confirmingSend || hasChanges} onClick={() => void downloadPdf()}>{downloadingPdf ? "Downloading…" : "Download PDF"}</button>{Boolean(invoice.stripeInvoiceId) && <button className="button button--quiet" type="button" disabled={busy || confirmingSend} onClick={() => void openStripePdf()}>{openingPdf ? "Opening PDF…" : "Open Stripe PDF"}</button>}</div><button className="button button--quiet" type="button" disabled={busy} onClick={onClose}>{payerEditable ? "Cancel" : "Close"}</button>{payerEditable && <button className="button button--quiet" type="submit" disabled={editingLocked || !lines.length || !hasChanges}>{saving ? "Saving…" : payerOnlyCorrection ? "Save payer" : "Save changes"}</button>}{sendable && !confirmingSend && <button className="button" type="button" disabled={busy || hasChanges} onClick={() => { setError(""); setConfirmingSend(true); }}>{sendLabel}</button>}</footer>
       </form>
     </section>
   </div>;

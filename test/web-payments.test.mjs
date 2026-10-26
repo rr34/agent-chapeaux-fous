@@ -35,6 +35,9 @@ test("the React workspace exposes Stripe connection status and invoice history",
   assert.match(appSource, /identity=\{invoiceIdentity\(invoice\)\}/);
   assert.match(appSource, /<PaymentsScreen \/>/);
   assert.match(appSource, /Save changes/);
+  assert.match(appSource, /status === "paid" && !invoice\.stripeInvoiceId/);
+  assert.match(appSource, /This local paid invoice is read-only except for correcting its payer contact\./);
+  assert.match(appSource, /Save payer/);
   assert.match(appSource, /Add line/);
   assert.ok(appSource.indexOf('className="invoice-line-toolbar"') > appSource.indexOf('className="invoice-line-list"'));
   assert.match(appSource, /New manual line/);

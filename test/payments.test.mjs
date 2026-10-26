@@ -890,6 +890,154 @@ test("saving an unchanged prepared invoice preserves its digest without requesti
   assert.deepEqual(activities, []);
 });
 
+test("a local paid invoice permits only a payer correction and preserves its financial snapshot", () => {
+  const previewDigest = `sha256:${"c".repeat(64)}`;
+  const transactions = [];
+  const payerWrites = [];
+  const row = {
+    payment_invoice_id: 11,
+    payer_contact_id: null,
+    payer_name_snapshot: null,
+    payer_email_snapshot: null,
+    status: "paid",
+    stripe_invoice_id: null,
+    preview_digest: previewDigest,
+    payment_method_policy: "ach_only",
+    description: null,
+    due_on: null,
+    amount_minor: 2000,
+    preparation_expires_at_utc: "2099-01-01T00:00:00.000Z",
+  };
+  const existingLines = [{
+    payment_invoice_line_id: 111,
+    line_source: "todo",
+    personal_task_id: 458,
+    line_position: 1,
+    description_snapshot: "Remove links from Tissot band for Huziafa",
+    amount_minor_snapshot: 2000,
+  }];
+  const database = {
+    exec(sql) { transactions.push(sql); },
+    prepare(sql) {
+      if (/SELECT \* FROM payment_invoices/u.test(sql)) return { get: () => row };
+      if (/SELECT payment_invoice_line_id, line_source/u.test(sql)) return { all: () => existingLines };
+      if (/FROM payment_invoice_line_receipts_join receipt/u.test(sql)) return { all: () => [] };
+      if (/SET payer_contact_id = \?, payer_name_snapshot = \?, payer_email_snapshot = \?, updated_at_utc/u.test(sql)) {
+        return { run(...values) {
+          payerWrites.push(values);
+          [row.payer_contact_id, row.payer_name_snapshot, row.payer_email_snapshot] = values;
+          return { changes: 1 };
+        } };
+      }
+      throw new Error(`Unexpected SQL in paid invoice payer correction: ${sql}`);
+    },
+  };
+  const activities = [];
+  const payments = new PaymentService({
+    store: { status: { ready: true }, requireReady: () => database },
+    config: {},
+    ledger: { append(activity) { activities.push(activity); } },
+  });
+  payments.contact = () => ({
+    contact_id: 1607,
+    display_name: "Huziafa",
+    email: "huziafa@example.test",
+  });
+  payments.getInvoice = () => ({
+    invoiceId: 11,
+    display: `${row.payer_name_snapshot ?? "Payer not set"} — $20.00`,
+    payerContactId: row.payer_contact_id,
+    payerName: row.payer_name_snapshot,
+    payerEmail: row.payer_email_snapshot,
+    status: row.status,
+    paymentStatus: "paid",
+    paymentStatusManagedBy: "native",
+    currency: "USD",
+    amountMinor: row.amount_minor,
+    dueOn: row.due_on,
+    paymentMethodPolicy: row.payment_method_policy,
+    description: row.description,
+    previewDigest: row.preview_digest,
+    preparationExpiresAtUtc: row.preparation_expires_at_utc,
+    stripeInvoiceId: row.stripe_invoice_id,
+    lines: existingLines.map((line) => ({
+      position: line.line_position,
+      description: line.description_snapshot,
+      amountMinor: line.amount_minor_snapshot,
+    })),
+  });
+
+  const result = payments.updatePreparedInvoice(11, {
+    previewDigest,
+    contactId: 1607,
+    paymentMethodPolicy: "ach_only",
+    lines: [{
+      position: 1,
+      description: "Remove links from Tissot band for Huziafa",
+      amountMinor: 2000,
+    }],
+  }, { actorType: "tool", actorName: "payment_invoice_update" });
+
+  assert.deepEqual(transactions, ["START TRANSACTION", "COMMIT"]);
+  assert.deepEqual(payerWrites, [[1607, "Huziafa", "huziafa@example.test", 11]]);
+  assert.equal(result.status, "complete");
+  assert.deepEqual(result.missingFields, []);
+  assert.equal(result.invoice.previewDigest, previewDigest);
+  assert.equal(result.invoice.status, "paid");
+  assert.equal(result.invoice.payerContactId, 1607);
+  assert.equal(activities[0].type, "payment.invoice.payer_updated");
+  assert.equal(activities[0].name, "Paid invoice payer corrected");
+});
+
+test("a local paid invoice still rejects every non-payer revision", () => {
+  const previewDigest = `sha256:${"d".repeat(64)}`;
+  const transactions = [];
+  const row = {
+    payer_contact_id: 1607,
+    payer_name_snapshot: "Huziafa",
+    payer_email_snapshot: "huziafa@example.test",
+    status: "paid",
+    stripe_invoice_id: null,
+    preview_digest: previewDigest,
+    payment_method_policy: "ach_only",
+    description: null,
+    due_on: null,
+  };
+  const database = {
+    exec(sql) { transactions.push(sql); },
+    prepare(sql) {
+      if (/SELECT \* FROM payment_invoices/u.test(sql)) return { get: () => row };
+      if (/SELECT payment_invoice_line_id, line_source/u.test(sql)) return { all: () => [{
+        payment_invoice_line_id: 111,
+        line_source: "todo",
+        personal_task_id: 458,
+        line_position: 1,
+        description_snapshot: "Remove links from Tissot band for Huziafa",
+        amount_minor_snapshot: 2000,
+      }] };
+      if (/FROM payment_invoice_line_receipts_join receipt/u.test(sql)) return { all: () => [] };
+      throw new Error(`A rejected paid invoice must not be written: ${sql}`);
+    },
+  };
+  const payments = new PaymentService({
+    store: { status: { ready: true }, requireReady: () => database },
+    config: {},
+  });
+
+  assert.throws(() => payments.updatePreparedInvoice(11, {
+    previewDigest,
+    paymentMethodPolicy: "ach_only",
+    description: "Changed after payment",
+    lines: [{
+      position: 1,
+      description: "Remove links from Tissot band for Huziafa",
+      amountMinor: 2000,
+    }],
+  }), (error) => error instanceof PaymentInputError && error.code === "INVOICE_NOT_EDITABLE"
+    && /Only the payer contact/u.test(error.message));
+  assert.deepEqual(transactions, ["START TRANSACTION", "ROLLBACK"]);
+});
+
 test("invoice revision rejects stale and non-editable previews before changing lines", () => {
   const requestedDigest = `sha256:${"c".repeat(64)}`;
   for (const [row, code] of [

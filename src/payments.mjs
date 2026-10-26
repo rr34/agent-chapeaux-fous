@@ -322,11 +322,11 @@ function invoiceMissingFields(invoice) {
   return missing;
 }
 
-function preparedInvoiceResult(invoice, { includeSendHandoff = false } = {}) {
-  const missingFields = invoiceMissingFields(invoice);
+function preparedInvoiceResult(invoice, { includeSendHandoff = false, completed = false } = {}) {
+  const missingFields = completed ? [] : invoiceMissingFields(invoice);
   const result = {
     contractVersion: 1,
-    status: missingFields.length ? "draft" : "ready",
+    status: completed ? "complete" : missingFields.length ? "draft" : "ready",
     expiresAt: invoice.preparationExpiresAtUtc,
     invoice,
     missingFields,
@@ -845,9 +845,9 @@ export class PaymentService {
       const row = this.database.prepare(`SELECT * FROM payment_invoices
         WHERE payment_invoice_id = ? FOR UPDATE`).get(invoiceId);
       if (!row) throw new PaymentInputError("Prepared invoice not found.", 404, "INVOICE_NOT_FOUND");
-      if (row.status !== "prepared" || row.stripe_invoice_id != null) {
+      if (row.stripe_invoice_id != null || !["prepared", "paid"].includes(row.status)) {
         throw new PaymentInputError(
-          "Only a local prepared invoice that has not reached Stripe can be edited.",
+          "Only a local prepared invoice can be revised; a local paid invoice permits payer correction only.",
           409,
           "INVOICE_NOT_EDITABLE",
         );
@@ -976,17 +976,49 @@ export class PaymentService {
           || String(before.mime_type_snapshot) !== after.mimeType
           || String(before.sha256_snapshot) !== after.sha256;
       });
-      const changed = receiptChanged || addedLines.length > 0 || existingLines.some((line) => {
+      const lineChanged = addedLines.length > 0 || existingLines.some((line) => {
         const supplied = suppliedByPosition.get(Number(line.line_position));
         return String(line.description_snapshot) !== supplied.description
           || Number(line.amount_minor_snapshot) !== supplied.amountMinor;
-      }) || row.payment_method_policy !== paymentMethodPolicy
-        || (row.description ?? null) !== description
-        || (row.payer_contact_id == null ? null : Number(row.payer_contact_id)) !== contactId
-        || (row.due_on ?? null) !== dueOn;
+      });
+      const paymentMethodChanged = row.payment_method_policy !== paymentMethodPolicy;
+      const descriptionChanged = (row.description ?? null) !== description;
+      const payerChanged = (row.payer_contact_id == null ? null : Number(row.payer_contact_id)) !== contactId;
+      const dueOnChanged = (row.due_on ?? null) !== dueOn;
+      const nonPayerChanged = receiptChanged || lineChanged || paymentMethodChanged
+        || descriptionChanged || dueOnChanged;
+      const changed = payerChanged || nonPayerChanged;
+      if (row.status === "paid" && nonPayerChanged) {
+        throw new PaymentInputError(
+          "Only the payer contact can be corrected on a local paid invoice.",
+          409,
+          "INVOICE_NOT_EDITABLE",
+        );
+      }
       if (!changed) {
         this.database.exec("COMMIT");
-        return preparedInvoiceResult(this.getInvoice(invoiceId));
+        return preparedInvoiceResult(this.getInvoice(invoiceId), { completed: row.status === "paid" });
+      }
+      if (row.status === "paid") {
+        this.database.prepare(`UPDATE payment_invoices
+          SET payer_contact_id = ?, payer_name_snapshot = ?, payer_email_snapshot = ?, updated_at_utc = UTC_TIMESTAMP(3)
+          WHERE payment_invoice_id = ?`).run(contactId, payerName, payerEmail, invoiceId);
+        this.database.exec("COMMIT");
+        const invoice = this.getInvoice(invoiceId);
+        this.recordActivity({
+          type: "payment.invoice.payer_updated",
+          status: invoice.status,
+          actorType: activity.actorType ?? "user",
+          actorName: activity.actorName ?? "payments",
+          turnId: activity.requestId ?? null,
+          operationId: activity.callId ?? null,
+          name: "Paid invoice payer corrected",
+          contentText: invoice.display,
+          payload: { invoice },
+          subjectType: "payment_invoice",
+          subjectId: String(invoice.invoiceId),
+        });
+        return preparedInvoiceResult(invoice, { completed: true });
       }
       const amountMinor = snapshots.reduce((sum, line) => sum + line.amountMinor, 0);
       if (!Number.isSafeInteger(amountMinor) || amountMinor < 0) {

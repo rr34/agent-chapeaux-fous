@@ -71,6 +71,11 @@ to-do update for an invoice-line edit. When adding a manual line with a receipt,
 send `manual_lines` and `receipt_updates` together in one atomic update. New
 manual lines occupy consecutive positions after the current highest line, so
 the receipt update can target that new position in the same call.
+For a local invoice already marked paid that has no Stripe invoice ID,
+`payment_invoice_update` may correct only its payer contact. Preserve its
+description, due date, payment methods, lines, receipts, amount, payment status,
+and preview digest exactly. Stripe-backed invoices remain immutable through this
+tool.
 Every manual line requires a concrete description. All nonblank prices must use
 the same ISO currency. Use `payment_invoice_prepare` first. It creates a local
 snapshot only; it does not contact the customer. An incomplete result has
