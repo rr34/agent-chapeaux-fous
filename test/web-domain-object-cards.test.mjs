@@ -62,6 +62,8 @@ test("compact cards have one identity and exactly the shared expand, network, an
   assert.match(buttons, /className="object-network-button"/);
   assert.match(styles, /\.compact-object-card \{/);
   assert.match(styles, /\.compact-object-controls/);
+  assert.match(styles, /\.compact-object-expanded \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto;/s);
+  assert.doesNotMatch(styles, /\.compact-object-expanded > \.compact-object-collapse \{[^}]*position: absolute;/s);
   assert.doesNotMatch(styles, /network-search-results \.first-class-object-card|network-object-card/);
 });
 
@@ -102,10 +104,15 @@ test("calendar routine cards own event-style timing and omit the redundant type 
   assert.match(routine, /topEdge=\{timing \? <time className="calendar-event-time calendar-event-time--start"/);
   assert.match(routine, /bottomEdge=\{timing\?\.end \? <time className="calendar-event-time calendar-event-time--end"/);
   assert.match(routine, /<strong>\{timing\.start\}<\/strong><span>\{props\.routine!\.isAllDay \? "All day" : "Start"\}<\/span>/);
+  assert.match(routine, /defaultExpanded=\{props\.defaultExpanded \?\? true\}/);
+  assert.match(routine, /stackEdges/);
   assert.match(editable, /<CalendarRoutineCard[\s\S]*routine=\{routine\}/);
   assert.doesNotMatch(editable, /\{ label: "When", value: timeLabel \}/);
   assert.match(styles, /\.calendar-event-card,\s*\.calendar-routine-card \{[^}]*border-color: #000;/s);
   assert.match(styles, /\.calendar-routine-card \.first-class-object-label,[\s\S]*\.calendar-routine-card \.compact-object-identity > span:first-child \{ display: none; \}/);
+  assert.match(styles, /\.first-class-object-card\.calendar-routine-card,\s*\.first-class-object-card\.calendar-event-card:not\(\.paper-calendar-event-card\) \{[^}]*grid-template-columns: minmax\(7\.25rem, \.55fr\) minmax\(9rem, \.85fr\) minmax\(12rem, 1\.4fr\) max-content;/s);
+  assert.match(styles, /\.first-class-object-card\.calendar-routine-card > \.first-class-object-edges,/);
+  assert.match(styles, /\.calendar-routine-card > \.first-class-object-content > \.first-class-object-body \{[^}]*display: block;[^}]*overflow: visible;[^}]*-webkit-line-clamp: unset;/s);
 });
 
 test("journal tracker cards own their stock-style value history and default to one month", () => {
