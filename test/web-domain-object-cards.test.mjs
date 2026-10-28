@@ -115,11 +115,11 @@ test("calendar routine cards own event-style timing and omit the redundant type 
   assert.match(styles, /\.calendar-routine-card > \.first-class-object-content > \.first-class-object-body \{[^}]*display: block;[^}]*overflow: visible;[^}]*-webkit-line-clamp: unset;/s);
 });
 
-test("journal tracker cards own their stock-style value history and default to one month", () => {
+test("journal tracker cards own their stock-style value history and default to one year", () => {
   const tracker = fs.readFileSync(path.join(cardsRoot, "JournalTrackerCard.tsx"), "utf8");
   const app = fs.readFileSync(path.join(root, "web/src/App.tsx"), "utf8");
   const styles = fs.readFileSync(path.join(root, "web/src/styles.css"), "utf8");
-  assert.match(tracker, /useState<TrackerChartRange>\("1M"\)/);
+  assert.match(tracker, /useState<TrackerChartRange>\("1Y"\)/);
   for (const range of ["1W", "1M", "1Q", "6M", "YTD", "1Y", "All"]) {
     assert.match(tracker, new RegExp(`key: "${range}"`));
   }
@@ -128,6 +128,7 @@ test("journal tracker cards own their stock-style value history and default to o
   assert.match(app, /values=\{journalTrackerValues\(tracker\)\}/);
   assert.match(styles, /\.tracker-chart-range/);
   assert.match(styles, /\.tracker-chart-line/);
+  assert.match(styles, /\.tracker-chart-maximum, \.tracker-chart-minimum \{[^}]*font-size: 14px;/s);
 });
 
 test("sequenced to-dos and library items own one prominent marker in full and compact cards", () => {

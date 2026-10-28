@@ -54,7 +54,7 @@ function TrackerValueChart({ values, unit, trackerName }: {
   unit: string;
   trackerName: string;
 }) {
-  const [range, setRange] = useState<TrackerChartRange>("1M");
+  const [range, setRange] = useState<TrackerChartRange>("1Y");
   const gradientId = `tracker-chart-fill-${useId().replaceAll(":", "")}`;
   const now = new Date();
   const points = useMemo(() => {

@@ -964,7 +964,7 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .tracker-chart-line { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .tracker-chart-point { fill: var(--paper); stroke: currentColor; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .tracker-chart-area { color: var(--olive); }
-.tracker-chart-maximum, .tracker-chart-minimum { position: absolute; z-index: 1; right: 4px; padding-left: 4px; color: var(--muted); background: rgba(251, 250, 245, .82); font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; pointer-events: none; }
+.tracker-chart-maximum, .tracker-chart-minimum { position: absolute; z-index: 1; right: 4px; padding-left: 4px; color: var(--muted); background: rgba(251, 250, 245, .82); font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; pointer-events: none; }
 .tracker-chart-maximum { top: 2px; }
 .tracker-chart-minimum { bottom: 2px; }
 .tracker-chart-dates { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 10px; font-weight: 650; }
