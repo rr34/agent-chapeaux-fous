@@ -91,7 +91,7 @@ test("calendar event cards keep notes and event details behind the shared expans
   assert.match(styles, /> \.first-class-object-actions \{ grid-column: 4; grid-row: 1;/);
   assert.match(styles, /@media \(max-width: 720px\)[\s\S]*\.first-class-object-card\.calendar-event-card:not\(\.paper-calendar-event-card\) \{[^}]*grid-template-columns: minmax\(5\.5rem, auto\) minmax\(0, 1fr\);/s);
   assert.match(styles, /\.first-class-object-card\.calendar-event-card:not\(\.paper-calendar-event-card\) > \.first-class-object-content > \.first-class-object-body \{[^}]*grid-column: 2;[^}]*margin: 0;[^}]*overflow-wrap: anywhere;/s);
-  assert.match(styles, /\.calendar-event-card > \.first-class-object-content > \.first-class-object-body \{[^}]*-webkit-line-clamp: 2;[^}]*font-size: 11px;/s);
+  assert.match(styles, /\.calendar-event-card > \.first-class-object-content > \.first-class-object-body \{[^}]*display: block;[^}]*overflow: visible;[^}]*white-space: pre-wrap;[^}]*-webkit-line-clamp: unset;/s);
 });
 
 test("calendar routine cards own event-style timing and omit the redundant type heading", () => {

@@ -160,7 +160,7 @@ a { color: inherit; }
 .calendar-event-time strong { color: var(--olive-dark); font: 700 12px/1.15 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .calendar-event-time--start { padding-bottom: 7px; border-bottom: 1px solid var(--line); }
 .calendar-event-time--end { padding-top: 7px; border-top: 1px solid var(--line); }
-.calendar-event-card > .first-class-object-content > .first-class-object-body { -webkit-line-clamp: 2; font-size: 11px; line-height: 1.35; }
+.calendar-event-card > .first-class-object-content > .first-class-object-body { display: block; overflow: visible; font-size: 11px; line-height: 1.35; white-space: pre-wrap; -webkit-line-clamp: unset; line-clamp: unset; }
 .calendar-routine-card > .first-class-object-content > .first-class-object-body { display: block; overflow: visible; -webkit-line-clamp: unset; }
 .calendar-event-expanded-details { display: grid; gap: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
 .calendar-event-expanded-details section { display: grid; gap: 6px; }
