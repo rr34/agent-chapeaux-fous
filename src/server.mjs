@@ -35,6 +35,7 @@ import { runtimeIdentity } from "./runtime-identity.mjs";
 import { WhisperTranscriber } from "./transcriber.mjs";
 import { OpenAISpeechService } from "./openai-speech.mjs";
 import { MusicNarrationService } from "./music-narration.mjs";
+import { MusicDurationResolver } from "./music-duration.mjs";
 import { VideoRenderWorker } from "./video-render-worker.mjs";
 import { registerDailyPaperTools } from "./tools/daily-paper-tools.mjs";
 import { registerPrintableReportTools } from "./tools/printable-report-tools.mjs";
@@ -226,6 +227,7 @@ const musicNarration = new MusicNarrationService({
   speech,
   voice: config.ttsMusicNarrationVoice,
 });
+const musicDurationResolver = new MusicDurationResolver({ ledger, mediaRoot: config.mediaRoot });
 if (videoScripts) {
   videoRenderWorker = new VideoRenderWorker({
     videoScripts,
@@ -1246,7 +1248,8 @@ const server = http.createServer(async (request, response) => {
         mediaKind: "audio",
         musicMetadataOnly: true,
       });
-      const files = result.files.flatMap((file) => {
+      const durationFiles = await musicDurationResolver.enrich(result.files);
+      const files = durationFiles.flatMap((file) => {
         const entry = musicLibraryEntry(file);
         return entry ? [{ ...entry, streamUrl: `/api/music/${file.fileId}/stream` }] : [];
       });

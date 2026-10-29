@@ -115,16 +115,21 @@ function selectedObjectCandidateGroups(candidates, sourceEventSeq) {
   return mergeObjectReferenceGroups([...byIdentityDomain.values()]);
 }
 
-const operationalContinuationCue = /(?:^\s*you\s+can\b|\b(?:again|approve|confirm|continue|earlier|existing|go\s+ahead|it|last|previous(?:ly)?|prior|proceed|resume|same|that|them|these|this|those)\b)/iu;
+const explicitOperationalContinuationCue = /(?:^\s*you\s+can\b|\b(?:again|approve|confirm|continue|go\s+ahead|proceed|resume)\b|\b(?:earlier|previous(?:ly)?|prior)\s+(?:action|attempt|import|interaction|operation|request|response|result|search|tool|work)\b|\b(?:the\s+same|same\s+one|as\s+before)\b)/iu;
+const leadingOperationalReferenceCue = /^\s*(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:that|this|it|those|them|what\s+happened|tell\s+me\s+more|why\s+(?:did|was|is)|how\s+about|what\s+about)\b/iu;
+const actionOperationalReferenceCue = /\b(?:apply|archive|approve|change|connect|continue|delete|do|email|find|forward|move|open|read|remove|reply\s+to|restore|resume|send|show|trash|update|use)\s+(?:that|this|it|those|them)\b/iu;
 const localCalendarCue = /(?:\b(?:today|tomorrow|yesterday|tonight|morning|afternoon|evening|sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b|\b(?:this|next|last)\s+(?:day|week|month|year|weekend)\b|\b\d{4}-\d{2}-\d{2}\b)/iu;
 
-function needsPriorOperationalEvidence(requestText, selectedObjectCandidates, referencedExchanges) {
+export function needsPriorOperationalEvidence(requestText, selectedObjectCandidates, referencedExchanges) {
   if ((referencedExchanges ?? []).length) return false;
   // A current composer selection establishes what words such as "this" mean;
   // it does not make separately named targets or prior exact relationship sets
   // irrelevant. Mixed requests commonly select one endpoint and refer to the
   // other endpoint through the immediately preceding result.
-  return operationalContinuationCue.test(String(requestText ?? ""));
+  const text = String(requestText ?? "");
+  return explicitOperationalContinuationCue.test(text)
+    || leadingOperationalReferenceCue.test(text)
+    || actionOperationalReferenceCue.test(text);
 }
 
 function needsLocalCalendar(requestText) {

@@ -1901,6 +1901,20 @@ export class Ledger {
     return this.updateFiles([{ fileId, title, description }], { titleSource })[0];
   }
 
+  cacheAudioDuration(fileId, sha256, durationMs) {
+    if (!Number.isSafeInteger(fileId) || fileId < 1) throw new Error("File ID must be a positive integer");
+    if (!/^[0-9a-f]{64}$/u.test(String(sha256 ?? ""))) throw new Error("File SHA-256 must be lowercase hexadecimal");
+    if (!Number.isSafeInteger(durationMs) || durationMs < 1) throw new Error("Audio duration must be a positive integer");
+    const row = this.store.requireReady().prepare(`
+      UPDATE files
+      SET duration_ms = ?
+      WHERE file_id = ? AND sha256 = ?
+      RETURNING *
+    `).get(durationMs, fileId, sha256);
+    if (!row) throw new Error(`File ${fileId} changed while its audio duration was measured`);
+    return publicFile(row);
+  }
+
   requestHash(text) {
     return createHash("sha256").update(text).digest("hex");
   }

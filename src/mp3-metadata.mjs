@@ -100,13 +100,83 @@ function unique(values) {
   return selected.length ? [...new Set(selected)] : null;
 }
 
+const mpeg1Bitrates = {
+  1: [32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448],
+  2: [32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384],
+  3: [32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320],
+};
+const mpeg2Bitrates = {
+  1: [32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256],
+  2: [8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
+  3: [8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
+};
+
+function mpegFrame(bytes, offset, end) {
+  if (offset + 4 > end) return null;
+  const header = bytes.readUInt32BE(offset);
+  if ((header >>> 21) !== 0x7ff) return null;
+  const versionBits = (header >>> 19) & 0x3;
+  const layerBits = (header >>> 17) & 0x3;
+  const bitrateIndex = (header >>> 12) & 0xf;
+  const sampleRateIndex = (header >>> 10) & 0x3;
+  if (versionBits === 1 || layerBits === 0 || bitrateIndex === 0 || bitrateIndex === 15 || sampleRateIndex === 3) return null;
+  const version = versionBits === 3 ? 1 : versionBits === 2 ? 2 : 2.5;
+  const layer = 4 - layerBits;
+  const bitrateTable = version === 1 ? mpeg1Bitrates[layer] : mpeg2Bitrates[layer];
+  const bitrate = bitrateTable?.[bitrateIndex - 1] * 1_000;
+  const baseSampleRate = [44_100, 48_000, 32_000][sampleRateIndex];
+  const sampleRate = version === 1 ? baseSampleRate : version === 2 ? baseSampleRate / 2 : baseSampleRate / 4;
+  if (!bitrate || !sampleRate) return null;
+  const padding = (header >>> 9) & 0x1;
+  const frameLength = layer === 1
+    ? Math.floor((12 * bitrate) / sampleRate + padding) * 4
+    : Math.floor(((layer === 3 && version !== 1 ? 72 : 144) * bitrate) / sampleRate) + padding;
+  if (frameLength < 4 || offset + frameLength > end) return null;
+  const samples = layer === 1 ? 384 : layer === 3 && version !== 1 ? 576 : 1_152;
+  return { frameLength, samples, sampleRate, signature: `${version}:${layer}:${sampleRate}` };
+}
+
+export function mp3DurationMs(bytes) {
+  if (!Buffer.isBuffer(bytes) || bytes.length < 8) return null;
+  let start = 0;
+  if (bytes.subarray(0, 3).toString("ascii") === "ID3" && bytes.length >= 10) {
+    start = Math.min(bytes.length, 10 + synchsafe(bytes, 6) + ((bytes[5] & 0x10) ? 10 : 0));
+  }
+  const end = bytes.length >= 128 && bytes.subarray(bytes.length - 128, bytes.length - 125).toString("ascii") === "TAG"
+    ? bytes.length - 128
+    : bytes.length;
+  let offset = start;
+  let signature = null;
+  let seconds = 0;
+  let frameCount = 0;
+  while (offset + 4 <= end) {
+    const frame = mpegFrame(bytes, offset, end);
+    if (!frame || (signature && frame.signature !== signature)) {
+      offset += 1;
+      continue;
+    }
+    if (!signature) {
+      const next = mpegFrame(bytes, offset + frame.frameLength, end);
+      if (!next || next.signature !== frame.signature) {
+        offset += 1;
+        continue;
+      }
+      signature = frame.signature;
+    }
+    seconds += frame.samples / frame.sampleRate;
+    frameCount += 1;
+    offset += frame.frameLength;
+  }
+  return frameCount ? Math.round(seconds * 1_000) : null;
+}
+
 export function inspectMp3(bytes) {
   const v2 = decodeId3v2(bytes);
   const v1 = decodeId3v1(bytes);
   const tags = Object.fromEntries(Object.entries({ ...v1, ...Object.fromEntries(
     Object.entries(v2).filter(([, value]) => value != null),
   ) }).filter(([, value]) => value != null));
-  const duration = Number.parseInt(String(tags.duration ?? ""), 10);
+  const duration = mp3DurationMs(bytes);
   return { tags, durationMs: Number.isSafeInteger(duration) && duration >= 0 ? duration : null };
 }
 

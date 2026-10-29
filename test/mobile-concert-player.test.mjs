@@ -6,11 +6,12 @@ const player = fs.readFileSync(new URL("../mobile/src/MusicPlayerModal.tsx", imp
 const api = fs.readFileSync(new URL("../mobile/src/api.ts", import.meta.url), "utf8");
 
 test("mobile library selections only add releases, works, or tracks to one concert", () => {
+  const library = player.slice(player.indexOf("function TrackRows"), player.indexOf("function ConcertGroupHeader"));
   assert.match(player, /<Text style=\{styles\.addButtonText\}>\+<\/Text>/u);
   assert.match(player, /onPress=\{\(\) => onAdd\(group\.files\)\}/u);
   assert.match(player, /onPress=\{\(\) => onAdd\(work\.files\)\}/u);
   assert.match(player, /onPress=\{\(\) => onAdd\(\[file\]\)\}/u);
-  assert.doesNotMatch(player, /PLAY ALBUM|PLAY WORK|onPlay=/u);
+  assert.doesNotMatch(library, /PLAY ALBUM|PLAY WORK|playAt|onPlay=/u);
   assert.match(player, /That music is already in the concert/u);
 });
 
@@ -46,4 +47,37 @@ test("concert queue groups consecutive tracks under structured work or release h
   assert.match(player, /function ConcertGroupHeader/u);
   assert.match(player, /group\.files\.length/u);
   assert.match(player, /fontSize: 25/u);
+});
+
+test("the current concert item has an unmistakable now-playing treatment", () => {
+  assert.match(player, /current && <Text style=\{styles\.currentStatus\}>NOW PLAYING<\/Text>/u);
+  assert.match(player, /borderLeftWidth: 6/u);
+  assert.match(player, /borderColor: colors\.accent/u);
+  assert.match(player, /shadowColor: colors\.accent/u);
+  assert.match(player, /current && styles\.currentQueueIcon/u);
+});
+
+test("each music row in the concert has a direct play control", () => {
+  assert.match(player, /accessibilityLabel=\{`Play \$\{title\} from concert`\}/u);
+  assert.match(player, /<Text style=\{styles\.queuePlayIcon\}>▶<\/Text>/u);
+  assert.match(player, /onPlay=\{\(\) => playTrackFromConcert\(row\.queueIndex\)\}/u);
+  assert.match(player, /void playAt\(queueIndex\)/u);
+  assert.match(player, /queuePlayButton: \{ width: 44, height: 44/u);
+});
+
+test("the music library has one metadata-aware text filter", () => {
+  assert.match(player, /accessibilityLabel="Filter music"/u);
+  assert.match(player, /placeholder="Filter music"/u);
+  assert.match(player, /files\.filter\(\(file\) => musicMatchesFilter\(file, filterText\)\)/u);
+  assert.match(player, /metadata\?\.work\.creators/u);
+  assert.match(player, /metadata\?\.work\.catalogue/u);
+  assert.match(player, /terms\.every\(\(term\) => searchable\.includes\(term\)\)/u);
+  assert.match(player, /No matching music/u);
+});
+
+test("concert duration is derived only from actual music files", () => {
+  assert.match(player, /formatDuration\(musicDuration\).*music/u);
+  assert.match(player, /'music duration unavailable'/u);
+  assert.doesNotMatch(player, /narrationDuration|estimatedNarrationDurationMs/u);
+  assert.doesNotMatch(player, /Math\.max\(1, Math\.round\(milliseconds \/ 60_000\)\)/u);
 });

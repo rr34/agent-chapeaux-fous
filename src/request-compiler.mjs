@@ -27,7 +27,7 @@ const localCapabilityMatchers = [
 
 const capabilityPatterns = new Map([
   ["self", /\bhow (?:do|did) you.{0,50}\b(?:make|create|generate|produce|render)(?:d|s|ing)?\b.{0,40}\bvideos?\b|\bhow (?:is|are|was|were).{0,40}\bvideos?\b.{0,30}\b(?:made|created|generated|produced|rendered)\b|\b(?:is it|is this).{0,30}\beasy\b.{0,40}\b(?:create|make|generate)(?:d|s|ing)?\b.{0,20}\bvideos?\b|\bhow (?:long|many clicks).{0,50}\b(?:create|make|generate)(?:d|s|ing)?\b.{0,20}\bvideos?\b/iu],
-  ["web", /https?:\/\/|\b(?:web ?page|website|url|link|web search|search (?:the )?web|search online|look up online|look .{0,50} up (?:on|using) (?:the )?web)\b/iu],
+  ["web", /https?:\/\/|\b(?:web ?page|website|url|link|web search|search (?:the )?web|search online|look up online|look .{0,50} up (?:on|using) (?:the )?web|use (?:the )?(?:web|internet)(?=\s+(?:search|to|for|as)\b|[.!?,;:]|$))\b/iu],
   ["calendar", /\b(?:calendar|schedule|agenda|appointment|meeting|event|birthday|invite|routines?|habits?|deadline|due date|work window)\b/iu],
   ["contacts", /\b(?:contacts?|address book|phone number|email address|vcard|vcf|dedupe|deduplicate|deduplication|duplicate people|contact tag)\b|\b(?:add|change|correct|set|update)\b(?![^\n]{0,60}\bmy\s+(?:home\s+|work\s+|mailing\s+|postal\s+|street\s+)?address\b)[^\n]{0,60}\baddress\b|\b(?:change|clear|correct|remove|set|update)\b[^\n]{0,80}\b(?:birthday|birth date|date of birth)\b/iu],
   ["relationships", /\b(?:connect(?:ed|ing|ion)?|disconnect(?:ed|ing|ion)?|link(?:ed|ing)?|unlink(?:ed|ing)?|associate(?:d|ing|ion)?)\b.{0,100}\b(?:to|with|object|item|task|content|contact|event|job)\b/iu],
@@ -44,7 +44,7 @@ const capabilityPatterns = new Map([
   ["search", /\b(?:global|unified|cross[ -]?domain|everywhere)\s+search\b|\b(?:find|search|look for)\b.{0,80}\b(?:everything|anything|across (?:all|my)|everywhere|all (?:my|available) (?:data|records?|information))\b/iu],
 ]);
 
-const explicitWebSearchPattern = /\b(?:web search|search (?:the )?(?:web|internet)|search online|research (?:the )?(?:web|internet)|research online|look up online|look .{0,50} up (?:on|using) (?:the )?(?:web|internet)|browse (?:the )?(?:web|internet))\b/iu;
+const explicitWebSearchPattern = /\b(?:web search|search (?:the )?(?:web|internet)|search online|research (?:the )?(?:web|internet)|research online|look up online|look .{0,50} up (?:on|using) (?:the )?(?:web|internet)|browse (?:the )?(?:web|internet)|use (?:the )?(?:web|internet)(?=\s+(?:search|to|for|as)\b|[.!?,;:]|$))\b/iu;
 
 export function explicitWebSearchRequested(text) {
   return explicitWebSearchPattern.test(normalizedText(text));

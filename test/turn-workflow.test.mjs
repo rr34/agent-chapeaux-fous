@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { RequestCompiler } from "../src/request-compiler.mjs";
-import { SlayerRuntime } from "../src/runtime.mjs";
+import { needsPriorOperationalEvidence, SlayerRuntime } from "../src/runtime.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerNativeCapabilities } from "../src/native-capabilities.mjs";
 import { registerNativeObjectContextView } from "../src/native-object-search.mjs";
@@ -121,6 +121,17 @@ function contextBuilder() {
     },
   };
 }
+
+test("prior receipt evidence requires an actual operational continuation", () => {
+  assert.equal(needsPriorOperationalEvidence(
+    "The MP3s should relate exactly to that booklet text. Import music and use web as necessary.",
+    [],
+    [],
+  ), false);
+  assert.equal(needsPriorOperationalEvidence("Resume the existing accounting import.", [], []), true);
+  assert.equal(needsPriorOperationalEvidence("Can you apply that now?", [], []), true);
+  assert.equal(needsPriorOperationalEvidence("You can connect the remaining records.", [], []), true);
+});
 
 function workflowConfig() {
   return {

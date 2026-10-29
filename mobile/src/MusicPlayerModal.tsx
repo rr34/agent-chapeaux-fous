@@ -1,6 +1,6 @@
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Modal, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Modal, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { fetchMusic, generateMusicNarration, musicSource, narrationSource } from './api';
@@ -72,9 +72,46 @@ function formatTime(seconds: number): string {
 }
 
 function formatDuration(milliseconds: number): string {
-  const minutes = Math.max(1, Math.round(milliseconds / 60_000));
+  const minutes = Math.max(0, Math.round(milliseconds / 60_000));
   if (minutes < 60) return `${minutes} min`;
   return `${Math.floor(minutes / 60)} hr${minutes % 60 ? ` ${minutes % 60} min` : ''}`;
+}
+
+function normalizedSearchText(value: unknown): string {
+  return String(value ?? '').normalize('NFKD').replace(/\p{M}/gu, '').toLocaleLowerCase();
+}
+
+function musicMatchesFilter(file: MusicFile, filterText: string): boolean {
+  const terms = normalizedSearchText(filterText).trim().split(/\s+/u).filter(Boolean);
+  if (!terms.length) return true;
+  const metadata = file.metadata;
+  const searchable = normalizedSearchText([
+    file.title,
+    file.originalFilename,
+    metadata?.release?.type,
+    metadata?.release?.title,
+    metadata?.release?.version,
+    metadata?.release?.side,
+    metadata?.release?.trackNumber,
+    metadata?.work.type,
+    metadata?.work.title,
+    metadata?.work.version,
+    ...(metadata?.work.creators ?? []),
+    ...(metadata?.work.catalogue ?? []),
+    metadata?.sequence1?.type,
+    metadata?.sequence1?.number,
+    metadata?.sequence1?.title,
+    metadata?.sequence2?.type,
+    metadata?.sequence2?.number,
+    metadata?.sequence2?.title,
+    ...(metadata?.performers ?? []),
+    ...(metadata?.genres ?? []),
+    ...(metadata?.languages ?? []),
+    metadata?.compositionDate,
+    metadata?.performanceDate,
+    metadata?.notes,
+  ].join(' '));
+  return terms.every((term) => searchable.includes(term));
 }
 
 function sortWorkFiles(files: MusicFile[]): MusicFile[] {
@@ -274,17 +311,21 @@ function AddButton({ label, disabled, onPress, secondary = false }: { label: str
 }
 
 function TrackRows({ files, currentFileId, disabled, onAdd }: { files: MusicFile[]; currentFileId: number | null; disabled: boolean; onAdd: (files: MusicFile[]) => void }) {
-  return <>{files.map((file, index) => (
-    <View key={file.fileId} style={[styles.trackRow, currentFileId === file.fileId && styles.currentRow]}>
-      <Text style={styles.trackPosition}>{file.metadata?.sequence2?.number ?? file.metadata?.sequence1?.number ?? file.metadata?.release?.trackNumber ?? index + 1}</Text>
-      <View style={styles.flex}>
-        <Text numberOfLines={2} style={styles.trackTitle}>{trackTitle(file)}</Text>
-        {!!file.metadata?.performers?.length && <Text numberOfLines={1} style={styles.detail}>{file.metadata.performers.join(' · ')}</Text>}
-        {!file.metadata && <Text style={styles.warning}>Metadata needs review</Text>}
+  return <>{files.map((file, index) => {
+    const current = currentFileId === file.fileId;
+    return (
+      <View key={file.fileId} style={[styles.trackRow, current && styles.currentRow]}>
+        <Text style={[styles.trackPosition, current && styles.currentTrackPosition]}>{file.metadata?.sequence2?.number ?? file.metadata?.sequence1?.number ?? file.metadata?.release?.trackNumber ?? index + 1}</Text>
+        <View style={styles.flex}>
+          {current && <Text style={styles.currentStatus}>NOW PLAYING</Text>}
+          <Text numberOfLines={2} style={[styles.trackTitle, current && styles.currentTitle]}>{trackTitle(file)}</Text>
+          {!!file.metadata?.performers?.length && <Text numberOfLines={1} style={styles.detail}>{file.metadata.performers.join(' · ')}</Text>}
+          {!file.metadata && <Text style={styles.warning}>Metadata needs review</Text>}
+        </View>
+        <AddButton label={`Add ${trackTitle(file)} to concert`} disabled={disabled} onPress={() => onAdd([file])} secondary />
       </View>
-      <AddButton label={`Add ${trackTitle(file)} to concert`} disabled={disabled} onPress={() => onAdd([file])} secondary />
-    </View>
-  ))}</>;
+    );
+  })}</>;
 }
 
 function LibraryCard({ group, currentFileId, disabled, onAdd }: { group: ReleaseGroup; currentFileId: number | null; disabled: boolean; onAdd: (files: MusicFile[]) => void }) {
@@ -332,17 +373,17 @@ function ConcertGroupHeader({ group }: { group: ConcertGroup }) {
   );
 }
 
-function ConcertRow({ item, current, groupKind }: { item: ConcertItem; current: boolean; groupKind: ConcertGroupKind }) {
+function ConcertRow({ item, current, groupKind, disabled, onPlay }: { item: ConcertItem; current: boolean; groupKind: ConcertGroupKind; disabled: boolean; onPlay: () => void }) {
   if (item.kind === 'narration') {
     const status = item.status === 'ready' && item.narration ? `AI VOICE · ${formatTime(item.narration.durationMs / 1_000)}`
       : item.status === 'generating' ? 'AI VOICE · GENERATING…'
         : item.status === 'unavailable' ? 'AI VOICE · UNAVAILABLE — WILL SKIP' : 'AI VOICE · WILL GENERATE';
     return (
       <View style={[styles.queueRow, styles.narrationRow, current && styles.currentRow]}>
-        <Text style={styles.queueIcon}>◇</Text>
+        <Text style={[styles.queueIcon, current && styles.currentQueueIcon]}>◇</Text>
         <View style={styles.flex}>
-          <Text style={styles.narrationStatus}>{status}</Text>
-          <Text style={styles.narrationTitle}>{item.title}</Text>
+          <Text style={[styles.narrationStatus, current && styles.currentStatus]}>{current ? `NOW PLAYING · ${status}` : status}</Text>
+          <Text style={[styles.narrationTitle, current && styles.currentTitle]}>{item.title}</Text>
           <Text numberOfLines={3} style={styles.narrationCopy}>{item.text}</Text>
         </View>
       </View>
@@ -353,9 +394,19 @@ function ConcertRow({ item, current, groupKind }: { item: ConcertItem; current: 
   const detail = groupKind === 'release' && trackTitle(item.file) !== title ? trackTitle(item.file) : null;
   return (
     <View style={[styles.queueRow, current && styles.currentRow]}>
-      <Text style={styles.queueIcon}>♪</Text>
+      <Pressable
+        accessibilityLabel={`Play ${title} from concert`}
+        accessibilityRole="button"
+        accessibilityState={{ disabled }}
+        disabled={disabled}
+        onPress={onPlay}
+        style={({ pressed }) => [styles.queuePlayButton, current && styles.currentQueuePlayButton, pressed && styles.queuePlayButtonPressed, disabled && styles.disabled]}
+      >
+        <Text style={styles.queuePlayIcon}>▶</Text>
+      </Pressable>
       <View style={styles.flex}>
-        <Text numberOfLines={2} style={styles.queueTitle}>{title}</Text>
+        {current && <Text style={styles.currentStatus}>NOW PLAYING</Text>}
+        <Text numberOfLines={2} style={[styles.queueTitle, current && styles.currentTitle]}>{title}</Text>
         {!!detail && <Text numberOfLines={1} style={styles.queueWork}>{detail}</Text>}
       </View>
     </View>
@@ -374,6 +425,7 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
   const [loading, setLoading] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
   const [notice, setNotice] = useState('');
+  const [filterText, setFilterText] = useState('');
   const boundaryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handledFinish = useRef(false);
@@ -383,13 +435,18 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
   const narrationPromises = useRef(new Map<string, Promise<NarrationItem | null>>());
   const player = useAudioPlayer(null, { updateInterval: 250, keepAudioSessionActive: true });
   const status = useAudioPlayerStatus(player);
-  const groups = useMemo(() => releaseGroups(files), [files]);
+  const filteredFiles = useMemo(() => files.filter((file) => musicMatchesFilter(file, filterText)), [files, filterText]);
+  const groups = useMemo(() => releaseGroups(filteredFiles), [filteredFiles]);
   const concertRows = useMemo(() => concertDisplayRows(queue), [queue]);
   const current = currentIndex >= 0 ? queue[currentIndex] ?? null : null;
   const musicCount = queue.filter((item) => item.kind === 'music').length;
   const narrationCount = queue.length - musicCount;
-  const duration = queue.reduce((total, item) => total + (item.kind === 'music' ? item.file.durationMs ?? 0 : 0), 0);
-  const summary = `${musicCount} ${musicCount === 1 ? 'track' : 'tracks'} · ${narrationCount} spoken · ${formatDuration(duration)}`;
+  const musicDurationKnown = queue.every((item) => item.kind !== 'music' || (item.file.durationMs ?? 0) > 0);
+  const musicDuration = queue.reduce((total, item) => total + (item.kind === 'music' ? item.file.durationMs ?? 0 : 0), 0);
+  const durationLabel = musicDurationKnown
+    ? `${formatDuration(musicDuration)} music`
+    : 'music duration unavailable';
+  const summary = `${musicCount} ${musicCount === 1 ? 'track' : 'tracks'} · ${narrationCount} spoken · ${durationLabel}`;
 
   const updateQueue = useCallback((update: (previous: ConcertItem[]) => ConcertItem[]) => {
     setQueue((previous) => {
@@ -574,6 +631,12 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
     player.play();
   };
 
+  const playTrackFromConcert = (queueIndex: number) => {
+    setHasStarted(true);
+    setComplete(false);
+    void playAt(queueIndex);
+  };
+
   const close = () => {
     playbackVersion.current += 1;
     changing.current = false;
@@ -613,6 +676,25 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
           <Pressable onPress={close} style={styles.closeButton}><Text style={styles.closeText}>CLOSE</Text></Pressable>
         </View>
 
+        {!queueOpen && <View style={styles.filterBar}>
+          <TextInput
+            accessibilityLabel="Filter music"
+            autoCapitalize="none"
+            autoCorrect={false}
+            clearButtonMode="never"
+            onChangeText={setFilterText}
+            placeholder="Filter music"
+            placeholderTextColor={colors.dim}
+            returnKeyType="search"
+            style={styles.filterInput}
+            underlineColorAndroid="transparent"
+            value={filterText}
+          />
+          {!!filterText && <Pressable accessibilityLabel="Clear music filter" accessibilityRole="button" onPress={() => setFilterText('')} style={styles.filterClear}>
+            <Text style={styles.filterClearText}>×</Text>
+          </Pressable>}
+        </View>}
+
         {queueOpen ? (
           <FlatList
             data={concertRows}
@@ -620,7 +702,7 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
             contentContainerStyle={[styles.queueList, current ? styles.withPlayer : styles.withBar]}
             renderItem={({ item: row }) => row.kind === 'group'
               ? <ConcertGroupHeader group={row.group} />
-              : <ConcertRow item={row.item} current={currentIndex === row.queueIndex} groupKind={row.groupKind} />}
+              : <ConcertRow item={row.item} current={currentIndex === row.queueIndex} groupKind={row.groupKind} disabled={transitioning} onPlay={() => playTrackFromConcert(row.queueIndex)} />}
             ListHeaderComponent={queueHeader}
           />
         ) : (
@@ -630,7 +712,7 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
             contentContainerStyle={[groups.length ? styles.list : styles.emptyList, current ? styles.withPlayer : queue.length ? styles.withBar : null]}
             renderItem={({ item }) => <LibraryCard group={item} currentFileId={current?.kind === 'music' ? current.file.fileId : null} disabled={hasStarted} onAdd={add} />}
             refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} tintColor={colors.accent} />}
-            ListEmptyComponent={loading ? <ActivityIndicator color={colors.accent} size="large" /> : <View style={styles.empty}><Text style={styles.emptyTitle}>No music yet</Text><Text style={styles.emptyCopy}>Upload MP3 files to the agent and ask it to identify and organize them.</Text></View>}
+            ListEmptyComponent={loading ? <ActivityIndicator color={colors.accent} size="large" /> : filterText.trim() && files.length ? <View style={styles.empty}><Text style={styles.emptyTitle}>No matching music</Text><Text style={styles.emptyCopy}>Try another title, composer, performer, catalogue number, or movement.</Text></View> : <View style={styles.empty}><Text style={styles.emptyTitle}>No music yet</Text><Text style={styles.emptyCopy}>Upload MP3 files to the agent and ask it to identify and organize them.</Text></View>}
           />
         )}
 
@@ -677,6 +759,10 @@ const styles = StyleSheet.create({
   heading: { color: colors.ink, fontSize: 28, fontWeight: '800' },
   closeButton: { minHeight: 38, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', borderRadius: 10, borderWidth: 1, borderColor: colors.border },
   closeText: { color: colors.muted, fontSize: 10, fontWeight: '900', letterSpacing: 1 },
+  filterBar: { minHeight: 50, flexDirection: 'row', alignItems: 'center', marginHorizontal: 14, marginTop: 12, paddingLeft: 14, paddingRight: 5, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  filterInput: { flex: 1, minHeight: 48, color: colors.ink, fontSize: 16, paddingVertical: 10 },
+  filterClear: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 20 },
+  filterClearText: { color: colors.muted, fontSize: 27, lineHeight: 29 },
   list: { padding: 14 },
   queueList: { padding: 14 },
   withBar: { paddingBottom: 94 },
@@ -698,7 +784,10 @@ const styles = StyleSheet.create({
   addButtonSecondary: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: colors.accent, backgroundColor: 'transparent' },
   addButtonText: { color: colors.ink, fontSize: 25, lineHeight: 27 },
   trackRow: { flexDirection: 'row', alignItems: 'center', minHeight: 60, paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
-  currentRow: { backgroundColor: '#27201B' },
+  currentRow: { marginVertical: 4, marginHorizontal: 3, borderWidth: 2, borderLeftWidth: 6, borderColor: colors.accent, borderRadius: 12, backgroundColor: '#351719', shadowColor: colors.accent, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.32, shadowRadius: 8, elevation: 5 },
+  currentStatus: { color: colors.accent, fontSize: 9, fontWeight: '900', letterSpacing: 1.4, marginBottom: 3 },
+  currentTitle: { color: '#FFFFFF' },
+  currentTrackPosition: { color: colors.ink, fontSize: 15 },
   trackPosition: { width: 28, color: colors.gold, fontSize: 13, fontWeight: '800' },
   trackTitle: { color: colors.ink, fontSize: 15, fontWeight: '700', lineHeight: 20 },
   warning: { color: colors.warning, fontSize: 10, marginTop: 3 },
@@ -725,6 +814,11 @@ const styles = StyleSheet.create({
   queueRow: { flexDirection: 'row', gap: 10, minHeight: 62, padding: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, backgroundColor: colors.surface },
   narrationRow: { backgroundColor: colors.elevated },
   queueIcon: { width: 30, color: colors.gold, fontSize: 25, lineHeight: 30, textAlign: 'center' },
+  currentQueueIcon: { color: colors.ink, backgroundColor: colors.accent, borderRadius: 15, overflow: 'hidden' },
+  queuePlayButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', borderRadius: 22, borderWidth: 2, borderColor: colors.gold, backgroundColor: '#211B12' },
+  currentQueuePlayButton: { borderColor: colors.accent, backgroundColor: colors.accent },
+  queuePlayButtonPressed: { transform: [{ scale: 0.94 }], backgroundColor: colors.accentPressed },
+  queuePlayIcon: { color: colors.ink, fontSize: 21, lineHeight: 24, marginLeft: 2 },
   narrationStatus: { color: colors.accent, fontSize: 8, fontWeight: '900', letterSpacing: 1 },
   narrationTitle: { color: colors.ink, fontSize: 13, fontWeight: '800', marginTop: 2 },
   narrationCopy: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 3 },

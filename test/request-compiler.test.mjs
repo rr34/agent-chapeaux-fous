@@ -571,6 +571,18 @@ test("web search requires an explicit opt-in in the current request", () => {
     text: "Use web search to fill the missing composition dates in these music files.",
   });
   assert.equal(names(explicit).includes("web_search"), true);
+
+  const conciseExplicit = selectRequestCapabilities({
+    tools,
+    text: "Import these music files and use web as necessary for composition dates.",
+  });
+  assert.equal(names(conciseExplicit).includes("web_search"), true);
+
+  const specificPageOnly = selectRequestCapabilities({
+    tools,
+    text: "Use the web page I supplied to fill the missing composition dates.",
+  });
+  assert.equal(names(specificPageOnly).includes("web_search"), false);
 });
 
 test("attachment structure routes known imports and conservatively falls back when unknown", () => {
