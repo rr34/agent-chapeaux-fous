@@ -21,6 +21,20 @@ type NarrationItem = {
   narration: MusicNarration | null;
 };
 type ConcertItem = MusicItem | NarrationItem;
+type ConcertGroupKind = 'release' | 'work';
+type ConcertGroup = {
+  key: string;
+  kind: ConcertGroupKind;
+  eyebrow: string;
+  title: string;
+  releaseTitle: string | null;
+  version: string | null;
+  catalogue: string[];
+  creators: string[];
+};
+type ConcertDisplayRow =
+  | { key: string; kind: 'group'; group: ConcertGroup }
+  | { key: string; kind: 'item'; item: ConcertItem; queueIndex: number; groupKind: ConcertGroupKind };
 
 const narrationChoices: { field: NarrationField; label: string }[] = [
   { field: 'work', label: 'Work' },
@@ -43,6 +57,13 @@ function sequenceText(sequence: MusicSequence | null, fallback: string): string 
 
 function trackTitle(file: MusicFile): string {
   return sequenceText(file.metadata?.sequence2 ?? file.metadata?.sequence1 ?? null, file.title);
+}
+
+function spokenSequenceText(sequence: MusicSequence): string {
+  const type = sequence.type === 'sequence' ? 'section' : sequence.type;
+  const number = sequence.number == null ? '' : ` ${sequence.number}`;
+  const title = sequence.title ? `, ${sequence.title}` : '';
+  return `${type}${number}${title}`;
 }
 
 function formatTime(seconds: number): string {
@@ -113,7 +134,7 @@ function spokenText(file: MusicFile, fields: NarrationField[]): string {
   const metadata = file.metadata;
   const sequence = metadata?.sequence2 ?? metadata?.sequence1;
   const parts: string[] = [];
-  if (fields.includes('sequence') && sequence) parts.push(`Next, ${sequenceText(sequence, file.title)}.`);
+  if (fields.includes('sequence') && sequence) parts.push(`Next, ${spokenSequenceText(sequence)}.`);
   if (fields.includes('work') && metadata?.work.title) parts.push(`From ${metadata.work.title}.`);
   if (fields.includes('creators') && metadata?.work.creators?.length) parts.push(`By ${metadata.work.creators.join(', ')}.`);
   if (fields.includes('catalogue') && metadata?.work.catalogue?.length) parts.push(`Catalogue ${metadata.work.catalogue.join(', ')}.`);
@@ -136,6 +157,105 @@ function itemsFor(files: MusicFile[], fields: NarrationField[]): ConcertItem[] {
     },
     { key: `music:${file.fileId}`, kind: 'music' as const, file },
   ]);
+}
+
+function pluralSequence(type: MusicSequence['type'] | null, count: number): string {
+  const singular = type === 'sequence' || !type ? 'track' : type;
+  if (count === 1) return singular;
+  if (singular === 'item') return 'items';
+  return `${singular}s`;
+}
+
+function concertGrouping(file: MusicFile) {
+  const metadata = file.metadata;
+  const release = metadata?.release;
+  const work = metadata?.work;
+  if (release?.title && work?.type === 'song') {
+    return {
+      identity: JSON.stringify(['release', release.type, release.title, release.version]),
+      kind: 'release' as const,
+      title: release.title,
+      releaseTitle: null,
+      version: release.version,
+      catalogue: [] as string[],
+      creators: [] as string[],
+      type: release.type || 'release',
+    };
+  }
+  if (work?.title) {
+    return {
+      identity: JSON.stringify(['work', work.type, work.title, work.version, work.creators, work.catalogue]),
+      kind: 'work' as const,
+      title: work.title,
+      releaseTitle: release?.title ?? null,
+      version: work.version,
+      catalogue: work.catalogue ?? [],
+      creators: work.creators ?? [],
+      type: work.type || 'work',
+    };
+  }
+  return {
+    identity: `file:${file.fileId}`,
+    kind: 'work' as const,
+    title: file.title,
+    releaseTitle: release?.title ?? null,
+    version: null,
+    catalogue: [] as string[],
+    creators: [] as string[],
+    type: 'music',
+  };
+}
+
+function concertDisplayRows(queue: ConcertItem[]): ConcertDisplayRow[] {
+  type Entry = { item: ConcertItem; queueIndex: number };
+  type ConsecutiveGroup = { identity: string; info: ReturnType<typeof concertGrouping>; files: MusicFile[]; entries: Entry[] };
+  const groups: ConsecutiveGroup[] = [];
+  let pending: Entry[] = [];
+  for (let queueIndex = 0; queueIndex < queue.length; queueIndex += 1) {
+    const item = queue[queueIndex];
+    if (!item) continue;
+    if (item.kind === 'narration') {
+      pending.push({ item, queueIndex });
+      continue;
+    }
+    const info = concertGrouping(item.file);
+    let group = groups.at(-1);
+    if (!group || group.identity !== info.identity) {
+      group = { identity: info.identity, info, files: [], entries: [] };
+      groups.push(group);
+    }
+    group.entries.push(...pending, { item, queueIndex });
+    group.files.push(item.file);
+    pending = [];
+  }
+  if (pending.length && groups.length) groups.at(-1)?.entries.push(...pending);
+
+  return groups.flatMap((group, groupIndex) => {
+    const sequenceTypes = group.files.map((file) => file.metadata?.sequence2?.type ?? file.metadata?.sequence1?.type ?? null);
+    const firstSequence = sequenceTypes[0] ?? null;
+    const sharedSequence = sequenceTypes.every((type) => type === firstSequence) ? firstSequence : null;
+    const countLabel = pluralSequence(group.info.kind === 'release' ? null : sharedSequence, group.files.length);
+    const header: ConcertGroup = {
+      key: `concert-group:${groupIndex}:${group.identity}`,
+      kind: group.info.kind,
+      eyebrow: `${group.info.type} · ${group.files.length} ${countLabel}`,
+      title: group.info.title,
+      releaseTitle: group.info.releaseTitle,
+      version: group.info.version,
+      catalogue: group.info.catalogue,
+      creators: group.info.creators,
+    };
+    return [
+      { key: header.key, kind: 'group' as const, group: header },
+      ...group.entries.map(({ item, queueIndex }) => ({
+        key: `concert-row:${queueIndex}:${item.key}`,
+        kind: 'item' as const,
+        item,
+        queueIndex,
+        groupKind: group.info.kind,
+      })),
+    ];
+  });
 }
 
 function AddButton({ label, disabled, onPress, secondary = false }: { label: string; disabled: boolean; onPress: () => void; secondary?: boolean }) {
@@ -199,7 +319,20 @@ function LibraryCard({ group, currentFileId, disabled, onAdd }: { group: Release
   );
 }
 
-function ConcertRow({ item, current }: { item: ConcertItem; current: boolean }) {
+function ConcertGroupHeader({ group }: { group: ConcertGroup }) {
+  return (
+    <View style={styles.groupHeader}>
+      {!!group.releaseTitle && <Text style={styles.groupRelease}>{group.releaseTitle}</Text>}
+      <Text style={styles.groupEyebrow}>{group.eyebrow.toUpperCase()}</Text>
+      <Text style={styles.groupTitle}>{group.title}</Text>
+      {!!group.version && <Text style={styles.groupVersion}>{group.version}</Text>}
+      {!!group.catalogue.length && <Text style={styles.groupCatalogue}>{group.catalogue.join(' · ')}</Text>}
+      {!!group.creators.length && <Text style={styles.groupCreators}>{group.creators.join(' · ')}</Text>}
+    </View>
+  );
+}
+
+function ConcertRow({ item, current, groupKind }: { item: ConcertItem; current: boolean; groupKind: ConcertGroupKind }) {
   if (item.kind === 'narration') {
     const status = item.status === 'ready' && item.narration ? `AI VOICE · ${formatTime(item.narration.durationMs / 1_000)}`
       : item.status === 'generating' ? 'AI VOICE · GENERATING…'
@@ -215,12 +348,15 @@ function ConcertRow({ item, current }: { item: ConcertItem; current: boolean }) 
       </View>
     );
   }
+  const workTitle = item.file.metadata?.work.title || item.file.title;
+  const title = groupKind === 'release' ? workTitle : trackTitle(item.file);
+  const detail = groupKind === 'release' && trackTitle(item.file) !== title ? trackTitle(item.file) : null;
   return (
     <View style={[styles.queueRow, current && styles.currentRow]}>
       <Text style={styles.queueIcon}>♪</Text>
       <View style={styles.flex}>
-        <Text numberOfLines={1} style={styles.queueWork}>{item.file.metadata?.work.title || item.file.title}</Text>
-        <Text numberOfLines={2} style={styles.queueTitle}>{trackTitle(item.file)}</Text>
+        <Text numberOfLines={2} style={styles.queueTitle}>{title}</Text>
+        {!!detail && <Text numberOfLines={1} style={styles.queueWork}>{detail}</Text>}
       </View>
     </View>
   );
@@ -248,6 +384,7 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
   const player = useAudioPlayer(null, { updateInterval: 250, keepAudioSessionActive: true });
   const status = useAudioPlayerStatus(player);
   const groups = useMemo(() => releaseGroups(files), [files]);
+  const concertRows = useMemo(() => concertDisplayRows(queue), [queue]);
   const current = currentIndex >= 0 ? queue[currentIndex] ?? null : null;
   const musicCount = queue.filter((item) => item.kind === 'music').length;
   const narrationCount = queue.length - musicCount;
@@ -400,7 +537,6 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
     if (boundaryTimer.current) clearTimeout(boundaryTimer.current);
     if (playTimer.current) clearTimeout(playTimer.current);
     player.pause();
-    player.replace(null);
     player.clearLockScreenControls();
     setLastCleared(queueRef.current);
     updateQueue(() => []);
@@ -479,10 +615,12 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
 
         {queueOpen ? (
           <FlatList
-            data={queue}
-            keyExtractor={(item) => item.key}
+            data={concertRows}
+            keyExtractor={(row) => row.key}
             contentContainerStyle={[styles.queueList, current ? styles.withPlayer : styles.withBar]}
-            renderItem={({ item, index }) => <ConcertRow item={item} current={currentIndex === index} />}
+            renderItem={({ item: row }) => row.kind === 'group'
+              ? <ConcertGroupHeader group={row.group} />
+              : <ConcertRow item={row.item} current={currentIndex === row.queueIndex} groupKind={row.groupKind} />}
             ListHeaderComponent={queueHeader}
           />
         ) : (
@@ -577,9 +715,16 @@ const styles = StyleSheet.create({
   fieldChoiceText: { color: colors.muted, fontSize: 10, fontWeight: '800' },
   fieldChoiceTextSelected: { color: colors.ink },
   frozen: { color: colors.gold, fontSize: 11, lineHeight: 16, marginTop: 10 },
+  groupHeader: { marginTop: 14, paddingHorizontal: 14, paddingTop: 16, paddingBottom: 13, borderTopLeftRadius: 14, borderTopRightRadius: 14, borderWidth: 1, borderBottomWidth: 0, borderColor: colors.border, backgroundColor: '#18181A' },
+  groupRelease: { color: colors.muted, fontSize: 10, marginBottom: 5 },
+  groupEyebrow: { color: colors.gold, fontSize: 9, fontWeight: '900', letterSpacing: 1.5 },
+  groupTitle: { color: colors.ink, fontSize: 20, fontWeight: '800', lineHeight: 25, marginTop: 3 },
+  groupVersion: { color: colors.muted, fontSize: 11, marginTop: 4 },
+  groupCatalogue: { color: colors.gold, fontSize: 11, marginTop: 5 },
+  groupCreators: { color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 4 },
   queueRow: { flexDirection: 'row', gap: 10, minHeight: 62, padding: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, backgroundColor: colors.surface },
   narrationRow: { backgroundColor: colors.elevated },
-  queueIcon: { width: 20, color: colors.gold, fontSize: 18, textAlign: 'center' },
+  queueIcon: { width: 30, color: colors.gold, fontSize: 25, lineHeight: 30, textAlign: 'center' },
   narrationStatus: { color: colors.accent, fontSize: 8, fontWeight: '900', letterSpacing: 1 },
   narrationTitle: { color: colors.ink, fontSize: 13, fontWeight: '800', marginTop: 2 },
   narrationCopy: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 3 },

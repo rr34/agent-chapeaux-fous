@@ -222,7 +222,10 @@ const speech = new OpenAISpeechService({
   instructions: config.ttsAgentInstructions,
   timeoutMs: config.ttsTimeoutMs,
 });
-const musicNarration = new MusicNarrationService({ speech });
+const musicNarration = new MusicNarrationService({
+  speech,
+  voice: config.ttsMusicNarrationVoice,
+});
 if (videoScripts) {
   videoRenderWorker = new VideoRenderWorker({
     videoScripts,

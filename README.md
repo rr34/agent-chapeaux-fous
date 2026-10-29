@@ -250,6 +250,19 @@ support, stops at the exact end of the concert, and never silently continues
 into library music outside that queue. Playback choices remain user state and
 do not change stored file metadata.
 
+Concert narration has its own `SLAYER_MUSIC_NARRATION_VOICE` setting and uses
+the restrained male `cedar` voice by default. It does not inherit the more
+animated `SLAYER_TTS_AGENT_VOICE` used by the Agent role in video production.
+
+The queue scans its ordered music items and groups only consecutive entries
+with the same complete structured work identity. Each run receives one large
+work header with its release, type, sequence count, catalogue, and creators;
+the narration and music rows remain individually visible below it. Consecutive
+song works from one release use the release identity as their shared header.
+Display-title equality alone never merges unrelated files, and a later return
+to the same work begins a new visual run rather than joining nonconsecutive
+queue entries.
+
 ## Hats and the user manual
 
 Users may make one or more roles explicit with the convention:

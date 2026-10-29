@@ -22,6 +22,7 @@ test("mobile playback starts only from the visible concert queue", () => {
   assert.match(player, /Concert complete\. Playback stopped\./u);
   assert.match(player, /Concert cleared\./u);
   assert.match(player, />UNDO<\/Text>/u);
+  assert.doesNotMatch(player, /player\.replace\(null\)/u);
 });
 
 test("concert queue discloses and streams temporary AI-voice introductions", () => {
@@ -30,4 +31,19 @@ test("concert queue discloses and streams temporary AI-voice introductions", () 
   assert.match(player, /generateMusicNarration\(settings, item\.text\)/u);
   assert.match(api, /'\/api\/music\/narrations'/u);
   assert.match(api, /narrationSource/u);
+});
+
+test("spoken introductions name the sequence type before its number", () => {
+  assert.match(player, /function spokenSequenceText\(sequence: MusicSequence\)/u);
+  assert.match(player, /` \$\{sequence\.number\}`/u);
+  assert.match(player, /Next, \$\{spokenSequenceText\(sequence\)\}\./u);
+});
+
+test("concert queue groups consecutive tracks under structured work or release headers", () => {
+  assert.match(player, /function concertGrouping\(file: MusicFile\)/u);
+  assert.match(player, /JSON\.stringify\(\['work', work\.type, work\.title, work\.version, work\.creators, work\.catalogue\]\)/u);
+  assert.match(player, /work\?\.type === 'song'/u);
+  assert.match(player, /function ConcertGroupHeader/u);
+  assert.match(player, /group\.files\.length/u);
+  assert.match(player, /fontSize: 25/u);
 });

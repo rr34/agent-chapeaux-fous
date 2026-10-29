@@ -22,6 +22,7 @@ test("music narration generates temporary disclosed speech audio", async () => {
 
   assert.equal(calls[0].text, "Next: Allegro assai.");
   assert.match(calls[0].options.instructions, /concert companion/u);
+  assert.equal(calls[0].options.voice, "cedar");
   assert.deepEqual(result, {
     narrationId: "00000000-0000-4000-8000-000000000001",
     durationMs: 1250,

@@ -43,6 +43,20 @@ test("OpenAI Responses configuration has stable defaults", () => {
   });
 });
 
+test("concert narration has a normal voice independent of the Agent video persona", () => {
+  const defaults = loadTestConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true" });
+  assert.equal(defaults.ttsAgentVoice, "verse");
+  assert.equal(defaults.ttsMusicNarrationVoice, "cedar");
+
+  const configured = loadTestConfig({
+    SLAYER_ALLOW_UNAUTHENTICATED: "true",
+    SLAYER_TTS_AGENT_VOICE: "ash",
+    SLAYER_MUSIC_NARRATION_VOICE: "onyx",
+  });
+  assert.equal(configured.ttsAgentVoice, "ash");
+  assert.equal(configured.ttsMusicNarrationVoice, "onyx");
+});
+
 test("environment price variables cannot supply token prices", () => {
   const config = loadTestConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true", SLAYER_AI_INPUT_COST_PER_MILLION: "999",
     SLAYER_AI_CACHED_INPUT_COST_PER_MILLION: "999", SLAYER_AI_CACHE_WRITE_COST_PER_MILLION: "999",

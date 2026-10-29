@@ -166,6 +166,7 @@ export function loadConfig(environment = process.env) {
     ttsModel: environment.SLAYER_TTS_MODEL?.trim() || "gpt-4o-mini-tts",
     ttsAgentVoice: environment.SLAYER_TTS_AGENT_VOICE?.trim()
       || environment.SLAYER_TTS_VOICE?.trim() || "verse",
+    ttsMusicNarrationVoice: environment.SLAYER_MUSIC_NARRATION_VOICE?.trim() || "cedar",
     ttsUserVoice: environment.SLAYER_TTS_USER_VOICE?.trim() || "shimmer",
     ttsAgentInstructions: environment.SLAYER_TTS_AGENT_INSTRUCTIONS?.trim()
       || environment.SLAYER_TTS_INSTRUCTIONS?.trim()

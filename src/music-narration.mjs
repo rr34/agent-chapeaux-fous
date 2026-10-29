@@ -14,6 +14,7 @@ function narrationText(value) {
 export class MusicNarrationService {
   constructor({
     speech,
+    voice = "cedar",
     instructions = defaultInstructions,
     maximumEntries = 100,
     maximumBytes = 128 * 1024 * 1024,
@@ -22,6 +23,7 @@ export class MusicNarrationService {
     createId = randomUUID,
   }) {
     this.speech = speech;
+    this.voice = voice;
     this.instructions = instructions;
     this.maximumEntries = maximumEntries;
     this.maximumBytes = maximumBytes;
@@ -47,7 +49,10 @@ export class MusicNarrationService {
 
   async create(input) {
     const text = narrationText(input?.text);
-    const generated = await this.speech.synthesize(text, { instructions: this.instructions });
+    const generated = await this.speech.synthesize(text, {
+      instructions: this.instructions,
+      voice: this.voice,
+    });
     if (generated.bytes.length > this.maximumBytes) {
       throw Object.assign(new Error("Generated narration is too large"), { statusCode: 413 });
     }
