@@ -17,6 +17,11 @@ test("music metadata versions share one schema registry", () => {
   assert.equal(musicMetadataSchemaBundle.$defs.v1, legacyMusicMetadataSchema);
   assert.equal(musicMetadataSchemaBundle.$defs.v2, musicMetadataSchema);
   assert.deepEqual(Object.keys(musicMetadataSchemaBundle.$defs), ["v1", "v2"]);
+  for (const schema of [legacyMusicMetadataSchema, musicMetadataSchema]) {
+    const catalogue = schema.$defs.work.properties.catalogue;
+    assert.match(catalogue.description, /catalogue siglum and entry number together/u);
+    assert.deepEqual(catalogue.examples[0], ["K. 319"]);
+  }
 });
 
 function concertoMovement({ work = "Violin Concerto in E major, Spring", movement = 1 } = {}) {

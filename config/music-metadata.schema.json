@@ -464,6 +464,18 @@
             },
             "catalogue": {
               "$ref": "#/$defs/stringArrayOrNull",
+              "description": "Complete work-catalogue identifiers. Use an array because one work may have multiple identifiers; include the catalogue siglum and entry number together, for example [\"K. 319\"], [\"BWV 1043\"], or [\"Op. 67\"].",
+              "examples": [
+                [
+                  "K. 319"
+                ],
+                [
+                  "BWV 1043"
+                ],
+                [
+                  "Op. 67"
+                ]
+              ],
               "x-aliases": [
                 "catalog",
                 "catalogueNumbers",
@@ -1150,6 +1162,18 @@
             },
             "catalogue": {
               "$ref": "#/$defs/stringArrayOrNull",
+              "description": "Complete work-catalogue identifiers. Use an array because one work may have multiple identifiers; include the catalogue siglum and entry number together, for example [\"K. 319\"], [\"BWV 1043\"], or [\"Op. 67\"].",
+              "examples": [
+                [
+                  "K. 319"
+                ],
+                [
+                  "BWV 1043"
+                ],
+                [
+                  "Op. 67"
+                ]
+              ],
               "x-aliases": [
                 "catalog",
                 "catalogueNumbers",
