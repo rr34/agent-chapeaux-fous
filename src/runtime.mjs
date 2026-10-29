@@ -14,6 +14,7 @@ import {
 import {
   requestCapabilityCatalog,
   capabilityForTool,
+  requestScopedTools,
 } from "./request-compiler.mjs";
 import {
   readResultFilterSchema,
@@ -118,7 +119,7 @@ const operationalContinuationCue = /(?:^\s*you\s+can\b|\b(?:again|approve|confir
 const localCalendarCue = /(?:\b(?:today|tomorrow|yesterday|tonight|morning|afternoon|evening|sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b|\b(?:this|next|last)\s+(?:day|week|month|year|weekend)\b|\b\d{4}-\d{2}-\d{2}\b)/iu;
 
 function needsPriorOperationalEvidence(requestText, selectedObjectCandidates, referencedExchanges) {
-  if ((referencedExchanges ?? []).length) return true;
+  if ((referencedExchanges ?? []).length) return false;
   // A current composer selection establishes what words such as "this" mean;
   // it does not make separately named targets or prior exact relationship sets
   // irrelevant. Mixed requests commonly select one endpoint and refer to the
@@ -455,6 +456,9 @@ function repeatedToolFailure(receipts, name, message, definition, toolArguments)
 function terminalToolFailureNotice(findings) {
   const failure = findings[0]?.toolFailure;
   if (!failure) return "";
+  if (failure.step === "provider_configuration") {
+    return `${failure.serverName} is not configured, so its dependent work remains incomplete and will not enter audit or repair. Configure the provider, then retry in a new request. Any earlier successful steps remain recorded.`;
+  }
   if (failure.step === "tool_result_validation") {
     return `${failure.serverName} returned a result that failed its tool's output contract. The operation was attempted; this error does not prove whether it changed data. Use the verification results above for the observed state. Further attempts are blocked until the provider is corrected and its tools are rediscovered.`;
   }
@@ -906,14 +910,15 @@ export class SlayerRuntime {
     const allowedToolNames = Array.isArray(args.allowedToolNames)
       ? new Set(args.allowedToolNames)
       : null;
-    const availableTools = allowedToolNames
+    const authorizedTools = allowedToolNames
       ? registeredTools.filter(({ name }) => allowedToolNames.has(name))
       : registeredTools;
-    if (allowedToolNames && availableTools.length !== allowedToolNames.size) {
-      const availableNames = new Set(availableTools.map(({ name }) => name));
+    if (allowedToolNames && authorizedTools.length !== allowedToolNames.size) {
+      const availableNames = new Set(authorizedTools.map(({ name }) => name));
       const unavailable = [...allowedToolNames].filter((name) => !availableNames.has(name));
       throw new Error(`Authorized request tool is unavailable: ${unavailable.join(", ")}`);
     }
+    const availableTools = requestScopedTools(authorizedTools, args.text);
 
     const boundaryEventSeq = typeof this.ledger.conversationBoundaryEventSeq === "function"
       ? this.ledger.conversationBoundaryEventSeq()
@@ -982,7 +987,7 @@ export class SlayerRuntime {
     );
     const recentEvidenceText = [
       args.text,
-      ...relevantConversation.map(({ content }) => content),
+      ...(referencedExchanges.length ? [] : relevantConversation.map(({ content }) => content)),
     ].filter(Boolean).join("\n");
     const inheritedReferenceSets = mergeReferenceSets([
       ...(includePriorOperationalEvidence
@@ -991,8 +996,12 @@ export class SlayerRuntime {
       ...reusableReferencedExchanges.flatMap(({ referenceSets = [] }) => referenceSets),
     ]);
     const inheritedSetObjectRefs = referenceSetObjectRefs(inheritedReferenceSets);
+    // An explicit exchange reference is the user's subject switch. Keep that
+    // exchange's exact bindings below, and admit a recent-conversation binding
+    // only when the current request independently names its human display.
+    // Do not make the referenced exchange a gateway to every recent binding.
     const relevantRecentObjectReferences = relevantObjectReferenceCatalog(
-      this.objectReferenceFilter(includePriorOperationalEvidence
+      this.objectReferenceFilter((includePriorOperationalEvidence || referencedExchanges.length)
         ? relevantConversation.flatMap(({ objectReferences = [] }) => objectReferences)
         : []),
       {
@@ -1651,14 +1660,15 @@ export class SlayerRuntime {
     const allowedToolNames = Array.isArray(allowedToolNameList)
       ? new Set(allowedToolNameList)
       : null;
-    const availableTools = allowedToolNames
+    const authorizedTools = allowedToolNames
       ? registeredTools.filter(({ name }) => allowedToolNames.has(name))
       : registeredTools;
-    if (allowedToolNames && availableTools.length !== allowedToolNames.size) {
-      const availableNames = new Set(availableTools.map(({ name }) => name));
+    if (allowedToolNames && authorizedTools.length !== allowedToolNames.size) {
+      const availableNames = new Set(authorizedTools.map(({ name }) => name));
       const unavailable = [...allowedToolNames].filter((name) => !availableNames.has(name));
       throw new Error(`Authorized request tool is unavailable: ${unavailable.join(", ")}`);
     }
+    const availableTools = requestScopedTools(authorizedTools, text);
     const priorConversation = !isolatedConversation && typeof this.ledger.currentModelConversation === "function"
       ? this.ledger.currentModelConversation()
       : { conversationId: null, markerEventSeq: conversationStartEventSeq, capabilities: [] };
@@ -1961,6 +1971,42 @@ export class SlayerRuntime {
                   delivery: "same_exchange_refresh",
                   tools: event.providerTools ?? event.tools ?? [],
                 },
+              });
+              return;
+            }
+            if (event.type === "hosted_tool.call") {
+              totalToolCallCount += 1;
+              this.ledger.append({
+                type: "tool.call", phase: "start", status: "processing", actorType: "model",
+                actorName: selectedModel, channel, turnId: requestId, operationId: event.callId,
+                name: event.name,
+                payload: {
+                  callId: event.callId, name: event.name, arguments: event.arguments,
+                  provider: "openai-responses", hosted: true,
+                },
+              });
+              return;
+            }
+            if (event.type === "hosted_tool.result") {
+              const complete = event.status === "completed";
+              const resultEventId = this.ledger.append({
+                type: "tool.result", phase: complete ? "end" : "error",
+                status: complete ? "complete" : "error", actorType: "tool",
+                actorName: "OpenAI web search", channel, turnId: requestId,
+                operationId: event.callId, name: event.name,
+                payload: {
+                  callId: event.callId, name: event.name, result: event.result,
+                  provider: "openai-responses", hosted: true,
+                },
+                ...(complete ? {} : { error: `Hosted web search ended with status ${event.status ?? "unknown"}` }),
+              });
+              sameRequestReceipts.push({
+                tool: event.name,
+                arguments: event.result?.action ? { action: event.result.action } : {},
+                ok: complete,
+                result: event.result,
+                receiptEventSeq: this.ledger.eventSequence?.(resultEventId) ?? null,
+                ...(complete ? {} : { error: `Hosted web search ended with status ${event.status ?? "unknown"}` }),
               });
               return;
             }

@@ -64,7 +64,6 @@ import { VideoContent } from "./video-content.mjs";
 import { VideoContentReconciler } from "./video-content-reconcile.mjs";
 import { PhysicalItems } from "./physical-items.mjs";
 import { WebPageClient } from "./web-page-client.mjs";
-import { WebSearchClient } from "./web-search-client.mjs";
 import { timeZoneFromProfileFacts } from "./temporal-consistency.mjs";
 
 const config = loadConfig();
@@ -127,11 +126,7 @@ const webPageClient = new WebPageClient({
   timeoutMs: config.webPageTimeoutMs,
   maximumBytes: config.webPageMaximumBytes,
 });
-const webSearchClient = new WebSearchClient({
-  apiKey: config.braveSearchApiKey,
-  timeoutMs: config.webSearchTimeoutMs,
-});
-registerWebPageTools(registry, webPageClient, webSearchClient);
+registerWebPageTools(registry, webPageClient);
 const modelTransport = await createModelTransport(config);
 await modelTransport.start().catch((error) => {
   console.error(`[agent-slayer] ${modelTransport.displayName} transport startup failed:`, error);
@@ -421,7 +416,12 @@ function health() {
       ...mcp.health(),
       email: jmap.health(),
       stripe: payments?.health() ?? { ready: false },
-      webSearch: webSearchClient.health(),
+      webSearch: {
+        ready: model.ready,
+        provider: "openai-responses",
+        hosted: true,
+        reason: model.ready ? null : model.reason,
+      },
     },
     tools: registry.list().map((tool) => ({
       name: tool.name,

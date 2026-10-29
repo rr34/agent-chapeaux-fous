@@ -96,6 +96,13 @@ visible engineering gaps rather than misrepresented as intentional limits.
 The normative cross-domain requirements live in the **Native domain
 consistency invariant** in `AGENT-TOOL-MANIFESTO.md`.
 
+An explicitly referenced completed interaction is a deliberate subject switch.
+Orientation receives that interaction's literal context and reusable exact
+bindings, plus current attachments and composer selections. It does not receive
+every unrelated recent operational binding merely because a reference exists;
+a recent binding outside the referenced interaction remains eligible only when
+the current request independently names its human display.
+
 ### Android correspondence synchronization contract
 
 The Android app imports phone contacts, call history, SMS, and the textual
@@ -192,17 +199,24 @@ Upload-time parsing verifies MPEG audio and may preserve common ID3 text fields
 as initial hints. Embedded tags and filenames are evidence, not authority. A
 request may attach a bounded ordered group of MP3 files. Every member is linked
 to the immutable request event and becomes an exact native file binding. The
-agent updates the complete intended group through the owning atomic batch file
+agent reads exact file metadata through one ordered bounded ID batch and updates
+the complete intended group through the owning atomic batch file
 metadata operation, using the user request, filenames, tag hints, and bounded
 public-web evidence when that capability is selected while leaving unknown
 facts null. It never sends MP3 bytes through model or web-search context.
 
-Public discovery uses the native bounded `web_search` tool backed by the Brave
-Search API, followed by `web_page_read` when source-page evidence is needed.
-Set `BRAVE_SEARCH_API_KEY` on the server to enable it. Search calls preserve
-their queries, ranked URLs, snippets, and subsequent page reads in the ordinary
-request trace. Music enrichment sends only minimal public identifying terms
-such as release title, creator, catalogue number, and performer.
+Public discovery uses OpenAI's hosted Responses API `web_search` tool through
+the application's existing `OPENAI_API_KEY`; it needs no separate search-engine
+account or credential. Search, open-page, and find-in-page actions and their
+sources remain visible in the ordinary request trace, while the final response
+retains clickable source citations. `web_page_read` remains available for a URL
+the user supplied or deterministic extraction from a known public page. Music
+enrichment sends only minimal public identifying terms such as release title,
+creator, catalogue number, and performer. `web_search` is removed from
+orientation, execution, and deferred capability expansion unless the current
+user request explicitly asks to search the web or search online. A prior search,
+a URL, or the model's attempt to repair unrelated work never opts in a later
+request.
 
 The registry keeps every supported schema version in one file; adding a metadata
 version must extend that registry rather than add another version-named file.

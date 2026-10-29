@@ -238,7 +238,7 @@ export const nativeFirstClassObjectTypes = Object.freeze([
     ],
     idFields: ["file_id", "fileId"], displayFields: ["title", "original_filename", "originalFilename", "name"],
     refFields: ["ref"], refPrefix: "agent-slayer://files/",
-    inputFields: ["file_id"], searchFields: ["title", "original_filename", "description"],
+    inputFields: ["file_id", "file_ids"], searchFields: ["title", "original_filename", "description"],
   },
   {
     ...integerIdentity,

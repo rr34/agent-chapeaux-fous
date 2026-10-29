@@ -44,6 +44,17 @@ const capabilityPatterns = new Map([
   ["search", /\b(?:global|unified|cross[ -]?domain|everywhere)\s+search\b|\b(?:find|search|look for)\b.{0,80}\b(?:everything|anything|across (?:all|my)|everywhere|all (?:my|available) (?:data|records?|information))\b/iu],
 ]);
 
+const explicitWebSearchPattern = /\b(?:web search|search (?:the )?(?:web|internet)|search online|research (?:the )?(?:web|internet)|research online|look up online|look .{0,50} up (?:on|using) (?:the )?(?:web|internet)|browse (?:the )?(?:web|internet))\b/iu;
+
+export function explicitWebSearchRequested(text) {
+  return explicitWebSearchPattern.test(normalizedText(text));
+}
+
+export function requestScopedTools(tools, text) {
+  if (explicitWebSearchRequested(text)) return tools;
+  return tools.filter(({ name }) => name !== "web_search");
+}
+
 const followupPattern = /^(?:\s)*(?:yes|yeah|yep|okay|ok|sure|correct|right|sounds good|go ahead|do it|proceed|continue|make it so|that one|those|please do|you can)(?:\b|[.!,:])/iu;
 const leadingContinuationReferencePattern = /^\s*(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:that|this|it|those|them|the same|again|what happened|tell me more|why did|why was|why is|how about|what about)\b/iu;
 const actionContinuationReferencePattern = /\b(?:do|use|send|email|reply to|forward|delete|remove|update|change|apply|open|read|show|list|find|move|archive|trash|restore)\s+(?:that|this|it|those|them)\b/iu;
@@ -169,6 +180,7 @@ function capabilityAliasMatches(tools, routingText) {
 export function selectRequestCapabilities({
   tools, text, attachment = null, recentConversation = [], previousCapabilities = [], explicitHats = [],
 }) {
+  tools = requestScopedTools(tools, text);
   const grouped = new Map();
   for (const tool of tools) {
     const capability = capabilityForTool(tool);
@@ -295,6 +307,9 @@ export function selectRequestCapabilities({
 }
 
 function capabilitySummary(capability, tools) {
+  if (capability === "web" && !tools.some(({ name }) => name === "web_search")) {
+    return "Read specific user-supplied public pages; public web search is not authorized for this request.";
+  }
   const declared = tools.find(({ capability: manifest }) => manifest)?.capability?.summary;
   if (declared) return declared;
   if (capability.startsWith("integration:")) {
@@ -542,16 +557,17 @@ export class RequestCompiler {
   }
 
   async compile(input) {
+    const tools = requestScopedTools(input.tools, input.text);
     const explicitHats = this.hatCatalog?.explicitHats(input.text) ?? [];
     const expanding = Array.isArray(input.capabilityOverride);
     const exactToolSelection = expanding && Array.isArray(input.toolOverride);
     const selection = exactToolSelection
-      ? exactToolOverrideSelection(input.tools, input.capabilityOverride, input.toolOverride)
+      ? exactToolOverrideSelection(tools, input.capabilityOverride, input.toolOverride)
       : expanding
-      ? overrideSelection(input.tools, input.capabilityOverride)
-      : selectRequestCapabilities({ ...input, explicitHats });
+      ? overrideSelection(tools, input.capabilityOverride)
+      : selectRequestCapabilities({ ...input, tools, explicitHats });
     const grouped = new Map();
-    for (const tool of input.tools) {
+    for (const tool of tools) {
       const capability = capabilityForTool(tool);
       const entries = grouped.get(capability) ?? [];
       entries.push(tool);

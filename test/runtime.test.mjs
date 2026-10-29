@@ -135,6 +135,12 @@ test("the first model turn contains the exact request, context, and callable too
       return { value };
     },
   });
+  registry.register({
+    name: "web_search",
+    description: "Search the public web only after an explicit current-request opt-in.",
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+    async execute() { throw new Error("must not execute"); },
+  });
   const events = [];
   let eventSeq = 0;
   const runtime = new SlayerRuntime({
@@ -190,7 +196,10 @@ test("the first model turn contains the exact request, context, and callable too
   assert.ok(events.findIndex(event => event.type === "model.call")
     < events.findIndex(event => event.type === "tool.call"));
   assert.equal(requests.length, 1);
-  assert.deepEqual(requests[0].tools, registry.toolDefinitions());
+  assert.deepEqual(
+    requests[0].tools,
+    registry.toolDefinitions().filter(({ name }) => name !== "web_search"),
+  );
   assert.equal(requests[0].developerInstructions, "VISIBLE CONTEXT");
   assert.match(requests[0].requestAttachmentInput, /name\nAlice/);
   assert.equal(requests[0].input, "Use the echo tool.");
@@ -214,7 +223,10 @@ test("the first model turn contains the exact request, context, and callable too
   const recordedRequest = events.find((event) => event.type === "model.request");
   assert.equal(recordedRequest.payload.input[0].text, "Use the echo tool.");
   assert.match(recordedRequest.payload.input[1].text, /name\nAlice/);
-  assert.deepEqual(recordedRequest.payload.tools, registry.toolDefinitions());
+  assert.deepEqual(
+    recordedRequest.payload.tools,
+    registry.toolDefinitions().filter(({ name }) => name !== "web_search"),
+  );
   const contextEvent = events.find((event) => event.type === "context.sent");
   assert.deepEqual(contextEvent.payload.relevantProfileTypes, ["address"]);
   assert.deepEqual(contextEvent.payload.relevantProfileQuestions, [{ factType: "address" }]);

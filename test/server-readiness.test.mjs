@@ -16,7 +16,6 @@ function readHealth({ database, model, tlom }) {
     mcp: { health: () => ({ tlom }) },
     jmap: { health: () => ({ ready: true }) },
     payments: { health: () => ({ ready: false, configured: false, connected: false }) },
-    webSearchClient: { health: () => ({ ready: false, provider: "brave", reason: "not configured" }) },
     registry: { list: () => [{ name: "todo_list", source: "local" }] },
     identity: { component: "agent-slayer" },
     config: { model: "test-model" },
@@ -36,6 +35,9 @@ test("a failed TLOM connection remains visible without taking the core service d
   assert.equal(body.reason, null);
   assert.equal(body.integrations.tlom.ready, false);
   assert.match(body.integrations.tlom.error, /expired/);
+  assert.deepEqual(JSON.parse(JSON.stringify(body.integrations.webSearch)), {
+    ready: true, provider: "openai-responses", hosted: true, reason: null,
+  });
   assert.deepEqual(Array.from(body.tools, ({ name }) => name), ["todo_list"]);
 });
 

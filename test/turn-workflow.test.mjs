@@ -932,6 +932,24 @@ test("an explicitly referenced reusable exchange supplies tool-boundary identity
     sourceEventSeqs: [5],
   };
   const ledger = fakeLedger({
+    conversation: [{
+      eventSeq: 7,
+      requestId: "request-unrelated-recent-work",
+      role: "assistant",
+      content: "Kristen is available, and an unrelated calendar event was inspected.",
+      objectReferences: [{
+        mention: "Named recent contact", role: "subject", type: "contacts.contact", source: "native:contacts",
+        objects: [{ id: 44, ref: "agent-slayer://contacts/44", display: "Kristen" }], sourceEventSeqs: [7],
+      }, {
+        mention: "Unrelated recent event", role: "subject", type: "calendar.event", source: "native:calendar",
+        objects: [{ id: 99, ref: "agent-slayer://calendar-events/99", display: "Dentist appointment" }], sourceEventSeqs: [7],
+      }],
+      referenceSets: [{
+        protocol: "agent-slayer.reference-set", version: 1, kind: "object_set",
+        ref: "agent-slayer://reference-sets/objects/unrelated", display: "Unrelated recent objects",
+        memberRefs: ["agent-slayer://calendar-events/99"], sourceEventSeqs: [7],
+      }],
+    }],
     referencedExchanges: [{
       requestId: "request-prior-task",
       status: "complete",
@@ -977,6 +995,9 @@ test("an explicitly referenced reusable exchange supplies tool-boundary identity
     runTurn: async (payload, index) => {
       if (index === 0) {
         assert.match(payload.developerInstructions, /agent-slayer:\/\/todos\/178/u);
+        assert.match(payload.developerInstructions, /agent-slayer:\/\/contacts\/44/u);
+        assert.doesNotMatch(payload.developerInstructions, /agent-slayer:\/\/calendar-events\/99/u);
+        assert.doesNotMatch(payload.developerInstructions, /reference-sets\/objects\/unrelated/u);
         return completed(JSON.stringify(core({
           objective: "Complete task 178 from the referenced exchange.",
           conversationSummary: "The referenced exchange identifies task 178.",
@@ -998,7 +1019,7 @@ test("an explicitly referenced reusable exchange supplies tool-boundary identity
   assert.equal(await runtime.run({
     requestId: "request-reference-use",
     requestEventId: "event-current",
-    text: "Complete that task.",
+    text: "Complete that task; Kristen is the person I mean in the separate note.",
   }), "Completed task 178.");
   assert.equal(updates, 1);
   assert.equal(ledger.events.some(({ type }) => type === "object.binding.rejected"), false);
@@ -1195,6 +1216,88 @@ test("a material user choice ends audit as needs information instead of starting
   ));
   assert.equal(audit.payload.result.outcome, "needs_information");
   assert.deepEqual(audit.payload.result.repairInstructions, []);
+});
+
+test("a deterministic provider-configuration blocker stops without audit or repair", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  registry.withCapability("web").register({
+    name: "provider_catalog_read",
+    description: "Read a configured provider catalog.",
+    annotations: { readOnlyHint: true, destructiveHint: false },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: {
+        queries: {
+          type: "array", minItems: 1, maxItems: 5,
+          items: { type: "string", minLength: 1 },
+        },
+      },
+      required: ["queries"],
+    },
+    async execute() {
+      const error = new Error("Example Search is not configured");
+      Object.defineProperty(error, "toolFailure", { value: {
+        contractVersion: 1,
+        kind: "authentication_failure",
+        code: "PROVIDER_NOT_CONFIGURED",
+        terminalForCurrentRequest: true,
+        retry: "after_provider_configuration",
+        serverName: "Example Search",
+        capabilityId: "web",
+        transportId: "example-search",
+        contractFingerprint: "a".repeat(64),
+        step: "provider_configuration",
+        method: "POST",
+        path: "/search",
+        httpStatus: null,
+      } });
+      throw error;
+    },
+  });
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) return completed(JSON.stringify(core({
+        objective: "Research and update the selected music files.",
+        actions: [{ instruction: "Research the works, then update the files.", targetRefs: [] }],
+        capabilities: ["web"],
+      })));
+      assert.equal(index, 1);
+      const result = await payload.onToolCall({
+        callId: "read-provider-catalog",
+        tool: "provider_catalog_read",
+        arguments: {
+          queries: ["Mozart K. 319"],
+          result_filter: {
+            collection_path: null, query: null, match_mode: "all_terms",
+            include_fields: [], exclude_fields: [], max_items: 10, max_characters: 10000,
+          },
+        },
+      });
+      assert.equal(result.ok, false);
+      assert.ok(result.toolFailure, JSON.stringify(result));
+      assert.equal(result.toolFailure.code, "PROVIDER_NOT_CONFIGURED");
+      assert.equal(result.toolFailure.terminalForCurrentRequest, true);
+      return completed("I could not research the music, so I made no file changes.");
+    },
+  });
+
+  const response = await runtime.run({
+    requestId: "request-search-unconfigured", requestEventId: "event-current",
+    text: "Research these works and update their files.",
+  });
+  assert.match(response, /made no file changes/i);
+  assert.match(response, /Example Search is not configured/u);
+  assert.equal(requests.length, 2);
+  assert.equal(ledger.events.some((event) => (
+    event.type === "agent.step" && ["audit", "repair"].includes(event.payload?.workflowStep)
+  )), false);
+  assert.equal(ledger.events.some(({ type }) => type === "tool.retry.blocked"), true);
 });
 
 test("an exceptional repair is audited again before its response is accepted", async () => {

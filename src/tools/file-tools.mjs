@@ -9,7 +9,7 @@ import { readTextAttachment } from "../request-attachments.mjs";
 import { inspectDelimitedText, readDelimitedRecords, transformDelimitedText } from "../tabular-transform.mjs";
 
 const toolDescriptions = Object.freeze({
-  "file_get": { "summary": "Get authoritative metadata and stable provenance for one durable upload. Use file_read for verified contents." },
+  "file_get": { "summary": "Get authoritative metadata and stable provenance for a bounded exact set of durable uploads. Use file_read for verified contents." },
   "file_jsonl_partition": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
@@ -336,15 +336,29 @@ export function registerFileTools(registry, {
   registry = registry.withCapability?.("files", toolDescriptions, nativeToolContracts) ?? registry;
   registry.register({
     name: "file_get",
-    description: "Get authoritative metadata for one durably stored upload by its stable file ID, including title, description, original filename, integrity metadata, and originating requests. This does not return file contents; use file_read for verified text contents.",
+    description: "Get authoritative metadata for 1-100 durably stored uploads by stable file ID, preserving the requested order. Use file_ids for every new read, including a one-file read; file_id remains a compatibility input. Returns every file's title, description, original filename, integrity metadata, and originating requests. This does not return file contents; use file_read for verified text contents.",
     parameters: {
       type: "object",
       additionalProperties: false,
-      properties: { file_id: { type: "integer", minimum: 1 } },
-      required: ["file_id"],
+      properties: {
+        file_ids: {
+          type: "array", minItems: 1, maxItems: 100, uniqueItems: true,
+          items: { type: "integer", minimum: 1 },
+        },
+        file_id: { type: "integer", minimum: 1 },
+      },
+      oneOf: [{ required: ["file_ids"] }, { required: ["file_id"] }],
     },
-    async execute({ file_id: fileId }) {
-      return { file: requireFile(ledger, fileId) };
+    async execute({ file_ids: fileIds, file_id: fileId }) {
+      if (fileIds !== undefined && fileId !== undefined) {
+        throw new Error("file_get accepts file_ids or compatibility file_id, not both");
+      }
+      const requestedIds = fileIds ?? [fileId];
+      if (new Set(requestedIds).size !== requestedIds.length) {
+        throw new Error("file_get file_ids cannot contain duplicates");
+      }
+      const files = requestedIds.map((id) => requireFile(ledger, id));
+      return { files, ...(files.length === 1 ? { file: files[0] } : {}) };
     },
   });
 
@@ -904,7 +918,7 @@ export function registerFileTools(registry, {
 
   registry.register({
     name: "file_update",
-    description: "Assign AI-generated titles and descriptions to 1-100 newly uploaded files atomically, or explicitly correct existing AI-authored music metadata. This cannot overwrite user-edited titles. For audio files, supply music_metadata rather than encoding JSON in description; the application validates schema v2 and stores readable JSON in files.description. Release describes album/disc/side/track placement independently from the musical work; sequence1 and sequence2 subdivide that work. Use filenames, embedded-tag hints, user statements, and selected read-only web evidence; preserve null when a fact is unknown.",
+    description: "Assign AI-generated titles and descriptions to 1-100 newly uploaded files atomically, or explicitly correct existing AI-authored music metadata. This cannot overwrite user-edited titles. For audio files, supply music_metadata rather than encoding JSON in description; the application validates schema v2 and stores readable JSON in files.description. Release describes album/disc/side/track placement independently from the musical work; sequence1 and sequence2 subdivide that work. Use filenames, embedded-tag hints, user statements, and selected read-only web evidence; preserve null when a fact is unknown. Web search is explicit opt-in: the user can say, ‘Use web search to populate the missing metadata for these MP3s.’",
     parameters: {
       type: "object",
       additionalProperties: false,

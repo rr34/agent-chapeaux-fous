@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readResultFilterSchema } from "../src/search/result-filter.mjs";
 import { WebPageClient, isPublicIpAddress, parseWebPageUrl } from "../src/web-page-client.mjs";
-import { WebSearchClient } from "../src/web-search-client.mjs";
 import { registerWebPageTools } from "../src/tools/web-page-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 
@@ -30,53 +29,18 @@ test("web_page_read exposes one explicit URL reader and no search query", () => 
   assert.equal(Object.hasOwn(definition.inputSchema.properties, "query"), false);
 });
 
-test("web_search executes a bounded query batch through the configured provider", async () => {
-  const requests = [];
-  const search = new WebSearchClient({
-    apiKey: "secret",
-    fetchImpl: async (url, init) => {
-      requests.push({ url: url.toString(), init });
-      return new Response(JSON.stringify({
-        query: { more_results_available: true },
-        web: { results: [{
-          title: "Symphony No. 33 &amp; 34",
-          url: "https://catalog.example.test/mozart#record",
-          description: "Catalog entry for <strong>K. 319</strong> and K. 338.",
-          age: "May 3, 2020",
-          language: "en",
-        }] },
-      }), { status: 200, headers: { "content-type": "application/json" } });
-    },
-  });
-  const registry = new ToolRegistry();
-  registerWebPageTools(registry, new WebPageClient(), search);
-  const definition = registry.toolDefinitions().find(({ name }) => name === "web_search");
-  assert.equal(definition.inputSchema.properties.queries.maxItems, 5);
-  assert.equal(definition.annotations.readOnlyHint, true);
-
-  const result = await registry.execute("web_search", {
-    queries: [{ query: "Mozart Two Salzburg Symphonies K 319 K 338", count: 5 }],
-  });
-  assert.equal(result.provider, "brave");
-  assert.equal(result.queries[0].moreResultsAvailable, true);
-  assert.deepEqual(result.queries[0].results, [{
-    title: "Symphony No. 33 & 34",
-    url: "https://catalog.example.test/mozart",
-    snippet: "Catalog entry for K. 319 and K. 338.",
-    published: "May 3, 2020",
-    language: "en",
-  }]);
-  assert.match(requests[0].url, /api\.search\.brave\.com\/res\/v1\/web\/search/u);
-  assert.equal(requests[0].init.headers["X-Subscription-Token"], "secret");
-});
-
-test("web_search fails literally when its server credential is absent", async () => {
+test("web_search publishes the OpenAI-hosted search contract", async () => {
   const registry = new ToolRegistry();
   registerWebPageTools(registry, new WebPageClient());
-  await assert.rejects(
-    registry.execute("web_search", { queries: [{ query: "Mozart K. 319", count: 3 }] }),
-    /BRAVE_SEARCH_API_KEY/u,
-  );
+  const definition = registry.toolDefinitions().find(({ name }) => name === "web_search");
+  assert.deepEqual(definition.metadata.openaiHostedTool, {
+    type: "web_search",
+    search_context_size: "medium",
+    external_web_access: true,
+  });
+  assert.equal(definition.annotations.readOnlyHint, true);
+  assert.match(definition.description, /OpenAI's hosted Responses web search/u);
+  await assert.rejects(registry.execute("web_search", {}), /cannot execute locally/u);
 });
 
 test("web_page_read extracts text, metadata, canonical URL, and traversable links", async () => {

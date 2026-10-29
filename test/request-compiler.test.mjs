@@ -266,7 +266,7 @@ test("durable file retrieval remains callable on a terse later request", async (
     "file_get", "file_read", "file_search", "file_update",
   ]);
   assert.match(compiled.instructions, /stable numeric file ID/);
-  assert.match(compiled.instructions, /call `file_get`\s+or `file_read` with 200/);
+  assert.match(compiled.instructions, /call `file_get` once with\s+the complete bounded `file_ids` array/);
 });
 
 test("file search and partition schemas are callable when the files capability is selected", async () => {
@@ -549,8 +549,28 @@ test("an explicit plural email request does not inherit an unrelated prior topic
 
 test("an explicit URL receives the public-web family without unrelated application tools", () => {
   const selection = selectRequestCapabilities({ tools, text: "Read https://example.com/report for me." });
-  assert.deepEqual(names(selection), ["profile_fact_list", "profile_fact_set", "database_read", "database_aggregate", "web_page_read", "web_search"]);
+  assert.deepEqual(names(selection), ["profile_fact_list", "profile_fact_set", "database_read", "database_aggregate", "web_page_read"]);
   assert.deepEqual(selection.capabilities, ["database", "profile", "web"]);
+  assert.match(
+    requestCapabilityCatalog(selection.tools).find(({ capability }) => capability === "web").summary,
+    /web search is not authorized for this request/u,
+  );
+});
+
+test("web search requires an explicit opt-in in the current request", () => {
+  const implicit = selectRequestCapabilities({
+    tools,
+    text: "Fill the missing composition dates in these music files.",
+    recentConversation: [{ role: "assistant", content: "I searched the web for the prior album." }],
+    previousCapabilities: ["web"],
+  });
+  assert.equal(names(implicit).includes("web_search"), false);
+
+  const explicit = selectRequestCapabilities({
+    tools,
+    text: "Use web search to fill the missing composition dates in these music files.",
+  });
+  assert.equal(names(explicit).includes("web_search"), true);
 });
 
 test("attachment structure routes known imports and conservatively falls back when unknown", () => {
@@ -635,7 +655,8 @@ test("a new unclassified local tool fails open until it is assigned a capability
   const extended = [...tools, tool("brand_new_local_operation")];
   const selection = selectRequestCapabilities({ tools: extended, text: "Show my calendar." });
   assert.equal(selection.fallbackAll, true);
-  assert.equal(selection.tools.length, extended.length);
+  assert.equal(selection.tools.length, extended.length - 1);
+  assert.equal(names(selection).includes("web_search"), false);
   assert.ok(selection.reasons.includes("fallback:unclassified-tools"));
 });
 

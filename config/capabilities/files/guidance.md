@@ -1,11 +1,13 @@
 Every uploaded file has a stable numeric file ID. That ID, not conversational
 memory or a prior model context, is the authority for retrieving the same file
-later. When the user supplies an exact ID such as “file 200,” call `file_get`
-or `file_read` with 200. When the ID is unknown, use `file_search`, then retrieve
+later. When the user supplies one or more exact IDs, call `file_get` once with
+the complete bounded `file_ids` array. Use `file_read` for one file's verified
+contents. When an ID is unknown, use `file_search`, then retrieve
 the selected result by ID. Do not reconstruct a file from remembered excerpts,
 tool receipts, or profile facts when the durable file can be read.
 
-`file_get` returns metadata and originating requests. `file_read` verifies the
+`file_get` returns ordered metadata and originating requests for an exact
+bounded file set. `file_read` verifies the
 stored byte count and SHA-256 checksum before returning paged text. Continue
 from `next_offset` while `has_more` is true when the user’s objective requires
 the complete contents. Never imply that the whole file was examined after

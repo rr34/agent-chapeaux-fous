@@ -32,6 +32,16 @@ test("stable file tools find, inspect, verify, page, and safely title an upload"
     sha256: createHash("sha256").update(text).digest("hex"),
     byteSize: Buffer.byteLength(text),
   });
+  const companion = ledger.registerFile({
+    storagePath: "media/notes.txt",
+    originalFilename: "notes.txt",
+    title: "notes.txt",
+    description: "Companion notes.",
+    mediaKind: "document",
+    mimeType: "text/plain",
+    sha256: createHash("sha256").update("companion notes").digest("hex"),
+    byteSize: 15,
+  });
   const request = ledger.createRequest({
     text: "Import the complete brokerage account hierarchy.",
     primaryFileId: file.fileId,
@@ -47,9 +57,15 @@ test("stable file tools find, inspect, verify, page, and safely title an upload"
     max_distance: 12, context_tokens: 24, limit: 20,
   });
   assert.equal(found.hits[0].actionRef.file_id, file.fileId);
-  const metadata = await registry.execute("file_get", { file_id: file.fileId });
+  const metadata = await registry.execute("file_get", { file_ids: [file.fileId] });
+  assert.deepEqual(metadata.files.map(({ fileId }) => fileId), [file.fileId]);
   assert.equal(metadata.file.origins[0].requestId, request.requestId);
   assert.equal(metadata.file.originalFilename, "account-tree.csv");
+  const metadataBatch = await registry.execute("file_get", {
+    file_ids: [companion.fileId, file.fileId],
+  });
+  assert.deepEqual(metadataBatch.files.map(({ fileId }) => fileId), [companion.fileId, file.fileId]);
+  assert.equal(Object.hasOwn(metadataBatch, "file"), false);
 
   const firstPage = await registry.execute("file_read", {
     file_id: file.fileId, offset: 0, max_characters: 20,

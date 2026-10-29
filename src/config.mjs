@@ -155,8 +155,6 @@ export function loadConfig(environment = process.env) {
     ),
     webPageTimeoutMs: positiveInteger(environment.SLAYER_WEB_PAGE_TIMEOUT_MS, 15_000),
     webPageMaximumBytes: positiveInteger(environment.SLAYER_WEB_PAGE_MAX_BYTES, 2 * 1024 * 1024),
-    braveSearchApiKey: environment.BRAVE_SEARCH_API_KEY?.trim() || "",
-    webSearchTimeoutMs: positiveInteger(environment.SLAYER_WEB_SEARCH_TIMEOUT_MS, 15_000),
     pythonExecutable: resolveFromRoot(environment.SLAYER_PYTHON, "voice/.venv/bin/python"),
     whisperWorkerPath: path.join(repositoryRoot, "voice/whisper_worker.py"),
     whisperTimeoutMs: positiveInteger(environment.SLAYER_WHISPER_TIMEOUT_MS, 10 * 60 * 1000),

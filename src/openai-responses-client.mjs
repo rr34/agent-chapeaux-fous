@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { redactText, redactValue } from "./redaction.mjs";
 
 function combinedInstructions(baseInstructions, developerInstructions) {
@@ -20,12 +20,22 @@ function openAICompatibleSchema(schema) {
 }
 
 function openAITools(tools) {
-  return tools.map(({ name, description, inputSchema }) => ({
-    type: "function",
-    name,
-    description,
-    parameters: openAICompatibleSchema(inputSchema),
-  }));
+  return tools.map(({ name, description, inputSchema, metadata }) => {
+    const hosted = metadata?.openaiHostedTool;
+    if (hosted?.type === "web_search") {
+      return {
+        type: "web_search",
+        search_context_size: hosted.search_context_size ?? "medium",
+        external_web_access: hosted.external_web_access !== false,
+      };
+    }
+    return {
+      type: "function",
+      name,
+      description,
+      parameters: openAICompatibleSchema(inputSchema),
+    };
+  });
 }
 
 function attachmentDescription(attachment, imageDetail) {
@@ -70,18 +80,83 @@ function userContent(input, requestAttachmentInput, imageDetail) {
   return content;
 }
 
+function publicCitationUrl(value) {
+  try {
+    const url = new URL(String(value));
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function outputCitations(content) {
+  return (content.annotations ?? []).flatMap((annotation) => {
+    if (annotation?.type !== "url_citation") return [];
+    const url = publicCitationUrl(annotation.url);
+    if (!url) return [];
+    return [{
+      title: String(annotation.title ?? "").trim() || url,
+      url,
+      startIndex: Number.isSafeInteger(annotation.start_index) ? annotation.start_index : null,
+      endIndex: Number.isSafeInteger(annotation.end_index) ? annotation.end_index : null,
+    }];
+  });
+}
+
+function renderedOutputText(content) {
+  const original = String(content?.text ?? "");
+  const citations = outputCitations(content)
+    .filter(({ startIndex, endIndex }) => (
+      startIndex !== null && endIndex !== null
+      && startIndex >= 0 && endIndex > startIndex && endIndex <= original.length
+    ))
+    .sort((left, right) => right.startIndex - left.startIndex);
+  let rendered = original;
+  let boundary = original.length;
+  for (const citation of citations) {
+    if (citation.endIndex > boundary) continue;
+    const label = original.slice(citation.startIndex, citation.endIndex)
+      .replaceAll("[", "\\[").replaceAll("]", "\\]");
+    rendered = `${rendered.slice(0, citation.startIndex)}[${label}](<${citation.url}>)${rendered.slice(citation.endIndex)}`;
+    boundary = citation.startIndex;
+  }
+  return rendered;
+}
+
 function responseText(response) {
   return (response.output ?? [])
     .filter((item) => item.type === "message")
     .flatMap((item) => item.content ?? [])
     .filter((item) => item.type === "output_text")
-    .map((item) => item.text)
+    .map(renderedOutputText)
     .join("\n")
     .trim();
 }
 
 function functionCalls(response) {
   return (response.output ?? []).filter((item) => item.type === "function_call");
+}
+
+function hostedWebSearchCalls(response) {
+  return (response.output ?? []).filter((item) => item.type === "web_search_call");
+}
+
+function hostedWebSearchEventPair(call) {
+  const action = call?.action && typeof call.action === "object" ? call.action : null;
+  const callId = call?.id ?? `web-search-${randomUUID()}`;
+  return [{
+    type: "hosted_tool.call",
+    callId,
+    name: "web_search",
+    arguments: action ? { action } : {},
+  }, {
+    type: "hosted_tool.result",
+    callId,
+    name: "web_search",
+    status: call?.status ?? null,
+    result: action ? { action } : {},
+  }];
 }
 
 function normalizedMessages(response) {
@@ -93,7 +168,8 @@ function normalizedMessages(response) {
         id: item.id ?? null,
         role: item.role ?? "assistant",
         phase: "final_answer",
-        text: content.text.trim(),
+        text: renderedOutputText(content).trim(),
+        citations: outputCitations(content),
       })));
 }
 
@@ -214,6 +290,7 @@ export class OpenAIResponsesClient {
         ? { type: "text", included: true }
         : null;
     const providerOutputSchema = openAICompatibleSchema(outputSchema);
+    const callableTools = openAITools(tools);
     return {
       transport: this.id,
       endpoint: `${this.baseUrl}/responses`,
@@ -226,12 +303,12 @@ export class OpenAIResponsesClient {
       baseInstructions,
       developerInstructions,
       input: [{ type: "text", text: input }, ...(attachment ? [attachment] : [])],
-      callableTools: openAITools(tools),
+      callableTools,
       outputSchema: providerOutputSchema,
       toolDelivery: "sent in every Responses API call",
       executionBoundary: {
         persistentResponseChain: true,
-        builtInTools: "none",
+        builtInTools: callableTools.filter(({ type }) => type !== "function").map(({ type }) => type),
         maxToolCalls,
         runTimeoutMs,
       },
@@ -341,6 +418,7 @@ export class OpenAIResponsesClient {
     });
     try {
       while (true) {
+        const hasHostedTools = callableTools.some(({ type }) => type !== "function");
         const requestBody = {
           model,
           instructions,
@@ -351,6 +429,10 @@ export class OpenAIResponsesClient {
             // back to the runtime to send the additional exact tool schemas.
             tool_choice: controlTransfers.length || terminalVerificationRounds === 0 ? "none" : "auto",
             parallel_tool_calls: true,
+          } : {}),
+          ...(hasHostedTools ? {
+            include: ["web_search_call.action.sources"],
+            ...(maxToolCalls === null ? {} : { max_tool_calls: maxToolCalls }),
           } : {}),
           store: true,
           ...(providerOutputSchema ? {
@@ -402,6 +484,16 @@ export class OpenAIResponsesClient {
         latestInputTokens = currentUsage.inputTokens;
         addUsage(totalUsage, currentUsage);
         addTierUsage(usageByServiceTier, serviceTier, currentUsage);
+        const hostedCalls = hostedWebSearchCalls(response);
+        for (const call of hostedCalls) {
+          toolCallCount += 1;
+          if (maxToolCalls !== null && toolCallCount > maxToolCalls) {
+            throw new Error(`OpenAI exceeded the ${maxToolCalls}-call tool budget with hosted web search`);
+          }
+          const pair = hostedWebSearchEventPair(call);
+          events.push(...pair);
+          for (const event of pair) await onEvent?.(event);
+        }
         const responseEvent = {
           type: "response.completed",
           responseId: response.id ?? null,

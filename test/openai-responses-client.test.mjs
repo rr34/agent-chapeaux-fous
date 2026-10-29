@@ -21,6 +21,94 @@ const tools = [{
   },
 }];
 
+const hostedWebSearch = {
+  name: "web_search",
+  description: "Search the live public web.",
+  inputSchema: { type: "object", additionalProperties: false, properties: {} },
+  metadata: {
+    openaiHostedTool: {
+      type: "web_search",
+      search_context_size: "medium",
+      external_web_access: true,
+    },
+  },
+};
+
+test("OpenAI hosted web search uses the existing Responses request and preserves actions and citations", async () => {
+  const requests = [];
+  const events = [];
+  const text = "Mozart's Symphony No. 33 is K. 319. Source";
+  const startIndex = text.indexOf("Source");
+  const action = {
+    type: "search",
+    queries: ["Mozart Symphony No. 33 K. 319"],
+    sources: [{ type: "url", url: "https://catalog.example.test/mozart", title: "Catalog" }],
+  };
+  const client = new OpenAIResponsesClient({
+    apiKey: "same-openai-account-key",
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return jsonResponse({
+        id: "resp_search",
+        model: "gpt-5.6-terra",
+        status: "completed",
+        output: [{
+          type: "web_search_call", id: "ws_1", status: "completed", action,
+        }, {
+          type: "message", id: "msg_search", role: "assistant",
+          content: [{
+            type: "output_text",
+            text,
+            annotations: [{
+              type: "url_citation",
+              start_index: startIndex,
+              end_index: text.length,
+              title: "Catalog",
+              url: "https://catalog.example.test/mozart",
+            }],
+          }],
+        }],
+        usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+      });
+    },
+  });
+
+  const result = await client.runTurn({
+    model: "gpt-5.6-terra",
+    input: "Research Mozart K. 319.",
+    tools: [hostedWebSearch, ...tools],
+    maxToolCalls: 12,
+    onEvent: event => events.push(event),
+    onToolCall: async () => assert.fail("hosted search must not execute as a local function"),
+  });
+
+  assert.deepEqual(requests[0].tools[0], {
+    type: "web_search",
+    search_context_size: "medium",
+    external_web_access: true,
+  });
+  assert.deepEqual(requests[0].include, ["web_search_call.action.sources"]);
+  assert.equal(requests[0].max_tool_calls, 12);
+  assert.deepEqual(events.slice(1, 3).map(({ type }) => type), [
+    "hosted_tool.call", "hosted_tool.result",
+  ]);
+  assert.deepEqual(events[1].arguments, { action });
+  assert.deepEqual(events[2].result, { action });
+  assert.equal(
+    result.text,
+    "Mozart's Symphony No. 33 is K. 319. [Source](<https://catalog.example.test/mozart>)",
+  );
+  assert.deepEqual(result.messages[0].citations, [{
+    title: "Catalog",
+    url: "https://catalog.example.test/mozart",
+    startIndex,
+    endIndex: text.length,
+  }]);
+  assert.deepEqual(result.events.map(({ type }) => type), [
+    "hosted_tool.call", "hosted_tool.result", "response.completed",
+  ]);
+});
+
 test("OpenAI Responses sends the exact request, image, and tool schemas through a complete function loop", async () => {
   const requests = [];
   const responses = [
