@@ -82,15 +82,13 @@ test("printable calendar renders every event in crowded days", () => {
   assert.match(calendarSource, /\{visibleEvents\.map\(\(event\) => \(/);
   assert.doesNotMatch(calendarSource, /compact \? 3/);
   assert.match(calendarSource, /\+\{day\.events\.length - visibleEvents\.length\} more/);
-  assert.match(calendarSource, /compact && event\.description\?\.trim\(\)/);
-  assert.match(calendarSource, /className="calendar-chip-description">\{event\.description\}/);
+  assert.doesNotMatch(calendarSource, /calendar-chip-description/);
   assert.match(calendarSource, /\(compact \|\| !event\.isAllDay\) && <time>/);
   assert.match(styles, /\.calendar-chip \{[^}]*align-items: flex-start;/s);
   assert.match(styles, /\.calendar-chip time \+ span \{[^}]*flex: 1 1 auto;/s);
   assert.match(styles, /\.two-week-grid--compact \.calendar-chip \{[^}]*grid-template-columns: \.34in minmax\(0, 1fr\);[^}]*display: grid;/s);
   assert.match(styles, /\.two-week-grid--compact \.calendar-chip time \{[^}]*text-align: right;[^}]*white-space: nowrap;/s);
-  assert.match(styles, /\.two-week-grid--compact \.calendar-chip-description \{[^}]*overflow: visible;[^}]*white-space: pre-wrap;/s);
-  assert.match(styles, /\.calendar-event-card\.paper-calendar-event-card \.first-class-object-body \{[^}]*overflow: visible;[^}]*white-space: pre-wrap;[^}]*-webkit-line-clamp: unset;/s);
+  assert.match(styles, /\.calendar-event-card\.paper-calendar-event-card > \.first-class-object-content > \.first-class-object-body \{[^}]*grid-column: 2;[^}]*overflow: visible;[^}]*white-space: pre-wrap;[^}]*-webkit-line-clamp: unset;/s);
 });
 
 test("the printed day uses an independent fixed weather timeline beside reusable event cards", () => {
@@ -109,7 +107,12 @@ test("the printed day uses an independent fixed weather timeline beside reusable
   assert.match(styles, /\.paper-weather-point \{[^}]*flex-direction: column;/s);
   assert.match(styles, /\.paper-calendar-event-list \{[^}]*display: grid;/s);
   assert.match(styles, /@media print \{[\s\S]*\.calendar-event-card,\s*\.calendar-routine-card \{[^}]*border-color: #000;/s);
-  assert.match(styles, /\.calendar-event-card\.paper-calendar-event-card \.first-class-object-content \{[^}]*grid-template-columns: minmax\(1\.35in, \.8fr\) minmax\(0, 1\.4fr\);/s);
+  assert.match(calendarCardSource, /detailsInContent\s+stackEdges/);
+  assert.match(styles, /\.calendar-event-card\.paper-calendar-event-card \{[^}]*grid-template-columns: minmax\(\.72in, \.55fr\) minmax\(1\.15in, \.85fr\) minmax\(0, 1\.4fr\);/s);
+  assert.match(styles, /\.calendar-event-card\.paper-calendar-event-card > \.first-class-object-edges \{[^}]*grid-column: 1;/s);
+  assert.match(styles, /\.calendar-event-card\.paper-calendar-event-card > \.first-class-object-content \{[^}]*grid-column: 2 \/ 4;[^}]*grid-template-columns: minmax\(0, \.85fr\) minmax\(0, 1\.4fr\);/s);
+  assert.match(styles, /\.calendar-event-card\.paper-calendar-event-card > \.first-class-object-content > \.first-class-object-title \{[^}]*grid-column: 1;/s);
+  assert.doesNotMatch(styles, /\.calendar-event-card\.paper-calendar-event-card \{[^}]*grid-template-columns:[^}]*max-content/);
   assert.doesNotMatch(styles, /\.paper-event-bracket|\.paper-event-connector/);
 });
 

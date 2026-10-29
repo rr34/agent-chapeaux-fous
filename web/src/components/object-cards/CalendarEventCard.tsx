@@ -111,7 +111,6 @@ export function CalendarEventCard(props: ObjectCardProps & {
     </>
     : null;
   const details = eventDetails || props.details ? <>{eventDetails}{props.details}</> : undefined;
-  const columnarLayout = !props.className?.split(/\s+/u).includes("paper-calendar-event-card");
   return <SimpleObjectCard
     {...props}
     object={{
@@ -127,8 +126,8 @@ export function CalendarEventCard(props: ObjectCardProps & {
     </time> : props.bottomEdge}
     compactDetails={compactDetails}
     details={details}
-    detailsInContent={columnarLayout}
-    stackEdges={columnarLayout}
+    detailsInContent
+    stackEdges
     actions={[...(props.onEdit ? [{ key: "edit", label: "Edit", onClick: props.onEdit }] : []), ...(props.actions || [])]}
   />;
 }

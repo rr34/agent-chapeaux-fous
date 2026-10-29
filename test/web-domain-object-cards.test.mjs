@@ -80,8 +80,7 @@ test("calendar event cards keep notes and event details behind the shared expans
   assert.match(calendar, /calendarEventTiming\(event, props\.timeZone\)/);
   assert.match(calendar, /topEdge=\{timing \? <time className="calendar-event-time calendar-event-time--start"/);
   assert.match(calendar, /bottomEdge=\{timing\?\.end \? <time className="calendar-event-time calendar-event-time--end"/);
-  assert.match(calendar, /detailsInContent=\{columnarLayout\}/);
-  assert.match(calendar, /stackEdges=\{columnarLayout\}/);
+  assert.match(calendar, /detailsInContent\s+stackEdges/);
   assert.match(compact, /compact-object-top-edge/);
   assert.match(styles, /\.calendar-event-card,\s*\.calendar-routine-card \{[^}]*border-color: #000;/s);
   assert.match(styles, /\.calendar-event-card > \.first-class-object-content > \.first-class-object-label,[\s\S]*\.calendar-event-card \.compact-object-identity > span:first-child \{ display: none; \}/);

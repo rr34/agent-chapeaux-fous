@@ -69,7 +69,6 @@ export function CalendarGrid({
                   {(compact || !event.isAllDay) && <time>{timeLabel(event, event.timeZone || "UTC").split("–")[0]}</time>}
                   <span className="calendar-chip-copy">
                     <span className="multiline-item-text">{event.title}</span>
-                    {compact && event.description?.trim() && <span className="calendar-chip-description">{event.description}</span>}
                   </span>
                 </span>
               ))}
