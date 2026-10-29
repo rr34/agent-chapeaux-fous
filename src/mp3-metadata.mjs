@@ -119,23 +119,23 @@ export function musicMetadataFromMp3Tags(tags = {}) {
     tags.lyricist && `${tags.lyricist} — lyricist`,
   ]);
   if (tags.album) {
-    metadata.work = {
+    metadata.release = {
       type: "album",
       title: tags.album,
+      version: null,
+      discNumber: disc.number,
+      discCount: disc.count,
+      side: null,
+      trackNumber: track.number,
+      trackCount: track.count,
+    };
+    metadata.work = {
+      type: null,
+      title: tags.grouping ?? null,
       version: null,
       creators,
       catalogue: null,
     };
-    if (disc.number != null) {
-      metadata.sequence1 = { type: "disc", number: disc.number, count: disc.count, title: null };
-      metadata.sequence2 = {
-        type: "track", number: track.number, count: track.count, title: tags.title ?? null,
-      };
-    } else {
-      metadata.sequence1 = {
-        type: "track", number: track.number, count: track.count, title: tags.title ?? null,
-      };
-    }
   } else {
     metadata.work = {
       type: tags.title ? "song" : null,

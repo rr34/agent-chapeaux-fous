@@ -182,32 +182,44 @@ APK build or installation.
 ### Music upload and playback contract
 
 An uploaded MP3 remains one authoritative `files` row and one file in Agent
-media storage. Its `description` contains JSON conforming to
-`config/music-metadata.v1.schema.json`; the application does not create a
-parallel music database. MariaDB `TEXT` is sufficient for the bounded metadata
-contract, so music ingestion does not require or imply a live schema mutation.
+media storage. Its `description` contains versioned JSON conforming to the
+single music metadata schema registry under `config/`; the application does
+not create a parallel music database. MariaDB `TEXT` is sufficient for the
+bounded metadata contract, so music ingestion does not require or imply a live
+schema mutation.
 
 Upload-time parsing verifies MPEG audio and may preserve common ID3 text fields
 as initial hints. Embedded tags and filenames are evidence, not authority. A
 request may attach a bounded ordered group of MP3 files. Every member is linked
 to the immutable request event and becomes an exact native file binding. The
 agent updates the complete intended group through the owning atomic batch file
-metadata operation, using the user request, filenames, and tag hints while
-leaving unknown facts null. It never sends MP3 bytes through model context.
+metadata operation, using the user request, filenames, tag hints, and bounded
+public-web evidence when that capability is selected while leaving unknown
+facts null. It never sends MP3 bytes through model or web-search context.
 
-Music metadata has three semantic levels: the root work or release, an optional
-first sequence constrained by the work type, and an optional second sequence
-constrained by the first. Symphony, concerto, sonata, suite, opera, album,
-song, and other are root types. A symphony or concerto normally contains
-movements; an opera contains acts; an album contains tracks. A movement may
-have a generic subordinate sequence, and an act may contain a scene or number.
-Multi-disc or multi-side albums use disc or side as the first sequence and
-track as the second; an ordinary album may use track directly as the first.
+Public discovery uses the native bounded `web_search` tool backed by the Brave
+Search API, followed by `web_page_read` when source-page evidence is needed.
+Set `BRAVE_SEARCH_API_KEY` on the server to enable it. Search calls preserve
+their queries, ranked URLs, snippets, and subsequent page reads in the ordinary
+request trace. Music enrichment sends only minimal public identifying terms
+such as release title, creator, catalogue number, and performer.
+
+The registry keeps every supported schema version in one file; adding a metadata
+version must extend that registry rather than add another version-named file.
+Schema v2 separates two structures that commonly overlap in playback. The
+nullable `release` object owns album title, edition, disc or side, and track
+placement. `work` owns the actual symphony, concerto, sonata, suite, opera,
+song, piece, or other composition. `sequence1` and `sequence2` are subdivisions
+of that work: for example album release → symphony work → movement, or album
+release → opera work → act → scene. A movement may have a subordinate section.
 Playback choices such as stopping after an individual movement are user state,
-not stored facts about the file.
+not stored facts about the file. Valid schema-v1 descriptions remain readable
+through a deterministic v2 projection; new ingestion and agent updates use v2.
 
-The mobile music library reads stored audio records and reports invalid
-descriptions literally. It presents work and sequence titles separately,
+The mobile music library includes only stored audio records whose descriptions
+validate as music metadata. Voice requests and other ordinary audio recordings
+remain durable files but are not music-library entries. The player presents
+release, work, and sequence titles separately,
 streams authenticated bytes with HTTP range support, queues only the selected
 work, inserts a visible boundary pause between its files, and stops when that
 work ends. The listener may also mark the current file as the stopping point

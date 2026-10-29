@@ -126,7 +126,7 @@ export class RequestQueue {
           filename: `${files.length} uploaded MP3 ${files.length === 1 ? "file" : "files"}`,
           files,
           text: JSON.stringify({
-            purpose: "Use the user request, filenames, and existing ID3-derived descriptions to populate music_metadata with file_update. Unknown facts remain null.",
+            purpose: "Use the user request, filenames, existing ID3-derived descriptions, and any explicitly selected public-web evidence to populate schema-v2 music_metadata with file_update. Release owns album/disc/side/track placement; work owns the composition; sequences subdivide the work. Unknown facts remain null. Never send audio bytes or unrelated private text to web search.",
             files: files.map(({ fileId, originalFilename, title, titleSource, description, durationMs }) => ({
               fileId, originalFilename, title, titleSource, description, durationMs,
             })),

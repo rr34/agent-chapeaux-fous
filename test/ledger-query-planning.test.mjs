@@ -211,3 +211,29 @@ test("file listing searches every query term across durable server metadata", ()
     500,
   ]);
 });
+
+test("music file listing filters structured metadata before applying its limit", () => {
+  const calls = [];
+  const database = {
+    prepare(sql) {
+      return {
+        all(...parameters) {
+          calls.push({ sql, parameters });
+          return [];
+        },
+      };
+    },
+  };
+  const ledger = new Ledger({ requireReady: () => database });
+
+  const result = ledger.listFiles({ mediaKind: "audio", musicMetadataOnly: true, limit: 500 });
+  assert.deepEqual(result.files, []);
+  assert.equal(result.musicMetadataOnly, true);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].sql, /file\.media_kind = \?/u);
+  assert.match(calls[0].sql, /JSON_VALID\(file\.description\) = 1/u);
+  assert.match(calls[0].sql, /JSON_EXTRACT\(file\.description, '\$\.schemaVersion'\)/u);
+  assert.match(calls[0].sql, /IN \('1', '2'\)/u);
+  assert.ok(calls[0].sql.indexOf("JSON_VALID") < calls[0].sql.indexOf("LIMIT ?"));
+  assert.deepEqual(calls[0].parameters, ["audio", 500]);
+});

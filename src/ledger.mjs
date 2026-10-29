@@ -1809,7 +1809,7 @@ export class Ledger {
     return { ...publicFile(row), origins };
   }
 
-  listFiles({ query = null, limit = 100, mediaKind = null } = {}) {
+  listFiles({ query = null, limit = 100, mediaKind = null, musicMetadataOnly = false } = {}) {
     const bounded = Number(limit);
     if (!Number.isSafeInteger(bounded) || bounded < 1 || bounded > 500) {
       throw new Error("File list limit must be an integer from 1 to 500");
@@ -1824,6 +1824,12 @@ export class Ledger {
       }
       conditions.push("file.media_kind = ?");
       values.push(selectedMediaKind);
+    }
+    if (musicMetadataOnly) {
+      conditions.push(`(
+        JSON_VALID(file.description) = 1
+        AND JSON_UNQUOTE(JSON_EXTRACT(file.description, '$.schemaVersion')) IN ('1', '2')
+      )`);
     }
     for (const pattern of searchPatterns(selectedQuery)) {
       conditions.push(`(
@@ -1841,7 +1847,7 @@ export class Ledger {
       ORDER BY file.created_at_utc DESC, file.file_id DESC
       LIMIT ?
     `).all(...values, bounded).map(publicFile);
-    return { query: selectedQuery || null, mediaKind, count: rows.length, files: rows };
+    return { query: selectedQuery || null, mediaKind, musicMetadataOnly, count: rows.length, files: rows };
   }
 
   updateFiles(updates, { titleSource = "user" } = {}) {

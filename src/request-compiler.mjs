@@ -5,7 +5,7 @@ import { objectDescriptionMetadataKey } from "./object-description.mjs";
 import { nativeCapabilityManifest } from "./native-capabilities.mjs";
 
 const localCapabilityMatchers = [
-  ["web", (tool) => tool.name === "web_page_read"],
+  ["web", (tool) => ["web_page_read", "web_search"].includes(tool.name)],
   ["calendar", (tool) => tool.name.startsWith("calendar_")],
   ["contacts", (tool) => tool.name.startsWith("contact_")],
   ["relationships", (tool) => tool.name === "object_connection_set"],
@@ -27,7 +27,7 @@ const localCapabilityMatchers = [
 
 const capabilityPatterns = new Map([
   ["self", /\bhow (?:do|did) you.{0,50}\b(?:make|create|generate|produce|render)(?:d|s|ing)?\b.{0,40}\bvideos?\b|\bhow (?:is|are|was|were).{0,40}\bvideos?\b.{0,30}\b(?:made|created|generated|produced|rendered)\b|\b(?:is it|is this).{0,30}\beasy\b.{0,40}\b(?:create|make|generate)(?:d|s|ing)?\b.{0,20}\bvideos?\b|\bhow (?:long|many clicks).{0,50}\b(?:create|make|generate)(?:d|s|ing)?\b.{0,20}\bvideos?\b/iu],
-  ["web", /https?:\/\/|\b(?:web ?page|website|url|link)\b/iu],
+  ["web", /https?:\/\/|\b(?:web ?page|website|url|link|web search|search (?:the )?web|search online|look up online|look .{0,50} up (?:on|using) (?:the )?web)\b/iu],
   ["calendar", /\b(?:calendar|schedule|agenda|appointment|meeting|event|birthday|invite|routines?|habits?|deadline|due date|work window)\b/iu],
   ["contacts", /\b(?:contacts?|address book|phone number|email address|vcard|vcf|dedupe|deduplicate|deduplication|duplicate people|contact tag)\b|\b(?:add|change|correct|set|update)\b(?![^\n]{0,60}\bmy\s+(?:home\s+|work\s+|mailing\s+|postal\s+|street\s+)?address\b)[^\n]{0,60}\baddress\b|\b(?:change|clear|correct|remove|set|update)\b[^\n]{0,80}\b(?:birthday|birth date|date of birth)\b/iu],
   ["relationships", /\b(?:connect(?:ed|ing|ion)?|disconnect(?:ed|ing|ion)?|link(?:ed|ing)?|unlink(?:ed|ing)?|associate(?:d|ing|ion)?)\b.{0,100}\b(?:to|with|object|item|task|content|contact|event|job)\b/iu],
@@ -54,7 +54,7 @@ const greetingPattern = /^\s*(?:hello|hi|hey|good (?:morning|afternoon|evening)|
 const personalActionPattern = /\b(?:my|mine|current|latest|today|now|look up|find|show|list|add|create|update|change|delete|remove|send|save|record|import|apply|go ahead|do it|proceed)\b/iu;
 
 const capabilitySummaries = new Map([
-  ["web", "Read specific web pages supplied by URL."],
+  ["web", "Search the public web and read specific public pages with bounded source URLs."],
   ["calendar", "Read and manage calendar events, deadlines, reusable routines, generated events, and event-to-do links."],
   ["contacts", "Search, import, update, tag, and merge contacts."],
   ["relationships", "Connect or disconnect exact first-class objects through the domain operations that own their relationships."],
@@ -62,7 +62,7 @@ const capabilitySummaries = new Map([
   ["things", "Record and manage physical possessions and their links to exact to-dos, content, files, and contacts."],
   ["journal", "Read, record, and correct journal entries and trackers."],
   ["profile", "Read and maintain durable profile facts."],
-  ["files", "Find, retrieve, inspect, and safely transform durable text and tabular uploads."],
+  ["files", "Find, inspect, enrich, and safely transform durable uploads, including bounded music metadata batches."],
   ["database", "Inspect schema and read, count, or compare supported native application data, including relationship presence and the durable activity ledger."],
   ["database-write", "Write supported native application data; read-only database access is already callable."],
   ["history", "Search prior Agent Slayer conversations."],

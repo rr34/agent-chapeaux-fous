@@ -4,7 +4,7 @@
   "version": 1,
   "id": "files",
   "title": "Files",
-  "summary": "Find, verify, inspect, diagnose, transform, and partition durable text and tabular uploads for bounded batch workflows.",
+  "summary": "Find, inspect, enrich, and safely transform durable uploads, including bounded music metadata batches.",
   "aliases": [
     "file",
     "upload",
@@ -16,7 +16,9 @@
     "table",
     "delimited text",
     "partition",
-    "batch"
+    "batch",
+    "mp3",
+    "music metadata"
   ],
   "attachmentHints": [
     {

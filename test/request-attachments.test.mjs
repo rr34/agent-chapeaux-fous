@@ -269,10 +269,15 @@ test("MP3 uploads verify MPEG bytes and preserve ID3 hints as validated music me
   assert.equal(uploaded.mimeType, "audio/mpeg");
   assert.equal(registration.title, "Allegro");
   const metadata = JSON.parse(registration.description);
-  assert.equal(metadata.work.type, "album");
-  assert.equal(metadata.work.title, "The Four Seasons: Spring");
+  assert.equal(metadata.schemaVersion, 2);
+  assert.equal(metadata.release.type, "album");
+  assert.equal(metadata.release.title, "The Four Seasons: Spring");
+  assert.equal(metadata.release.trackNumber, 1);
+  assert.equal(metadata.release.trackCount, 3);
+  assert.equal(metadata.work.type, null);
+  assert.equal(metadata.work.title, null);
   assert.deepEqual(metadata.work.creators, ["Antonio Vivaldi — composer"]);
-  assert.deepEqual(metadata.sequence1, { type: "track", number: 1, count: 3, title: "Allegro" });
+  assert.equal(metadata.sequence1, null);
 });
 
 test("request images reject mismatched content but use a generous configurable ceiling", async (context) => {

@@ -126,7 +126,7 @@ test("base instructions stay universal while capability fragments retain domain 
   assert.match(instructions, /Call `email_send` only when the user explicitly\s+asks to send/);
   assert.match(instructions, /open-ended\s+collection/);
   assert.match(instructions, /Use `web_page_read`/);
-  assert.match(instructions, /page reading, not web search/);
+  assert.match(instructions, /Use `web_search` for bounded public discovery/);
   assert.match(instructions, /Relevant profile types/);
   assert.doesNotMatch(instructions, /no active preferred_name fact exists/);
 });

@@ -16,6 +16,7 @@ function readHealth({ database, model, tlom }) {
     mcp: { health: () => ({ tlom }) },
     jmap: { health: () => ({ ready: true }) },
     payments: { health: () => ({ ready: false, configured: false, connected: false }) },
+    webSearchClient: { health: () => ({ ready: false, provider: "brave", reason: "not configured" }) },
     registry: { list: () => [{ name: "todo_list", source: "local" }] },
     identity: { component: "agent-slayer" },
     config: { model: "test-model" },

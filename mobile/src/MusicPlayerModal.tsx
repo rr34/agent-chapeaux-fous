@@ -25,7 +25,18 @@ type WorkGroup = {
   title: string;
   type: string | null;
   creators: string[];
+  catalogue: string[];
   files: MusicFile[];
+};
+
+type ReleaseGroup = {
+  key: string;
+  title: string;
+  type: string | null;
+  version: string | null;
+  release: boolean;
+  files: MusicFile[];
+  works: WorkGroup[];
 };
 
 function numberValue(value: number | string | null | undefined): number {
@@ -49,52 +60,89 @@ function formatTime(seconds: number): string {
   return `${minutes}:${String(remainder).padStart(2, '0')}`;
 }
 
-function workGroups(files: MusicFile[]): WorkGroup[] {
-  const groups = new Map<string, WorkGroup>();
-  for (const file of files) {
-    const work = file.metadata?.work;
-    const title = work?.title || file.title || file.originalFilename || `File ${file.fileId}`;
-    const creators = work?.creators ?? [];
-    const key = JSON.stringify([work?.type ?? 'unknown', title, creators]);
-    const group = groups.get(key) ?? { key, title, type: work?.type ?? null, creators, files: [] };
-    group.files.push(file);
-    groups.set(key, group);
-  }
-  for (const group of groups.values()) {
-    group.files.sort((left, right) => {
-      const first = numberValue(left.metadata?.sequence1?.number) - numberValue(right.metadata?.sequence1?.number);
-      if (first) return first;
-      const second = numberValue(left.metadata?.sequence2?.number) - numberValue(right.metadata?.sequence2?.number);
-      return second || left.fileId - right.fileId;
-    });
-  }
-  return [...groups.values()].sort((left, right) => left.title.localeCompare(right.title));
+function sortWorkFiles(files: MusicFile[]): MusicFile[] {
+  return files.sort((left, right) => {
+    const first = numberValue(left.metadata?.sequence1?.number) - numberValue(right.metadata?.sequence1?.number);
+    if (first) return first;
+    const second = numberValue(left.metadata?.sequence2?.number) - numberValue(right.metadata?.sequence2?.number);
+    return second || numberValue(left.metadata?.release?.trackNumber) - numberValue(right.metadata?.release?.trackNumber)
+      || left.fileId - right.fileId;
+  });
 }
 
-function WorkCard({ group, currentFileId, onPlay }: {
-  group: WorkGroup;
+function sortReleaseFiles(files: MusicFile[]): MusicFile[] {
+  return files.sort((left, right) => (
+    numberValue(left.metadata?.release?.discNumber) - numberValue(right.metadata?.release?.discNumber)
+    || String(left.metadata?.release?.side ?? '').localeCompare(String(right.metadata?.release?.side ?? ''))
+    || numberValue(left.metadata?.release?.trackNumber) - numberValue(right.metadata?.release?.trackNumber)
+    || left.fileId - right.fileId
+  ));
+}
+
+function releaseGroups(files: MusicFile[]): ReleaseGroup[] {
+  const releases = new Map<string, ReleaseGroup & { workMap: Map<string, WorkGroup> }>();
+  for (const file of files) {
+    const release = file.metadata?.release;
+    const work = file.metadata?.work;
+    const workTitle = work?.title || (release ? 'Tracks' : file.title || file.originalFilename || `File ${file.fileId}`);
+    const creators = work?.creators ?? [];
+    const catalogue = work?.catalogue ?? [];
+    const workKey = JSON.stringify([work?.type ?? 'unknown', workTitle, creators, catalogue]);
+    const releaseKey = release
+      ? JSON.stringify([release.type, release.title, release.version])
+      : `standalone:${workKey}`;
+    const releaseGroup = releases.get(releaseKey) ?? {
+      key: releaseKey,
+      title: release?.title || workTitle,
+      type: release?.type ?? work?.type ?? null,
+      version: release?.version ?? null,
+      release: Boolean(release),
+      files: [],
+      works: [],
+      workMap: new Map<string, WorkGroup>(),
+    };
+    const workGroup = releaseGroup.workMap.get(workKey) ?? {
+      key: workKey,
+      title: workTitle,
+      type: work?.type ?? null,
+      creators,
+      catalogue,
+      files: [],
+    };
+    workGroup.files.push(file);
+    releaseGroup.workMap.set(workKey, workGroup);
+    releaseGroup.files.push(file);
+    releases.set(releaseKey, releaseGroup);
+  }
+  for (const group of releases.values()) {
+    group.files = sortReleaseFiles(group.files);
+    group.works = [...group.workMap.values()]
+      .map((work) => ({ ...work, files: sortWorkFiles(work.files) }))
+      .sort((left, right) => {
+        const leftTrack = numberValue(left.files[0]?.metadata?.release?.trackNumber);
+        const rightTrack = numberValue(right.files[0]?.metadata?.release?.trackNumber);
+        return leftTrack - rightTrack || left.title.localeCompare(right.title);
+      });
+  }
+  return [...releases.values()]
+    .map(({ workMap: _workMap, ...group }) => group)
+    .sort((left, right) => left.title.localeCompare(right.title));
+}
+
+function TrackRows({ files, currentFileId, onPlay }: {
+  files: MusicFile[];
   currentFileId: number | null;
-  onPlay: (group: WorkGroup, index: number) => void;
+  onPlay: (files: MusicFile[], index: number) => void;
 }) {
   return (
-    <View style={styles.workCard}>
-      <View style={styles.workHeading}>
-        <View style={styles.workHeadingText}>
-          <Text style={styles.workType}>{(group.type || 'music').toUpperCase()}</Text>
-          <Text style={styles.workTitle}>{group.title}</Text>
-          {!!group.creators.length && <Text style={styles.workCreators}>{group.creators.join(' · ')}</Text>}
-        </View>
-        <Pressable onPress={() => onPlay(group, 0)} style={styles.playWorkButton}>
-          <Text style={styles.playWorkButtonText}>PLAY WORK</Text>
-        </Pressable>
-      </View>
-      {group.files.map((file, index) => (
+    <>
+      {files.map((file, index) => (
         <Pressable
           key={file.fileId}
-          onPress={() => onPlay(group, index)}
+          onPress={() => onPlay(files, index)}
           style={[styles.trackRow, currentFileId === file.fileId && styles.trackRowCurrent]}
         >
-          <Text style={styles.trackPosition}>{file.metadata?.sequence2?.number ?? file.metadata?.sequence1?.number ?? index + 1}</Text>
+          <Text style={styles.trackPosition}>{file.metadata?.sequence2?.number ?? file.metadata?.sequence1?.number ?? file.metadata?.release?.trackNumber ?? index + 1}</Text>
           <View style={styles.trackText}>
             <Text numberOfLines={2} style={styles.trackTitle}>{trackTitle(file)}</Text>
             {!!file.metadata?.performers?.length && (
@@ -104,6 +152,48 @@ function WorkCard({ group, currentFileId, onPlay }: {
           </View>
         </Pressable>
       ))}
+    </>
+  );
+}
+
+function LibraryCard({ group, currentFileId, onPlay }: {
+  group: ReleaseGroup;
+  currentFileId: number | null;
+  onPlay: (files: MusicFile[], index: number) => void;
+}) {
+  const standaloneWork = !group.release && group.works.length === 1 ? group.works[0] : null;
+  return (
+    <View style={styles.workCard}>
+      <View style={styles.workHeading}>
+        <View style={styles.workHeadingText}>
+          <Text style={styles.workType}>{(group.type || 'music').toUpperCase()}</Text>
+          <Text style={styles.workTitle}>{group.title}</Text>
+          {!!group.version && <Text style={styles.workCreators}>{group.version}</Text>}
+          {!!standaloneWork?.catalogue.length && <Text style={styles.workCatalogue}>{standaloneWork.catalogue.join(' · ')}</Text>}
+          {!!standaloneWork?.creators.length && <Text style={styles.workCreators}>{standaloneWork.creators.join(' · ')}</Text>}
+        </View>
+        <Pressable onPress={() => onPlay(group.files, 0)} style={styles.playWorkButton}>
+          <Text style={styles.playWorkButtonText}>{group.release ? 'PLAY ALBUM' : 'PLAY WORK'}</Text>
+        </Pressable>
+      </View>
+      {group.release ? group.works.map((work) => (
+        <View key={work.key} style={styles.workSection}>
+          <View style={styles.workSectionHeading}>
+            <View style={styles.workHeadingText}>
+              <Text style={styles.workType}>{(work.type || 'work').toUpperCase()}</Text>
+              <Text style={styles.workSectionTitle}>{work.title}</Text>
+              {!!work.catalogue.length && <Text style={styles.workCatalogue}>{work.catalogue.join(' · ')}</Text>}
+              {!!work.creators.length && <Text style={styles.workCreators}>{work.creators.join(' · ')}</Text>}
+            </View>
+            <Pressable onPress={() => onPlay(work.files, 0)} style={styles.playWorkSecondary}>
+              <Text style={styles.playWorkButtonText}>PLAY WORK</Text>
+            </Pressable>
+          </View>
+          <TrackRows files={work.files} currentFileId={currentFileId} onPlay={onPlay} />
+        </View>
+      )) : (
+        <TrackRows files={group.files} currentFileId={currentFileId} onPlay={onPlay} />
+      )}
     </View>
   );
 }
@@ -124,7 +214,7 @@ export function MusicPlayerModal({ visible, settings, onClose }: {
   const handledFinish = useRef(false);
   const player = useAudioPlayer(null, { updateInterval: 250, keepAudioSessionActive: true });
   const status = useAudioPlayerStatus(player);
-  const groups = useMemo(() => workGroups(files), [files]);
+  const groups = useMemo(() => releaseGroups(files), [files]);
   const current = currentIndex >= 0 ? queue[currentIndex] ?? null : null;
 
   const refresh = useCallback(async () => {
@@ -168,7 +258,7 @@ export function MusicPlayerModal({ visible, settings, onClose }: {
     player.setActiveForLockScreen(true, {
       title: trackTitle(file),
       artist: file.metadata?.work.creators?.join(', ') || file.metadata?.performers?.join(', ') || undefined,
-      albumTitle: file.metadata?.work.title || undefined,
+      albumTitle: file.metadata?.release?.title || file.metadata?.work.title || undefined,
     });
     if (play) playTimer.current = setTimeout(() => player.play(), 100);
   }, [player, settings]);
@@ -190,9 +280,9 @@ export function MusicPlayerModal({ visible, settings, onClose }: {
     boundaryTimer.current = setTimeout(() => load(queue, currentIndex + 1), 1500);
   }, [currentIndex, load, queue, status.didJustFinish, stopAfterIndex]);
 
-  const playWork = (group: WorkGroup, index: number) => {
+  const playSelection = (selectedFiles: MusicFile[], index: number) => {
     setStopAfterIndex(null);
-    load(group.files, index);
+    load(selectedFiles, index);
   };
 
   const close = () => {
@@ -218,10 +308,10 @@ export function MusicPlayerModal({ visible, settings, onClose }: {
           keyExtractor={(group) => group.key}
           contentContainerStyle={groups.length ? styles.list : styles.emptyList}
           renderItem={({ item }) => (
-            <WorkCard
+            <LibraryCard
               group={item}
               currentFileId={current?.fileId ?? null}
-              onPlay={playWork}
+              onPlay={playSelection}
             />
           )}
           refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} tintColor={colors.accent} />}
@@ -233,6 +323,7 @@ export function MusicPlayerModal({ visible, settings, onClose }: {
         {current && (
           <View style={styles.player}>
             <Text style={styles.nowLabel}>NOW PLAYING</Text>
+            {!!current.metadata?.release?.title && <Text numberOfLines={1} style={styles.nowRelease}>{current.metadata.release.title}</Text>}
             <Text numberOfLines={1} style={styles.nowWork}>{current.metadata?.work.title || current.title}</Text>
             <Text numberOfLines={2} style={styles.nowTrack}>{trackTitle(current)}</Text>
             <View style={styles.timeRow}>
@@ -280,6 +371,11 @@ const styles = StyleSheet.create({
   workCreators: { color: colors.muted, fontSize: 12, marginTop: 5 },
   playWorkButton: { paddingHorizontal: 10, minHeight: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 9, backgroundColor: colors.accent },
   playWorkButtonText: { color: colors.ink, fontSize: 8, fontWeight: '900', letterSpacing: 1 },
+  workSection: { borderTopWidth: 1, borderTopColor: colors.border },
+  workSectionHeading: { flexDirection: 'row', gap: 12, alignItems: 'center', paddingHorizontal: 14, paddingVertical: 11, backgroundColor: colors.surface },
+  workSectionTitle: { color: colors.ink, fontSize: 15, fontWeight: '800', lineHeight: 19 },
+  workCatalogue: { color: colors.gold, fontSize: 10, marginTop: 3 },
+  playWorkSecondary: { paddingHorizontal: 9, minHeight: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 8, borderWidth: 1, borderColor: colors.accent },
   trackRow: { flexDirection: 'row', alignItems: 'center', minHeight: 60, paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   trackRowCurrent: { backgroundColor: '#27201B' },
   trackPosition: { width: 28, color: colors.gold, fontSize: 13, fontWeight: '800' },
@@ -290,6 +386,7 @@ const styles = StyleSheet.create({
   notice: { color: colors.gold, backgroundColor: colors.surface, paddingHorizontal: 16, paddingVertical: 7, fontSize: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   player: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14, backgroundColor: '#111112', borderTopWidth: 1, borderTopColor: colors.border },
   nowLabel: { color: colors.accent, fontSize: 8, fontWeight: '900', letterSpacing: 1.5 },
+  nowRelease: { color: colors.gold, fontSize: 10, marginTop: 3 },
   nowWork: { color: colors.muted, fontSize: 12, marginTop: 3 },
   nowTrack: { color: colors.ink, fontSize: 17, fontWeight: '800', marginTop: 2 },
   timeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 9 },

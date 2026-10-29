@@ -201,15 +201,21 @@ test("context rollover and inline result limits are configurable", () => {
   assert.equal(configured.maxInlineToolResultCharacters, 12000);
 });
 
-test("explicit page reads have bounded network limits", () => {
+test("public web reads and search have bounded network limits", () => {
   const defaults = loadTestConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true" });
   assert.equal(defaults.webPageTimeoutMs, 15_000);
   assert.equal(defaults.webPageMaximumBytes, 2 * 1024 * 1024);
+  assert.equal(defaults.braveSearchApiKey, "");
+  assert.equal(defaults.webSearchTimeoutMs, 15_000);
   const configured = loadTestConfig({
     SLAYER_ALLOW_UNAUTHENTICATED: "true",
     SLAYER_WEB_PAGE_TIMEOUT_MS: "9000",
     SLAYER_WEB_PAGE_MAX_BYTES: "524288",
+    BRAVE_SEARCH_API_KEY: "search-secret",
+    SLAYER_WEB_SEARCH_TIMEOUT_MS: "7000",
   });
   assert.equal(configured.webPageTimeoutMs, 9000);
   assert.equal(configured.webPageMaximumBytes, 524288);
+  assert.equal(configured.braveSearchApiKey, "search-secret");
+  assert.equal(configured.webSearchTimeoutMs, 7000);
 });

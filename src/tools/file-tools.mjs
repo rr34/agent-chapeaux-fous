@@ -109,7 +109,7 @@ const toolDescriptions = Object.freeze({
       "READ-ONLY"
     ]
   },
-  "file_update": { "summary": "Assign AI-generated titles and descriptions to a bounded batch of newly uploaded files without overwriting user-authored metadata; audio descriptions may use the validated music metadata contract." }
+  "file_update": { "summary": "Assign AI-generated titles and descriptions to a bounded batch of newly uploaded files or explicitly correct existing AI-authored music metadata without overwriting user-authored metadata." }
 });
 
 const fileMetadataUpdateItemProperties = {
@@ -904,7 +904,7 @@ export function registerFileTools(registry, {
 
   registry.register({
     name: "file_update",
-    description: "Assign AI-generated titles and descriptions to 1-100 newly uploaded files atomically. This cannot overwrite user-edited titles. For audio files, supply music_metadata rather than encoding JSON in description; the application validates the versioned schema and stores readable JSON in files.description. Use filenames, existing embedded-tag hints, and the user's request as evidence; preserve null when a fact is unknown.",
+    description: "Assign AI-generated titles and descriptions to 1-100 newly uploaded files atomically, or explicitly correct existing AI-authored music metadata. This cannot overwrite user-edited titles. For audio files, supply music_metadata rather than encoding JSON in description; the application validates schema v2 and stores readable JSON in files.description. Release describes album/disc/side/track placement independently from the musical work; sequence1 and sequence2 subdivide that work. Use filenames, embedded-tag hints, user statements, and selected read-only web evidence; preserve null when a fact is unknown.",
     parameters: {
       type: "object",
       additionalProperties: false,

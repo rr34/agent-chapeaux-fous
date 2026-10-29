@@ -57,6 +57,7 @@ const tools = [
   tool("email_search"),
   tool("email_send"),
   tool("web_page_read"),
+  tool("web_search"),
   tool("global_search"),
   tool("remote_tlom_query_data", "mcp:tlom"),
   tool("remote_weather_forecast", "mcp:weather"),
@@ -86,6 +87,7 @@ test("known tool families have stable hard-coded capability ownership", () => {
   assert.equal(capabilityForTool(tool("video_content_create")), "video");
   assert.equal(capabilityForTool(tool("video_content_update")), "video");
   assert.equal(capabilityForTool(tool("global_search")), "search");
+  assert.equal(capabilityForTool(tool("web_search")), "web");
   assert.equal(capabilityForTool(tool("file_read")), "files");
 });
 
@@ -446,6 +448,7 @@ test("changing another person's birthday selects the standard contact update too
 test("common plural request words select their focused tool families", () => {
   const examples = [
     ["Read these webpages.", "web", "web_page_read"],
+    ["Search the web for this album.", "web", "web_search"],
     ["Show my appointments.", "calendar", "calendar_event_list"],
     ["List my tasks.", "todos", "todo_list"],
     ["Show my trackers.", "journal", "journal_add"],
@@ -544,9 +547,9 @@ test("an explicit plural email request does not inherit an unrelated prior topic
   assert.equal(selection.fallbackAll, false);
 });
 
-test("an explicit URL receives the page reader without unrelated application tools", () => {
+test("an explicit URL receives the public-web family without unrelated application tools", () => {
   const selection = selectRequestCapabilities({ tools, text: "Read https://example.com/report for me." });
-  assert.deepEqual(names(selection), ["profile_fact_list", "profile_fact_set", "database_read", "database_aggregate", "web_page_read"]);
+  assert.deepEqual(names(selection), ["profile_fact_list", "profile_fact_set", "database_read", "database_aggregate", "web_page_read", "web_search"]);
   assert.deepEqual(selection.capabilities, ["database", "profile", "web"]);
 });
 

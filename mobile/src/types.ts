@@ -37,16 +37,26 @@ export type Health = {
 };
 
 export type MusicSequence = {
-  type: 'movement' | 'act' | 'disc' | 'side' | 'track' | 'item' | 'sequence' | 'scene' | 'number';
+  type: 'movement' | 'act' | 'part' | 'section' | 'item' | 'scene' | 'number' | 'segment' | 'sequence';
   number: number | string | null;
   count: number | null;
   title: string | null;
 };
 
 export type MusicMetadata = {
-  schemaVersion: 1;
+  schemaVersion: 2;
+  release: {
+    type: 'album' | 'single' | 'ep' | 'compilation' | 'boxSet' | 'other' | null;
+    title: string | null;
+    version: string | null;
+    discNumber: number | string | null;
+    discCount: number | null;
+    side: string | null;
+    trackNumber: number | string | null;
+    trackCount: number | null;
+  } | null;
   work: {
-    type: 'symphony' | 'concerto' | 'sonata' | 'suite' | 'opera' | 'album' | 'song' | 'other' | null;
+    type: 'symphony' | 'concerto' | 'sonata' | 'suite' | 'opera' | 'song' | 'piece' | 'other' | null;
     title: string | null;
     version: string | null;
     creators: string[] | null;

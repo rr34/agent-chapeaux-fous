@@ -1,0 +1,1318 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-slayer.local/schemas/music-metadata.schema.json",
+  "title": "Agent Slayer music metadata schema versions",
+  "description": "Versioned structured metadata stored as JSON in files.description for one audio file.",
+  "x-version-key": "schemaVersion",
+  "x-current-version": 2,
+  "oneOf": [
+    {
+      "$ref": "#/$defs/v1"
+    },
+    {
+      "$ref": "#/$defs/v2"
+    }
+  ],
+  "$defs": {
+    "v1": {
+      "$id": "https://agent-slayer.local/schemas/music-metadata.v1.schema.json",
+      "title": "Agent Slayer music file metadata",
+      "description": "Structured metadata stored as JSON in files.description for one audio file. The attached file is the leaf audio item; work, sequence1, and sequence2 describe its musical hierarchy.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "work",
+        "sequence1",
+        "sequence2",
+        "performers",
+        "genres",
+        "languages",
+        "compositionDate",
+        "performanceDate",
+        "notes"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "work": {
+          "$ref": "#/$defs/work"
+        },
+        "sequence1": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sequence1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-aliases": [
+            "movement",
+            "act",
+            "disc",
+            "side",
+            "track",
+            "song",
+            "piece",
+            "item"
+          ]
+        },
+        "sequence2": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sequence2"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-aliases": [
+            "scene",
+            "number",
+            "discTrack",
+            "sideTrack",
+            "part",
+            "section",
+            "segment",
+            "sequence"
+          ]
+        },
+        "performers": {
+          "$ref": "#/$defs/stringArrayOrNull",
+          "x-aliases": [
+            "artists",
+            "singers",
+            "musicians",
+            "orchestras",
+            "ensembles",
+            "conductors"
+          ]
+        },
+        "genres": {
+          "$ref": "#/$defs/stringArrayOrNull",
+          "x-aliases": [
+            "genre",
+            "styles"
+          ]
+        },
+        "languages": {
+          "$ref": "#/$defs/stringArrayOrNull",
+          "x-aliases": [
+            "language",
+            "sungLanguages",
+            "spokenLanguages"
+          ]
+        },
+        "compositionDate": {
+          "$ref": "#/$defs/dateOrNull",
+          "x-aliases": [
+            "compositionYear"
+          ]
+        },
+        "performanceDate": {
+          "$ref": "#/$defs/dateOrNull",
+          "x-aliases": [
+            "performanceYear"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 10000,
+          "x-aliases": [
+            "description",
+            "programNotes",
+            "linerNotes"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "work": {
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "symphony",
+                      "concerto",
+                      "sonata",
+                      "suite"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "sequence1": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/movementSequence"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "work": {
+                "properties": {
+                  "type": {
+                    "const": "opera"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "sequence1": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/actSequence"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "work": {
+                "properties": {
+                  "type": {
+                    "const": "album"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "sequence1": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/albumSequence"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "sequence1": {
+                "properties": {
+                  "type": {
+                    "const": "movement"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            },
+            "required": [
+              "sequence1"
+            ]
+          },
+          "then": {
+            "properties": {
+              "sequence2": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/genericSequence"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "sequence1": {
+                "properties": {
+                  "type": {
+                    "const": "act"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            },
+            "required": [
+              "sequence1"
+            ]
+          },
+          "then": {
+            "properties": {
+              "sequence2": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/operaSequence"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "sequence1": {
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "track",
+                      "item"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            },
+            "required": [
+              "sequence1"
+            ]
+          },
+          "then": {
+            "properties": {
+              "sequence2": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/genericSequence"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "sequence1": {
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "disc",
+                      "side"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            },
+            "required": [
+              "sequence1"
+            ]
+          },
+          "then": {
+            "properties": {
+              "sequence2": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/trackSequence"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "$defs": {
+        "dateOrNull": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9]{4}(?:-[0-9]{2}(?:-[0-9]{2})?)?$"
+        },
+        "stringArrayOrNull": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 100,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              }
+            }
+          ]
+        },
+        "work": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "title",
+            "version",
+            "creators",
+            "catalogue"
+          ],
+          "properties": {
+            "type": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "symphony",
+                "concerto",
+                "sonata",
+                "suite",
+                "opera",
+                "album",
+                "song",
+                "other",
+                null
+              ],
+              "x-aliases": [
+                "workType",
+                "albumType"
+              ]
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 1000,
+              "x-aliases": [
+                "title",
+                "workTitle",
+                "albumTitle",
+                "symphonyTitle",
+                "concertoTitle",
+                "operaTitle"
+              ]
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 500,
+              "x-aliases": [
+                "edition",
+                "mix",
+                "remaster"
+              ]
+            },
+            "creators": {
+              "$ref": "#/$defs/stringArrayOrNull",
+              "x-aliases": [
+                "composers",
+                "songwriters",
+                "authors",
+                "lyricists"
+              ]
+            },
+            "catalogue": {
+              "$ref": "#/$defs/stringArrayOrNull",
+              "x-aliases": [
+                "catalog",
+                "catalogueNumbers",
+                "opusNumbers",
+                "workIdentifiers"
+              ]
+            }
+          }
+        },
+        "sequenceBase": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "number",
+            "count",
+            "title"
+          ],
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "number": {
+              "type": [
+                "integer",
+                "string",
+                "null"
+              ],
+              "minimum": 1,
+              "minLength": 1,
+              "maxLength": 40
+            },
+            "count": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 1000
+            }
+          }
+        },
+        "sequence1": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/sequenceBase"
+            },
+            {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "movement",
+                    "act",
+                    "disc",
+                    "side",
+                    "track",
+                    "item"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "sequence2": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/sequenceBase"
+            },
+            {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "sequence",
+                    "scene",
+                    "number",
+                    "track"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "movementSequence": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/sequenceBase"
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "movement"
+                }
+              }
+            }
+          ]
+        },
+        "actSequence": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/sequenceBase"
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "act"
+                }
+              }
+            }
+          ]
+        },
+        "trackSequence": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/sequenceBase"
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "track",
+                  "x-aliases": [
+                    "song",
+                    "piece"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "albumSequence": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/sequenceBase"
+            },
+            {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "disc",
+                    "side",
+                    "track"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "genericSequence": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/sequenceBase"
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "sequence",
+                  "x-aliases": [
+                    "part",
+                    "section",
+                    "segment"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "operaSequence": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/sequenceBase"
+            },
+            {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "scene",
+                    "number"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "v2": {
+      "$id": "https://agent-slayer.local/schemas/music-metadata.v2.schema.json",
+      "title": "Agent Slayer music file metadata v2",
+      "description": "Structured metadata for one audio file. Release describes album placement independently from the musical work; sequence1 and sequence2 describe subdivisions of that work.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "release",
+        "work",
+        "sequence1",
+        "sequence2",
+        "performers",
+        "genres",
+        "languages",
+        "compositionDate",
+        "performanceDate",
+        "notes"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 2
+        },
+        "release": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/release"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-aliases": [
+            "album",
+            "record",
+            "release",
+            "recordingCollection"
+          ]
+        },
+        "work": {
+          "$ref": "#/$defs/work"
+        },
+        "sequence1": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sequence1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-aliases": [
+            "movement",
+            "act",
+            "part",
+            "section",
+            "item"
+          ]
+        },
+        "sequence2": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sequence2"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-aliases": [
+            "scene",
+            "number",
+            "subsection",
+            "segment",
+            "sequence"
+          ]
+        },
+        "performers": {
+          "$ref": "#/$defs/stringArrayOrNull",
+          "x-aliases": [
+            "artists",
+            "singers",
+            "musicians",
+            "orchestras",
+            "ensembles",
+            "conductors"
+          ]
+        },
+        "genres": {
+          "$ref": "#/$defs/stringArrayOrNull",
+          "x-aliases": [
+            "genre",
+            "styles"
+          ]
+        },
+        "languages": {
+          "$ref": "#/$defs/stringArrayOrNull",
+          "x-aliases": [
+            "language",
+            "sungLanguages",
+            "spokenLanguages"
+          ]
+        },
+        "compositionDate": {
+          "$ref": "#/$defs/dateOrNull",
+          "x-aliases": [
+            "compositionYear"
+          ]
+        },
+        "performanceDate": {
+          "$ref": "#/$defs/dateOrNull",
+          "x-aliases": [
+            "performanceYear",
+            "recordingDate"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 10000,
+          "x-aliases": [
+            "description",
+            "programNotes",
+            "linerNotes"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "work": {
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "symphony",
+                      "concerto",
+                      "sonata"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "sequence1": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/movementSequence"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "work": {
+                "properties": {
+                  "type": {
+                    "const": "suite"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "sequence1": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/suiteSequence"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "work": {
+                "properties": {
+                  "type": {
+                    "const": "opera"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "sequence1": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/actSequence"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "sequence1": {
+                "properties": {
+                  "type": {
+                    "const": "movement"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            },
+            "required": [
+              "sequence1"
+            ]
+          },
+          "then": {
+            "properties": {
+              "sequence2": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/genericSequence"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "sequence1": {
+                "properties": {
+                  "type": {
+                    "const": "act"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            },
+            "required": [
+              "sequence1"
+            ]
+          },
+          "then": {
+            "properties": {
+              "sequence2": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/operaSequence"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "$defs": {
+        "dateOrNull": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9]{4}(?:-[0-9]{2}(?:-[0-9]{2})?)?$"
+        },
+        "stringArrayOrNull": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 100,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              }
+            }
+          ]
+        },
+        "positionNumber": {
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ],
+          "minimum": 1,
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "release": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "title",
+            "version",
+            "discNumber",
+            "discCount",
+            "side",
+            "trackNumber",
+            "trackCount"
+          ],
+          "properties": {
+            "type": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "album",
+                "single",
+                "ep",
+                "compilation",
+                "boxSet",
+                "other",
+                null
+              ],
+              "x-aliases": [
+                "releaseType",
+                "albumType"
+              ]
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 1000,
+              "x-aliases": [
+                "albumTitle",
+                "releaseTitle"
+              ]
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 500,
+              "x-aliases": [
+                "edition",
+                "mix",
+                "remaster"
+              ]
+            },
+            "discNumber": {
+              "$ref": "#/$defs/positionNumber",
+              "x-aliases": [
+                "disc",
+                "volume"
+              ]
+            },
+            "discCount": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "side": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 40,
+              "x-aliases": [
+                "recordSide"
+              ]
+            },
+            "trackNumber": {
+              "$ref": "#/$defs/positionNumber",
+              "x-aliases": [
+                "track"
+              ]
+            },
+            "trackCount": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            }
+          }
+        },
+        "work": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "title",
+            "version",
+            "creators",
+            "catalogue"
+          ],
+          "properties": {
+            "type": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "symphony",
+                "concerto",
+                "sonata",
+                "suite",
+                "opera",
+                "song",
+                "piece",
+                "other",
+                null
+              ],
+              "x-aliases": [
+                "workType",
+                "compositionType"
+              ]
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 1000,
+              "x-aliases": [
+                "workTitle",
+                "symphonyTitle",
+                "concertoTitle",
+                "operaTitle",
+                "songTitle"
+              ]
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 500,
+              "x-aliases": [
+                "arrangement",
+                "workVersion"
+              ]
+            },
+            "creators": {
+              "$ref": "#/$defs/stringArrayOrNull",
+              "x-aliases": [
+                "composers",
+                "songwriters",
+                "authors",
+                "lyricists"
+              ]
+            },
+            "catalogue": {
+              "$ref": "#/$defs/stringArrayOrNull",
+              "x-aliases": [
+                "catalog",
+                "catalogueNumbers",
+                "opusNumbers",
+                "workIdentifiers"
+              ]
+            }
+          }
+        },
+        "sequenceBase": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "number",
+            "count",
+            "title"
+          ],
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "number": {
+              "$ref": "#/$defs/positionNumber"
+            },
+            "count": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 1000
+            }
+          }
+        },
+        "sequence1": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/sequenceBase"
+            },
+            {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "movement",
+                    "act",
+                    "part",
+                    "section",
+                    "item"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "sequence2": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/sequenceBase"
+            },
+            {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "scene",
+                    "number",
+                    "section",
+                    "segment",
+                    "sequence"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "movementSequence": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/sequenceBase"
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "movement"
+                }
+              }
+            }
+          ]
+        },
+        "suiteSequence": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/sequenceBase"
+            },
+            {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "movement",
+                    "item"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "actSequence": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/sequenceBase"
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "act"
+                }
+              }
+            }
+          ]
+        },
+        "genericSequence": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/sequenceBase"
+            },
+            {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "section",
+                    "segment",
+                    "sequence"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "operaSequence": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/sequenceBase"
+            },
+            {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "scene",
+                    "number"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

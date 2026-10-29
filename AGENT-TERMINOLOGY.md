@@ -305,11 +305,12 @@ registered schemas. It is a domain contract, not a database-schema interface.
 
 **63. Music metadata document** — The versioned JSON description attached to
 one durable audio `files` record and validated by
-`config/music-metadata.v1.schema.json`. It describes a root work or release and
-up to two ordered structural sequences. Filenames and embedded ID3 tags may
-supply ingestion hints, but the stored document is the player's structured
-authority and unknown facts remain null. User playback choices are not music
-metadata.
+the versioned schemas under `config/`. Version 2 describes nullable release
+placement independently from the musical work and up to two ordered
+subdivisions of that work. Version 1 remains readable through a deterministic
+projection. Filenames and embedded ID3 tags may supply ingestion hints, but the
+stored document is the player's structured authority and unknown facts remain
+null. User playback choices are not music metadata.
 
 **64. Mobile music player** — The authenticated Expo client surface that groups
 durable MP3 files by their validated music metadata, displays readable work and

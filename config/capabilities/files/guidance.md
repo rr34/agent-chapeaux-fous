@@ -117,6 +117,11 @@ batch, a short descriptive title per file, and a description. A deterministic
 upload description may already contain row counts, headers, or embedded audio
 tag hints; preserve useful facts. For MP3 audio, supply `music_metadata` and let
 the tool validate and serialize the versioned music schema into the file
-description. Use filenames, embedded tags, and the user's request as evidence;
-leave uncertain music fields null. Do not repeatedly retitle historical files,
-and never try to overwrite user-edited metadata.
+description. In schema v2, `release` owns album, disc, side, and track placement;
+`work` owns the actual symphony, opera, song, or other musical work; sequences
+are subdivisions of that work. Use filenames, embedded tags, the user's request,
+and read-only web evidence when selected; leave uncertain facts null. Do not
+repeatedly retitle historical files, and never try to overwrite user-edited metadata.
+An explicit request to correct or migrate existing AI-authored music metadata
+is not a repeated-retitling attempt; update the complete intended file batch to
+the current schema in one atomic call.

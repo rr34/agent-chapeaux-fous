@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readResultFilterSchema } from "../src/search/result-filter.mjs";
 import { WebPageClient, isPublicIpAddress, parseWebPageUrl } from "../src/web-page-client.mjs";
+import { WebSearchClient } from "../src/web-search-client.mjs";
 import { registerWebPageTools } from "../src/tools/web-page-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 
@@ -27,6 +28,55 @@ test("web_page_read exposes one explicit URL reader and no search query", () => 
   });
   assert.match(definition.description, /does not search the web/i);
   assert.equal(Object.hasOwn(definition.inputSchema.properties, "query"), false);
+});
+
+test("web_search executes a bounded query batch through the configured provider", async () => {
+  const requests = [];
+  const search = new WebSearchClient({
+    apiKey: "secret",
+    fetchImpl: async (url, init) => {
+      requests.push({ url: url.toString(), init });
+      return new Response(JSON.stringify({
+        query: { more_results_available: true },
+        web: { results: [{
+          title: "Symphony No. 33 &amp; 34",
+          url: "https://catalog.example.test/mozart#record",
+          description: "Catalog entry for <strong>K. 319</strong> and K. 338.",
+          age: "May 3, 2020",
+          language: "en",
+        }] },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    },
+  });
+  const registry = new ToolRegistry();
+  registerWebPageTools(registry, new WebPageClient(), search);
+  const definition = registry.toolDefinitions().find(({ name }) => name === "web_search");
+  assert.equal(definition.inputSchema.properties.queries.maxItems, 5);
+  assert.equal(definition.annotations.readOnlyHint, true);
+
+  const result = await registry.execute("web_search", {
+    queries: [{ query: "Mozart Two Salzburg Symphonies K 319 K 338", count: 5 }],
+  });
+  assert.equal(result.provider, "brave");
+  assert.equal(result.queries[0].moreResultsAvailable, true);
+  assert.deepEqual(result.queries[0].results, [{
+    title: "Symphony No. 33 & 34",
+    url: "https://catalog.example.test/mozart",
+    snippet: "Catalog entry for K. 319 and K. 338.",
+    published: "May 3, 2020",
+    language: "en",
+  }]);
+  assert.match(requests[0].url, /api\.search\.brave\.com\/res\/v1\/web\/search/u);
+  assert.equal(requests[0].init.headers["X-Subscription-Token"], "secret");
+});
+
+test("web_search fails literally when its server credential is absent", async () => {
+  const registry = new ToolRegistry();
+  registerWebPageTools(registry, new WebPageClient());
+  await assert.rejects(
+    registry.execute("web_search", { queries: [{ query: "Mozart K. 319", count: 3 }] }),
+    /BRAVE_SEARCH_API_KEY/u,
+  );
 });
 
 test("web_page_read extracts text, metadata, canonical URL, and traversable links", async () => {

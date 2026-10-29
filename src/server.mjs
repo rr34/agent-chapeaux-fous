@@ -28,7 +28,7 @@ import { RequestQueue } from "./queue.mjs";
 import { capabilityForTool, RequestCompiler } from "./request-compiler.mjs";
 import { createNativeSearchCoordinator, registerEmailSearchProvider } from "./search/native-search.mjs";
 import { receiveRequestAttachment, safeMediaPath } from "./request-attachments.mjs";
-import { parseMusicMetadataDescription } from "./music-metadata.mjs";
+import { musicLibraryEntry, parseMusicMetadataDescription } from "./music-metadata.mjs";
 import { normalizeRunLimits } from "./run-limits.mjs";
 import { SlayerRuntime } from "./runtime.mjs";
 import { runtimeIdentity } from "./runtime-identity.mjs";
@@ -64,6 +64,7 @@ import { VideoContent } from "./video-content.mjs";
 import { VideoContentReconciler } from "./video-content-reconcile.mjs";
 import { PhysicalItems } from "./physical-items.mjs";
 import { WebPageClient } from "./web-page-client.mjs";
+import { WebSearchClient } from "./web-search-client.mjs";
 import { timeZoneFromProfileFacts } from "./temporal-consistency.mjs";
 
 const config = loadConfig();
@@ -126,7 +127,11 @@ const webPageClient = new WebPageClient({
   timeoutMs: config.webPageTimeoutMs,
   maximumBytes: config.webPageMaximumBytes,
 });
-registerWebPageTools(registry, webPageClient);
+const webSearchClient = new WebSearchClient({
+  apiKey: config.braveSearchApiKey,
+  timeoutMs: config.webSearchTimeoutMs,
+});
+registerWebPageTools(registry, webPageClient, webSearchClient);
 const modelTransport = await createModelTransport(config);
 await modelTransport.start().catch((error) => {
   console.error(`[agent-slayer] ${modelTransport.displayName} transport startup failed:`, error);
@@ -412,7 +417,12 @@ function health() {
     runtime: identity,
     model: { ...model, id: modelTransport.id, displayName: modelTransport.displayName, model: config.model },
     database: store.status,
-    integrations: { ...mcp.health(), email: jmap.health(), stripe: payments?.health() ?? { ready: false } },
+    integrations: {
+      ...mcp.health(),
+      email: jmap.health(),
+      stripe: payments?.health() ?? { ready: false },
+      webSearch: webSearchClient.health(),
+    },
     tools: registry.list().map((tool) => ({
       name: tool.name,
       source: tool.source,
@@ -1229,19 +1239,16 @@ const server = http.createServer(async (request, response) => {
         query: url.searchParams.get("query"),
         limit: url.searchParams.get("limit") || 500,
         mediaKind: "audio",
+        musicMetadataOnly: true,
+      });
+      const files = result.files.flatMap((file) => {
+        const entry = musicLibraryEntry(file);
+        return entry ? [{ ...entry, streamUrl: `/api/music/${file.fileId}/stream` }] : [];
       });
       sendJson(response, 200, {
-        schemaVersion: 1,
-        count: result.files.length,
-        files: result.files.map((file) => {
-          const parsed = parseMusicMetadataDescription(file.description);
-          return {
-            ...file,
-            metadata: parsed.metadata,
-            metadataError: parsed.error,
-            streamUrl: `/api/music/${file.fileId}/stream`,
-          };
-        }),
+        schemaVersion: 2,
+        count: files.length,
+        files,
       });
       return;
     }
@@ -1249,6 +1256,10 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "GET" && musicStreamMatch) {
       const file = ledger.file(Number(musicStreamMatch[1]));
       if (!file || file.media_kind !== "audio") {
+        sendJson(response, 404, { error: "Music file was not found" });
+        return;
+      }
+      if (!parseMusicMetadataDescription(file.description).metadata) {
         sendJson(response, 404, { error: "Music file was not found" });
         return;
       }
