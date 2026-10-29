@@ -233,12 +233,22 @@ through a deterministic v2 projection; new ingestion and agent updates use v2.
 The mobile music library includes only stored audio records whose descriptions
 validate as music metadata. Voice requests and other ordinary audio recordings
 remain durable files but are not music-library entries. The player presents
-release, work, and sequence titles separately,
-streams authenticated bytes with HTTP range support, queues only the selected
-work, inserts a visible boundary pause between its files, and stops when that
-work ends. The listener may also mark the current file as the stopping point
-without changing its stored metadata. It does not silently continue into
-another work.
+release, work, and sequence titles separately and sorts them by release
+placement and work sequence. Releases, works, and individual tracks expose one
+library action, `+`, which appends the selected ordered files to a single
+deduplicated concert queue; library selections never begin playback directly.
+
+The concert queue is the only playback source. It visibly includes one
+disclosed AI-voice introduction before each music item, assembled from the
+listener's selected schema-v2 metadata fields. Speech audio is generated only
+when playback needs it, is held in a bounded temporary server cache, and is
+skipped without blocking the music when generation is unavailable. Once a
+concert begins its membership and narration choices remain fixed until the
+listener clears it. Clear is immediate and offers Undo. The authenticated
+player streams both stored music and temporary narration with HTTP range
+support, stops at the exact end of the concert, and never silently continues
+into library music outside that queue. Playback choices remain user state and
+do not change stored file metadata.
 
 ## Hats and the user manual
 

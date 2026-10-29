@@ -84,3 +84,12 @@ export type MusicFile = {
   streamUrl: string;
 };
 
+export type MusicNarration = {
+  narrationId: string;
+  durationMs: number;
+  model: string;
+  voice: string;
+  aiGenerated: true;
+  streamUrl: string;
+};
+

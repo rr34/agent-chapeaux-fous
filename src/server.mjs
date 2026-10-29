@@ -34,6 +34,7 @@ import { SlayerRuntime } from "./runtime.mjs";
 import { runtimeIdentity } from "./runtime-identity.mjs";
 import { WhisperTranscriber } from "./transcriber.mjs";
 import { OpenAISpeechService } from "./openai-speech.mjs";
+import { MusicNarrationService } from "./music-narration.mjs";
 import { VideoRenderWorker } from "./video-render-worker.mjs";
 import { registerDailyPaperTools } from "./tools/daily-paper-tools.mjs";
 import { registerPrintableReportTools } from "./tools/printable-report-tools.mjs";
@@ -221,6 +222,7 @@ const speech = new OpenAISpeechService({
   instructions: config.ttsAgentInstructions,
   timeoutMs: config.ttsTimeoutMs,
 });
+const musicNarration = new MusicNarrationService({ speech });
 if (videoScripts) {
   videoRenderWorker = new VideoRenderWorker({
     videoScripts,
@@ -1250,6 +1252,42 @@ const server = http.createServer(async (request, response) => {
         count: files.length,
         files,
       });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/music/narrations") {
+      const narration = await musicNarration.create(await readJson(request, 4 * 1024));
+      sendJson(response, 201, { narration });
+      return;
+    }
+    const musicNarrationStreamMatch = /^\/api\/music\/narrations\/([0-9a-f-]{36})\/stream$/u.exec(url.pathname);
+    if (request.method === "GET" && musicNarrationStreamMatch) {
+      const narration = musicNarration.get(musicNarrationStreamMatch[1]);
+      if (!narration) {
+        sendJson(response, 404, { error: "Concert narration was not found or has expired" });
+        return;
+      }
+      const range = byteRange(request.headers.range, narration.bytes.length);
+      if (range === false) {
+        response.writeHead(416, {
+          "Content-Range": `bytes */${narration.bytes.length}`,
+          "Accept-Ranges": "bytes",
+          "Cache-Control": "private, no-store",
+        });
+        response.end();
+        return;
+      }
+      const start = range?.start ?? 0;
+      const end = range?.end ?? narration.bytes.length - 1;
+      response.writeHead(range ? 206 : 200, {
+        "Content-Type": narration.mimeType,
+        "Content-Length": end - start + 1,
+        "Content-Disposition": `inline; filename="concert-narration-${narration.narrationId}.wav"`,
+        "Accept-Ranges": "bytes",
+        ...(range ? { "Content-Range": `bytes ${start}-${end}/${narration.bytes.length}` } : {}),
+        "Cache-Control": "private, no-store",
+        "X-AI-Generated": "true",
+      });
+      response.end(narration.bytes.subarray(start, end + 1));
       return;
     }
     const musicStreamMatch = /^\/api\/music\/(\d+)\/stream$/.exec(url.pathname);

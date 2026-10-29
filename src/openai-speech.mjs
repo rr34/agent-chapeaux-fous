@@ -83,7 +83,7 @@ export class OpenAISpeechService {
   }
 
   async synthesize(text, { instructions = this.instructions, voice = this.voice } = {}) {
-    if (!this.apiKey) throw new Error("OPENAI_API_KEY is required for server-side video narration");
+    if (!this.apiKey) throw new Error("OPENAI_API_KEY is required for server-side speech generation");
     const input = requiredText(text, "Narration text", maximumSpeechCharacters);
     const requestedVoice = selectedVoice(voice);
     const requestedInstructions = requiredText(instructions, "TTS instructions", 1_000);

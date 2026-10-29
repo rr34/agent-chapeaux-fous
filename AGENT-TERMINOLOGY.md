@@ -66,8 +66,9 @@ web client** to **48. Voice-ingestion service**. TLS or private-network
 publication is supplied by deployment infrastructure.
 
 **17. Agent speech-generation service** — The OpenAI Platform speech service
-used server-side for disclosed AI narration in video productions. Ordinary live
-Agent responses still use browser-native speech synthesis in the web client.
+used server-side for disclosed AI narration in video productions and temporary
+mobile concert introductions. Ordinary live Agent responses still use
+browser-native speech synthesis in the web client.
 
 **18. Phone audio player** — The current web client automatically speaks each
 completed response submitted by that browser unless Respond silently was
@@ -313,7 +314,10 @@ stored document is the player's structured authority and unknown facts remain
 null. User playback choices are not music metadata.
 
 **64. Mobile music player** — The authenticated Expo client surface that groups
-durable MP3 files by their validated music metadata, displays readable work and
-sequence titles, streams bytes from Agent media storage with range requests,
-and limits automatic continuation to the selected work. It is a playback
-surface over the native file domain, not a second music store.
+durable MP3 files by their validated music metadata, displays readable release,
+work, and sequence titles, and lets `+` append a release, work, or track to one
+concert queue. The queue is the only playback source and visibly interleaves
+temporary disclosed AI-voice introductions assembled from listener-selected
+metadata. It streams music from Agent media storage and temporary narration
+with range requests, stops at the queue boundary, and remains a playback
+surface over the native file domain rather than a second music store.

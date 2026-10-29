@@ -1,5 +1,5 @@
 import type { CorrespondenceBatch } from '../modules/time-v3-native/src/TimeV3NativeModule';
-import type { AgentRequest, ConnectionSettings, Health, MusicFile } from './types';
+import type { AgentRequest, ConnectionSettings, Health, MusicFile, MusicNarration } from './types';
 
 export type CorrespondenceSyncResult = {
   protocol: 'timev3.android-correspondence-sync';
@@ -119,6 +119,26 @@ export function musicSource(settings: ConnectionSettings, file: MusicFile) {
     headers: { Authorization: `Bearer ${settings.accessToken}` },
     name: file.title,
   };
+}
+
+export function narrationSource(settings: ConnectionSettings, narration: MusicNarration, title: string) {
+  return {
+    uri: `${settings.baseUrl}${narration.streamUrl}`,
+    headers: { Authorization: `Bearer ${settings.accessToken}` },
+    name: title,
+  };
+}
+
+export async function generateMusicNarration(
+  settings: ConnectionSettings,
+  text: string,
+): Promise<MusicNarration> {
+  const result = await requestJson<{ narration: MusicNarration }>(settings, '/api/music/narrations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  }, 120_000);
+  return result.narration;
 }
 
 export async function submitText(settings: ConnectionSettings, text: string): Promise<{ requestId: string }> {
