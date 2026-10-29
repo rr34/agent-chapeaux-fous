@@ -364,6 +364,7 @@ button.calendar-cell:focus-visible { outline: 3px solid rgba(104, 116, 90, .3); 
 .two-week-grid.is-searching .calendar-chip.is-search-match { margin: -2px; padding: 2px 2px 2px 7px; border-left-width: 3px; border-radius: 4px; background: #fff1c9; box-shadow: 0 0 0 1px #d4ad50; opacity: 1; }
 .calendar-chip time { flex: 0 0 auto; color: var(--muted); font-size: 8px; }
 .calendar-chip span { min-width: 0; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+.calendar-chip-copy { flex: 1 1 auto; display: grid; }
 .calendar-chip time + span { flex: 1 1 auto; }
 .multiline-item-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .calendar-cell-events small { color: var(--muted); font-size: 9px; }
@@ -690,15 +691,17 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-range strong { font: 600 10pt "Newsreader", Georgia, serif; }
 .two-week-grid--compact { gap: .035in; margin-bottom: .16in; }
 .two-week-grid--compact .weekdays, .two-week-grid--compact .calendar-cells { gap: .035in; }
-.two-week-grid--compact .calendar-cells { grid-auto-rows: .70in; align-items: stretch; }
+.two-week-grid--compact .calendar-cells { grid-auto-rows: minmax(.70in, auto); align-items: stretch; }
 .two-week-grid--compact .weekdays span { padding: 0 .04in .02in; font-size: 5.8pt; }
-.two-week-grid--compact .calendar-cell { height: .70in; min-height: .70in; aspect-ratio: auto; overflow: hidden; padding: .045in; border-radius: .035in; }
+.two-week-grid--compact .calendar-cell { min-height: .70in; aspect-ratio: auto; overflow: visible; padding: .045in; border-radius: .035in; }
 .two-week-grid--compact .calendar-cell-header { padding-bottom: .025in; }
 .two-week-grid--compact .calendar-cell-header span { font-size: 5.4pt; }
 .two-week-grid--compact .calendar-cell-header strong { font-size: 10pt; }
 .two-week-grid--compact .calendar-cell-events { gap: .012in; padding-top: .025in; }
-.two-week-grid--compact .calendar-chip { gap: .02in; padding-left: .025in; font-size: 5.5pt; line-height: 1.15; }
-.two-week-grid--compact .calendar-chip time { font-size: 4.8pt; }
+.two-week-grid--compact .calendar-chip { grid-template-columns: .34in minmax(0, 1fr); align-items: start; column-gap: .025in; display: grid; padding-left: .025in; font-size: 5.5pt; line-height: 1.15; }
+.two-week-grid--compact .calendar-chip-copy { gap: .015in; overflow: visible; }
+.two-week-grid--compact .calendar-chip-description { display: block; overflow: visible; color: #596054; font-size: 5.2pt; line-height: 1.2; white-space: pre-wrap; overflow-wrap: anywhere; }
+.two-week-grid--compact .calendar-chip time { width: 100%; overflow: visible; font-size: 4.8pt; text-align: right; white-space: nowrap; }
 .two-week-grid--compact .calendar-cell-events small { font-size: 5pt; }
 .paper-section { page-break-inside: avoid; break-inside: avoid-page; }
 .paper-today { border-top: 1px solid #272c24; padding-top: .12in; break-inside: auto; }
@@ -725,7 +728,7 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .calendar-event-card.paper-calendar-event-card { gap: .055in .08in; padding: .07in .09in; border-radius: .04in; background: #fffefa; box-shadow: none; }
 .calendar-event-card.paper-calendar-event-card .first-class-object-content { grid-template-columns: minmax(1.35in, .8fr) minmax(0, 1.4fr); column-gap: .12in; }
 .calendar-event-card.paper-calendar-event-card .first-class-object-title { font-size: 9pt; }
-.calendar-event-card.paper-calendar-event-card .first-class-object-body { font-size: 5.8pt; line-height: 1.25; }
+.calendar-event-card.paper-calendar-event-card .first-class-object-body { display: block; overflow: visible; font-size: 5.8pt; line-height: 1.25; white-space: pre-wrap; -webkit-line-clamp: unset; line-clamp: unset; }
 .calendar-event-card.paper-calendar-event-card .first-class-object-attributes div,
 .calendar-event-card.paper-calendar-event-card .calendar-event-expanded-details li,
 .calendar-event-card.paper-calendar-event-card .calendar-event-expanded-details p { font-size: 5.4pt; }

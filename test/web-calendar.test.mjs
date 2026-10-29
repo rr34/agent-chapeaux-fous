@@ -67,22 +67,30 @@ test("print preview follows the selected calendar day immediately", () => {
   assert.match(appSource, /<DailyPaper model=\{previewModel\} preview \/>/);
 });
 
-test("screen calendar keeps its aspect ratio while printable days stay fixed for the time scale", () => {
+test("screen calendar stays bounded while printable calendar rows grow with their events", () => {
   assert.match(styles, /\.calendar-cell \{[^}]*aspect-ratio: 2 \/ 3;/);
   assert.match(styles, /\.calendar-cell \{[^}]*justify-content: flex-start;[^}]*align-items: stretch;/);
-  assert.match(styles, /\.two-week-grid--compact \.calendar-cells \{[^}]*grid-auto-rows: \.70in;[^}]*align-items: stretch;/);
-  assert.match(styles, /\.two-week-grid--compact \.calendar-cell \{[^}]*height: \.70in;/);
-  assert.match(styles, /\.two-week-grid--compact \.calendar-cell \{[^}]*aspect-ratio: auto;[^}]*overflow: hidden;/);
-  assert.match(calendarSource, /orderedEvents\.slice\(0, compact \? 3 : eventLimit\)/);
+  assert.match(styles, /\.two-week-grid--compact \.calendar-cells \{[^}]*grid-auto-rows: minmax\(\.70in, auto\);[^}]*align-items: stretch;/);
+  assert.match(styles, /\.two-week-grid--compact \.calendar-cell \{[^}]*min-height: \.70in;/);
+  assert.match(styles, /\.two-week-grid--compact \.calendar-cell \{[^}]*aspect-ratio: auto;[^}]*overflow: visible;/);
+  assert.doesNotMatch(styles, /\.two-week-grid--compact \.calendar-cell \{[^}]*(?<!min-)height: \.70in;/);
+  assert.match(calendarSource, /compact \? orderedEvents : orderedEvents\.slice\(0, eventLimit\)/);
   assert.match(calendarSource, /day\.events\.length > visibleEvents\.length/);
 });
 
-test("printable calendar bounds crowded days and reports omitted events", () => {
+test("printable calendar renders every event in crowded days", () => {
   assert.match(calendarSource, /\{visibleEvents\.map\(\(event\) => \(/);
-  assert.match(calendarSource, /compact \? 3/);
+  assert.doesNotMatch(calendarSource, /compact \? 3/);
   assert.match(calendarSource, /\+\{day\.events\.length - visibleEvents\.length\} more/);
+  assert.match(calendarSource, /compact && event\.description\?\.trim\(\)/);
+  assert.match(calendarSource, /className="calendar-chip-description">\{event\.description\}/);
+  assert.match(calendarSource, /\(compact \|\| !event\.isAllDay\) && <time>/);
   assert.match(styles, /\.calendar-chip \{[^}]*align-items: flex-start;/s);
   assert.match(styles, /\.calendar-chip time \+ span \{[^}]*flex: 1 1 auto;/s);
+  assert.match(styles, /\.two-week-grid--compact \.calendar-chip \{[^}]*grid-template-columns: \.34in minmax\(0, 1fr\);[^}]*display: grid;/s);
+  assert.match(styles, /\.two-week-grid--compact \.calendar-chip time \{[^}]*text-align: right;[^}]*white-space: nowrap;/s);
+  assert.match(styles, /\.two-week-grid--compact \.calendar-chip-description \{[^}]*overflow: visible;[^}]*white-space: pre-wrap;/s);
+  assert.match(styles, /\.calendar-event-card\.paper-calendar-event-card \.first-class-object-body \{[^}]*overflow: visible;[^}]*white-space: pre-wrap;[^}]*-webkit-line-clamp: unset;/s);
 });
 
 test("the printed day uses an independent fixed weather timeline beside reusable event cards", () => {

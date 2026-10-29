@@ -56,7 +56,7 @@ export function CalendarGrid({
           const orderedEvents = isSearching
             ? [...day.events].sort((left, right) => Number(matchesSearch(right, searchQuery)) - Number(matchesSearch(left, searchQuery)))
             : day.events;
-          const visibleEvents = orderedEvents.slice(0, compact ? 3 : eventLimit);
+          const visibleEvents = compact ? orderedEvents : orderedEvents.slice(0, eventLimit);
           const contents = <>
             {index === 0 && rangeMarkerLabel && <span className="calendar-range-marker" aria-hidden="true">{rangeMarkerLabel}</span>}
             <span className="calendar-cell-header">
@@ -66,8 +66,11 @@ export function CalendarGrid({
             <span className="calendar-cell-events">
               {visibleEvents.map((event) => (
                 <span className={`calendar-chip ${isSearching && matchesSearch(event, searchQuery) ? "is-search-match" : ""}`} key={`${day.localDate}-${event.id}-${event.startsAtUtc}`}>
-                  {!event.isAllDay && <time>{timeLabel(event, event.timeZone || "UTC").split("–")[0]}</time>}
-                  <span className="multiline-item-text">{event.title}</span>
+                  {(compact || !event.isAllDay) && <time>{timeLabel(event, event.timeZone || "UTC").split("–")[0]}</time>}
+                  <span className="calendar-chip-copy">
+                    <span className="multiline-item-text">{event.title}</span>
+                    {compact && event.description?.trim() && <span className="calendar-chip-description">{event.description}</span>}
+                  </span>
                 </span>
               ))}
               {day.events.length > visibleEvents.length && <small>+{day.events.length - visibleEvents.length} more</small>}
