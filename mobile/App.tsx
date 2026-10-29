@@ -47,6 +47,7 @@ import {
 } from './src/storage';
 import { colors } from './src/theme';
 import type { AgentRequest, ConnectionSettings, Health } from './src/types';
+import { MusicPlayerModal } from './src/MusicPlayerModal';
 
 const voiceRecordingOptions = {
   ...RecordingPresets.HIGH_QUALITY,
@@ -556,6 +557,7 @@ function AgentScreen() {
   const [draftBody, setDraftBody] = useState('');
   const [showDraft, setShowDraft] = useState(false);
   const [showCorrespondenceSync, setShowCorrespondenceSync] = useState(false);
+  const [showMusic, setShowMusic] = useState(false);
   const list = useRef<FlatList<AgentRequest>>(null);
   const listPositioned = useRef(false);
   const listNearEnd = useRef(true);
@@ -740,6 +742,13 @@ function AgentScreen() {
           onClose={() => setShowCorrespondenceSync(false)}
         />
       )}
+      {settings && (
+        <MusicPlayerModal
+          visible={showMusic}
+          settings={settings}
+          onClose={() => setShowMusic(false)}
+        />
+      )}
       <View style={styles.header}>
         <View style={styles.brandBlock}>
           <Text style={styles.brand}>TIME V3</Text>
@@ -750,6 +759,14 @@ function AgentScreen() {
           </View>
         </View>
         <View style={styles.headerActions}>
+          <Pressable
+            accessibilityLabel="Open music player"
+            disabled={!settings}
+            onPress={() => setShowMusic(true)}
+            style={[styles.headerButton, !settings && styles.disabled]}
+          >
+            <Text style={styles.headerButtonText}>MUSIC</Text>
+          </Pressable>
           <Pressable
             accessibilityLabel="Synchronize phone correspondence"
             disabled={!settings}

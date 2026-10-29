@@ -76,6 +76,7 @@ test("new requests are admitted while TLOM is disconnected", async () => {
     readJson: async () => ({ text: "Please handle the selected work", selectedObjectCandidates }),
     normalizeRunLimits: () => null,
     normalizeReferencedRequestIds: () => [],
+    normalizeAttachmentFileIds: () => [],
     normalizeSelectedObjectCandidates: () => selectedObjectCandidates,
     ledger: { createRequest: (request) => { createdRequests.push(request); return { requestId: "new-request" }; } },
     queue: { notify: () => { queueWakes++; } },

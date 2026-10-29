@@ -302,3 +302,17 @@ registry compiles ordinary native Tool Description routing facts from this
 matrix, repository verification proves coverage of the object catalog and
 physical join tables, and startup proves supported cells resolve to truthful
 registered schemas. It is a domain contract, not a database-schema interface.
+
+**63. Music metadata document** — The versioned JSON description attached to
+one durable audio `files` record and validated by
+`config/music-metadata.v1.schema.json`. It describes a root work or release and
+up to two ordered structural sequences. Filenames and embedded ID3 tags may
+supply ingestion hints, but the stored document is the player's structured
+authority and unknown facts remain null. User playback choices are not music
+metadata.
+
+**64. Mobile music player** — The authenticated Expo client surface that groups
+durable MP3 files by their validated music metadata, displays readable work and
+sequence titles, streams bytes from Agent media storage with range requests,
+and limits automatic continuation to the selected work. It is a playback
+surface over the native file domain, not a second music store.

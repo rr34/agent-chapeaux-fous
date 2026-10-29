@@ -179,6 +179,41 @@ retaining app data and grant the permissions declared by that APK. JavaScript-
 only work continues through the visible Expo terminal and does not require an
 APK build or installation.
 
+### Music upload and playback contract
+
+An uploaded MP3 remains one authoritative `files` row and one file in Agent
+media storage. Its `description` contains JSON conforming to
+`config/music-metadata.v1.schema.json`; the application does not create a
+parallel music database. MariaDB `TEXT` is sufficient for the bounded metadata
+contract, so music ingestion does not require or imply a live schema mutation.
+
+Upload-time parsing verifies MPEG audio and may preserve common ID3 text fields
+as initial hints. Embedded tags and filenames are evidence, not authority. A
+request may attach a bounded ordered group of MP3 files. Every member is linked
+to the immutable request event and becomes an exact native file binding. The
+agent updates the complete intended group through the owning atomic batch file
+metadata operation, using the user request, filenames, and tag hints while
+leaving unknown facts null. It never sends MP3 bytes through model context.
+
+Music metadata has three semantic levels: the root work or release, an optional
+first sequence constrained by the work type, and an optional second sequence
+constrained by the first. Symphony, concerto, sonata, suite, opera, album,
+song, and other are root types. A symphony or concerto normally contains
+movements; an opera contains acts; an album contains tracks. A movement may
+have a generic subordinate sequence, and an act may contain a scene or number.
+Multi-disc or multi-side albums use disc or side as the first sequence and
+track as the second; an ordinary album may use track directly as the first.
+Playback choices such as stopping after an individual movement are user state,
+not stored facts about the file.
+
+The mobile music library reads stored audio records and reports invalid
+descriptions literally. It presents work and sequence titles separately,
+streams authenticated bytes with HTTP range support, queues only the selected
+work, inserts a visible boundary pause between its files, and stops when that
+work ends. The listener may also mark the current file as the stopping point
+without changing its stored metadata. It does not silently continue into
+another work.
+
 ## Hats and the user manual
 
 Users may make one or more roles explicit with the convention:

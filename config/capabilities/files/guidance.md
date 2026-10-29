@@ -111,9 +111,12 @@ Records created directly in conversation may continue through ordinary JSON
 tools. File-origin records use the artifact path even when the particular file
 is small, so provenance, checksums, retries, and resumption remain consistent.
 
-For a newly uploaded file whose `title_source` is `original_filename`, inspect
-its contents and call `file_update` once with a short descriptive title and a
-plain-language description before the final answer. A deterministic upload
-description may already contain row counts or headers; preserve useful facts.
-Do not repeatedly retitle historical files, and never try to overwrite a
-user-edited title.
+For newly uploaded files whose `title_source` is `original_filename`, inspect
+the available evidence and call `file_update` once with one bounded `updates`
+batch, a short descriptive title per file, and a description. A deterministic
+upload description may already contain row counts, headers, or embedded audio
+tag hints; preserve useful facts. For MP3 audio, supply `music_metadata` and let
+the tool validate and serialize the versioned music schema into the file
+description. Use filenames, embedded tags, and the user's request as evidence;
+leave uncertain music fields null. Do not repeatedly retitle historical files,
+and never try to overwrite user-edited metadata.

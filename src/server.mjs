@@ -28,6 +28,7 @@ import { RequestQueue } from "./queue.mjs";
 import { capabilityForTool, RequestCompiler } from "./request-compiler.mjs";
 import { createNativeSearchCoordinator, registerEmailSearchProvider } from "./search/native-search.mjs";
 import { receiveRequestAttachment, safeMediaPath } from "./request-attachments.mjs";
+import { parseMusicMetadataDescription } from "./music-metadata.mjs";
 import { normalizeRunLimits } from "./run-limits.mjs";
 import { SlayerRuntime } from "./runtime.mjs";
 import { runtimeIdentity } from "./runtime-identity.mjs";
@@ -256,6 +257,25 @@ function sendJson(response, statusCode, body) {
   response.end(encoded);
 }
 
+function byteRange(header, size) {
+  if (!header) return null;
+  const match = /^bytes=(\d*)-(\d*)$/u.exec(String(header).trim());
+  if (!match || (!match[1] && !match[2])) return false;
+  let start;
+  let end;
+  if (!match[1]) {
+    const suffix = Number(match[2]);
+    if (!Number.isSafeInteger(suffix) || suffix <= 0) return false;
+    start = Math.max(0, size - suffix);
+    end = size - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] ? Number(match[2]) : size - 1;
+  }
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start >= size || end < start) return false;
+  return { start, end: Math.min(end, size - 1) };
+}
+
 function sendOAuthPage(response, statusCode, { title, message, redirect = false }) {
   const escapedTitle = String(title).replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;",
@@ -309,6 +329,21 @@ function normalizeReferencedRequestIds(value) {
     throw Object.assign(new Error("Every referenced request ID must be a full exchange UUID"), { statusCode: 400 });
   }
   return [...new Set(requestIds)];
+}
+
+function normalizeAttachmentFileIds(value) {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > 100) {
+    throw Object.assign(new Error("Attachment file IDs must be an array of at most 100 file IDs"), { statusCode: 400 });
+  }
+  const fileIds = value.map(Number);
+  if (fileIds.some((fileId) => !Number.isSafeInteger(fileId) || fileId < 1)) {
+    throw Object.assign(new Error("Every attachment file ID must be a positive integer"), { statusCode: 400 });
+  }
+  if (new Set(fileIds).size !== fileIds.length) {
+    throw Object.assign(new Error("Attachment file IDs cannot contain duplicates"), { statusCode: 400 });
+  }
+  return fileIds;
 }
 
 function authorized(request) {
@@ -1189,6 +1224,65 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     const contentMatch = /^\/api\/content-items\/(\d+)$/.exec(url.pathname);
+    if (request.method === "GET" && url.pathname === "/api/music") {
+      const result = ledger.listFiles({
+        query: url.searchParams.get("query"),
+        limit: url.searchParams.get("limit") || 500,
+        mediaKind: "audio",
+      });
+      sendJson(response, 200, {
+        schemaVersion: 1,
+        count: result.files.length,
+        files: result.files.map((file) => {
+          const parsed = parseMusicMetadataDescription(file.description);
+          return {
+            ...file,
+            metadata: parsed.metadata,
+            metadataError: parsed.error,
+            streamUrl: `/api/music/${file.fileId}/stream`,
+          };
+        }),
+      });
+      return;
+    }
+    const musicStreamMatch = /^\/api\/music\/(\d+)\/stream$/.exec(url.pathname);
+    if (request.method === "GET" && musicStreamMatch) {
+      const file = ledger.file(Number(musicStreamMatch[1]));
+      if (!file || file.media_kind !== "audio") {
+        sendJson(response, 404, { error: "Music file was not found" });
+        return;
+      }
+      const filename = safeMediaPath(config.mediaRoot, file.storage_path);
+      const stat = await fsp.stat(filename).catch(() => null);
+      if (!stat?.isFile()) {
+        sendJson(response, 404, { error: "The stored music file is missing" });
+        return;
+      }
+      const range = byteRange(request.headers.range, stat.size);
+      if (range === false) {
+        response.writeHead(416, {
+          "Content-Range": `bytes */${stat.size}`,
+          "Accept-Ranges": "bytes",
+          "Cache-Control": "private, no-store",
+        });
+        response.end();
+        return;
+      }
+      const start = range?.start ?? 0;
+      const end = range?.end ?? stat.size - 1;
+      const downloadName = String(file.original_filename || `music-${file.file_id}.mp3`)
+        .replace(/[^A-Za-z0-9._-]+/g, "-");
+      response.writeHead(range ? 206 : 200, {
+        "Content-Type": file.mime_type || "audio/mpeg",
+        "Content-Length": end - start + 1,
+        "Content-Disposition": `inline; filename="${downloadName}"`,
+        "Accept-Ranges": "bytes",
+        ...(range ? { "Content-Range": `bytes ${start}-${end}/${stat.size}` } : {}),
+        "Cache-Control": "private, no-store",
+      });
+      fs.createReadStream(filename, { start, end }).pipe(response);
+      return;
+    }
     const fileDownloadMatch = /^\/api\/files\/(\d+)\/download$/.exec(url.pathname);
     if (request.method === "GET" && fileDownloadMatch) {
       const file = ledger.file(Number(fileDownloadMatch[1]));
@@ -1334,7 +1428,10 @@ const server = http.createServer(async (request, response) => {
       const body = await readJson(request, 2 * 1024 * 1024);
       const text = typeof body.text === "string" ? body.text.trim() : "";
       if (!text) throw Object.assign(new Error("Request text is required"), { statusCode: 400 });
-      const primaryFileId = body.primaryFileId == null ? null : Number(body.primaryFileId);
+      const attachmentFileIds = normalizeAttachmentFileIds(body.attachmentFileIds);
+      const primaryFileId = body.primaryFileId == null
+        ? (attachmentFileIds[0] ?? null)
+        : Number(body.primaryFileId);
       const runLimits = normalizeRunLimits(body.runLimits);
       const referencedRequestIds = normalizeReferencedRequestIds(body.referencedRequestIds);
       let selectedObjectCandidates;
@@ -1348,17 +1445,32 @@ const server = http.createServer(async (request, response) => {
           throw Object.assign(new Error("Request attachment ID is invalid"), { statusCode: 400 });
         }
         const file = ledger.file(primaryFileId);
-        if (!file || !["document", "image"].includes(file.media_kind)) {
+        if (!file || !["document", "image", "audio"].includes(file.media_kind)) {
           throw Object.assign(new Error("Request attachment was not found"), { statusCode: 404 });
         }
+      }
+      const effectiveAttachmentFileIds = attachmentFileIds.length
+        ? attachmentFileIds
+        : (primaryFileId == null ? [] : [primaryFileId]);
+      if (primaryFileId != null && !effectiveAttachmentFileIds.includes(primaryFileId)) {
+        throw Object.assign(new Error("The primary file must be included in attachmentFileIds"), { statusCode: 400 });
+      }
+      const attachedFiles = effectiveAttachmentFileIds.map((fileId) => ledger.file(fileId));
+      if (attachedFiles.some((attachedFile) => !attachedFile)) {
+        throw Object.assign(new Error("One or more request attachments were not found"), { statusCode: 404 });
+      }
+      if (attachedFiles.length > 1 && attachedFiles.some((attachedFile) => attachedFile.media_kind !== "audio")) {
+        throw Object.assign(new Error("Grouped request attachments must all be MP3 audio files"), { statusCode: 400 });
       }
       for (const referencedRequestId of referencedRequestIds) ledger.exchangeReference(referencedRequestId);
       const created = ledger.createRequest({
         text,
         channel: "web",
         primaryFileId,
+        attachmentFileIds: effectiveAttachmentFileIds,
         runLimits,
         metadata: {
+          ...(effectiveAttachmentFileIds.length ? { attachmentFileIds: effectiveAttachmentFileIds } : {}),
           ...(referencedRequestIds.length ? { referencedRequestIds } : {}),
           ...(selectedObjectCandidates.length ? { selectedObjectCandidates } : {}),
         },

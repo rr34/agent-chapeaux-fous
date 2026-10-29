@@ -630,29 +630,52 @@ export class Ledger {
     return row ? Number(row.event_seq) : null;
   }
 
-  createRequest({ text = null, channel = "web", primaryFileId = null, runLimits = null, metadata = {} }) {
+  createRequest({
+    text = null, channel = "web", primaryFileId = null, attachmentFileIds = [], runLimits = null, metadata = {},
+  }) {
+    const orderedFileIds = [...new Set([
+      ...(primaryFileId == null ? [] : [primaryFileId]),
+      ...(Array.isArray(attachmentFileIds) ? attachmentFileIds : []),
+    ])];
+    if (orderedFileIds.length > 100 || orderedFileIds.some((fileId) => !Number.isSafeInteger(fileId) || fileId < 1)) {
+      throw new Error("Request attachment file IDs must contain at most 100 positive integers");
+    }
     const requestId = randomUUID();
-    const eventId = this.append({
-      type: "request.received",
-      status: "queued",
-      actorType: "user",
-      actorName: "User",
-      source: channel === "voice" ? "voice_recorder" : "web_client",
-      channel,
-      turnId: requestId,
-      name: "User request",
-      content: text,
-      payload: { ...metadata, ...(runLimits === null ? {} : { runLimits }) },
-      primaryFileId,
-    });
-    if (primaryFileId !== null) {
-      this.store.requireReady().prepare(`
+    const database = this.store.requireReady();
+    database.exec("START TRANSACTION");
+    try {
+      const eventId = this.append({
+        type: "request.received",
+        status: "queued",
+        actorType: "user",
+        actorName: "User",
+        source: channel === "voice" ? "voice_recorder" : "web_client",
+        channel,
+        turnId: requestId,
+        name: "User request",
+        content: text,
+        payload: { ...metadata, ...(runLimits === null ? {} : { runLimits }) },
+        primaryFileId,
+      });
+      const link = database.prepare(`
+        INSERT INTO activity_event_files_join (event_id, file_id, file_role, ordinal)
+        VALUES (?, ?, 'attachment', ?)
+      `);
+      const source = database.prepare(`
         UPDATE files
         SET source_event_id = COALESCE(source_event_id, ?)
         WHERE file_id = ?
-      `).run(eventId, primaryFileId);
+      `);
+      for (const [ordinal, fileId] of orderedFileIds.entries()) {
+        link.run(eventId, fileId, ordinal);
+        source.run(eventId, fileId);
+      }
+      database.exec("COMMIT");
+      return { requestId, eventId };
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
     }
-    return { requestId, eventId };
   }
 
   nextQueuedRequest() {
@@ -1786,7 +1809,7 @@ export class Ledger {
     return { ...publicFile(row), origins };
   }
 
-  listFiles({ query = null, limit = 100 } = {}) {
+  listFiles({ query = null, limit = 100, mediaKind = null } = {}) {
     const bounded = Number(limit);
     if (!Number.isSafeInteger(bounded) || bounded < 1 || bounded > 500) {
       throw new Error("File list limit must be an integer from 1 to 500");
@@ -1794,6 +1817,14 @@ export class Ledger {
     const selectedQuery = String(query ?? "").trim();
     const conditions = [];
     const values = [];
+    if (mediaKind != null) {
+      const selectedMediaKind = String(mediaKind);
+      if (!["audio", "video", "image", "document", "archive", "other"].includes(selectedMediaKind)) {
+        throw new Error("File media kind is invalid");
+      }
+      conditions.push("file.media_kind = ?");
+      values.push(selectedMediaKind);
+    }
     for (const pattern of searchPatterns(selectedQuery)) {
       conditions.push(`(
         file.title LIKE ? ESCAPE '\\\\'
@@ -1810,29 +1841,58 @@ export class Ledger {
       ORDER BY file.created_at_utc DESC, file.file_id DESC
       LIMIT ?
     `).all(...values, bounded).map(publicFile);
-    return { query: selectedQuery || null, count: rows.length, files: rows };
+    return { query: selectedQuery || null, mediaKind, count: rows.length, files: rows };
+  }
+
+  updateFiles(updates, { titleSource = "user" } = {}) {
+    if (!Array.isArray(updates) || updates.length < 1 || updates.length > 100) {
+      throw new Error("File metadata updates must contain 1 to 100 files");
+    }
+    if (!["ai", "user"].includes(titleSource)) throw new Error("File title source must be ai or user");
+    const normalized = updates.map(({ fileId, title, description }) => {
+      if (!Number.isSafeInteger(fileId) || fileId < 1) throw new Error("File ID must be a positive integer");
+      const selectedTitle = String(title ?? "").trim();
+      const selectedDescription = description == null ? null : String(description).trim() || null;
+      if (!selectedTitle || selectedTitle.length > 200) throw new Error("File title must contain 1 to 200 characters");
+      if (selectedDescription && Buffer.byteLength(selectedDescription, "utf8") > 60_000) {
+        throw new Error("File description cannot exceed 60,000 UTF-8 bytes");
+      }
+      return { fileId, title: selectedTitle, description: selectedDescription };
+    });
+    if (new Set(normalized.map(({ fileId }) => fileId)).size !== normalized.length) {
+      throw new Error("File metadata updates cannot contain duplicate file IDs");
+    }
+    const database = this.store.requireReady();
+    database.exec("START TRANSACTION");
+    try {
+      const existingStatement = database.prepare("SELECT title_source FROM files WHERE file_id = ?");
+      for (const { fileId } of normalized) {
+        const existing = existingStatement.get(fileId);
+        if (!existing) throw new Error(`File ${fileId} does not exist`);
+        if (titleSource === "ai" && existing.title_source === "user") {
+          throw new Error(`File ${fileId} has a user-edited title and cannot be overwritten by AI`);
+        }
+      }
+      const updateStatement = database.prepare(`
+        UPDATE files
+        SET title = ?, description = ?, title_source = ?, updated_at_utc = ?
+        WHERE file_id = ?
+        RETURNING *
+      `);
+      const now = new Date().toISOString();
+      const files = normalized.map(({ fileId, title, description }) => publicFile(
+        updateStatement.get(title, description, titleSource, now, fileId),
+      ));
+      database.exec("COMMIT");
+      return files;
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   updateFile(fileId, { title, description, titleSource = "user" }) {
-    if (!Number.isSafeInteger(fileId) || fileId < 1) throw new Error("File ID must be a positive integer");
-    const selectedTitle = String(title ?? "").trim();
-    const selectedDescription = description == null ? null : String(description).trim() || null;
-    if (!["ai", "user"].includes(titleSource)) throw new Error("File title source must be ai or user");
-    if (!selectedTitle || selectedTitle.length > 200) throw new Error("File title must contain 1 to 200 characters");
-    if (selectedDescription && selectedDescription.length > 5000) throw new Error("File description cannot exceed 5000 characters");
-    const database = this.store.requireReady();
-    const existing = database.prepare("SELECT title_source FROM files WHERE file_id = ?").get(fileId);
-    if (!existing) throw new Error(`File ${fileId} does not exist`);
-    if (titleSource === "ai" && existing.title_source === "user") {
-      throw new Error(`File ${fileId} has a user-edited title and cannot be overwritten by AI`);
-    }
-    const row = database.prepare(`
-      UPDATE files
-      SET title = ?, description = ?, title_source = ?, updated_at_utc = ?
-      WHERE file_id = ?
-      RETURNING *
-    `).get(selectedTitle, selectedDescription, titleSource, new Date().toISOString(), fileId);
-    return publicFile(row);
+    return this.updateFiles([{ fileId, title, description }], { titleSource })[0];
   }
 
   requestHash(text) {

@@ -8,6 +8,7 @@ Android-first Expo development client for the Time V3 Technology Agent HTTP serv
 - recent request history with live queue/progress polling
 - exact typed-request submission to `POST /api/requests`
 - native audio recording and raw upload to `POST /api/voice`
+- authenticated work-aware MP3 library and player backed by `GET /api/music`
 - explicit Android `ACTION_SENDTO` handoff to the default messaging app
 
 The messaging handoff creates a draft. Time V3 Technology Agent does not send it and is not the default SMS application.

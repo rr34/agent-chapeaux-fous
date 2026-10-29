@@ -4,6 +4,7 @@ import path from "node:path";
 import { RE2JS } from "re2js";
 import { createFileArtifactSource } from "../artifact-source.mjs";
 import { inspectTextStructure } from "../file-structure-inspect.mjs";
+import { musicMetadataInputSchema, serializeMusicMetadata } from "../music-metadata.mjs";
 import { readTextAttachment } from "../request-attachments.mjs";
 import { inspectDelimitedText, readDelimitedRecords, transformDelimitedText } from "../tabular-transform.mjs";
 
@@ -108,8 +109,26 @@ const toolDescriptions = Object.freeze({
       "READ-ONLY"
     ]
   },
-  "file_update": { "summary": "Assign an AI-generated title and description to a newly uploaded file without overwriting user-authored metadata." }
+  "file_update": { "summary": "Assign AI-generated titles and descriptions to a bounded batch of newly uploaded files without overwriting user-authored metadata; audio descriptions may use the validated music metadata contract." }
 });
+
+const fileMetadataUpdateItemProperties = {
+  file_id: { type: "integer", minimum: 1 },
+  title: { type: "string", minLength: 1, maxLength: 200 },
+  description: { type: ["string", "null"], minLength: 1, maxLength: 60000 },
+  music_metadata: musicMetadataInputSchema,
+};
+
+const fileMetadataUpdateItemSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: fileMetadataUpdateItemProperties,
+  required: ["file_id", "title"],
+  oneOf: [
+    { required: ["description"] },
+    { required: ["music_metadata"] },
+  ],
+};
 
 const scalarSchema = { type: ["string", "number", "boolean", "null"] };
 const transformOperationSchema = {
@@ -308,6 +327,7 @@ const nativeToolContracts = Object.freeze({
   file_text_search: { allowUnboundInputs: true },
   file_table_inspect: { allowUnboundInputs: true },
   file_table_read_rows: { allowUnboundInputs: true },
+  file_update: { allowUnboundInputs: false },
 });
 
 export function registerFileTools(registry, {
@@ -884,19 +904,49 @@ export function registerFileTools(registry, {
 
   registry.register({
     name: "file_update",
-    description: "Assign an AI-generated title and plain-language description to a newly uploaded file. This cannot overwrite a user-edited title. Use it once after inspecting a new file whose title_source is original_filename; do not repeatedly retitle historical files.",
+    description: "Assign AI-generated titles and descriptions to 1-100 newly uploaded files atomically. This cannot overwrite user-edited titles. For audio files, supply music_metadata rather than encoding JSON in description; the application validates the versioned schema and stores readable JSON in files.description. Use filenames, existing embedded-tag hints, and the user's request as evidence; preserve null when a fact is unknown.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        file_id: { type: "integer", minimum: 1 },
-        title: { type: "string", minLength: 1, maxLength: 200 },
-        description: { type: ["string", "null"], minLength: 1, maxLength: 5000 },
+        ...fileMetadataUpdateItemProperties,
+        updates: {
+          type: "array",
+          minItems: 1,
+          maxItems: 100,
+          items: fileMetadataUpdateItemSchema,
+        },
       },
-      required: ["file_id", "title", "description"],
+      oneOf: [
+        { required: ["file_id", "title", "description"] },
+        { required: ["file_id", "title", "music_metadata"] },
+        { required: ["updates"] },
+      ],
     },
-    async execute({ file_id: fileId, title, description }, context) {
-      const file = ledger.updateFile(fileId, { title, description, titleSource: "ai" });
+    async execute(input, context) {
+      const updates = input.updates ?? [{
+        file_id: input.file_id,
+        title: input.title,
+        description: input.description,
+        music_metadata: input.music_metadata,
+      }];
+      if (new Set(updates.map(({ file_id: fileId }) => fileId)).size !== updates.length) {
+        throw new Error("File metadata updates cannot contain duplicate file IDs");
+      }
+      const prepared = updates.map(({ file_id: fileId, title, description, music_metadata: musicMetadata }) => {
+        if (musicMetadata !== undefined) {
+          const stored = ledger.file(fileId);
+          if (!stored || stored.media_kind !== "audio") {
+            throw new Error(`File ${fileId} is not a stored audio file`);
+          }
+        }
+        return {
+          fileId,
+          title,
+          description: musicMetadata === undefined ? description : serializeMusicMetadata(musicMetadata),
+        };
+      });
+      const files = ledger.updateFiles(prepared, { titleSource: "ai" });
       ledger.append({
         type: "file.metadata.updated",
         status: "complete",
@@ -904,12 +954,16 @@ export function registerFileTools(registry, {
         actorName: "file_update",
         turnId: context.requestId,
         operationId: context.callId,
-        name: `Updated file #${fileId} metadata`,
-        subjectType: "file",
-        subjectId: String(fileId),
-        payload: { fileId, titleSource: file.titleSource },
+        name: `Updated metadata for ${files.length} ${files.length === 1 ? "file" : "files"}`,
+        subjectType: files.length === 1 ? "file" : "file_batch",
+        subjectId: files.length === 1 ? String(files[0].fileId) : context.callId,
+        payload: { fileIds: files.map(({ fileId }) => fileId), titleSource: "ai", atomic: true },
       });
-      return { file };
+      return {
+        updatedCount: files.length,
+        files,
+        ...(files.length === 1 ? { file: files[0] } : {}),
+      };
     },
   });
 }

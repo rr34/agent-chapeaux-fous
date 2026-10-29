@@ -282,6 +282,7 @@ test("native ID consumers publish bindings for singleton and batch inputs", () =
   ]);
   assert.deepEqual(bindings("file_update"), [
     { path: "/file_id", objectType: "files.file", value: "id", role: "subject" },
+    { path: "/updates/*/file_id", objectType: "files.file", value: "id", role: "subject" },
   ]);
   assert.deepEqual(bindings("profile_fact_set"), [
     { path: "/replaces_profile_fact_id", objectType: "profile.fact", value: "id", role: "subject" },

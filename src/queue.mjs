@@ -55,6 +55,10 @@ export class RequestQueue {
     try {
       let text = request.content?.trim() || "";
       const file = request.primaryFileId == null ? null : this.ledger.file(request.primaryFileId);
+      const attachmentFileIds = Array.isArray(request.payload?.attachmentFileIds)
+        ? request.payload.attachmentFileIds
+        : (request.primaryFileId == null ? [] : [request.primaryFileId]);
+      const attachedFiles = attachmentFileIds.map((fileId) => this.ledger.file(Number(fileId))).filter(Boolean);
       if (!text) {
         if (!file || file.media_kind !== "audio") throw new Error("Voice request has no stored audio file");
         const operationId = `transcription:${request.turnId}`;
@@ -99,6 +103,43 @@ export class RequestQueue {
             mimeType: attachment.mimeType,
             byteSize: attachment.byteSize,
             sha256: attachment.sha256,
+          },
+          primaryFileId: request.primaryFileId,
+        });
+      } else if (attachedFiles.length && attachedFiles.every((entry) => entry.media_kind === "audio")) {
+        const files = attachedFiles.map((entry) => ({
+          fileId: Number(entry.file_id),
+          title: entry.title || entry.original_filename,
+          description: entry.description ?? null,
+          titleSource: entry.title_source ?? "original_filename",
+          originalFilename: entry.original_filename,
+          filename: entry.original_filename,
+          mediaKind: entry.media_kind,
+          mimeType: entry.mime_type,
+          byteSize: entry.byte_size == null ? null : Number(entry.byte_size),
+          durationMs: entry.duration_ms == null ? null : Number(entry.duration_ms),
+          sha256: entry.sha256,
+        }));
+        attachment = {
+          ...files[0],
+          mediaKind: "audio_group",
+          filename: `${files.length} uploaded MP3 ${files.length === 1 ? "file" : "files"}`,
+          files,
+          text: JSON.stringify({
+            purpose: "Use the user request, filenames, and existing ID3-derived descriptions to populate music_metadata with file_update. Unknown facts remain null.",
+            files: files.map(({ fileId, originalFilename, title, titleSource, description, durationMs }) => ({
+              fileId, originalFilename, title, titleSource, description, durationMs,
+            })),
+          }, null, 2),
+        };
+        this.ledger.append({
+          type: "attachment.read", status: "complete", actorType: "service",
+          actorName: "Music upload metadata reader", channel: request.channel,
+          turnId: request.turnId, name: `Prepared ${files.length} MP3 metadata records for the agent`,
+          payload: {
+            fileIds: files.map(({ fileId }) => fileId),
+            fileCount: files.length,
+            bytesReadFromAudio: 0,
           },
           primaryFileId: request.primaryFileId,
         });

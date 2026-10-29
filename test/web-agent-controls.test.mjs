@@ -55,16 +55,18 @@ test("plain Enter sends an Agent request while Shift+Enter keeps a newline", () 
   assert.match(objectMentionInput, /event\.preventDefault\(\);\s*event\.currentTarget\.form\?\.requestSubmit\(\);/s);
 });
 
-test("the Agent composer uploads one selected file and binds it to the queued request", () => {
+test("the Agent composer uploads selected files and binds the group to the queued request", () => {
   const composer = app.slice(app.indexOf("function AgentComposer("), app.indexOf("function AgentScreen("));
-  assert.match(composer, /aria-label=\{attachment \? `Replace attached file \$\{attachment\.file\.name\}` : "Attach a file"\}/);
+  assert.match(composer, /aria-label=\{attachments\.length \? "Replace attached files" : "Attach files"\}/);
   assert.match(composer, /type="file"/);
   assert.match(composer, /accept=\{requestAttachmentAccept\}/);
-  assert.match(composer, /`\/api\/request-files\?filename=\$\{encodeURIComponent\(attachment\.file\.name\)\}`/);
-  assert.match(composer, /headers: \{ "Content-Type": requestAttachmentMimeType\(attachment\.file\) \}/);
+  assert.match(composer, /multiple/);
+  assert.match(composer, /`\/api\/request-files\?filename=\$\{encodeURIComponent\(file\.name\)\}`/);
+  assert.match(composer, /headers: \{ "Content-Type": requestAttachmentMimeType\(file\) \}/);
   assert.match(composer, /primaryFileId,/);
-  assert.match(composer, /setAttachment\(null\)/);
-  assert.match(composer, /Remove attached file/);
+  assert.match(composer, /attachmentFileIds,/);
+  assert.match(composer, /setAttachments\(\[\]\)/);
+  assert.match(composer, /Remove attached files/);
   assert.match(styles, /\.composer-attachment-summary \{/);
 });
 

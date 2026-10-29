@@ -230,6 +230,51 @@ test("receipt PDFs are stored as verified binary documents without decoding them
   assert.equal(attachment.sha256, registration.sha256);
 });
 
+test("MP3 uploads verify MPEG bytes and preserve ID3 hints as validated music metadata", async (context) => {
+  const mediaRoot = temporaryMedia(context);
+  let registration;
+  const ledger = {
+    registerFile(input) {
+      registration = input;
+      return { fileId: 47, duplicate: false, storagePath: input.storagePath };
+    },
+  };
+  const frame = (id, value) => {
+    const payload = Buffer.concat([Buffer.from([3]), Buffer.from(value, "utf8")]);
+    const size = Buffer.alloc(4);
+    size.writeUInt32BE(payload.length);
+    return Buffer.concat([Buffer.from(id, "ascii"), size, Buffer.alloc(2), payload]);
+  };
+  const frames = Buffer.concat([
+    frame("TIT2", "Allegro"),
+    frame("TALB", "The Four Seasons: Spring"),
+    frame("TCOM", "Antonio Vivaldi"),
+    frame("TRCK", "1/3"),
+  ]);
+  const tagSize = Buffer.from([
+    (frames.length >> 21) & 0x7f,
+    (frames.length >> 14) & 0x7f,
+    (frames.length >> 7) & 0x7f,
+    frames.length & 0x7f,
+  ]);
+  const bytes = Buffer.concat([
+    Buffer.from("ID3", "ascii"), Buffer.from([3, 0, 0]), tagSize, frames,
+    Buffer.from([0xff, 0xfb, 0x90, 0x64, 0, 0, 0, 0]),
+  ]);
+  const uploaded = await receiveRequestAttachment(uploadRequest(bytes, "audio/mpeg"), {
+    filename: "01 Vivaldi Spring Allegro.mp3", mediaRoot, maximumBytes: 4096, ledger,
+    now: new Date("2026-10-29T12:00:00.000Z"), uuid: () => "music-id",
+  });
+  assert.equal(uploaded.mediaKind, "audio");
+  assert.equal(uploaded.mimeType, "audio/mpeg");
+  assert.equal(registration.title, "Allegro");
+  const metadata = JSON.parse(registration.description);
+  assert.equal(metadata.work.type, "album");
+  assert.equal(metadata.work.title, "The Four Seasons: Spring");
+  assert.deepEqual(metadata.work.creators, ["Antonio Vivaldi — composer"]);
+  assert.deepEqual(metadata.sequence1, { type: "track", number: 1, count: 3, title: "Allegro" });
+});
+
 test("request images reject mismatched content but use a generous configurable ceiling", async (context) => {
   const mediaRoot = temporaryMedia(context);
   const ledger = { registerFile() { throw new Error("must not register"); } };

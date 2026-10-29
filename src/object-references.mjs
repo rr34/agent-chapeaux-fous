@@ -410,21 +410,26 @@ export function relevantObjectReferenceCatalog(groups, {
 }
 
 export function currentRequestAttachmentObjectReferences(attachment, sourceEventSeq) {
-  const fileId = canonicalId(attachment?.fileId, { idKind: "integer" });
-  const display = firstDisplay(attachment, ["title", "originalFilename", "filename"]);
-  if (fileId == null || !display || !Number.isSafeInteger(sourceEventSeq) || sourceEventSeq <= 0) {
-    return [];
-  }
-  return normalizeObjectReferenceGroups([{
-    mention: "File attached to the current request",
-    role: defaultObjectBindingRole,
-    type: "files.file",
-    source: "native:files",
-    objects: [{
+  if (!Number.isSafeInteger(sourceEventSeq) || sourceEventSeq <= 0) return [];
+  const candidates = Array.isArray(attachment?.files) && attachment.files.length
+    ? attachment.files
+    : [attachment];
+  const objects = candidates.flatMap((candidate) => {
+    const fileId = canonicalId(candidate?.fileId, { idKind: "integer" });
+    const display = firstDisplay(candidate, ["title", "originalFilename", "filename"]);
+    return fileId == null || !display ? [] : [{
       id: fileId,
       ref: `agent-slayer://files/${encodeURIComponent(String(fileId))}`,
       display,
-    }],
+    }];
+  });
+  if (!objects.length) return [];
+  return normalizeObjectReferenceGroups([{
+    mention: objects.length === 1 ? "File attached to the current request" : "Files attached to the current request",
+    role: defaultObjectBindingRole,
+    type: "files.file",
+    source: "native:files",
+    objects,
     sourceEventSeqs: [sourceEventSeq],
   }]);
 }

@@ -28,6 +28,15 @@
         "csv",
         "tab-separated"
       ]
+    },
+    {
+      "extensions": [
+        ".mp3"
+      ],
+      "mimeIncludes": [
+        "audio/mpeg",
+        "audio/mp3"
+      ]
     }
   ],
   "readOnlyTools": [
@@ -48,7 +57,7 @@
       "operations": {
         "create": { "unavailable": "unsupported", "reason": "Durable files enter through user uploads or specialized artifact-producing workflows; no generic model-authored file creation operation is exposed." },
         "read": { "tool": "file_get", "batch": { "mode": "singleton", "reason": "One exact file metadata read preserves one checksum and provenance identity; collection discovery uses file_search." } },
-        "update": { "tool": "file_update", "batch": { "mode": "singleton", "reason": "Metadata enrichment is scoped to one newly uploaded file and never rewrites its bytes." } },
+        "update": { "tool": "file_update", "batch": { "mode": "array", "input": "/updates" }, "note": "The compatibility singleton input remains accepted; new multi-file enrichment uses the bounded atomic updates array." },
         "delete": { "unavailable": "unsupported", "reason": "Stored file bytes and provenance are immutable evidence; no destructive file deletion operation is exposed to the agent." }
       }
     },

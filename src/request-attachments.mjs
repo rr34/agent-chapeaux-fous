@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import { inspectMp3, mp3BytesMatch, musicMetadataFromMp3Tags } from "./mp3-metadata.mjs";
+import { serializeMusicMetadata } from "./music-metadata.mjs";
 import { parseCsvRows } from "./contact-file-import.mjs";
 import { parseDelimitedRows } from "./tabular-transform.mjs";
 
@@ -35,8 +37,12 @@ const allowedBinaryDocumentExtensions = new Map([
   [".pdf", new Set(["application/pdf", "application/octet-stream"])],
 ]);
 
+const allowedAudioExtensions = new Map([
+  [".mp3", new Set(["audio/mpeg", "audio/mp3", "application/octet-stream"])],
+]);
+
 const supportedAttachmentMessage = "Only text CSV, TSV, JSON, JSON Lines, TXT, and vCard attachments are supported";
-const supportedRequestAttachmentMessage = "Only PDF, JPEG, PNG, WebP, GIF, CSV, TSV, JSON, JSON Lines, TXT, and vCard attachments are supported";
+const supportedRequestAttachmentMessage = "Only MP3, PDF, JPEG, PNG, WebP, GIF, CSV, TSV, JSON, JSON Lines, TXT, and vCard attachments are supported";
 const allowedTextControlBytes = new Set([0x09, 0x0a, 0x0c, 0x0d]);
 
 function inputError(message, statusCode = 400) {
@@ -157,7 +163,7 @@ async function requestBytes(request, maximumBytes) {
 
 async function storeAttachment(bytes, {
   extension, originalFilename, mediaKind, mimeType, encoding = null,
-  title = originalFilename, description = null, mediaRoot, ledger, now, uuid,
+  title = originalFilename, description = null, durationMs = null, mediaRoot, ledger, now, uuid,
 }) {
   const relativeDirectory = path.join(
     String(now.getUTCFullYear()),
@@ -181,6 +187,7 @@ async function storeAttachment(bytes, {
       mimeType,
       sha256,
       byteSize: bytes.length,
+      durationMs,
     });
   } catch (error) {
     await fsp.unlink(absoluteFilename).catch(() => {});
@@ -272,6 +279,29 @@ export async function receiveRequestAttachment(request, options = {}) {
     });
   }
   const suppliedMimeType = normalizedMimeType(request.headers?.["content-type"]);
+  const allowedAudioMimeTypes = allowedAudioExtensions.get(extension);
+  if (allowedAudioMimeTypes) {
+    if (!allowedAudioMimeTypes.has(suppliedMimeType)) {
+      throw inputError(supportedRequestAttachmentMessage, 415);
+    }
+    const bytes = await requestBytes(request, options.maximumBytes);
+    if (!mp3BytesMatch(bytes)) throw inputError("Attachment bytes do not contain MPEG audio", 415);
+    const inspected = inspectMp3(bytes);
+    const metadata = musicMetadataFromMp3Tags(inspected.tags);
+    return storeAttachment(bytes, {
+      extension,
+      originalFilename,
+      title: inspected.tags.title || originalFilename,
+      description: serializeMusicMetadata(metadata),
+      mediaKind: "audio",
+      mimeType: "audio/mpeg",
+      mediaRoot: options.mediaRoot,
+      ledger: options.ledger,
+      now: options.now ?? new Date(),
+      uuid: options.uuid ?? randomUUID,
+      durationMs: inspected.durationMs,
+    });
+  }
   const allowedDocumentMimeTypes = allowedBinaryDocumentExtensions.get(extension);
   if (allowedDocumentMimeTypes) {
     if (!allowedDocumentMimeTypes.has(suppliedMimeType)) {

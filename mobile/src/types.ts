@@ -36,3 +36,41 @@ export type Health = {
   };
 };
 
+export type MusicSequence = {
+  type: 'movement' | 'act' | 'disc' | 'side' | 'track' | 'item' | 'sequence' | 'scene' | 'number';
+  number: number | string | null;
+  count: number | null;
+  title: string | null;
+};
+
+export type MusicMetadata = {
+  schemaVersion: 1;
+  work: {
+    type: 'symphony' | 'concerto' | 'sonata' | 'suite' | 'opera' | 'album' | 'song' | 'other' | null;
+    title: string | null;
+    version: string | null;
+    creators: string[] | null;
+    catalogue: string[] | null;
+  };
+  sequence1: MusicSequence | null;
+  sequence2: MusicSequence | null;
+  performers: string[] | null;
+  genres: string[] | null;
+  languages: string[] | null;
+  compositionDate: string | null;
+  performanceDate: string | null;
+  notes: string | null;
+};
+
+export type MusicFile = {
+  fileId: number;
+  title: string;
+  originalFilename: string | null;
+  mimeType: string | null;
+  byteSize: number | null;
+  durationMs: number | null;
+  metadata: MusicMetadata | null;
+  metadataError: string | null;
+  streamUrl: string;
+};
+
