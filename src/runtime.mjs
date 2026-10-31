@@ -32,10 +32,18 @@ import {
   commonSenseExecutionInstructions,
   commonSenseInstructions,
   completionAuditSchema,
+  connectCoreIntent,
   coreTargetRefs,
+  intentContinuityProblem,
   normalizeCompletionAudit,
   parseStructuredModelOutput,
 } from "./common-sense-core.mjs";
+import {
+  intentCreateEffects,
+  intentOutcomeFindings,
+  intentPreflightProblems,
+  matchingIntentOutcomeRefs,
+} from "./intent-continuity.mjs";
 import {
   temporalConsistencyFindings,
   temporalRepairContext,
@@ -572,6 +580,7 @@ function continuationReceipt(receipt) {
     ...(receipt.error ? { error: receipt.error } : {}),
     ...(receipt.toolFailure ? { toolFailure: receipt.toolFailure } : {}),
     ...(receipt.deferredActionReference ? { deferredActionReference: receipt.deferredActionReference } : {}),
+    ...(receipt.intentOutcomeRefs?.length ? { intentOutcomeRefs: receipt.intentOutcomeRefs } : {}),
   };
   return compact;
 }
@@ -1054,6 +1063,7 @@ export class SlayerRuntime {
       relationshipSetRefs: availableReferenceSets
         .filter(({ kind }) => kind === "relationship_set").map(({ ref }) => ref),
       objectTypes: flatObjectReferences(orientationObjectReferences).map(({ type }) => type),
+      resourceTypes: catalog.flatMap(({ objectTypes = [] }) => objectTypes.map(({ id }) => id)),
       requestId: args.requestId,
     });
     const priorConversationSummary = JSON.stringify({
@@ -1108,7 +1118,11 @@ export class SlayerRuntime {
       ])],
     });
     const acceptedCore = (value) => {
-      const accepted = withCoreReadCapabilities(value);
+      const accepted = connectCoreIntent(withCoreReadCapabilities(value));
+      const continuityProblem = intentContinuityProblem(accepted);
+      if (continuityProblem) {
+        throw new Error(`Common-sense intent continuity is invalid: ${continuityProblem}`);
+      }
       const problem = orientationReferenceSetProblem(accepted, {
         requestId: args.requestId,
         availableSets: availableReferenceSets,
@@ -1415,6 +1429,7 @@ export class SlayerRuntime {
         ...executionObjectReferences,
         ...reusableReferencedObjectReferences,
       ]),
+      intentCore: core,
     };
 
     if (typeof args.awaitTurnBriefApproval === "function") {
@@ -1469,6 +1484,12 @@ export class SlayerRuntime {
       receipts: execution.receipts,
       confirmedActionReferences,
     });
+    const intentFindings = intentOutcomeFindings({
+      core,
+      receipts: execution.receipts,
+      registry: this.registry,
+    });
+    receiptFindings.push(...intentFindings.filter(({ auditOnly }) => !auditOnly));
     const confirmationFindings = pendingConfirmationFindings(
       execution.receipts,
       confirmedActionReferences,
@@ -1504,7 +1525,10 @@ export class SlayerRuntime {
       core,
       receipts: execution.receipts,
       registry: this.registry,
-      findings: executionFindings,
+      findings: [
+        ...executionFindings,
+        ...intentFindings.filter(({ auditOnly }) => auditOnly),
+      ],
       requestText: args.text,
     });
     if (auditReasons.length === 0) {
@@ -1584,6 +1608,11 @@ export class SlayerRuntime {
       receipts: repair.receipts,
       confirmedActionReferences,
     });
+    finalFindings.push(...intentOutcomeFindings({
+      core,
+      receipts: repair.receipts,
+      registry: this.registry,
+    }).filter(({ auditOnly }) => !auditOnly));
     if (finalFindings.length) {
       const response = incompleteReceiptResponse(finalFindings);
       this.ledger.append({
@@ -1660,6 +1689,7 @@ export class SlayerRuntime {
     activeActionReferences = [], confirmedActionReferences = [],
     preparedCapabilityContext = null, temporalResolutions = [], objectReferences = [],
     completeObjectReferences = [], initialObjectReferences = [],
+    intentCore = null,
   }) {
     const registeredTools = this.registry.toolDefinitions();
     const allowedToolNames = Array.isArray(allowedToolNameList)
@@ -2022,6 +2052,38 @@ export class SlayerRuntime {
               payload: { ...event, workflowStep, workflowStepLabel, stepIndex },
             });
           },
+          onToolCallBatch: async ({ calls }) => {
+            if (!intentCore) return [];
+            const normalizedCalls = calls.flatMap((call) => {
+              try {
+                return [{
+                  callId: call.callId,
+                  tool: call.tool,
+                  arguments: argumentsObject(call.arguments),
+                }];
+              } catch {
+                return [];
+              }
+            });
+            const problems = intentPreflightProblems({
+              core: intentCore,
+              calls: normalizedCalls,
+              toolDefinitions: callableToolDefinitions,
+              receipts: sameRequestReceipts,
+            });
+            if (problems.length) {
+              this.ledger.append({
+                type: "intent.preflight.rejected", phase: "error", status: "error",
+                actorType: "service", actorName: "Intent continuity guard",
+                channel, turnId: requestId, operationId,
+                name: "Tool-call batch conflicts with accepted outcome",
+                content: problems[0].message,
+                payload: { problems },
+                error: problems.map(({ code }) => code).join(", "),
+              });
+            }
+            return problems;
+          },
           onToolCall: async (call) => {
             totalToolCallCount += 1;
             const callId = call.callId;
@@ -2067,6 +2129,29 @@ export class SlayerRuntime {
             const readOnly = registeredTool?.annotations?.readOnlyHint === true;
             const { toolArguments, filterRequest } = splitReadResultFilter(args, readOnly);
             const attemptKey = toolAttemptKey(name, args);
+            if (call.preflightError) {
+              const message = call.preflightError.message;
+              const receipt = {
+                tool: name,
+                arguments: toolArguments,
+                ...(filterRequest ? { resultFilter: filterRequest } : {}),
+                ok: false,
+                error: message,
+                preExecutionRejection: true,
+                intentOutcomeRefs: call.preflightError.outcomeRefs ?? [],
+              };
+              sameRequestReceipts.push(receipt);
+              this.ledger.append({
+                type: "tool.result", phase: "error", status: "error", actorType: "tool",
+                actorName: name, channel, turnId: requestId, operationId: callId, name,
+                payload: {
+                  callId, name, preExecutionRejection: true,
+                  intentOutcomeRefs: receipt.intentOutcomeRefs,
+                },
+                error: message,
+              });
+              return { ok: false, error: message, preExecutionRejection: true };
+            }
             if (failedToolAttempts.has(attemptKey)) {
               const message = `An identical ${name} call with the same arguments already failed during this request. Do not repeat it; make a material correction or report the blocker.`;
               sameRequestReceipts.push({
@@ -2476,6 +2561,12 @@ export class SlayerRuntime {
                 result: inline.deliveredResult,
                 sourceEventSeq: receiptEventSeq,
               });
+              const intentOutcomeRefs = intentCore
+                ? matchingIntentOutcomeRefs(intentCore, newObjectReferences)
+                : [];
+              const createEffects = !readOnly
+                ? intentCreateEffects(callableToolDefinitions.get(name))
+                : [];
               observedObjectReferences = mergeObjectReferenceGroups([
                 ...observedObjectReferences, ...newObjectReferences,
               ]);
@@ -2494,6 +2585,19 @@ export class SlayerRuntime {
                   },
                 });
               }
+              if (intentOutcomeRefs.length) {
+                this.ledger.append({
+                  type: "intent.outcomes.observed", status: "complete", actorType: "service",
+                  actorName: "Intent continuity guard", channel, turnId: requestId,
+                  operationId: callId, name: "Tool evidence connected to accepted outcome",
+                  content: intentOutcomeRefs.join(", "),
+                  payload: {
+                    tool: name,
+                    sourceReceiptEventSeq: receiptEventSeq,
+                    intentOutcomeRefs,
+                  },
+                });
+              }
               sameRequestReceipts.push({
                 tool: name,
                 arguments: toolArguments,
@@ -2502,6 +2606,8 @@ export class SlayerRuntime {
                 result: inline.deliveredResult,
                 receiptEventSeq,
                 ...(newObjectReferences.length ? { objectReferences: newObjectReferences } : {}),
+                ...(intentOutcomeRefs.length ? { intentOutcomeRefs } : {}),
+                ...(createEffects.length ? { intentCreateEffects: createEffects } : {}),
                 ...(recordedSets.length ? { referenceSets: recordedSets } : {}),
                 ...(sourcedActionReference ? { deferredActionReference: sourcedActionReference } : {}),
               });

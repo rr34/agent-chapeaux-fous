@@ -8,7 +8,9 @@ import {
   commonSenseExecutionInstructions,
   commonSenseInstructions,
   completionAuditSchema,
+  connectCoreIntent,
   coreTargetRefs,
+  intentContinuityProblem,
   normalizeCompletionAudit,
   parseStructuredModelOutput,
 } from "../src/common-sense-core.mjs";
@@ -29,6 +31,16 @@ function validCore() {
       targetSetRefs: [],
       relationshipSetRefs: [],
       unresolvedTargets: [],
+      outcomeObjects: [{
+        description: "The three selected to-dos in their completed final state.",
+        objectType: "todos.personal_task",
+        targetRefs: [
+          "agent-slayer://todos/7",
+          "agent-slayer://todos/8",
+          "agent-slayer://todos/9",
+        ],
+        cardinality: { minimum: 3, maximum: 3, basis: "request" },
+      }],
     }],
     objectSets: [],
     relationshipSets: [],
@@ -44,6 +56,7 @@ function validCore() {
 test("the common-sense core is compact, batch-shaped, and contains no tool planning", () => {
   const schema = commonSenseCoreSchema({
     capabilities: ["todos", "calendar"],
+    resourceTypes: ["todos.personal_task", "calendar.event"],
     objectRefs: [
       "agent-slayer://todos/7",
       "agent-slayer://todos/8",
@@ -58,6 +71,10 @@ test("the common-sense core is compact, batch-shaped, and contains no tool plann
   assert.equal(Object.hasOwn(schema.properties, "conversationState"), false);
   assert.equal(Object.hasOwn(schema.properties, "completionCriteria"), false);
   assert.match(schema.properties.mode.description, /act only when.*mutation/i);
+  const connected = connectCoreIntent(value);
+  assert.equal(connected.actions[0].actionId, "action_1");
+  assert.equal(connected.actions[0].outcomeObjects[0].outcomeId, "outcome_1");
+  assert.equal(intentContinuityProblem(connected), null);
 });
 
 test("read-only work is answer mode and current receipts can correct factual premises", () => {
@@ -251,6 +268,7 @@ test("the core can define and select exact relationship sets from supplied objec
       targetSetRefs: [],
       relationshipSetRefs: [relationshipRef],
       unresolvedTargets: [],
+      outcomeObjects: [],
     }],
     relationshipSets: [{
       ref: relationshipRef,

@@ -249,11 +249,16 @@ ontology rather than inferred from a central tool-name map.
 
 **56. Common-sense core** — The compact structured result of the first model
 interaction for an Agent request. It records the ordinary-language end state,
-batch-shaped actions, supplied stable target and set references, request-local
+batch-shaped actions with application-assigned stable request-local identities,
+compact first-class outcome objects with application-assigned identities and
+request-grounded or inferred cardinality, supplied
+stable target and set references, request-local
 object and directed relationship sets, unresolved target slots, relevant user
 constraints, genuine blocking questions, bounded context requests, selected
 capability families, confirmed prepared-change references, and literal temporal
-resolutions. It does not select exact tools, copy full object bindings, generate
+resolutions. Outcome objects preserve continuity into execution and completion;
+they describe intended first-class final-state roles rather than rows, calls, or
+tool order. It does not select exact tools, copy full object bindings, generate
 audit policy, or restate generic safety prose. Application code verifies current
 selections and hydrates exact bindings before execution receives the core plus
 the exact schemas for tools in its selected capability families.

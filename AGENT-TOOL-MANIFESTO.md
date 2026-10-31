@@ -660,6 +660,8 @@ Agent Slayer uses a structured loop derived from the military OODA loop:
 
 1. **Orient** — understand the exact request as ordinary conversation and emit
    a compact common-sense core containing its end state, batch-shaped actions,
+   application-assigned stable request-local action identities, compact
+   first-class outcome objects with application-assigned identities,
    relevant supplied object and set references, exact directed relationship
    sets, unresolved target slots, explicit constraints, genuine questions,
    context needs, and capability families. Do not select exact tools or audits.
@@ -668,7 +670,8 @@ Agent Slayer uses a structured loop derived from the military OODA loop:
    interpretation.
 3. **Execute** — receive the accepted core, prepared context, and verified
    bindings; expose exact schemas for the selected capability families; invoke
-   tools; and return every result to the same model exchange.
+   tools; connect canonical result bindings back to compatible accepted outcome
+   identities; and return every result to the same model exchange.
 4. **Audit when exceptional** — compare the ordinary-language outcome with
    exact contracts and receipts only when deterministic completion is
    insufficient.
@@ -681,6 +684,19 @@ additional model call. Audit is required for destructive-language semantics,
 conflicting or failed receipts that may have been recovered, unknown tool
 effects, or an action lacking successful mutation evidence. Unknown effects are
 treated conservatively.
+
+Outcome objects are continuity, not another planning layer. Their cardinality
+describes first-class objects in the requested result, not tool-call count,
+database-row count, or an ordered execution recipe. A job containing six
+details can therefore remain one outcome object, while six independently
+requested first-class objects can be represented as six. Only cardinality
+grounded directly in the exact request or an exact selected set is a
+deterministic restriction; inferred structure remains model context for
+exceptional semantic review. Before executing sibling calls, the structure may
+reject a mechanically provable singleton-create fan-out that would exceed an
+explicit accepted maximum. It then reconciles distinct canonical object
+bindings in successful mutation receipts with those same outcome identities.
+Provider schemas and arguments remain unchanged.
 
 An action that pauses for a material user-controlled choice is
 `needs_information`, even when all required read and mutation tools are

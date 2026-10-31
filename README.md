@@ -496,7 +496,13 @@ and selections, and concise descriptions of connected capability families. It
 does not receive callable schemas, exact tool names, audit policy, or unrelated
 historical bindings. It emits a strict common-sense core: the end goal, a
 batch-shaped action list, stable target references, relevant constraints,
-genuine questions, bounded context requests, and capability families.
+genuine questions, bounded context requests, and capability families. Every
+action receives one application-assigned request-local identity and contains
+compact first-class outcome objects whose identities are assigned the same way.
+Those outcomes describe the intended final object roles and explicit
+cardinality without prescribing rows, exact tools, or call order; one container
+with several details remains one outcome object unless the user actually wants
+the details represented as independent first-class objects.
 
 Application code then verifies explicit selections, reads the requested bounded
 context views, and hydrates exact object bindings without another model call.
@@ -506,6 +512,18 @@ exact schemas for tools in the selected capability families plus versioned guida
 behavior. Provider tool continuations preserve same-request receipts. Prior
 opaque receipts can be recovered through the execution-only receipt reader
 without adding them to orientation.
+
+Execution evidence remains structurally connected to the accepted outcome
+identities. Before any member of one sibling mutation set runs, the runtime
+checks explicit request-established outcome cardinality against mechanically
+declared singleton create effects and rejects an obvious fan-out as one set.
+Inferred outcome structure remains advisory. Successful mutation receipts are
+then connected to compatible outcome identities through canonical first-class
+object bindings, and deterministic completion compares the distinct evidenced
+objects with explicit final cardinality before audit may be skipped. These
+checks constrain the accepted final state, not the model's implementation
+method, and never rewrite provider tool schemas or inject application fields
+into their arguments.
 
 The selected tool list is enforcement, not a hint: a model call outside the
 current interaction's callable set is rejected before the application function

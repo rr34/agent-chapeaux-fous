@@ -47,7 +47,8 @@ function enumArray(values, maximumItems = values.length) {
 
 export function commonSenseCoreSchema({
   capabilities = [], contextViewIds = [], actionReferenceIds = [], objectRefs = [],
-  objectSetRefs = [], relationshipSetRefs = [], objectTypes = [], requestId = "request",
+  objectSetRefs = [], relationshipSetRefs = [], objectTypes = [], resourceTypes = [],
+  requestId = "request",
 } = {}) {
   const allowedCapabilities = [...new Set(capabilities)].sort();
   const allowedContextViews = [...new Set(contextViewIds)].sort();
@@ -62,6 +63,10 @@ export function commonSenseCoreSchema({
     : text(200);
   const allowedObjectSetRefs = [...new Set(objectSetRefs)].sort();
   const allowedRelationshipSetRefs = [...new Set(relationshipSetRefs)].sort();
+  const allowedResourceTypes = [...new Set(resourceTypes)].sort();
+  const resourceTypeValue = allowedResourceTypes.length
+    ? { type: "string", enum: allowedResourceTypes }
+    : text(200);
   const localObjectSetPattern = `^agent-slayer://requests/${encodeURIComponent(requestId).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/object-sets/[A-Za-z0-9._~-]+$`;
   const localRelationshipSetPattern = `^agent-slayer://requests/${encodeURIComponent(requestId).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/relationship-sets/[A-Za-z0-9._~-]+$`;
   const selectableSetRefs = (availableRefs, localPattern) => ({
@@ -105,7 +110,7 @@ export function commonSenseCoreSchema({
       actions: {
         type: "array",
         maxItems: 30,
-        description: "The requested work. One action may target many objects; do not split a batch into one action per object.",
+        description: "The requested work. One action may target many objects; do not split a batch into one action per object. The application assigns each accepted action a stable identity for execution and completion; orientation names only the first-class outcome objects whose final state it intends.",
         items: {
           type: "object",
           additionalProperties: false,
@@ -129,8 +134,49 @@ export function commonSenseCoreSchema({
               items: unresolvedTarget,
               description: "Target roles described by the user whose exact objects have not yet been supplied. Execution may resolve these through an owning read.",
             },
+            outcomeObjects: {
+              type: "array",
+              maxItems: 20,
+              description: "Compact first-class objects in the intended final state. Describe one container once even when it contains many details. Cardinality constrains the final requested object set, never the number or order of tool calls. Use an empty array when the action has no first-class object outcome.",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  description: {
+                    ...text(1_000),
+                    description: "The requested final-state role and composition of this object in ordinary language, without prescribing tools or storage mechanics.",
+                  },
+                  objectType: {
+                    ...resourceTypeValue,
+                    description: "Connected first-class resource type that can represent this outcome object.",
+                  },
+                  targetRefs: {
+                    ...enumArray(allowedObjectRefs, 500),
+                    description: "Exact existing objects that fill this outcome role. Keep empty for objects that do not exist yet. This connects a final-state role to supplied identity without copying a binding.",
+                  },
+                  cardinality: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      minimum: { type: "integer", minimum: 0, maximum: 10000 },
+                      maximum: { type: ["integer", "null"], minimum: 0, maximum: 10000 },
+                      basis: {
+                        type: "string",
+                        enum: ["request", "inferred"],
+                        description: "request means the exact request or exact selected set establishes this bound; inferred means it is useful common-sense structure but not a deterministic execution restriction.",
+                      },
+                    },
+                    required: ["minimum", "maximum", "basis"],
+                  },
+                },
+                required: ["description", "objectType", "targetRefs", "cardinality"],
+              },
+            },
           },
-          required: ["instruction", "targetRefs", "targetSetRefs", "relationshipSetRefs", "unresolvedTargets"],
+          required: [
+            "instruction", "targetRefs", "targetSetRefs", "relationshipSetRefs",
+            "unresolvedTargets", "outcomeObjects",
+          ],
         },
       },
       objectSets: {
@@ -468,6 +514,7 @@ export const commonSenseInstructions = [
   "Prioritize the exact current request and any explicit composer selections. Use older conversation only to resolve genuine references or continuations.",
   "Describe the end state in ordinary language. Do not select tools, write audit policy, copy tool protocols, manufacture prohibitions, or turn preservation of unrelated state into verbose constraints.",
   "When the user plainly rejects an object the agent just created by mistake, include removal of that mistaken object in the requested end state; do not reduce the correction to emptying or ignoring it.",
+  "Preserve the user's intended first-class final state in outcomeObjects. The application assigns stable action and outcome identities after orientation; do not manufacture correlation IDs. Each outcome is a semantic object role, not a planned row or tool call: one requested job containing six listed details is one job outcome, while six independently requested first-class objects may be six outcomes or one outcome with cardinality six. Use basis=request only when the exact request or an exact selected set establishes the bound; otherwise use basis=inferred.",
   "For a batch, write one action and directly select exact object refs or an exact object set. A binding is identity evidence, not proof that every member is a current target. Use separate actions only for genuinely different requested operations.",
   "When the request specifies pairings, preserve them as one typed directed relationship set with one exact fromRef/toRef edge per pairing and the actual fromType/toType contract. Never represent pairings as two independent lists, because that loses correspondence.",
   "You may define request-local sets only from object refs supplied in this orientation interaction. Put targets that still require search or resolution in unresolvedTargets instead of inventing refs.",
@@ -493,6 +540,40 @@ export function coreTargetRefs(core, referenceSets = []) {
     ...(core.actions ?? []).flatMap(({ targetRefs = [] }) => targetRefs),
     ...referenceSetObjectRefs(referenceSets),
   ])];
+}
+
+export function intentContinuityProblem(core) {
+  const actionIds = new Set();
+  for (const action of core.actions ?? []) {
+    if (actionIds.has(action.actionId)) return `duplicate actionId ${action.actionId}`;
+    actionIds.add(action.actionId);
+    const outcomeIds = new Set();
+    for (const outcome of action.outcomeObjects ?? []) {
+      if (outcomeIds.has(outcome.outcomeId)) {
+        return `duplicate outcomeId ${outcome.outcomeId} in action ${action.actionId}`;
+      }
+      outcomeIds.add(outcome.outcomeId);
+      const { minimum, maximum } = outcome.cardinality ?? {};
+      if (maximum !== null && maximum < minimum) {
+        return `outcome ${action.actionId}.${outcome.outcomeId} has maximum below minimum`;
+      }
+    }
+  }
+  return null;
+}
+
+export function connectCoreIntent(core) {
+  return {
+    ...core,
+    actions: (core.actions ?? []).map((action, actionIndex) => ({
+      ...action,
+      actionId: `action_${actionIndex + 1}`,
+      outcomeObjects: (action.outcomeObjects ?? []).map((outcome, outcomeIndex) => ({
+        ...outcome,
+        outcomeId: `outcome_${outcomeIndex + 1}`,
+      })),
+    })),
+  };
 }
 
 export function availableCoreObjectRefs(groups, selectedObjectCandidates = []) {

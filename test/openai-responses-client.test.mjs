@@ -227,6 +227,52 @@ test("OpenAI Responses sends the exact request, image, and tool schemas through 
   assert.equal(Object.hasOwn(result.usage, "pricing"), false);
 });
 
+test("OpenAI Responses preflights a complete sibling call set before executing any member", async () => {
+  const responses = [{
+    id: "fanout",
+    model: "gpt-5.6-terra",
+    status: "completed",
+    output: [1, 2].map((number) => ({
+      type: "function_call",
+      call_id: `call_${number}`,
+      name: "todo_create",
+      arguments: JSON.stringify({ text: `Task ${number}` }),
+    })),
+    usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+  }, {
+    id: "done",
+    model: "gpt-5.6-terra",
+    status: "completed",
+    output: [{
+      type: "message", role: "assistant",
+      content: [{ type: "output_text", text: "Corrected." }],
+    }],
+    usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+  }];
+  const client = new OpenAIResponsesClient({
+    apiKey: "test-key",
+    fetchImpl: async () => jsonResponse(responses.shift()),
+  });
+  const observed = [];
+  const result = await client.runTurn({
+    model: "gpt-5.6-terra",
+    input: "Create one task.",
+    tools,
+    onToolCallBatch: async ({ calls }) => calls.map(({ callId }) => ({
+      callId,
+      code: "TOO_MANY",
+      message: "The accepted outcome is one task.",
+    })),
+    onToolCall: async (call) => {
+      observed.push(call);
+      return { ok: false, error: call.preflightError.message };
+    },
+  });
+  assert.equal(result.text, "Corrected.");
+  assert.equal(observed.length, 2);
+  assert.ok(observed.every(({ preflightError }) => preflightError.code === "TOO_MANY"));
+});
+
 test("seven tools requested together and their follow-up response are exactly two LLM calls", async () => {
   let requests = 0;
   let toolCalls = 0;

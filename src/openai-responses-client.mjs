@@ -371,6 +371,7 @@ export class OpenAIResponsesClient {
     terminalFailureObserved = false,
     runTimeoutMs = null,
     onToolCall,
+    onToolCallBatch = null,
     onEvent,
   }) {
     await this.start();
@@ -525,6 +526,18 @@ export class OpenAIResponsesClient {
         let immediateControlTransfer = false;
         let refreshedToolDefinitions = null;
         let stopCurrentToolLoop = false;
+        const batchProblems = typeof onToolCallBatch === "function"
+          ? await onToolCallBatch({
+              calls: calls.map((call) => ({
+                callId: call.call_id,
+                tool: call.name,
+                arguments: call.arguments,
+              })),
+            })
+          : [];
+        const batchProblemByCallId = new Map(
+          (batchProblems ?? []).map((problem) => [problem.callId, problem]),
+        );
         for (const call of calls) {
           toolCallCount += 1;
           if (maxToolCalls !== null && toolCallCount > maxToolCalls + 8) {
@@ -547,6 +560,9 @@ export class OpenAIResponsesClient {
               callId: call.call_id,
               tool: call.name,
               arguments: call.arguments,
+              ...(batchProblemByCallId.has(call.call_id)
+                ? { preflightError: batchProblemByCallId.get(call.call_id) }
+                : {}),
             });
           }
           if (

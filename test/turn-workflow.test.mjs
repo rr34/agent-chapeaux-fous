@@ -53,6 +53,7 @@ function core(overrides = {}) {
       targetSetRefs: [],
       relationshipSetRefs: [],
       unresolvedTargets: [],
+      outcomeObjects: [],
       ...action,
     })),
     objectSets: value.objectSets ?? [],
@@ -340,6 +341,112 @@ test("sequenced to-do creation responses include the group-local sequence from t
   assert.equal(requests.length, 2);
   assert.match(ledger.events.find(({ name, phase }) => name === "Execute request" && phase === "end").content,
     /Sequence number: \*\*Watch Jobs #167\*\*/u);
+});
+
+test("explicit one-object intent rejects sibling create fan-out before any mutation", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  registry.withCapability("todos", {}, {
+    todo_list: { allowUnboundInputs: true, objectTypes: ["todos.personal_task"] },
+  }).register({
+    name: "todo_list",
+    description: "Read personal to-dos.",
+    annotations: { readOnlyHint: true, destructiveHint: false },
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+    outputSchema: { type: "object", properties: { tasks: { type: "array" } } },
+    readResultCollectionPaths: ["/tasks"],
+    async execute() { return { tasks: [] }; },
+  });
+  let created = 0;
+  registry.withCapability("todos", {}, {
+    todo_add: { allowUnboundInputs: true },
+  }).register({
+    name: "todo_add",
+    description: "Add one personal to-do.",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { text: { type: "string" }, todo_group_id: { type: "integer" } },
+      required: ["text", "todo_group_id"],
+    },
+    async execute({ text, todo_group_id }) {
+      created += 1;
+      return {
+        task: {
+          personal_task_id: 463, todo_group_id, text, status: "todo",
+          sequence: "172", group_name: "Watch Jobs",
+          ref: "agent-slayer://todos/463",
+        },
+      };
+    },
+  });
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) return completed(JSON.stringify(core({
+        objective: "Create one watch job containing six watches.",
+        conversationSummary: "The user wants one job, not six jobs.",
+        actions: [{
+          instruction: "Create one watch job containing all six watch details.",
+          targetRefs: [],
+          outcomeObjects: [{
+            description: "One watch job containing all six listed watches.",
+            objectType: "todos.personal_task",
+            targetRefs: [],
+            cardinality: { minimum: 1, maximum: 1, basis: "request" },
+          }],
+        }],
+        capabilities: ["todos"],
+      })));
+      if (index === 1) {
+        const fanout = [1, 2].map((number) => ({
+          callId: `fanout-${number}`, tool: "todo_add",
+          arguments: { text: `Watch ${number}`, todo_group_id: 10 },
+        }));
+        const problems = await payload.onToolCallBatch({ calls: fanout });
+        assert.equal(problems.length, 2);
+        for (const call of fanout) {
+          const result = await payload.onToolCall({
+            ...call,
+            preflightError: problems.find(({ callId }) => callId === call.callId),
+          });
+          assert.equal(result.preExecutionRejection, true);
+        }
+        assert.equal(created, 0);
+        const combined = {
+          callId: "combined", tool: "todo_add",
+          arguments: { text: "Watch Job\n1. Lorus\n2. Skagen\n3. Lenoin\n4. Eco Drive\n5. Citizen\n6. Tissot", todo_group_id: 10 },
+        };
+        assert.deepEqual(await payload.onToolCallBatch({ calls: [combined] }), []);
+        assert.equal((await payload.onToolCall(combined)).ok, true);
+        return completed("Created one Watch Jobs #172 containing all six watches.", 30);
+      }
+      assert.equal(index, 2);
+      return completed(JSON.stringify({
+        version: 1,
+        outcome: "complete",
+        requiresUserInput: false,
+        missingInformation: [],
+        summary: "One combined watch job was created.",
+        satisfied: ["The one requested job exists."],
+        remaining: [],
+        repairInstructions: [],
+      }));
+    },
+  });
+
+  assert.match(await runtime.run({
+    requestId: "request-one-watch-job",
+    requestEventId: "event-current",
+    text: "Add a watch job with 6 watches.",
+  }), /one Watch Jobs #172/u);
+  assert.equal(created, 1);
+  assert.ok(ledger.events.some(({ type }) => type === "intent.preflight.rejected"));
+  assert.ok(ledger.events.some(({ type }) => type === "intent.outcomes.observed"));
 });
 
 test("a requested context view supplies observed bindings directly to execution", async () => {
