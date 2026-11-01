@@ -67,6 +67,22 @@ test("compact cards have one identity and exactly the shared expand, network, an
   assert.doesNotMatch(styles, /network-search-results \.first-class-object-card|network-object-card/);
 });
 
+test("full and expanded cards show their complete provided information", () => {
+  const full = fs.readFileSync(path.join(cardsRoot, "FullObjectCard.tsx"), "utf8");
+  const simple = fs.readFileSync(path.join(cardsRoot, "SimpleObjectCard.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "web/src/styles.css"), "utf8");
+  const sharedBodyRule = styles.match(/^\.first-class-object-body \{[^}]*\}/mu)?.[0] || "";
+
+  assert.match(full, /<p className="first-class-object-body">\{object\.body\}<\/p>/);
+  assert.match(full, /object\.badges!\.map/);
+  assert.match(full, /attributes\.map/);
+  assert.match(full, /className="first-class-object-details"/);
+  assert.match(simple, /full=\{<SimpleObjectCard \{\.\.\.props\}[\s\S]*mode="full" \/>\}/);
+  assert.match(sharedBodyRule, /display: block;[^}]*overflow: visible;[^}]*overflow-wrap: anywhere;[^}]*white-space: pre-wrap;/s);
+  assert.doesNotMatch(sharedBodyRule, /line-clamp:/);
+  assert.doesNotMatch(sharedBodyRule, /overflow: hidden/);
+});
+
 test("calendar event cards keep notes and event details behind the shared expansion", () => {
   const calendar = fs.readFileSync(path.join(cardsRoot, "CalendarEventCard.tsx"), "utf8");
   const compact = fs.readFileSync(path.join(cardsRoot, "CompactObjectCard.tsx"), "utf8");

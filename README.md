@@ -62,6 +62,11 @@ layout changes belong in `SimpleObjectCard`, `FullObjectCard`, or
 `CompactObjectCard`. The only ordinary presentation variants are full and
 compact (expanded and collapsed).
 
+Full cards and expanded compact cards render their complete provided body,
+attributes, badges, and details without visual clipping or line clamping.
+Collapsed compact cards may reduce the object to its identity and compact
+details until the user expands it.
+
 A property that identifies or characterizes an object in more than one view
 belongs to its reusable card. Keep
 `test/web-domain-object-cards.test.mjs` aligned with this boundary so a new view

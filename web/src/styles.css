@@ -92,7 +92,7 @@ a { color: inherit; }
 .first-class-object-content--open:hover .first-class-object-title { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .first-class-object-label { color: var(--olive); font-size: 10px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
 .first-class-object-title { margin: 0; font: 600 20px/1.15 "Newsreader", Georgia, serif; overflow-wrap: anywhere; white-space: pre-wrap; }
-.first-class-object-body { display: -webkit-box; overflow: hidden; margin: 1px 0; color: var(--muted); font-size: 13px; line-height: 1.45; white-space: pre-wrap; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.first-class-object-body { display: block; overflow: visible; margin: 1px 0; color: var(--muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
 .first-class-object-badges, .first-class-object-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .first-class-object-attributes { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 0 0; }
 .first-class-object-attributes div { min-width: 0; display: flex; gap: 5px; color: var(--muted); font-size: 11px; }
