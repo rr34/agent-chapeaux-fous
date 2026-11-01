@@ -16,6 +16,75 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0060: persist-jmap-mailbox-membership
+-- writer downtime: required while correspondence email writes and the mailbox
+-- mirror schema move together. The existing email cursor is cleared so the
+-- next explicit synchronization performs one complete authoritative baseline
+-- before later incremental synchronization can trust that cursor.
+-- locking: ALTER TABLE takes a metadata lock on correspondence. Both new
+-- tables begin empty; replacing the relationship view does not materialize
+-- data. No correspondence body is rewritten.
+-- recovery: MariaDB DDL commits implicitly. Column and table creation are
+-- guarded, and the view injection detects an already-installed branch. Keep
+-- writers stopped and rerun the complete migration after a partial failure.
+
+ALTER TABLE correspondence
+  ADD COLUMN IF NOT EXISTS email_keywords_json JSON NULL
+    COMMENT 'Sorted JSON array of active provider-owned JMAP email keywords such as $seen, $flagged, $answered, and $draft. Null for non-email correspondence.'
+    AFTER provider_status;
+
+CREATE TABLE IF NOT EXISTS jmap_email_mailboxes (
+    source_account_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Stable local key identifying the configured JMAP email account that owns this mailbox.',
+    mailbox_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Provider-assigned stable JMAP Mailbox id within the owning account.',
+    name VARCHAR(500) NOT NULL COMMENT 'Current complete human-facing mailbox name reported by JMAP.',
+    role VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Provider-reported JMAP mailbox role such as inbox, archive, drafts, sent, trash, or spam; null for custom mailboxes.',
+    parent_mailbox_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Provider mailbox id of the current hierarchical parent when this mailbox is nested.',
+    sort_order BIGINT NOT NULL DEFAULT 0 COMMENT 'Provider-reported mailbox display order. Lower values appear first.',
+    is_subscribed TINYINT NOT NULL DEFAULT 1 COMMENT 'Whether the provider reports this mailbox as subscribed. 0: not subscribed. 1: subscribed.',
+    updated_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this local provider-owned mailbox snapshot was most recently synchronized.',
+    PRIMARY KEY (source_account_key, mailbox_id),
+    KEY jmap_email_mailboxes_role (source_account_key, role, sort_order, mailbox_id),
+    KEY jmap_email_mailboxes_parent (source_account_key, parent_mailbox_id, sort_order, mailbox_id),
+    CONSTRAINT jmap_email_mailboxes_name CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 500),
+    CONSTRAINT jmap_email_mailboxes_subscribed CHECK (is_subscribed IN (0, 1))
+) ENGINE=InnoDB COMMENT='Mirrors provider-owned JMAP mailbox identity and presentation metadata so synchronized correspondence can retain exact current folder membership while JMAP remains authoritative. One row represents one mailbox in one configured account. Sensitivity: Mailbox names and hierarchy may reveal private projects, people, or categories.';
+
+CREATE TABLE IF NOT EXISTS correspondence_email_mailboxes_join (
+    correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Synchronized email correspondence belonging to this provider mailbox.',
+    source_account_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Owning JMAP account key; retained with mailbox_id to preserve provider identity.',
+    mailbox_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Provider-assigned JMAP mailbox id currently containing the email.',
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this exact local mailbox-membership observation was most recently established.',
+    PRIMARY KEY (correspondence_id, source_account_key, mailbox_id),
+    KEY correspondence_email_mailboxes_mailbox (source_account_key, mailbox_id, correspondence_id),
+    CONSTRAINT correspondence_email_mailboxes_message FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE,
+    CONSTRAINT correspondence_email_mailboxes_mailbox_fk FOREIGN KEY (source_account_key, mailbox_id) REFERENCES jmap_email_mailboxes(source_account_key, mailbox_id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='Mirrors the provider-owned many-to-many membership between synchronized email correspondence and JMAP mailboxes. Replacing one email''s rows from Email/get preserves Inbox, custom-folder, Sent, Archive, Trash, and multi-mailbox membership without treating the local mirror as authoritative. Sensitivity: Folder membership reveals private communication organization.';
+
+DELETE FROM jmap_email_sync_state;
+
+SET @object_edges_definition := (
+  SELECT VIEW_DEFINITION FROM information_schema.VIEWS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'object_relationship_edges'
+);
+SET @object_edges_definition := IF(
+  LOCATE('correspondence_email_mailboxes_join', @object_edges_definition) > 0,
+  @object_edges_definition,
+  REGEXP_REPLACE(
+    @object_edges_definition,
+    'union all select ''todos[.]todo_group''',
+    'union all select ''correspondence.item'',cast(link.correspondence_id as char),''correspondence-email-mailbox'',''email.mailbox'',link.mailbox_id,''membership'',''correspondence_email_mailboxes_join'',json_object(''correspondence_id'',link.correspondence_id,''source_account_key'',link.source_account_key,''mailbox_id'',link.mailbox_id),link.created_at_utc,mailbox.role,mailbox.sort_order,json_object(''source_account_key'',link.source_account_key,''mailbox_name'',mailbox.name,''mailbox_role'',mailbox.role) from correspondence_email_mailboxes_join link join jmap_email_mailboxes mailbox on mailbox.source_account_key=link.source_account_key and mailbox.mailbox_id=link.mailbox_id union all select ''todos.todo_group'''
+  )
+);
+SET @object_edges_sql := CONCAT(
+  'CREATE OR REPLACE SQL SECURITY INVOKER VIEW object_relationship_edges AS ',
+  @object_edges_definition
+);
+PREPARE replace_object_edges FROM @object_edges_sql;
+EXECUTE replace_object_edges;
+DEALLOCATE PREPARE replace_object_edges;
+
+-- end migration 0060
+
 -- migration 0059: retire-check-in-and-calendar-planning-prompts
 -- writer downtime: required because the matching application removes every
 -- Check-in read/write path and no longer reads the two calendar prompt columns.

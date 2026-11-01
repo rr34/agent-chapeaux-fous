@@ -7,7 +7,7 @@
   "summary": "Read synchronized email, messages, calls, and voicemail; link correspondence to to-dos; and prepare unsent SMS handoffs.",
   "aliases": ["correspondence", "communications", "messages", "calls", "sms draft"],
   "readOnlyTools": ["correspondence_list", "sms_draft_create"],
-  "dependentTools": ["contact_lookup_batch", "todo_list"],
+  "dependentTools": ["contact_lookup_batch", "email_mailbox_list", "todo_list"],
   "resources": [
     {
       "id": "correspondence.item",
@@ -56,6 +56,16 @@
       "management": "provider",
       "reason": "Correspondence synchronization owns participant roles, addresses, and contact-method evidence.",
       "storage": { "table": "correspondence_participants_join" }
+    },
+    {
+      "id": "correspondence.email_mailbox",
+      "kind": "relationship",
+      "title": "Correspondence email mailbox",
+      "summary": "Provider-owned current membership between synchronized email correspondence and a JMAP mailbox.",
+      "management": "provider",
+      "reason": "JMAP synchronization owns mailbox membership; the local relationship is a readable mirror and cannot be edited independently.",
+      "storage": { "table": "correspondence_email_mailboxes_join" },
+      "endpoints": ["correspondence.item", "email.mailbox"]
     }
   ],
   "guidance": "guidance.md"

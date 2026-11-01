@@ -11,6 +11,21 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 60: Persist JMAP mailbox membership
+
+Adds the provider-owned JMAP mailbox snapshot and the many-to-many membership
+between synchronized email correspondence and mailboxes. Correspondence also
+retains the complete active JMAP keyword set so unread state is not inferred
+from folder placement. The object-network projection exposes mailbox
+membership without making the local mirror authoritative.
+
+Apply with writers stopped because email synchronization requires both new
+tables and the keyword column. The migration clears the old email state cursor:
+the pre-version-60 importer could mark a truncated 500-message import complete,
+so the next explicit email sync must establish a full baseline before its state
+can be trusted. Existing correspondence rows remain and are idempotently
+refreshed by that sync.
+
 ## Version 59: Retire Check-in and calendar planning prompts
 
 Drops `catch_up_questions` and its data, removes calendar-event and

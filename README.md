@@ -1236,7 +1236,17 @@ generate a separate queue of questions or phone notifications.
 The web-only **Correspondence** section consolidates synchronized email,
 messages, calls, and voicemail on one filterable and groupable screen. **Sync
 email** performs an explicit JMAP-to-correspondence synchronization; JMAP remains
-authoritative. Correspondence has no tag system: user organization uses the
+authoritative. The mirror retains every current JMAP mailbox membership rather
+than reducing an email to one folder, preserves provider mailbox names, roles,
+and hierarchy, and retains the complete active keyword set so unread state is
+not inferred from folder placement. A complete email synchronization replaces
+those provider-owned memberships atomically with the corresponding message.
+The first synchronization reads every bounded query page and reports literal
+discovery, download, save, and finalization progress. Only a completed baseline
+records its Email state; later synchronization consumes paginated
+`Email/changes`, and an expired provider cursor falls back to a new full
+baseline instead of silently treating the mirror as current.
+Correspondence has no tag system: user organization uses the
 existing object relationships, including user-managed to-do links exposed by
 the selection and network controls. Phone synchronization remains mobile-only.
 

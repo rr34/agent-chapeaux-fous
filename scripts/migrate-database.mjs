@@ -160,6 +160,7 @@ export const relationshipJoinTables = Object.freeze([
   "calendar_events_correspondence_join",
   "correspondence_files_join",
   "correspondence_participants_join",
+  "correspondence_email_mailboxes_join",
 ]);
 
 export const relationshipEdgeViewColumns = Object.freeze([
@@ -168,7 +169,10 @@ export const relationshipEdgeViewColumns = Object.freeze([
   "relationship_qualifier", "sort_order", "attributes_json", "is_reverse",
 ]);
 
-const relationshipJoinTablesV54 = relationshipJoinTables.filter((name) => !name.startsWith("physical_items_"));
+const relationshipJoinTablesV55 = relationshipJoinTables
+  .filter((name) => name !== "correspondence_email_mailboxes_join");
+const relationshipJoinTablesV54 = relationshipJoinTablesV55
+  .filter((name) => !name.startsWith("physical_items_"));
 
 async function assertVersion30Integrity(connection, databaseName) {
   const [columns] = await connection.query(
@@ -356,6 +360,55 @@ async function assertVersion32Integrity(connection, databaseName) {
 export async function assertMigrationSpecificIntegrity(
   connection, migration, databaseName, schemaVersion = migration.version,
 ) {
+  if (migration.version === 60) {
+    const requiredTables = ["jmap_email_mailboxes", "correspondence_email_mailboxes_join"];
+    const [tables] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (${requiredTables.map(() => "?").join(", ")})`,
+    [databaseName, ...requiredTables]);
+    if (requiredTables.some((name) => !tables.some((row) => row.TABLE_NAME === name && row.TABLE_TYPE === "BASE TABLE"))) {
+      throw new Error("Migration 0060 did not establish both JMAP email mailbox tables");
+    }
+    const [columns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE
+      FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND
+        ((TABLE_NAME = 'correspondence' AND COLUMN_NAME = 'email_keywords_json')
+          OR TABLE_NAME IN (${requiredTables.map(() => "?").join(", ")}))`, [databaseName, ...requiredTables]);
+    const requiredColumns = [
+      "correspondence.email_keywords_json",
+      ...["source_account_key", "mailbox_id", "name", "role", "parent_mailbox_id", "sort_order", "is_subscribed", "updated_at_utc"]
+        .map((name) => `jmap_email_mailboxes.${name}`),
+      ...["correspondence_id", "source_account_key", "mailbox_id", "created_at_utc"]
+        .map((name) => `correspondence_email_mailboxes_join.${name}`),
+    ];
+    const columnNames = new Set(columns.map((row) => `${row.TABLE_NAME}.${row.COLUMN_NAME}`));
+    const missingColumns = requiredColumns.filter((name) => !columnNames.has(name));
+    if (missingColumns.length) throw new Error(`Migration 0060 is missing mailbox columns: ${missingColumns.join(", ")}`);
+    const keywordColumn = columns.find((row) => row.TABLE_NAME === "correspondence" && row.COLUMN_NAME === "email_keywords_json");
+    if (keywordColumn?.COLUMN_TYPE !== "longtext" || keywordColumn.IS_NULLABLE !== "YES") {
+      throw new Error("Migration 0060 did not establish nullable correspondence.email_keywords_json JSON storage");
+    }
+    const [keys] = await connection.query(`SELECT TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME,
+        REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME, ORDINAL_POSITION
+      FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_SCHEMA = ?
+        AND TABLE_NAME = 'correspondence_email_mailboxes_join'`, [databaseName]);
+    for (const [constraint, columnsExpected, target] of [
+      ["PRIMARY", ["correspondence_id", "source_account_key", "mailbox_id"], null],
+      ["correspondence_email_mailboxes_message", ["correspondence_id"], "correspondence"],
+      ["correspondence_email_mailboxes_mailbox_fk", ["source_account_key", "mailbox_id"], "jmap_email_mailboxes"],
+    ]) {
+      const matches = keys.filter((row) => row.CONSTRAINT_NAME === constraint)
+        .toSorted((left, right) => Number(left.ORDINAL_POSITION) - Number(right.ORDINAL_POSITION));
+      if (JSON.stringify(matches.map((row) => row.COLUMN_NAME)) !== JSON.stringify(columnsExpected)
+          || (target && matches.some((row) => row.REFERENCED_TABLE_NAME !== target))) {
+        throw new Error(`Migration 0060 did not establish mailbox key ${constraint}`);
+      }
+    }
+    const [views] = await connection.query(`SELECT VIEW_DEFINITION, SECURITY_TYPE FROM information_schema.VIEWS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'object_relationship_edges'`, [databaseName]);
+    if (views.length !== 1 || views[0].SECURITY_TYPE !== "INVOKER"
+        || !String(views[0].VIEW_DEFINITION).includes("correspondence_email_mailboxes_join")) {
+      throw new Error("Migration 0060 did not expose mailbox membership through object_relationship_edges");
+    }
+  }
   if (migration.version === 59) {
     const [retiredTables] = await connection.query(`SELECT TABLE_NAME FROM information_schema.TABLES
       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'catch_up_questions'`, [databaseName]);
@@ -602,7 +655,7 @@ export async function assertMigrationSpecificIntegrity(
       throw new Error(`Migration ${label} relationship view must use invoker security`);
     }
     const definition = String(views[0]?.VIEW_DEFINITION ?? "").replaceAll("`", "").toLowerCase();
-    const expectedSources = migration.version === 54 ? relationshipJoinTablesV54 : relationshipJoinTables;
+    const expectedSources = migration.version === 54 ? relationshipJoinTablesV54 : relationshipJoinTablesV55;
     const missingSources = expectedSources.filter((tableName) => !definition.includes(tableName));
     if (missingSources.length > 0) {
       throw new Error(`Migration ${label} relationship view is missing join sources: ${missingSources.join(", ")}`);

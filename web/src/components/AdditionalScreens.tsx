@@ -9,10 +9,12 @@ import { ObjectCard } from "./object-cards/ObjectCard";
 import { formatDisplayDate } from "../date-format";
 
 type Participant = { role: string; address: string; display_name: string | null; contact_id: number | null };
+type CorrespondenceMailbox = { mailbox_id: string; name: string; role: string | null; parent_mailbox_id: string | null };
 type CorrespondenceItem = {
   correspondence_id: number; ref: string; display: string; medium: string; direction: string;
   subject: string | null; body: string | null; delivery_status: string | null; call_disposition: string | null;
   occurred_at_utc: string;
+  email_keywords: string[]; is_read: boolean | null; mailboxes: CorrespondenceMailbox[];
   participants: Participant[]; linked_todos: Array<{ todo_id: number; text: string; status: string }>;
 };
 
@@ -43,6 +45,7 @@ export function CorrespondenceScreen() {
   const [query, setQuery] = useState("");
   const [medium, setMedium] = useState("");
   const [direction, setDirection] = useState("");
+  const [mailbox, setMailbox] = useState("");
   const [groupBy, setGroupBy] = useState("date");
   const [page, setPage] = useState(0);
   const [syncing, setSyncing] = useState(false);
@@ -51,8 +54,9 @@ export function CorrespondenceScreen() {
   if (query.trim()) parameters.set("q", query.trim());
   if (medium) parameters.set("medium", medium);
   if (direction) parameters.set("direction", direction);
-  const { data, error, loading, reload } = useApi<{ items: CorrespondenceItem[] }>(`/api/correspondence?${parameters}`);
-  useEffect(() => { setPage(0); }, [query, medium, direction]);
+  if (mailbox) parameters.set("mailbox", mailbox);
+  const { data, error, loading, reload } = useApi<{ items: CorrespondenceItem[]; mailboxes: CorrespondenceMailbox[] }>(`/api/correspondence?${parameters}`);
+  useEffect(() => { setPage(0); }, [query, medium, direction, mailbox]);
   const groups = useMemo(() => {
     const grouped = new Map<string, CorrespondenceItem[]>();
     for (const item of data?.items || []) {
@@ -66,12 +70,20 @@ export function CorrespondenceScreen() {
   }, [data?.items, groupBy]);
   const sync = async () => {
     setSyncing(true); setNotice("");
+    let polling = true;
+    const poll = window.setInterval(() => { void api<{
+      status: string; phase: string | null; processed: number; total: number | null;
+    }>("/api/correspondence/email-sync/status").then((status) => {
+      if (!polling || status.status !== "running") return;
+      const amount = status.total == null ? `${status.processed}` : `${status.processed} of ${status.total}`;
+      setNotice(`${status.phase || "Synchronizing email"}: ${amount}`);
+    }).catch(() => {}); }, 750);
     try {
-      const result = await api<{ synchronized: number }>("/api/correspondence/email-sync", { method: "POST" });
-      setNotice(`Synchronized ${result.synchronized} email${result.synchronized === 1 ? "" : "s"}.`);
+      const result = await api<{ synchronized: number; deleted: number; mode: "full" | "incremental" }>("/api/correspondence/email-sync", { method: "POST" });
+      setNotice(`${result.mode === "full" ? "Full" : "Incremental"} sync complete: ${result.synchronized} email${result.synchronized === 1 ? "" : "s"} updated${result.deleted ? ` and ${result.deleted} deleted` : ""}.`);
       await reload();
     } catch (caught) { setNotice(caught instanceof Error ? caught.message : String(caught)); }
-    finally { setSyncing(false); }
+    finally { polling = false; window.clearInterval(poll); setSyncing(false); }
   };
   return <>
     <header className="page-heading"><div><p className="eyebrow">Every channel, one record</p><h1>Correspondence</h1><p>Email, messages, calls, and voicemail consolidated without replacing their authoritative apps.</p></div><button className="button" disabled={syncing} onClick={() => void sync()}>{syncing ? "Syncing…" : "Sync email"}</button></header>
@@ -79,6 +91,7 @@ export function CorrespondenceScreen() {
       <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search subject or body" />
       <select value={medium} onChange={(event) => setMedium(event.target.value)}><option value="">All media</option>{["email", "sms", "mms", "call", "voicemail", "chat", "other"].map((value) => <option key={value}>{value}</option>)}</select>
       <select value={direction} onChange={(event) => setDirection(event.target.value)}><option value="">All directions</option><option>inbound</option><option>outbound</option></select>
+      <select aria-label="Email mailbox" value={mailbox} onChange={(event) => setMailbox(event.target.value)}><option value="">All mailboxes</option>{(data?.mailboxes || []).map((value) => <option key={value.mailbox_id} value={value.mailbox_id}>{value.name}</option>)}</select>
       <select value={groupBy} onChange={(event) => setGroupBy(event.target.value)}><option value="date">Group by date</option><option value="contact">Group by contact</option><option value="medium">Group by medium</option><option value="direction">Group by direction</option></select>
     </div>
     {notice && <p className="status">{notice}</p>}
@@ -92,7 +105,9 @@ export function CorrespondenceScreen() {
         { label: "When", value: formatDisplayDate(item.occurred_at_utc) },
         { label: "Participants", value: item.participants.map((participant) => participant.display_name || participant.address).join(", ") || "None" },
       ],
-      badges: [item.medium, item.direction, ...(item.linked_todos.length ? [`${item.linked_todos.length} linked to-do${item.linked_todos.length === 1 ? "" : "s"}`] : [])],
+      badges: [item.medium, item.direction, ...(item.is_read === false ? ["unread"] : []),
+        ...item.mailboxes.map((value) => value.name),
+        ...(item.linked_todos.length ? [`${item.linked_todos.length} linked to-do${item.linked_todos.length === 1 ? "" : "s"}`] : [])],
     }} controls={<ObjectSelectionControls identity={correspondenceIdentity(item)} subject={`correspondence ${item.display}`} />} details={item.linked_todos.length ? <section><h4>Linked to-dos</h4><ul>{item.linked_todos.map((todo) => <li key={todo.todo_id}>{todo.text}</li>)}</ul></section> : undefined} />)}</ul></section>)}</div>
     {!loading && !error && (page > 0 || (data?.items.length || 0) === 200) && <nav className="correspondence-pages" aria-label="Correspondence pages"><button className="button button--quiet" disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>Previous</button><span>Page {page + 1}</span><button className="button button--quiet" disabled={(data?.items.length || 0) < 200} onClick={() => setPage((value) => value + 1)}>Next</button></nav>}
   </>;

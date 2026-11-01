@@ -15,8 +15,12 @@ const schemaSource = fs.readFileSync(baselineFilename, "utf8");
 
 export function baselineBeforeRetiredCheckIn(source) {
   return source
-    .replace("Target: MariaDB 10.11, schema version 59.", "Target: MariaDB 10.11, schema version 58.")
-    .replace("VALUES (1, 59,", "VALUES (1, 58,");
+    .replace(/^    email_keywords_json[^\n]+\n/mu, "")
+    .replace(/CREATE TABLE jmap_email_mailboxes \([\s\S]*?\n\) ENGINE=InnoDB[^\n]*;\n\n/u, "")
+    .replace(/CREATE TABLE correspondence_email_mailboxes_join \([\s\S]*?\n\) ENGINE=InnoDB[^\n]*;\n\n/u, "")
+    .replace(/\n  UNION ALL\n  SELECT\n    'correspondence[.]item', CAST\(link[.]correspondence_id AS CHAR\), 'correspondence-email-mailbox',[\s\S]*?mailbox[.]mailbox_id = link[.]mailbox_id\n/u, "")
+    .replace("Target: MariaDB 10.11, schema version 60.", "Target: MariaDB 10.11, schema version 58.")
+    .replace("VALUES (1, 60,", "VALUES (1, 58,");
 }
 
 export function baselineBeforeContactSourceAliases(source) {

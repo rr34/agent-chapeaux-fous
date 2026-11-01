@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 59.
+-- Target: MariaDB 10.11, schema version 60.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -1042,6 +1042,7 @@ CREATE TABLE correspondence (
     call_disposition  ENUM('answered', 'missed') COMMENT 'Whether a call was answered. Every call normalizes all unanswered outcomes to missed. Null for non-call rows.',
     call_duration_seconds BIGINT UNSIGNED COMMENT 'Elapsed connected or reported call duration in whole seconds when supplied by the source. Null when unavailable and for non-call rows.',
     provider_status   VARCHAR(64) COMMENT 'Unmodified provider-specific state retained when it conveys detail not represented by delivery_status or call_disposition.',
+    email_keywords_json JSON COMMENT 'Sorted JSON array of active provider-owned JMAP email keywords such as $seen, $flagged, $answered, and $draft. Null for non-email correspondence.',
     occurred_at_utc   DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'Primary source-reported instant used to order this communication. For calls this is the call start; for messages it is the best available sent or received instant. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     sent_at_utc       DATETIME(3) COMMENT 'UTC instant when the message was sent, when known. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     received_at_utc   DATETIME(3) COMMENT 'UTC instant when the message was received, when known. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
@@ -1084,6 +1085,37 @@ CREATE TABLE correspondence_source_aliases (
     CONSTRAINT correspondence_source_alias_event_fk FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
     CONSTRAINT correspondence_source_alias_observed CHECK (last_observed_at_utc >= first_observed_at_utc)
 ) ENGINE=InnoDB COMMENT='Stores only second and later provider identities for one canonical SMS, MMS, or call observed on multiple Android phones. The first source identity remains on correspondence. Exact source identity provides replay safety; conservative fingerprint matching selects a canonical candidate, and ambiguous candidates remain separate. Sensitivity: Contains private device/account identifiers, message and call provenance, and provider state.';
+
+CREATE TABLE jmap_email_mailboxes (
+    -- sourceOfTruth: true
+    -- synonyms: ["email folders", "JMAP mailboxes"]
+    -- keywords: ["inbox", "archive", "sent", "trash", "spam", "email folder"]
+
+    source_account_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Stable local key identifying the configured JMAP email account that owns this mailbox.',
+    mailbox_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Provider-assigned stable JMAP Mailbox id within the owning account.',
+    name VARCHAR(500) NOT NULL COMMENT 'Current complete human-facing mailbox name reported by JMAP.',
+    role VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Provider-reported JMAP mailbox role such as inbox, archive, drafts, sent, trash, or spam; null for custom mailboxes.',
+    parent_mailbox_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Provider mailbox id of the current hierarchical parent when this mailbox is nested.',
+    sort_order BIGINT NOT NULL DEFAULT 0 COMMENT 'Provider-reported mailbox display order. Lower values appear first.',
+    is_subscribed TINYINT NOT NULL DEFAULT 1 COMMENT 'Whether the provider reports this mailbox as subscribed. 0: not subscribed. 1: subscribed.',
+    updated_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this local provider-owned mailbox snapshot was most recently synchronized.',
+    PRIMARY KEY (source_account_key, mailbox_id),
+    KEY jmap_email_mailboxes_role (source_account_key, role, sort_order, mailbox_id),
+    KEY jmap_email_mailboxes_parent (source_account_key, parent_mailbox_id, sort_order, mailbox_id),
+    CONSTRAINT jmap_email_mailboxes_name CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 500),
+    CONSTRAINT jmap_email_mailboxes_subscribed CHECK (is_subscribed IN (0, 1))
+) ENGINE=InnoDB COMMENT='Mirrors provider-owned JMAP mailbox identity and presentation metadata so synchronized correspondence can retain exact current folder membership while JMAP remains authoritative. One row represents one mailbox in one configured account. Sensitivity: Mailbox names and hierarchy may reveal private projects, people, or categories.';
+
+CREATE TABLE correspondence_email_mailboxes_join (
+    correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Synchronized email correspondence belonging to this provider mailbox.',
+    source_account_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Owning JMAP account key; retained with mailbox_id to preserve provider identity.',
+    mailbox_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Provider-assigned JMAP mailbox id currently containing the email.',
+    created_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this exact local mailbox-membership observation was most recently established.',
+    PRIMARY KEY (correspondence_id, source_account_key, mailbox_id),
+    KEY correspondence_email_mailboxes_mailbox (source_account_key, mailbox_id, correspondence_id),
+    CONSTRAINT correspondence_email_mailboxes_message FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE,
+    CONSTRAINT correspondence_email_mailboxes_mailbox_fk FOREIGN KEY (source_account_key, mailbox_id) REFERENCES jmap_email_mailboxes(source_account_key, mailbox_id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='Mirrors the provider-owned many-to-many membership between synchronized email correspondence and JMAP mailboxes. Replacing one email''s rows from Email/get preserves Inbox, custom-folder, Sent, Archive, Trash, and multi-mailbox membership without treating the local mirror as authoritative. Sensitivity: Folder membership reveals private communication organization.';
 
 CREATE TABLE jmap_email_sync_state (
     -- sourceOfTruth: true
@@ -1165,7 +1197,7 @@ CREATE TABLE correspondence_participants_join (
 ) ENGINE=InnoDB COMMENT='Records senders and recipients for messages and calls while retaining unmatched addresses that do not yet resolve to a contact. One row represents one participant address in one role on one correspondence row, optionally linked to a known contact and contact method. This is enough to identify everyone observed on a group message without making group-thread reconstruction an owned requirement. address_value preserves the address observed on the communication even when no contact matches it. Sensitivity: Contains private communication participants, addresses, and display names.';
 
 CREATE SQL SECURITY INVOKER VIEW object_relationship_edges AS
--- Read-only, non-materialized edge projection over all fifteen physical _join
+-- Read-only, non-materialized edge projection over all sixteen physical _join
 -- tables plus the direct native relationships used by the interactive object
 -- network. Each canonical relationship is emitted in both directions. The
 -- owning tables remain authoritative, attributes_json preserves domain
@@ -1174,7 +1206,7 @@ CREATE SQL SECURITY INVOKER VIEW object_relationship_edges AS
 -- owning reads. This live projection is not a relationship-set snapshot and
 -- never authorizes writes.
 -- sourceOfTruth: false
--- derivedFrom: ["activity_event_files_join", "contacts_tags_join", "calendar_event_contacts_join", "payment_invoice_line_receipts_join", "calendar_events_todo_join", "todo_content_join", "physical_items_todo_join", "physical_items_content_join", "physical_items_files_join", "physical_items_contacts_join", "video_script_sources_join", "todo_correspondence_join", "calendar_events_correspondence_join", "correspondence_files_join", "correspondence_participants_join", "todo_personal", "physical_items", "payment_invoices", "payment_invoice_lines", "journal2_trackers", "journal3_entries", "calendar_events", "content_items", "video_jobs"]
+-- derivedFrom: ["activity_event_files_join", "contacts_tags_join", "calendar_event_contacts_join", "payment_invoice_line_receipts_join", "calendar_events_todo_join", "todo_content_join", "physical_items_todo_join", "physical_items_content_join", "physical_items_files_join", "physical_items_contacts_join", "video_script_sources_join", "todo_correspondence_join", "calendar_events_correspondence_join", "correspondence_files_join", "correspondence_participants_join", "correspondence_email_mailboxes_join", "todo_personal", "physical_items", "payment_invoices", "payment_invoice_lines", "journal2_trackers", "journal3_entries", "calendar_events", "content_items", "video_jobs"]
 -- from_type: Domain-qualified type of the lookup endpoint for this directed row.
 -- from_id: Text-preserving local or provider identifier of the lookup endpoint; first-class consumers restore the declared scalar type during hydration.
 -- relationship_type: Stable application relationship name shared by both directions of one edge.
@@ -1366,6 +1398,20 @@ WITH canonical_edges AS (
                 'address_value', link.address_value, 'display_name', link.display_name)
   FROM correspondence_participants_join AS link
   WHERE link.contact_method_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'correspondence.item', CAST(link.correspondence_id AS CHAR), 'correspondence-email-mailbox',
+    'email.mailbox', link.mailbox_id, 'membership',
+    'correspondence_email_mailboxes_join',
+    JSON_OBJECT('correspondence_id', link.correspondence_id,
+                'source_account_key', link.source_account_key, 'mailbox_id', link.mailbox_id),
+    link.created_at_utc, mailbox.role, mailbox.sort_order,
+    JSON_OBJECT('source_account_key', link.source_account_key, 'mailbox_name', mailbox.name,
+                'mailbox_role', mailbox.role)
+  FROM correspondence_email_mailboxes_join AS link
+  JOIN jmap_email_mailboxes AS mailbox
+    ON mailbox.source_account_key = link.source_account_key AND mailbox.mailbox_id = link.mailbox_id
 
   UNION ALL
   SELECT
@@ -1813,4 +1859,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 59, 'Chapeaux Fous MariaDB database');
+VALUES (1, 60, 'Chapeaux Fous MariaDB database');

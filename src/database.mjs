@@ -1,6 +1,6 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 
-export const requiredDatabaseSchemaVersion = 59;
+export const requiredDatabaseSchemaVersion = 60;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -32,7 +32,7 @@ export const requiredDatabaseShape = {
     "correspondence_id", "medium", "direction", "source_account_key", "thread_key",
     "external_id", "dedupe_fingerprint", "internet_message_id", "in_reply_to_id", "subject", "body",
     "delivery_status", "call_disposition", "call_duration_seconds", "provider_status",
-    "occurred_at_utc", "sent_at_utc", "received_at_utc", "source_event_id", "created_at_utc",
+    "email_keywords_json", "occurred_at_utc", "sent_at_utc", "received_at_utc", "source_event_id", "created_at_utc",
   ],
   correspondence_source_aliases: [
     "correspondence_source_alias_id", "correspondence_id", "medium",
@@ -44,6 +44,13 @@ export const requiredDatabaseShape = {
   correspondence_participants_join: [
     "correspondence_id", "participant_role", "contact_id", "contact_method_id",
     "address_value", "display_name",
+  ],
+  jmap_email_mailboxes: [
+    "source_account_key", "mailbox_id", "name", "role", "parent_mailbox_id",
+    "sort_order", "is_subscribed", "updated_at_utc",
+  ],
+  correspondence_email_mailboxes_join: [
+    "correspondence_id", "source_account_key", "mailbox_id", "created_at_utc",
   ],
   todo_correspondence_join: ["personal_task_id", "correspondence_id", "created_at_utc"],
   calendar_events_correspondence_join: ["calendar_event_id", "correspondence_id", "created_at_utc"],

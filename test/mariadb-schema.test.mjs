@@ -69,15 +69,15 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 59", () => {
+test("the authoritative MariaDB baseline is complete at schema version 60", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
-  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 44);
+  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 46);
   assert.equal(statements.filter((statement) => /^CREATE (?:SQL SECURITY INVOKER )?VIEW\b/iu.test(statement)).length, 8);
   assert.equal(statements.filter((statement) => /^CREATE TRIGGER\b/iu.test(statement)).length, 7);
   assert.equal(source.match(/\bENUM\(/gu)?.length, 36);
-  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 66);
-  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 89);
+  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 68);
+  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 91);
   assert.doesNotMatch(source, /\b(?:[A-Za-z_][A-Za-z0-9_]*_at_utc|ask_after|resolved_at|routine_occurrence_key)\s+VARCHAR\(/u);
   assert.equal(
     Object.values(requiredEnumColumns).reduce((count, fields) => count + Object.keys(fields).length, 0),
@@ -106,6 +106,11 @@ test("the authoritative MariaDB baseline is complete at schema version 59", () =
   const jmapSyncTable = statements.find((statement) => statement.startsWith("CREATE TABLE jmap_email_sync_state "));
   assert.ok(jmapSyncTable);
   assert.match(jmapSyncTable, /source_account_key\s+VARCHAR\(255\)[\s\S]*email_state\s+TEXT[\s\S]*synchronized_at_utc\s+DATETIME\(3\)/u);
+  const mailboxTable = statements.find((statement) => statement.startsWith("CREATE TABLE jmap_email_mailboxes "));
+  const mailboxJoin = statements.find((statement) => statement.startsWith("CREATE TABLE correspondence_email_mailboxes_join "));
+  assert.match(mailboxTable, /PRIMARY KEY \(source_account_key, mailbox_id\)/u);
+  assert.match(mailboxJoin, /PRIMARY KEY \(correspondence_id, source_account_key, mailbox_id\)/u);
+  assert.match(mailboxJoin, /REFERENCES jmap_email_mailboxes\(source_account_key, mailbox_id\) ON DELETE CASCADE/u);
   const todoTable = statements.find((statement) => statement.startsWith("CREATE TABLE todo_personal "));
   assert.ok(todoTable);
   const todoGroupTable = statements.find((statement) => statement.startsWith("CREATE TABLE todo_groups "));
@@ -183,7 +188,7 @@ test("the authoritative MariaDB baseline is complete at schema version 59", () =
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 59, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 60, 'Chapeaux Fous MariaDB database'\)$/);
   assert.equal(
     requiredDatabaseSchemaVersion,
     readMigrationLedger(path.join(root, "db", "migrations.sql")).at(-1).version,
@@ -200,16 +205,17 @@ test("the physical Things migration adds constrained tables and expands the bidi
   assert.match(migration.sql, /writer downtime: required/u);
   assert.match(migration.sql, /CREATE OR REPLACE SQL SECURITY INVOKER VIEW object_relationship_edges/u);
   assert.match(migration.sql, /0 AS is_reverse[\s\S]*1 AS is_reverse/u);
-  for (const tableName of relationshipJoinTables) assert.match(migration.sql, new RegExp(`\\b${tableName}\\b`, "u"));
+  for (const tableName of relationshipJoinTables.filter((name) => name !== "correspondence_email_mailboxes_join")) {
+    assert.match(migration.sql, new RegExp(`\\b${tableName}\\b`, "u"));
+  }
   for (const tableName of ["physical_item_groups", "physical_items", "physical_items_todo_join", "physical_items_content_join", "physical_items_files_join", "physical_items_contacts_join"]) {
     assert.match(migration.sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${tableName}\\b`, "u"));
   }
-  const normalize = (sql) => sql.replace(/^\s*--.*$/gmu, "")
-    .replace(/^CREATE SQL SECURITY INVOKER VIEW/u, "CREATE OR REPLACE SQL SECURITY INVOKER VIEW")
-    .replace(/\s+/gu, " ").trim().replace(/;$/u, "");
   const migratedView = splitMariaDbStatements(migration.sql)
     .find((statement) => statement.startsWith("CREATE OR REPLACE SQL SECURITY INVOKER VIEW object_relationship_edges "));
-  assert.equal(normalize(baseline), normalize(migratedView));
+  assert.match(baseline, /correspondence_email_mailboxes_join/u);
+  assert.doesNotMatch(migratedView, /correspondence_email_mailboxes_join/u);
+  for (const columnName of relationshipEdgeViewColumns) assert.match(migratedView, new RegExp(`\\b${columnName}\\b`, "u"));
 });
 
 test("the relationship-table rename migration finishes the join naming invariant", () => {

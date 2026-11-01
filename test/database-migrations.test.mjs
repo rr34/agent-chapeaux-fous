@@ -27,6 +27,50 @@ const block = (version, name = `migration-${version}`, sql = `SELECT ${version};
   return `-- migration ${label}: ${name}\n${sql}\n-- end migration ${label}\n`;
 };
 
+test("JMAP mailbox mirror integrity requires metadata, membership, keywords, and relationship discovery", async () => {
+  const tables = ["jmap_email_mailboxes", "correspondence_email_mailboxes_join"]
+    .map((TABLE_NAME) => ({ TABLE_NAME, TABLE_TYPE: "BASE TABLE" }));
+  const columns = [
+    { TABLE_NAME: "correspondence", COLUMN_NAME: "email_keywords_json", COLUMN_TYPE: "longtext", IS_NULLABLE: "YES" },
+    ...["source_account_key", "mailbox_id", "name", "role", "parent_mailbox_id", "sort_order", "is_subscribed", "updated_at_utc"]
+      .map((COLUMN_NAME) => ({ TABLE_NAME: "jmap_email_mailboxes", COLUMN_NAME })),
+    ...["correspondence_id", "source_account_key", "mailbox_id", "created_at_utc"]
+      .map((COLUMN_NAME) => ({ TABLE_NAME: "correspondence_email_mailboxes_join", COLUMN_NAME })),
+  ];
+  const keys = [
+    ...["correspondence_id", "source_account_key", "mailbox_id"].map((COLUMN_NAME, index) => ({
+      TABLE_NAME: "correspondence_email_mailboxes_join", CONSTRAINT_NAME: "PRIMARY", COLUMN_NAME,
+      REFERENCED_TABLE_NAME: null, ORDINAL_POSITION: index + 1,
+    })),
+    { TABLE_NAME: "correspondence_email_mailboxes_join", CONSTRAINT_NAME: "correspondence_email_mailboxes_message", COLUMN_NAME: "correspondence_id", REFERENCED_TABLE_NAME: "correspondence", ORDINAL_POSITION: 1 },
+    ...["source_account_key", "mailbox_id"].map((COLUMN_NAME, index) => ({
+      TABLE_NAME: "correspondence_email_mailboxes_join", CONSTRAINT_NAME: "correspondence_email_mailboxes_mailbox_fk",
+      COLUMN_NAME, REFERENCED_TABLE_NAME: "jmap_email_mailboxes", ORDINAL_POSITION: index + 1,
+    })),
+  ];
+  const connection = ({ selectedTables = tables, selectedColumns = columns,
+    definition = "select * from correspondence_email_mailboxes_join" } = {}) => ({ async query(sql) {
+    if (sql.includes("information_schema.TABLES")) return [selectedTables];
+    if (sql.includes("information_schema.COLUMNS")) return [selectedColumns];
+    if (sql.includes("information_schema.KEY_COLUMN_USAGE")) return [keys];
+    if (sql.includes("information_schema.VIEWS")) return [[{ VIEW_DEFINITION: definition, SECURITY_TYPE: "INVOKER" }]];
+    throw new Error(`Unexpected SQL: ${sql}`);
+  } });
+  await assertMigrationSpecificIntegrity(connection(), { version: 60 }, "test_database");
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ selectedTables: tables.slice(1) }), { version: 60 }, "test_database"),
+    /both JMAP email mailbox tables/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ selectedColumns: columns.slice(1) }), { version: 60 }, "test_database"),
+    /email_keywords_json/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ definition: "select 1" }), { version: 60 }, "test_database"),
+    /object_relationship_edges/u,
+  );
+});
+
 test("Check-in retirement integrity requires the table, calendar columns, and view edges to be absent", async () => {
   const connection = ({ tables = [], columns = [], view = "select 'todo_correspondence_join'" } = {}) => ({
     async query(sql) {
@@ -618,11 +662,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59]);
-  for (let current = 29; current <= 59; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60]);
+  for (let current = 29; current <= 60; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 59 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 60 - current }, (_, index) => current + index + 1),
     );
   }
 });

@@ -565,6 +565,7 @@ const server = http.createServer(async (request, response) => {
         q: url.searchParams.get("q") || "",
         medium: url.searchParams.get("medium") || null,
         direction: url.searchParams.get("direction") || null,
+        mailboxId: url.searchParams.get("mailbox") || null,
         limit: url.searchParams.get("limit") || 100,
         offset: url.searchParams.get("offset") || 0,
       }));
@@ -572,6 +573,10 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "POST" && url.pathname === "/api/correspondence/email-sync") {
       sendJson(response, 200, await correspondence.syncEmail({ actorType: "user", actorName: "Nate", channel: "web" }));
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/correspondence/email-sync/status") {
+      sendJson(response, 200, correspondence.emailSyncStatus());
       return;
     }
     if (request.method === "PUT" && url.pathname === "/api/correspondence/todo-links") {

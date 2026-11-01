@@ -301,7 +301,7 @@ export const nativeFirstClassObjectTypes = Object.freeze([
     relationships: [relationship("account", "email.account", "Mail account that owns this mailbox.")],
     idFields: ["mailbox_id"], displayFields: ["mailbox_name"],
     refFields: ["mailbox_ref"], refPrefix: "agent-slayer://email-mailboxes/",
-    inputFields: ["mailbox_ids", "in_mailbox", "in_mailbox_id", "drafts_mailbox_id", "sent_mailbox_id", "replace_mailbox_ids", "add_mailbox_ids", "remove_mailbox_ids"],
+    inputFields: ["mailbox_id", "mailbox_ids", "in_mailbox", "in_mailbox_id", "drafts_mailbox_id", "sent_mailbox_id", "replace_mailbox_ids", "add_mailbox_ids", "remove_mailbox_ids"],
   },
   {
     ...stringIdentity,

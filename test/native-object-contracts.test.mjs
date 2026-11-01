@@ -291,6 +291,9 @@ test("native ID consumers publish bindings for singleton and batch inputs", () =
   assert.deepEqual(bindings("profile_fact_set"), [
     { path: "/replaces_profile_fact_id", objectType: "profile.fact", value: "id", role: "subject" },
   ]);
+  assert.deepEqual(bindings("correspondence_list"), [
+    { path: "/mailbox_id", objectType: "email.mailbox", value: "id", role: "mailbox_filter", allowUnbound: true },
+  ]);
   assert.deepEqual(bindings("email_update"), [
     { path: "/account_id", objectType: "email.account", value: "id", role: "subject" },
     { path: "/email_id", objectType: "email.message", value: "id", role: "subject" },

@@ -17,23 +17,31 @@ const toolDescriptions = Object.freeze({
 });
 
 const nativeToolContracts = Object.freeze({
-  correspondence_list: { objectTypes: ["correspondence.item"], allowUnboundInputs: true },
+  correspondence_list: {
+    objectTypes: ["correspondence.item"], allowUnboundInputs: true,
+    inputRoles: { "/mailbox_id": "mailbox_filter" },
+  },
 });
 
 export function registerCorrespondenceTools(rootRegistry, service) {
   const registry = rootRegistry.withCapability("correspondence", toolDescriptions, nativeToolContracts);
   registry.register({
     name: "correspondence_list",
-    description: "List the local synchronized correspondence mirror. Filter by search text, medium, or direction. JMAP remains authoritative for email; phone synchronization remains authoritative for mobile messages and calls.",
+    description: "List the local synchronized correspondence mirror with participants, email mailboxes, unread state, and linked to-dos. Filter by search text, medium, direction, or one exact provider mailbox id. JMAP remains authoritative for email; phone synchronization remains authoritative for mobile messages and calls.",
     parameters: { type: "object", additionalProperties: false, properties: {
       q: { type: "string", maxLength: 500 },
       medium: { type: ["string", "null"], enum: ["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "other", null] },
       direction: { type: ["string", "null"], enum: ["inbound", "outbound", null] },
+      mailbox_id: { type: ["string", "null"], maxLength: 255 },
       limit: { type: "integer", minimum: 1, maximum: 200 },
       offset: { type: "integer", minimum: 0 },
-    }, required: ["q", "medium", "direction", "limit", "offset"] },
-    outputSchema: { type: "object", properties: { items: { type: "array", items: { type: "object" } }, count: { type: "integer" } } },
-    execute: (input) => service.list(input),
+    }, required: ["q", "medium", "direction", "mailbox_id", "limit", "offset"] },
+    outputSchema: { type: "object", properties: {
+      items: { type: "array", items: { type: "object" } },
+      mailboxes: { type: "array", items: { type: "object" } },
+      count: { type: "integer" },
+    } },
+    execute: (input) => service.list({ ...input, mailboxId: input.mailbox_id }),
   });
   registry.register({
     name: "correspondence_todo_link_set",
