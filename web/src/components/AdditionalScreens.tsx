@@ -49,6 +49,7 @@ export function CorrespondenceScreen() {
   const [groupBy, setGroupBy] = useState("date");
   const [page, setPage] = useState(0);
   const [syncing, setSyncing] = useState(false);
+  const [syncingMessages, setSyncingMessages] = useState(false);
   const [downloadingExtension, setDownloadingExtension] = useState(false);
   const [notice, setNotice] = useState("");
   const parameters = new URLSearchParams({ limit: "200", offset: String(page * 200) });
@@ -101,8 +102,45 @@ export function CorrespondenceScreen() {
     } catch (caught) { setNotice(caught instanceof Error ? caught.message : String(caught)); }
     finally { setDownloadingExtension(false); }
   };
+  const syncMessages = async () => {
+    setSyncingMessages(true); setNotice("");
+    try {
+      const requested = await api<{ requestId: string }>(
+        "/api/correspondence/google-messages-sync/request",
+        { method: "POST", body: JSON.stringify({ accountKey: "default" }) },
+      );
+      let complete = false;
+      while (!complete) {
+        const status = await api<{
+          status: "pending" | "running" | "complete" | "error" | "cancelled";
+          phase: string; error: string | null; conversationIndex: number; conversationCount: number;
+          messagesRead: number; messagesAccepted: number; messagesCreated: number;
+          messagesUpdated: number; messagesDeduplicated: number; messagesAmbiguous: number;
+          unresolvedParticipants: number; undatedSkipped: number;
+        }>(`/api/correspondence/google-messages-sync/request/${requested.requestId}`);
+        const conversation = status.conversationCount
+          ? `Conversation ${Math.min(status.conversationCount, status.conversationIndex + 1)} of ${status.conversationCount}`
+          : "Waiting for conversation discovery";
+        setNotice([
+          status.phase,
+          conversation,
+          `Read ${status.messagesRead.toLocaleString()} · accepted ${status.messagesAccepted.toLocaleString()}`,
+          `New ${status.messagesCreated.toLocaleString()} · refreshed ${status.messagesUpdated.toLocaleString()} · deduplicated ${status.messagesDeduplicated.toLocaleString()}`,
+          `Ambiguous duplicates ${status.messagesAmbiguous.toLocaleString()} · unresolved participants ${status.unresolvedParticipants.toLocaleString()}`,
+          status.undatedSkipped ? `Skipped without usable time ${status.undatedSkipped.toLocaleString()}` : "",
+        ].filter(Boolean).join("\n"));
+        if (status.status === "error" || status.status === "cancelled") {
+          throw new Error(status.error || `Google Messages synchronization ${status.status}.`);
+        }
+        complete = status.status === "complete";
+        if (!complete) await new Promise((resolve) => window.setTimeout(resolve, 1000));
+      }
+      await reload();
+    } catch (caught) { setNotice(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setSyncingMessages(false); }
+  };
   return <>
-    <header className="page-heading"><div><p className="eyebrow">Every channel, one record</p><h1>Correspondence</h1><p>Email, messages, calls, and voicemail consolidated without replacing their authoritative apps.</p></div><div className="heading-actions"><button className="button button--quiet" disabled={downloadingExtension} onClick={() => void downloadExtension()}>{downloadingExtension ? "Downloading…" : "Download Messages extension"}</button><button className="button" disabled={syncing} onClick={() => void sync()}>{syncing ? "Syncing…" : "Sync email"}</button></div></header>
+    <header className="page-heading"><div><p className="eyebrow">Every channel, one record</p><h1>Correspondence</h1><p>Email, messages, calls, and voicemail consolidated without replacing their authoritative apps.</p></div><div className="heading-actions"><button className="button button--quiet" disabled={downloadingExtension} onClick={() => void downloadExtension()}>{downloadingExtension ? "Downloading…" : "Download Messages extension"}</button><button className="button" disabled={syncing} onClick={() => void sync()}>{syncing ? "Syncing…" : "Sync email"}</button><button className="button" disabled={syncingMessages} onClick={() => void syncMessages()}>{syncingMessages ? "Syncing…" : "Sync Google Messages"}</button></div></header>
     <div className="section-filter correspondence-filters">
       <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search subject or body" />
       <select value={medium} onChange={(event) => setMedium(event.target.value)}><option value="">All media</option>{["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "other"].map((value) => <option key={value}>{value}</option>)}</select>
@@ -110,7 +148,7 @@ export function CorrespondenceScreen() {
       <select aria-label="Email mailbox" value={mailbox} onChange={(event) => setMailbox(event.target.value)}><option value="">All mailboxes</option>{(data?.mailboxes || []).map((value) => <option key={value.mailbox_id} value={value.mailbox_id}>{value.name}</option>)}</select>
       <select value={groupBy} onChange={(event) => setGroupBy(event.target.value)}><option value="date">Group by date</option><option value="contact">Group by contact</option><option value="medium">Group by medium</option><option value="direction">Group by direction</option></select>
     </div>
-    {notice && <p className="status">{notice}</p>}
+    {notice && <p className="status correspondence-sync-status">{notice}</p>}
     {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}
     {!loading && !error && !groups.length && <Empty>No correspondence matches these filters.</Empty>}
     <div className="library-groups">{groups.map(([name, items]) => <section className="library-group" key={name}><header className="library-group-heading"><h2>{name}</h2><span>{items.length} items</span></header><ul className="library-list">{items.map((item) => <ObjectCard as="li" mode="compact" key={item.correspondence_id} object={{

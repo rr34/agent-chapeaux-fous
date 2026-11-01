@@ -476,7 +476,11 @@
     if (message?.type !== "START_SYNC") return false;
     void (async () => {
       try {
-        const started = await runtimeMessage({ type: "START_SYNC", fullHistory: message.fullHistory === true });
+        const started = await runtimeMessage({
+          type: "START_SYNC",
+          fullHistory: message.fullHistory === true,
+          requestId: message.requestId || null,
+        });
         sendResponse({ ok: true });
         void runSync(started.job);
       } catch (error) {

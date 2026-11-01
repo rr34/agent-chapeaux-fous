@@ -17,6 +17,11 @@ directory can be selected directly instead of downloading and extracting it.
 
 Later runs overlap the prior successful run by two days and replay stable Google message identities safely. A complete-history run can take a long time because Google Messages initially renders only a small recent window and loads older messages in batches.
 
+After connection settings are saved once, ordinary synchronization can be
+started from Time V3's **Correspondence** page with **Sync Google Messages**.
+The extension checks for that command at least every 30 seconds and reports its
+progress back to the page. Keep Brave and the paired Google Messages tab open.
+
 ## Data and limitations
 
 The extension imports complete rendered text, direction, source timestamp, sender/recipient presentation, provider delivery state, reactions, attachment type/name descriptors, conversation identity, and the best observable transport classification. Google credentials and pairing state remain in Brave. Attachment `blob:` URLs are page-scoped, so binary attachment bytes are not uploaded.

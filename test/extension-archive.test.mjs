@@ -48,3 +48,19 @@ test("Correspondence exposes the authenticated extension download", () => {
   assert.match(server, /url[.]pathname === "\/api\/extensions\/google-messages-sync\/download"/u);
   assert.match(server, /Content-Type": "application\/zip"/u);
 });
+
+test("Correspondence can request a sync that the extension polls and reports", () => {
+  const screen = fs.readFileSync(path.join(repositoryRoot, "web/src/components/AdditionalScreens.tsx"), "utf8");
+  const server = fs.readFileSync(path.join(repositoryRoot, "src/server.mjs"), "utf8");
+  const background = fs.readFileSync(path.join(repositoryRoot, "extensions/google-messages-sync/background.js"), "utf8");
+  const manifest = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "extensions/google-messages-sync/manifest.json"), "utf8"));
+  assert.match(screen, /Sync Google Messages/u);
+  assert.match(screen, /google-messages-sync\/request/u);
+  assert.match(server, /MessagesWebSyncRequests/u);
+  assert.match(server, /google-messages-sync\/next/u);
+  assert.match(server, /messagesWebSyncRequestMatch/u);
+  assert.match(server, /messagesWebSyncProgressMatch/u);
+  assert.match(background, /pollServerCommands/u);
+  assert.match(background, /reportJob/u);
+  assert.ok(manifest.permissions.includes("alarms"));
+});

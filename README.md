@@ -214,6 +214,15 @@ that tab open while synchronization runs. Use **Rescan all available history**
 on the first run; incremental runs retain a two-day overlap. The access token is
 stored in the local Brave profile so it does not need to be reentered.
 
+After that one-time setup, the Correspondence page's **Sync Google Messages**
+button owns the ordinary workflow next to **Sync email**. It creates one bounded
+server request, displays the extension's multiline progress, and refreshes the
+correspondence list after completion. The extension checks for a pending request
+at least every 30 seconds. If Brave, the extension, or the paired Messages tab
+is unavailable, the progress text identifies exactly what must be opened or
+reloaded. The popup remains available for an explicit complete-history rescan
+or cancellation.
+
 ### Android native-shell and wireless installation contract
 
 Expo/Metro updates TypeScript and other bundled application code without

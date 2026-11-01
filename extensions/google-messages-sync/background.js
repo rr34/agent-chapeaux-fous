@@ -1,5 +1,7 @@
 const CONFIG_KEY = "timeV3GoogleMessagesConfig";
 const JOB_KEY = "timeV3GoogleMessagesJob";
+const COMMAND_ALARM = "timeV3GoogleMessagesCommands";
+let commandPollRunning = false;
 
 function storageGet(keys) {
   return chrome.storage.local.get(keys);
@@ -31,29 +33,104 @@ async function updateJob(patch) {
   const current = stored[JOB_KEY] || {};
   const job = { ...current, ...patch, updatedAtMs: Date.now() };
   await storageSet({ [JOB_KEY]: job });
+  await reportJob(job).catch(() => {});
   return job;
 }
 
-async function uploadBatch(batch) {
+async function serverRequest(path, { method = "GET", body = null, allowNoContent = false } = {}) {
   const stored = await storageGet(CONFIG_KEY);
   const config = stored[CONFIG_KEY] || {};
   if (!config.serverUrl || !config.accessToken) throw new Error("Save the Time V3 server URL and access token first.");
-  const response = await fetch(`${config.serverUrl}/api/correspondence/google-messages-sync`, {
-    method: "POST",
+  const response = await fetch(`${config.serverUrl}${path}`, {
+    method,
     headers: {
-      "Content-Type": "application/json",
+      ...(body == null ? {} : { "Content-Type": "application/json" }),
       Authorization: `Bearer ${config.accessToken}`,
     },
-    body: JSON.stringify(batch),
+    ...(body == null ? {} : { body: JSON.stringify(body) }),
   });
-  let body;
+  if (allowNoContent && response.status === 204) return null;
+  let responseBody;
   try {
-    body = await response.json();
+    responseBody = await response.json();
   } catch {
-    body = null;
+    responseBody = null;
   }
-  if (!response.ok) throw new Error(body?.error || `Time V3 returned HTTP ${response.status}.`);
-  return body;
+  if (!response.ok) throw new Error(responseBody?.error || `Time V3 returned HTTP ${response.status}.`);
+  return responseBody;
+}
+
+function uploadBatch(batch) {
+  return serverRequest("/api/correspondence/google-messages-sync", { method: "POST", body: batch });
+}
+
+function reportJob(job) {
+  if (!job?.requestId) return Promise.resolve();
+  return serverRequest(`/api/correspondence/google-messages-sync/request/${job.requestId}/progress`, {
+    method: "POST",
+    body: {
+      status: job.status,
+      phase: job.phase,
+      error: job.error || null,
+      conversationIndex: Number(job.conversationIndex || 0),
+      conversationCount: Number(job.conversations?.length || 0),
+      messagesRead: Number(job.messagesRead || 0),
+      messagesAccepted: Number(job.messagesAccepted || 0),
+      messagesCreated: Number(job.messagesCreated || 0),
+      messagesUpdated: Number(job.messagesUpdated || 0),
+      messagesDeduplicated: Number(job.messagesDeduplicated || 0),
+      messagesAmbiguous: Number(job.messagesAmbiguous || 0),
+      unresolvedParticipants: Number(job.unresolvedParticipants || 0),
+      undatedSkipped: Number(job.undatedSkipped || 0),
+    },
+  });
+}
+
+async function reportPending(requestId, phase, error = null) {
+  await serverRequest(`/api/correspondence/google-messages-sync/request/${requestId}/progress`, {
+    method: "POST",
+    body: { status: "pending", phase, error },
+  });
+}
+
+async function pollServerCommands() {
+  if (commandPollRunning) return;
+  commandPollRunning = true;
+  try {
+    const stored = await storageGet(CONFIG_KEY);
+    const config = stored[CONFIG_KEY] || {};
+    if (!config.serverUrl || !config.accessToken) return;
+    const command = await serverRequest(
+      `/api/correspondence/google-messages-sync/next?accountKey=${encodeURIComponent(config.accountKey || "default")}`,
+      { allowNoContent: true },
+    );
+    if (!command) return;
+    const current = await state();
+    if (current.job?.status === "running") {
+      await reportPending(command.requestId, "Waiting for the current browser synchronization to finish");
+      return;
+    }
+    const tabs = await chrome.tabs.query({ url: "https://messages.google.com/web/*" });
+    const tab = tabs[0];
+    if (!tab?.id) {
+      await reportPending(command.requestId, "Open the paired Google Messages for Web tab in Brave");
+      return;
+    }
+    try {
+      const response = await chrome.tabs.sendMessage(tab.id, {
+        type: "START_SYNC",
+        fullHistory: command.fullHistory === true,
+        requestId: command.requestId,
+      });
+      if (!response?.ok) throw new Error(response?.error || "The Google Messages tab did not start synchronization.");
+    } catch {
+      await reportPending(command.requestId, "Reload the Google Messages for Web tab so the extension can connect");
+    }
+  } catch {
+    // The alarm will retry. Connection errors must not disable popup-driven synchronization.
+  } finally {
+    commandPollRunning = false;
+  }
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -75,17 +152,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const config = { ...previous, serverUrl, accessToken, accountKey };
         await storageSet({ [CONFIG_KEY]: config });
         sendResponse({ ok: true, config: publicConfig(config) });
+        void pollServerCommands();
         return;
       }
       if (message?.type === "START_SYNC") {
         const current = await state();
         if (!current.config.serverUrl || !current.config.hasAccessToken) throw new Error("Save connection settings first.");
         if (!sender.tab?.id) throw new Error("Open Google Messages for Web before starting synchronization.");
+        if (current.job?.status === "running") throw new Error("Google Messages synchronization is already running.");
         const fullHistory = message.fullHistory === true || !current.config.lastSuccessfulSyncMs;
         const overlapMs = 2 * 24 * 60 * 60 * 1000;
         const sinceMs = fullHistory ? null : Math.max(0, current.config.lastSuccessfulSyncMs - overlapMs);
         const job = {
           syncId: crypto.randomUUID(),
+          requestId: message.requestId || null,
           status: "running",
           phase: "Discovering conversations",
           tabId: sender.tab.id,
@@ -106,6 +186,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           updatedAtMs: Date.now(),
         };
         await storageSet({ [JOB_KEY]: job });
+        await reportJob(job).catch(() => {});
         sendResponse({ ok: true, job });
         return;
       }
@@ -155,3 +236,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   })();
   return true;
 });
+
+chrome.alarms.create(COMMAND_ALARM, { periodInMinutes: 0.5 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === COMMAND_ALARM) void pollServerCommands();
+});
+chrome.runtime.onStartup.addListener(() => void pollServerCommands());
+chrome.runtime.onInstalled.addListener(() => void pollServerCommands());
+void pollServerCommands();

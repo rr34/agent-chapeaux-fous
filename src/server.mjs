@@ -19,6 +19,7 @@ import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
 import { CorrespondenceSyncService } from "./correspondence-sync.mjs";
 import { MessagesWebSyncService } from "./messages-web-sync.mjs";
+import { MessagesWebSyncRequests } from "./messages-web-sync-requests.mjs";
 import { CorrespondenceService } from "./correspondence.mjs";
 import { ObjectNetworkService } from "./object-network.mjs";
 import { PaymentService } from "./payments.mjs";
@@ -87,6 +88,7 @@ const correspondenceSync = store.status.ready
 const messagesWebSync = store.status.ready
   ? new MessagesWebSyncService({ databaseTarget: config.databaseTarget })
   : null;
+const messagesWebSyncRequests = new MessagesWebSyncRequests();
 const payments = store.status.ready ? new PaymentService({ store, config, ledger }) : null;
 const journalSchedule = store.status.ready ? new JournalScheduleService(store, ledger) : null;
 const profileFacts = new ProfileFacts({ store, ledger });
@@ -671,6 +673,31 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "POST" && url.pathname === "/api/correspondence/google-messages-sync") {
       sendJson(response, 200, messagesWebSync.synchronize(await readJson(request, 16 * 1024 * 1024)));
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/correspondence/google-messages-sync/request") {
+      sendJson(response, 202, messagesWebSyncRequests.create(await readJson(request)));
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/correspondence/google-messages-sync/next") {
+      const command = messagesWebSyncRequests.next(url.searchParams.get("accountKey") || "default");
+      if (!command) {
+        response.writeHead(204, { "Cache-Control": "private, no-store" });
+        response.end();
+      } else sendJson(response, 200, command);
+      return;
+    }
+    const messagesWebSyncRequestMatch = /^\/api\/correspondence\/google-messages-sync\/request\/([0-9a-f-]{36})$/u.exec(url.pathname);
+    if (request.method === "GET" && messagesWebSyncRequestMatch) {
+      sendJson(response, 200, messagesWebSyncRequests.get(messagesWebSyncRequestMatch[1]));
+      return;
+    }
+    const messagesWebSyncProgressMatch = /^\/api\/correspondence\/google-messages-sync\/request\/([0-9a-f-]{36})\/progress$/u.exec(url.pathname);
+    if (request.method === "POST" && messagesWebSyncProgressMatch) {
+      sendJson(response, 200, messagesWebSyncRequests.update(
+        messagesWebSyncProgressMatch[1],
+        await readJson(request),
+      ));
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/correspondence/google-messages-sync/status") {
