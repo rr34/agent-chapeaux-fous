@@ -17,6 +17,7 @@ import { PrintableReportService } from "./printable-report.mjs";
 import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
 import { CorrespondenceSyncService } from "./correspondence-sync.mjs";
+import { MessagesWebSyncService } from "./messages-web-sync.mjs";
 import { CorrespondenceService } from "./correspondence.mjs";
 import { ObjectNetworkService } from "./object-network.mjs";
 import { PaymentService } from "./payments.mjs";
@@ -81,6 +82,9 @@ const ledger = new Ledger(store);
 const organizer = store.status.ready ? new OrganizerStore(config.databaseTarget) : null;
 const correspondenceSync = store.status.ready
   ? new CorrespondenceSyncService({ databaseTarget: config.databaseTarget })
+  : null;
+const messagesWebSync = store.status.ready
+  ? new MessagesWebSyncService({ databaseTarget: config.databaseTarget })
   : null;
 const payments = store.status.ready ? new PaymentService({ store, config, ledger }) : null;
 const journalSchedule = store.status.ready ? new JournalScheduleService(store, ledger) : null;
@@ -651,6 +655,14 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "GET" && url.pathname === "/api/mobile/correspondence-sync/status") {
       sendJson(response, 200, correspondenceSync.status(url.searchParams.get("deviceId")));
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/correspondence/google-messages-sync") {
+      sendJson(response, 200, messagesWebSync.synchronize(await readJson(request, 16 * 1024 * 1024)));
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/correspondence/google-messages-sync/status") {
+      sendJson(response, 200, messagesWebSync.status(url.searchParams.get("accountKey") || "default"));
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/correspondence") {
@@ -1699,6 +1711,7 @@ async function shutdown() {
   await mcp.close();
   organizer?.close();
   correspondenceSync?.close();
+  messagesWebSync?.close();
   store.close();
 }
 

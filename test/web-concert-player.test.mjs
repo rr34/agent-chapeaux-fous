@@ -6,7 +6,13 @@ const player = fs.readFileSync(new URL("../web/src/components/AdditionalScreens.
 
 test("the web music library can only add music to the concert", () => {
   const library = player.slice(player.indexOf("export function MusicScreen"));
+  const styles = fs.readFileSync(new URL("../web/src/styles.css", import.meta.url), "utf8");
   assert.match(library, /Library selections never start playback\./u);
+  assert.match(library, /aria-label=\{`Add \$\{name\} to concert`\}/u);
+  assert.doesNotMatch(library, />Add release<\/button>/u);
+  assert.match(styles, /\.music-screen \.library-groups \{[^}]*gap: 12px;/su);
+  assert.match(styles, /\.music-track-list li \{[^}]*min-height: 36px;[^}]*padding: \.15rem \.2rem \.15rem \.45rem;/su);
+  assert.match(styles, /\.music-add-button \{[^}]*width: 32px;[^}]*min-width: 32px;[^}]*height: 32px;/su);
   assert.match(library, /aria-label=\{`Add \$\{musicTrackTitle\(track\)\} to concert`\}/u);
   assert.match(library, /player\.enqueue\(\[track\]\)/u);
   assert.doesNotMatch(library, /player\.play\(track\)/u);
@@ -41,14 +47,20 @@ test("web narration defaults to 70% and stays independent from full-volume music
   assert.match(player, /Relative to music · adjustable during playback/u);
 });
 
-test("the web concert floats at a stable bottom height and copies its track description", () => {
+test("the web concert defaults to a compact summary and expands to its full program", () => {
   const styles = fs.readFileSync(new URL("../web/src/styles.css", import.meta.url), "utf8");
   assert.match(player, /function concertDescriptionText\(files: MusicFile\[\]\)/u);
   assert.match(player, /navigator\.clipboard\.writeText\(text\)/u);
   assert.match(player, /document\.execCommand\("copy"\)/u);
   assert.match(player, /await copyTextToClipboard\(text\)/u);
   assert.match(player, />Copy concert description<\/button>/u);
-  assert.match(styles, /\.music-screen \.concert-queue \{[^}]*position: fixed;[^}]*bottom:[^}]*height:[^}]*overflow-y: auto;/su);
+  assert.match(player, /const \[concertExpanded, setConcertExpanded\] = useState\(false\)/u);
+  assert.match(player, /className="music-mini-player-summary"/u);
+  assert.match(player, /aria-label=\{concertExpanded \? "Collapse concert" : "Expand concert"\}/u);
+  assert.match(player, /player\.musicItems\.length > 0 && player\.concertExpanded/u);
+  assert.match(player, />Collapse<\/button>/u);
+  assert.match(styles, /\.music-screen \.concert-queue \{[^}]*position: fixed;[^}]*bottom:/su);
+  assert.match(styles, /\.music-screen \.concert-queue\.is-expanded \{[^}]*height:[^}]*overflow-y: auto;/su);
 });
 
 test("the web concert discloses and generates AI introductions", () => {

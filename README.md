@@ -160,6 +160,55 @@ those require separate source integrations. The initial MMS path preserves
 text and participants but does not upload binary attachments. Provider
 deletions are not inferred from absence in an incremental batch.
 
+### Google Messages for Web synchronization contract
+
+The unpacked Brave extension under `extensions/google-messages-sync` performs
+an explicit foreground import from an already-paired Google Messages for Web
+tab. It discovers the rendered conversation list, loads older messages one
+conversation at a time, and sends authenticated batches of at most 250 messages
+to the server. The initial run may rescan all available history. Later runs
+begin two days before the last successful completion so delayed status changes
+and recently loaded history can be replayed safely by stable Google message
+identity. The extension shows discovery, conversation, message, upload,
+deduplication, elapsed-time, completion, cancellation, and literal failure
+state; it must never report an incomplete DOM traversal as complete.
+
+The server preserves all rendered text, direction, timestamp and its observed
+precision, delivery state, conversation identity and title, participants,
+reactions, attachment type/name descriptors, and the best transport evidence
+the page exposes. Confirmed RCS is stored as `rcs`; confirmed SMS and MMS retain
+those media; a message without reliable transport evidence is stored as
+`chat`. Google credentials and pairing state remain in Brave. Page-scoped
+attachment bytes are not uploaded, and absence from a later scan is not treated
+as provider deletion.
+
+Google Messages does not provide this repository a supported export API, so the
+extension is an explicitly unofficial English-UI DOM integration. It must fail
+visibly when required page structures or timestamps cannot be interpreted.
+Google can change those structures independently of this application.
+
+Cross-source deduplication is intentionally conservative. A web SMS/MMS
+observation is linked to an Android-synchronized canonical message only when
+direction and complete canonical body match, resolved participant sets match,
+the timestamps agree within the web timestamp's declared precision, and exactly
+one phone candidate satisfies all of those checks. A provider-specific identity
+is retained as a source observation with its web metadata. Zero or multiple
+candidates remain separate records. RCS is never folded into an Android SMS or
+MMS record merely because its text is similar.
+
+To install it in Brave, open `brave://extensions`, enable **Developer mode**,
+choose **Load unpacked**, and select:
+
+```text
+/home/nate/code/agent-chapeaux-fous/extensions/google-messages-sync
+```
+
+Pair and open `https://messages.google.com/web/`, then use the extension popup
+to save the Time V3 server URL, access token, and a stable account key. Leave
+that tab open while synchronization runs. Use **Rescan all available history**
+on the first run; incremental runs retain a two-day overlap. The access token is
+stored in the local Brave profile so it does not need to be reentered.
+
 ### Android native-shell and wireless installation contract
 
 Expo/Metro updates TypeScript and other bundled application code without

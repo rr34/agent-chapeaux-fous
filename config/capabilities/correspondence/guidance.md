@@ -1,7 +1,9 @@
 Use `correspondence_list` for the synchronized cross-channel record. JMAP is
-authoritative for email, and explicit phone synchronization is authoritative for
-SMS, MMS, and calls. Do not claim that a local mirror mutation changed a
-provider.
+authoritative for email. Explicit Android synchronization supplies phone-provider
+SMS, MMS, and calls; explicit Google Messages for Web synchronization supplies
+rendered RCS and other web-visible message evidence. The consolidated local row
+may contain source observations from both paths. Do not claim that a local mirror
+mutation changed a provider.
 
 Link or unlink exact correspondence and to-do pairs with one bounded
 `correspondence_todo_link_set` call. These links are user organization, not tags

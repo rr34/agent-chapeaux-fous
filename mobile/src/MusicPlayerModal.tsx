@@ -311,7 +311,7 @@ function concertDisplayRows(queue: ConcertItem[]): ConcertDisplayRow[] {
   });
 }
 
-function AddButton({ label, disabled, onPress, secondary = false }: { label: string; disabled: boolean; onPress: () => void; secondary?: boolean }) {
+function AddButton({ label, disabled, onPress }: { label: string; disabled: boolean; onPress: () => void }) {
   return (
     <Pressable
       accessibilityLabel={label}
@@ -319,7 +319,7 @@ function AddButton({ label, disabled, onPress, secondary = false }: { label: str
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={[styles.addButton, secondary && styles.addButtonSecondary, disabled && styles.disabled]}
+      style={[styles.addButton, disabled && styles.disabled]}
     >
       <Text style={styles.addButtonText}>+</Text>
     </Pressable>
@@ -338,7 +338,7 @@ function TrackRows({ files, currentFileId, disabled, onAdd }: { files: MusicFile
           {!!file.metadata?.performers?.length && <Text numberOfLines={1} style={styles.detail}>{file.metadata.performers.join(' · ')}</Text>}
           {!file.metadata && <Text style={styles.warning}>Metadata needs review</Text>}
         </View>
-        <AddButton label={`Add ${trackTitle(file)} to concert`} disabled={disabled} onPress={() => onAdd([file])} secondary />
+        <AddButton label={`Add ${trackTitle(file)} to concert`} disabled={disabled} onPress={() => onAdd([file])} />
       </View>
     );
   })}</>;
@@ -367,7 +367,7 @@ function LibraryCard({ group, currentFileId, disabled, onAdd }: { group: Release
               {!!work.catalogue.length && <Text style={styles.catalogue}>{work.catalogue.join(' · ')}</Text>}
               {!!work.creators.length && <Text style={styles.detail}>{work.creators.join(' · ')}</Text>}
             </View>
-            <AddButton label={`Add ${work.title} to concert`} disabled={disabled} onPress={() => onAdd(work.files)} secondary />
+            <AddButton label={`Add ${work.title} to concert`} disabled={disabled} onPress={() => onAdd(work.files)} />
           </View>
           <TrackRows files={work.files} currentFileId={currentFileId} disabled={disabled} onAdd={onAdd} />
         </View>
@@ -987,7 +987,6 @@ const styles = StyleSheet.create({
   workHeading: { flexDirection: 'row', gap: 12, alignItems: 'center', paddingHorizontal: 14, paddingVertical: 11 },
   workSectionTitle: { color: colors.ink, fontSize: 15, fontWeight: '800', lineHeight: 19 },
   addButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 20, backgroundColor: colors.accent },
-  addButtonSecondary: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: colors.accent, backgroundColor: 'transparent' },
   addButtonText: { color: colors.ink, fontSize: 25, lineHeight: 27 },
   trackRow: { flexDirection: 'row', alignItems: 'center', minHeight: 60, paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   currentRow: { marginVertical: 4, marginHorizontal: 3, borderWidth: 2, borderLeftWidth: 6, borderColor: colors.accent, borderRadius: 12, backgroundColor: '#351719', shadowColor: colors.accent, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.32, shadowRadius: 8, elevation: 5 },

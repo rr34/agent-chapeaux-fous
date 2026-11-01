@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Time V3 Messages Sync</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <h1>Google Messages Sync</h1>
+      <label>Time V3 server URL<input id="server-url" type="url" placeholder="https://agent.example.com"></label>
+      <label>Access token<input id="access-token" type="password" autocomplete="off"></label>
+      <label>Account key<input id="account-key" type="text" value="default"></label>
+      <button id="save" type="button">Save connection</button>
+      <label class="check"><input id="full-history" type="checkbox"> Rescan all available history</label>
+      <div class="actions">
+        <button id="sync" class="primary" type="button">Synchronize</button>
+        <button id="cancel" type="button">Cancel</button>
+      </div>
+      <pre id="status">Open Google Messages for Web to begin.</pre>
+      <p class="note">Message bodies, timestamps, participants, delivery state, reactions, and attachment descriptors are sent only to the configured Time V3 server. Google credentials and attachment bytes are not copied.</p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

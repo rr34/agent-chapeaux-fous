@@ -11,6 +11,7 @@ test("mobile library selections only add releases, works, or tracks to one conce
   assert.match(player, /onPress=\{\(\) => onAdd\(group\.files\)\}/u);
   assert.match(player, /onPress=\{\(\) => onAdd\(work\.files\)\}/u);
   assert.match(player, /onPress=\{\(\) => onAdd\(\[file\]\)\}/u);
+  assert.doesNotMatch(library, /secondary|addButtonSecondary/u);
   assert.doesNotMatch(library, /PLAY ALBUM|PLAY WORK|playAt|onPlay=/u);
   assert.match(player, /That music is already in the concert/u);
 });

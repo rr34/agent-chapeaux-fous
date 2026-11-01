@@ -360,6 +360,28 @@ async function assertVersion32Integrity(connection, databaseName) {
 export async function assertMigrationSpecificIntegrity(
   connection, migration, databaseName, schemaVersion = migration.version,
 ) {
+  if (migration.version === 62) {
+    const [columns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND (
+        (TABLE_NAME = 'correspondence' AND COLUMN_NAME = 'source_metadata_json')
+        OR (TABLE_NAME = 'correspondence_source_aliases'
+          AND COLUMN_NAME IN ('medium', 'source_metadata_json'))
+      )`, [databaseName]);
+    for (const tableName of ["correspondence", "correspondence_source_aliases"]) {
+      const column = columns.find((row) => row.TABLE_NAME === tableName
+        && row.COLUMN_NAME === "source_metadata_json");
+      if (column?.COLUMN_TYPE !== "longtext" || column.IS_NULLABLE !== "YES") {
+        throw new Error(`Migration 0062 did not establish nullable ${tableName}.source_metadata_json JSON storage`);
+      }
+    }
+    const medium = columns.find((row) => row.TABLE_NAME === "correspondence_source_aliases"
+      && row.COLUMN_NAME === "medium");
+    if (JSON.stringify(enumValues(medium?.COLUMN_TYPE))
+        !== JSON.stringify(requiredEnumColumns.correspondence_source_aliases.medium)) {
+      throw new Error("Migration 0062 did not establish the complete correspondence source-alias medium vocabulary");
+    }
+  }
   if (migration.version === 61) {
     const requiredTables = ["jmap_email_sync_work", "jmap_email_sync_work_items"];
     const [tables] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES

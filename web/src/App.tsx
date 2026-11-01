@@ -3187,7 +3187,7 @@ function DailyPaperRoute() {
 function Workspace() {
   const fromHash = location.hash.slice(1);
   const [view, setView] = useState(navigation.some(([id]) => id === fromHash) ? fromHash : "agent");
-  const musicPlayer = useWebMusicPlayer();
+  const musicPlayer = useWebMusicPlayer(view === "music");
   const [calendarGenerationNotice, setCalendarGenerationNotice] = useState<string | null>(null);
   const [agentDraft, setAgentDraft] = useState("");
   const [agentObjectSelections, setAgentObjectSelections] = useState<SelectedObjectCandidate[]>([]);

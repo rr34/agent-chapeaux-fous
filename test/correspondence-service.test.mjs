@@ -64,6 +64,7 @@ test("correspondence reads expose and filter provider mailbox membership and unr
       correspondence_id: 9, mailbox_id: "inbox-1", name: "Inbox", role: "inbox",
       parent_mailbox_id: null, sort_order: 1,
     }] };
+    if (sql.includes("FROM correspondence_source_aliases")) return { all: () => [] };
     if (sql.includes("FROM jmap_email_mailboxes ORDER BY")) return { all: () => [{
       mailbox_id: "inbox-1", name: "Inbox", role: "inbox", parent_mailbox_id: null,
     }] };
@@ -78,6 +79,7 @@ test("correspondence reads expose and filter provider mailbox membership and unr
   assert.deepEqual(result.items[0].mailboxes, [{
     mailbox_id: "inbox-1", name: "Inbox", role: "inbox", parent_mailbox_id: null,
   }]);
+  assert.deepEqual(result.items[0].source_observations, []);
   assert.equal(result.mailboxes[0].name, "Inbox");
 });
 

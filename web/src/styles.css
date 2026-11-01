@@ -1053,13 +1053,18 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .profile-fact-form label { display: grid; gap: .35rem; }
 .profile-fact-form textarea { min-height: 4rem; }
 .profile-fact-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
-.music-track-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
-.music-track-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; align-items: center; padding: .7rem; border-top: 1px solid var(--line); }
+.music-screen .library-groups { gap: 12px; }
+.music-screen .library-group-heading { align-items: center; margin-bottom: 0; padding: 2px 2px 3px; }
+.music-screen .library-group-heading h2 { font-size: 20px; line-height: 1.05; }
+.music-track-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.music-track-list li { min-height: 36px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem; align-items: center; padding: .15rem .2rem .15rem .45rem; border-top: 1px solid var(--line); }
 .music-track-list span { display: grid; min-width: 0; }
-.music-track-list small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.music-track-list li > button { width: 40px; min-width: 40px; padding-inline: 0; font-size: 1.2rem; }
-.music-screen.has-concert { padding-bottom: clamp(20rem, 52vh, 40rem); }
-.music-screen .concert-queue { position: fixed; z-index: 25; left: 248px; right: 1rem; bottom: calc(var(--agent-composer-clearance) + 6.75rem); height: clamp(18rem, 48vh, 38rem); overflow-y: auto; overscroll-behavior: contain; display: grid; align-content: start; gap: 1rem; margin: 0; padding: clamp(1rem, 2.5vw, 1.5rem); border: 1px solid #909b85; border-radius: 16px; background: linear-gradient(145deg, #f7f8f3, #e7ebdf); box-shadow: 0 14px 35px rgba(36, 43, 30, .18); }
+.music-track-list strong { overflow: hidden; font-size: 13px; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
+.music-track-list small { overflow: hidden; color: var(--muted); font-size: 10px; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
+.music-add-button { width: 32px; min-width: 32px; min-height: 32px; height: 32px; padding: 0; border-radius: 7px; font-size: 1.05rem; line-height: 1; }
+.music-screen.concert-expanded { padding-bottom: clamp(20rem, 52vh, 40rem); }
+.music-screen .concert-queue { position: fixed; z-index: 25; left: 248px; right: 1rem; bottom: calc(var(--agent-composer-clearance) + 6.75rem); margin: 0; border: 1px solid #909b85; border-radius: 16px; background: linear-gradient(145deg, #f7f8f3, #e7ebdf); box-shadow: 0 14px 35px rgba(36, 43, 30, .18); }
+.music-screen .concert-queue.is-expanded { height: clamp(18rem, 48vh, 38rem); overflow-y: auto; overscroll-behavior: contain; display: grid; align-content: start; gap: 1rem; padding: clamp(1rem, 2.5vw, 1.5rem); }
 .concert-queue-heading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; }
 .concert-queue-heading h2 { margin: .15rem 0 0; font: 600 32px/1 "Newsreader", Georgia, serif; }
 .concert-queue-heading p { margin: .4rem 0 0; color: var(--muted); }
@@ -1093,7 +1098,9 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .concert-program-narration-icon { width: 30px; color: #997129; font-size: 1.7rem; line-height: 1; text-align: center; }
 .app-shell.has-music-player .workspace { padding-bottom: calc(var(--agent-composer-clearance) + 7rem); }
 .music-mini-player { position: fixed; z-index: 30; left: 232px; right: 1rem; bottom: var(--agent-composer-clearance); display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(14rem, 2fr) auto; align-items: center; gap: 1rem; padding: .75rem 1rem; border: 1px solid #717c67; border-radius: 14px; background: #f7f8f3; box-shadow: 0 10px 35px rgb(0 0 0 / .22); }
-.music-mini-player span { display: grid; min-width: 0; }
+.music-mini-player > span, .music-mini-player-summary { display: grid; min-width: 0; }
+.music-mini-player-summary { padding: 0; border: 0; color: inherit; background: transparent; text-align: left; }
+.music-mini-player-summary:hover strong { text-decoration: underline; text-underline-offset: 3px; }
 .music-mini-player strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .music-player-transport { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .75rem; }
 .music-player-transport audio { display: none; }
@@ -1120,7 +1127,8 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
   .concert-voice-volume > small { grid-column: 1; }
   .concert-queue-actions { justify-content: stretch; }
   .concert-queue-actions > * { flex: 1; }
-  .music-screen .concert-queue { left: .75rem; right: .75rem; bottom: calc(var(--agent-composer-clearance) + 9.25rem); height: min(42vh, 28rem); }
+  .music-screen .concert-queue { left: .75rem; right: .75rem; bottom: calc(var(--agent-composer-clearance) + 9.25rem); }
+  .music-screen .concert-queue.is-expanded { height: min(42vh, 28rem); }
   .music-mini-player { left: .75rem; right: .75rem; grid-template-columns: 1fr auto; }
   .music-player-transport { grid-column: 1 / -1; }
 }

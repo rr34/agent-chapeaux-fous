@@ -15,14 +15,27 @@ const schemaSource = fs.readFileSync(baselineFilename, "utf8");
 
 export function baselineBeforeRetiredCheckIn(source) {
   return source
+    .replace(/^    source_metadata_json JSON[^\n]+\n/gmu, "")
+    .replace(
+      "dedupe_fingerprint CHAR(64) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Nullable versioned-algorithm SHA-256 used only to find conservative cross-source duplicate candidates. A matching digest is never sufficient when multiple canonical rows match.',",
+      "dedupe_fingerprint CHAR(64) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Nullable versioned-algorithm SHA-256 used only to find conservative cross-device duplicate candidates for Android SMS, MMS, and calls. A matching digest is never sufficient when multiple canonical rows match.',",
+    )
+    .replace(
+      "medium ENUM('email', 'sms', 'mms', 'rcs', 'imessage', 'whatsapp', 'chat', 'call', 'voicemail', 'other') NOT NULL COMMENT 'Communication medium assigned to this source observation. It normally equals the canonical medium; an observation with incomplete transport evidence may alias a canonical SMS or MMS record after conservative content, participant, direction, and time matching.',",
+      "medium ENUM('sms', 'mms', 'call') NOT NULL COMMENT 'Communication medium used with the source account and external identifier. It must equal the canonical correspondence medium. sms: SMS text message. mms: Multimedia messaging service message. call: Telephone call.',",
+    )
+    .replace(
+      "ENGINE=InnoDB COMMENT='Stores second and later provider identities for one canonical correspondence record observed through multiple phones, browsers, or services. The first source identity remains on correspondence. Exact source identity provides replay safety; conservative matching selects a canonical candidate, and ambiguous candidates remain separate. Sensitivity: Contains private account identifiers, communication provenance, and provider metadata.';",
+      "ENGINE=InnoDB COMMENT='Stores only second and later provider identities for one canonical SMS, MMS, or call observed on multiple Android phones. The first source identity remains on correspondence. Exact source identity provides replay safety; conservative fingerprint matching selects a canonical candidate, and ambiguous candidates remain separate. Sensitivity: Contains private device/account identifiers, message and call provenance, and provider state.';",
+    )
     .replace(/CREATE TABLE jmap_email_sync_work \([\s\S]*?\n\) ENGINE=InnoDB[^\n]*;\n\n/u, "")
     .replace(/CREATE TABLE jmap_email_sync_work_items \([\s\S]*?\n\) ENGINE=InnoDB[^\n]*;\n\n/u, "")
     .replace(/^    email_keywords_json[^\n]+\n/mu, "")
     .replace(/CREATE TABLE jmap_email_mailboxes \([\s\S]*?\n\) ENGINE=InnoDB[^\n]*;\n\n/u, "")
     .replace(/CREATE TABLE correspondence_email_mailboxes_join \([\s\S]*?\n\) ENGINE=InnoDB[^\n]*;\n\n/u, "")
     .replace(/\n  UNION ALL\n  SELECT\n    'correspondence[.]item', CAST\(link[.]correspondence_id AS CHAR\), 'correspondence-email-mailbox',[\s\S]*?mailbox[.]mailbox_id = link[.]mailbox_id\n/u, "")
-    .replace("Target: MariaDB 10.11, schema version 61.", "Target: MariaDB 10.11, schema version 58.")
-    .replace("VALUES (1, 61,", "VALUES (1, 58,");
+    .replace("Target: MariaDB 10.11, schema version 62.", "Target: MariaDB 10.11, schema version 58.")
+    .replace("VALUES (1, 62,", "VALUES (1, 58,");
 }
 
 export function baselineBeforeContactSourceAliases(source) {

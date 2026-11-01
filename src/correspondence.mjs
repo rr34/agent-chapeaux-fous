@@ -31,6 +31,17 @@ function emailKeywords(value) {
   }
 }
 
+function sourceMetadata(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "object") return value;
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function boundedProviderText(value, maximumCharacters) {
   if (value == null) return null;
   let result = "";
@@ -69,7 +80,7 @@ function canonicalHtml(value) {
     .replace(/\r\n?|\n/gu, "<br>") : null;
 }
 
-function publicItem(row, participants = [], todos = [], mailboxes = []) {
+function publicItem(row, participants = [], todos = [], mailboxes = [], sourceObservations = []) {
   const correspondenceId = Number(row.correspondence_id);
   const keywords = emailKeywords(row.email_keywords_json);
   return {
@@ -86,6 +97,8 @@ function publicItem(row, participants = [], todos = [], mailboxes = []) {
     sent_at_utc: row.sent_at_utc ?? null,
     received_at_utc: row.received_at_utc ?? null,
     email_keywords: keywords,
+    source_metadata: sourceMetadata(row.source_metadata_json),
+    source_observations: sourceObservations,
     is_read: row.medium === "email" ? keywords.includes("$seen") : null,
     mailboxes,
     participants,
@@ -197,6 +210,7 @@ export class CorrespondenceService {
     const participants = new Map();
     const todos = new Map();
     const mailboxes = new Map();
+    const sourceObservations = new Map();
     if (ids.length) {
       const placeholders = ids.map(() => "?").join(", ");
       for (const row of this.database.prepare(`SELECT participant.*, contact.display_name AS contact_name
@@ -239,10 +253,31 @@ export class CorrespondenceService {
         });
         mailboxes.set(id, valuesForItem);
       }
+      for (const row of this.database.prepare(`SELECT correspondence_id, medium, source_account_key,
+          thread_key, external_id, provider_status, source_metadata_json,
+          first_observed_at_utc, last_observed_at_utc
+        FROM correspondence_source_aliases
+        WHERE correspondence_id IN (${placeholders})
+        ORDER BY correspondence_id, first_observed_at_utc, correspondence_source_alias_id`).all(...ids)) {
+        const id = Number(row.correspondence_id);
+        const valuesForItem = sourceObservations.get(id) || [];
+        valuesForItem.push({
+          medium: row.medium,
+          source_account_key: row.source_account_key,
+          thread_key: row.thread_key ?? null,
+          external_id: row.external_id,
+          provider_status: row.provider_status ?? null,
+          source_metadata: sourceMetadata(row.source_metadata_json),
+          first_observed_at_utc: row.first_observed_at_utc,
+          last_observed_at_utc: row.last_observed_at_utc,
+        });
+        sourceObservations.set(id, valuesForItem);
+      }
     }
     return {
       items: rows.map((row) => publicItem(row, participants.get(Number(row.correspondence_id)) || [],
-        todos.get(Number(row.correspondence_id)) || [], mailboxes.get(Number(row.correspondence_id)) || [])),
+        todos.get(Number(row.correspondence_id)) || [], mailboxes.get(Number(row.correspondence_id)) || [],
+        sourceObservations.get(Number(row.correspondence_id)) || [])),
       mailboxes: this.database.prepare(`SELECT mailbox_id, name, role, parent_mailbox_id
         FROM jmap_email_mailboxes ORDER BY sort_order, name, mailbox_id`).all(),
       count: rows.length,

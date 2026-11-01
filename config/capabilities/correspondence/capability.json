@@ -13,7 +13,7 @@
       "id": "correspondence.item",
       "kind": "object",
       "management": "provider",
-      "reason": "JMAP and explicit phone synchronization own correspondence creation, updates, and deletion; the local consolidated view is readable but not independently editable."
+      "reason": "JMAP, explicit Android synchronization, and explicit Google Messages for Web synchronization own correspondence creation and updates; the local consolidated view is readable but not independently editable."
     },
     {
       "id": "correspondence.todo",

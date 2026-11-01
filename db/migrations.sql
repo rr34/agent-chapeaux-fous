@@ -16,6 +16,34 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0062: google-messages-web-source-metadata
+-- writer downtime: required while the correspondence importer, source-alias
+-- vocabulary, and provider-metadata columns move together. Existing message
+-- bodies, participants, timestamps, and provider identities are unchanged.
+-- locking: both ALTER TABLE operations take metadata locks. The nullable JSON
+-- columns do not require a data rewrite on supported MariaDB versions; widening
+-- the small alias medium enum may rebuild that table.
+-- recovery: MariaDB DDL commits implicitly. Column additions are guarded and
+-- the enum modification is idempotent. Keep writers stopped and rerun the
+-- complete migration after a partial commit, then run npm run db:verify.
+
+ALTER TABLE correspondence
+  ADD COLUMN IF NOT EXISTS source_metadata_json JSON NULL
+    COMMENT 'Bounded provider observation metadata not represented by canonical correspondence columns, such as Google Messages transport evidence, reactions, attachment descriptors, timestamp precision, and thread presentation. It contains no authentication credentials or attachment bytes.'
+    AFTER email_keywords_json,
+  MODIFY dedupe_fingerprint CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL
+    COMMENT 'Nullable versioned-algorithm SHA-256 used only to find conservative cross-source duplicate candidates. A matching digest is never sufficient when multiple canonical rows match.';
+
+ALTER TABLE correspondence_source_aliases
+  MODIFY medium ENUM('email', 'sms', 'mms', 'rcs', 'imessage', 'whatsapp', 'chat', 'call', 'voicemail', 'other') NOT NULL
+    COMMENT 'Communication medium assigned to this source observation. It normally equals the canonical medium; an observation with incomplete transport evidence may alias a canonical SMS or MMS record after conservative content, participant, direction, and time matching.',
+  ADD COLUMN IF NOT EXISTS source_metadata_json JSON NULL
+    COMMENT 'Bounded provider observation metadata retained for this additional source identity, including transport evidence, reactions, attachment descriptors, and timestamp precision. It contains no authentication credentials or attachment bytes.'
+    AFTER provider_status,
+  COMMENT='Stores second and later provider identities for one canonical correspondence record observed through multiple phones, browsers, or services. The first source identity remains on correspondence. Exact source identity provides replay safety; conservative matching selects a canonical candidate, and ambiguous candidates remain separate. Sensitivity: Contains private account identifiers, communication provenance, and provider metadata.';
+
+-- end migration 0062
+
 -- migration 0061: resumable-bounded-jmap-email-baseline
 -- writer downtime: required while the email synchronization code and its
 -- durable baseline checkpoint tables move together. Existing correspondence

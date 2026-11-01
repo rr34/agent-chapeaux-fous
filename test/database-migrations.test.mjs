@@ -27,6 +27,31 @@ const block = (version, name = `migration-${version}`, sql = `SELECT ${version};
   return `-- migration ${label}: ${name}\n${sql}\n-- end migration ${label}\n`;
 };
 
+test("Google Messages metadata integrity requires JSON columns and the complete alias medium vocabulary", async () => {
+  const completeMedium = `enum(${requiredEnumColumns.correspondence_source_aliases.medium
+    .map((value) => `'${value}'`).join(",")})`;
+  const columns = [
+    { TABLE_NAME: "correspondence", COLUMN_NAME: "source_metadata_json", COLUMN_TYPE: "longtext", IS_NULLABLE: "YES" },
+    { TABLE_NAME: "correspondence_source_aliases", COLUMN_NAME: "source_metadata_json", COLUMN_TYPE: "longtext", IS_NULLABLE: "YES" },
+    { TABLE_NAME: "correspondence_source_aliases", COLUMN_NAME: "medium", COLUMN_TYPE: completeMedium, IS_NULLABLE: "NO" },
+  ];
+  const connection = (selectedColumns = columns) => ({ async query(sql) {
+    if (sql.includes("information_schema.COLUMNS")) return [selectedColumns];
+    throw new Error(`Unexpected SQL: ${sql}`);
+  } });
+  await assertMigrationSpecificIntegrity(connection(), { version: 62 }, "test_database");
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection(columns.slice(1)), { version: 62 }, "test_database"),
+    /correspondence[.]source_metadata_json/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection(columns.map((column) => (
+      column.COLUMN_NAME === "medium" ? { ...column, COLUMN_TYPE: "enum('sms','mms')" } : column
+    ))), { version: 62 }, "test_database"),
+    /complete correspondence source-alias medium vocabulary/u,
+  );
+});
+
 test("resumable JMAP baseline integrity requires both sync work tables and their ownership key", async () => {
   const tables = ["jmap_email_sync_work", "jmap_email_sync_work_items"]
     .map((TABLE_NAME) => ({ TABLE_NAME, TABLE_TYPE: "BASE TABLE" }));
@@ -687,11 +712,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61]);
-  for (let current = 29; current <= 61; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62]);
+  for (let current = 29; current <= 62; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 61 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 62 - current }, (_, index) => current + index + 1),
     );
   }
 });

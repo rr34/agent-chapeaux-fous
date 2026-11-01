@@ -1,0 +1,25 @@
+# Time V3 Google Messages Sync
+
+This unpacked Manifest V3 extension performs an explicit foreground synchronization from an already-paired Google Messages for Web tab into Time V3. It reads the page's rendered conversation history and sends bounded authenticated batches to `/api/correspondence/google-messages-sync`.
+
+## Install in Brave desktop
+
+1. Open `brave://extensions`.
+2. Enable **Developer mode**.
+3. Select **Load unpacked**.
+4. Choose this `extensions/google-messages-sync` directory.
+5. Open and pair `https://messages.google.com/web/`.
+6. Open the extension, enter the Time V3 server URL and access token, and save them.
+7. Select **Rescan all available history** for the initial import, then select **Synchronize**.
+
+Later runs overlap the prior successful run by two days and replay stable Google message identities safely. A complete-history run can take a long time because Google Messages initially renders only a small recent window and loads older messages in batches.
+
+## Data and limitations
+
+The extension imports complete rendered text, direction, source timestamp, sender/recipient presentation, provider delivery state, reactions, attachment type/name descriptors, conversation identity, and the best observable transport classification. Google credentials and pairing state remain in Brave. Attachment `blob:` URLs are page-scoped, so binary attachment bytes are not uploaded.
+
+This is an unofficial DOM integration. It assumes an English Google Messages UI for absolute timestamp parsing. The sync reports messages skipped for missing usable timestamps, and it fails visibly when required page structures disappear. Google can change those structures at any time.
+
+SMS/MMS records are conservatively linked to phone synchronization only when one candidate agrees on direction, complete body, resolved participants, and source time within the web timestamp's declared precision. Ambiguous candidates remain separate.
+
+The access token is retained in Brave extension storage so it does not need to be reentered. Treat the Brave profile as sensitive.

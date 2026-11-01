@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 61.
+-- Target: MariaDB 10.11, schema version 62.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -1033,7 +1033,7 @@ CREATE TABLE correspondence (
     source_account_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Source-local mailbox, phone identity, SIM, or service account through which the communication was handled. It scopes provider identifiers and does not contain an authentication secret.',
     thread_key        VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Provider or local conversation identifier grouping related messages.',
     external_id       VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Provider-assigned identifier for this message or call.',
-    dedupe_fingerprint CHAR(64) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Nullable versioned-algorithm SHA-256 used only to find conservative cross-device duplicate candidates for Android SMS, MMS, and calls. A matching digest is never sufficient when multiple canonical rows match.',
+    dedupe_fingerprint CHAR(64) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Nullable versioned-algorithm SHA-256 used only to find conservative cross-source duplicate candidates. A matching digest is never sufficient when multiple canonical rows match.',
     internet_message_id VARCHAR(998) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin COMMENT 'Primary Internet Message-ID header value for an email, retained for cross-provider deduplication and reply matching. Null for non-email correspondence and email without a usable Message-ID.',
     in_reply_to_id    BIGINT UNSIGNED COMMENT 'Earlier local correspondence record to which this message directly replies.',
     subject           TEXT COMMENT 'Complete message subject or title when the medium provides one.',
@@ -1043,6 +1043,7 @@ CREATE TABLE correspondence (
     call_duration_seconds BIGINT UNSIGNED COMMENT 'Elapsed connected or reported call duration in whole seconds when supplied by the source. Null when unavailable and for non-call rows.',
     provider_status   VARCHAR(64) COMMENT 'Unmodified provider-specific state retained when it conveys detail not represented by delivery_status or call_disposition.',
     email_keywords_json JSON COMMENT 'Sorted JSON array of active provider-owned JMAP email keywords such as $seen, $flagged, $answered, and $draft. Null for non-email correspondence.',
+    source_metadata_json JSON COMMENT 'Bounded provider observation metadata not represented by canonical correspondence columns, such as Google Messages transport evidence, reactions, attachment descriptors, timestamp precision, and thread presentation. It contains no authentication credentials or attachment bytes.',
     occurred_at_utc   DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'Primary source-reported instant used to order this communication. For calls this is the call start; for messages it is the best available sent or received instant. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     sent_at_utc       DATETIME(3) COMMENT 'UTC instant when the message was sent, when known. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     received_at_utc   DATETIME(3) COMMENT 'UTC instant when the message was received, when known. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
@@ -1069,11 +1070,12 @@ CREATE TABLE correspondence_source_aliases (
 
     correspondence_source_alias_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for one additional provider observation of a canonical correspondence record.',
     correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Canonical correspondence record also observed through this additional source identity.',
-    medium ENUM('sms', 'mms', 'call') NOT NULL COMMENT 'Communication medium used with the source account and external identifier. It must equal the canonical correspondence medium. sms: SMS text message. mms: Multimedia messaging service message. call: Telephone call.',
+    medium ENUM('email', 'sms', 'mms', 'rcs', 'imessage', 'whatsapp', 'chat', 'call', 'voicemail', 'other') NOT NULL COMMENT 'Communication medium assigned to this source observation. It normally equals the canonical medium; an observation with incomplete transport evidence may alias a canonical SMS or MMS record after conservative content, participant, direction, and time matching.',
     source_account_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Additional phone, SIM, or service account that observed the canonical communication.',
     thread_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Source-local conversation identifier observed on this additional device.',
     external_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Provider-assigned identifier on this additional source device.',
     provider_status VARCHAR(64) COMMENT 'Latest source-specific status observed through this alias when it contains detail not retained canonically.',
+    source_metadata_json JSON COMMENT 'Bounded provider observation metadata retained for this additional source identity, including transport evidence, reactions, attachment descriptors, and timestamp precision. It contains no authentication credentials or attachment bytes.',
     source_event_id VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Synchronization event that first established this additional source identity.',
     first_observed_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this additional source identity was first synchronized.',
     last_observed_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this additional source identity was most recently synchronized.',
@@ -1084,7 +1086,7 @@ CREATE TABLE correspondence_source_aliases (
     CONSTRAINT correspondence_source_alias_correspondence FOREIGN KEY (correspondence_id) REFERENCES correspondence(correspondence_id) ON DELETE CASCADE,
     CONSTRAINT correspondence_source_alias_event_fk FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
     CONSTRAINT correspondence_source_alias_observed CHECK (last_observed_at_utc >= first_observed_at_utc)
-) ENGINE=InnoDB COMMENT='Stores only second and later provider identities for one canonical SMS, MMS, or call observed on multiple Android phones. The first source identity remains on correspondence. Exact source identity provides replay safety; conservative fingerprint matching selects a canonical candidate, and ambiguous candidates remain separate. Sensitivity: Contains private device/account identifiers, message and call provenance, and provider state.';
+) ENGINE=InnoDB COMMENT='Stores second and later provider identities for one canonical correspondence record observed through multiple phones, browsers, or services. The first source identity remains on correspondence. Exact source identity provides replay safety; conservative matching selects a canonical candidate, and ambiguous candidates remain separate. Sensitivity: Contains private account identifiers, communication provenance, and provider metadata.';
 
 CREATE TABLE jmap_email_mailboxes (
     -- sourceOfTruth: true
@@ -1883,4 +1885,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 61, 'Chapeaux Fous MariaDB database');
+VALUES (1, 62, 'Chapeaux Fous MariaDB database');
