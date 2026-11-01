@@ -512,6 +512,22 @@ test("the catch-up source repair requires the restored check", async () => {
   );
   rows = [{ CONSTRAINT_NAME: "catch_up_one_source", CONSTRAINT_TYPE: "CHECK" }];
   await assertMigrationSpecificIntegrity(connection, { version: 41 }, "test_database");
+  await assertMigrationSpecificIntegrity({
+    async query() { assert.fail("Retired Check-in constraints must not be queried at schema 59"); },
+  }, { version: 41 }, "test_database", 59);
+});
+
+test("schema 59 retains the Journal schedule guard without requiring retired Check-in keys", async () => {
+  const connection = {
+    async query(sql) {
+      if (sql.includes("information_schema.COLUMNS")) return [[]];
+      if (sql.includes("information_schema.TABLE_CONSTRAINTS")) {
+        return [[{ CONSTRAINT_NAME: "trackers_asking_schedule" }]];
+      }
+      assert.fail(`Retired Check-in metadata must not be queried at schema 59: ${sql}`);
+    },
+  };
+  await assertMigrationSpecificIntegrity(connection, { version: 36 }, "test_database", 59);
 });
 
 test("the unplanned retirement verifies the enum, rows, and actionable view", async () => {

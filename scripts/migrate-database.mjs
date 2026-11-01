@@ -353,7 +353,9 @@ async function assertVersion32Integrity(connection, databaseName) {
   }
 }
 
-export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
+export async function assertMigrationSpecificIntegrity(
+  connection, migration, databaseName, schemaVersion = migration.version,
+) {
   if (migration.version === 59) {
     const [retiredTables] = await connection.query(`SELECT TABLE_NAME FROM information_schema.TABLES
       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'catch_up_questions'`, [databaseName]);
@@ -912,7 +914,7 @@ export async function assertMigrationSpecificIntegrity(connection, migration, da
       throw new Error("Migration 0042 did not update open_todo_personal");
     }
   }
-  if (migration.version === 41) {
+  if (migration.version === 41 && schemaVersion < 59) {
     const [checks] = await connection.query(`SELECT CONSTRAINT_NAME, CONSTRAINT_TYPE
       FROM information_schema.TABLE_CONSTRAINTS
       WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME = 'catch_up_questions'
@@ -1029,35 +1031,43 @@ export async function assertMigrationSpecificIntegrity(connection, migration, da
     }
   }
   if (migration.version === 36) {
+    const catchUpRetired = schemaVersion >= 59;
     const [sourceColumns] = await connection.query(`SELECT COLUMN_NAME FROM information_schema.COLUMNS
       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'catch_up_questions'`, [databaseName]);
     const retainsTaskSource = sourceColumns.some(row => row.COLUMN_NAME === "personal_task_id");
-    const [keys] = await connection.query(`SELECT CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
-      FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME = 'catch_up_questions'`, [databaseName]);
-    for (const [name, column, table, target] of [
-      ...(retainsTaskSource ? [["catch_up_task", "personal_task_id", "todo_personal", "personal_task_id"]] : []),
-      ["catch_up_event", "calendar_event_id", "calendar_events", "calendar_event_id"],
-      ["catch_up_tracker", "tracker_id", null, "tracker_id"],
-    ]) {
-      if (!keys.some(row => row.CONSTRAINT_NAME === name && row.COLUMN_NAME === column
-        && (table === null ? ["trackers", "journal2_trackers"].includes(row.REFERENCED_TABLE_NAME)
-          : row.REFERENCED_TABLE_NAME === table)
-        && row.REFERENCED_COLUMN_NAME === target)) {
-        throw new Error(`Migration 0036 did not establish source foreign key ${name}`);
+    if (!catchUpRetired) {
+      const [keys] = await connection.query(`SELECT CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+        FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME = 'catch_up_questions'`, [databaseName]);
+      for (const [name, column, table, target] of [
+        ...(retainsTaskSource ? [["catch_up_task", "personal_task_id", "todo_personal", "personal_task_id"]] : []),
+        ["catch_up_event", "calendar_event_id", "calendar_events", "calendar_event_id"],
+        ["catch_up_tracker", "tracker_id", null, "tracker_id"],
+      ]) {
+        if (!keys.some(row => row.CONSTRAINT_NAME === name && row.COLUMN_NAME === column
+          && (table === null ? ["trackers", "journal2_trackers"].includes(row.REFERENCED_TABLE_NAME)
+            : row.REFERENCED_TABLE_NAME === table)
+          && row.REFERENCED_COLUMN_NAME === target)) {
+          throw new Error(`Migration 0036 did not establish source foreign key ${name}`);
+        }
       }
     }
     const [checks] = await connection.query(`SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS
       WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME IN ('catch_up_questions', 'trackers', 'journal2_trackers') AND CONSTRAINT_TYPE = 'CHECK'`, [databaseName]);
-    for (const name of ["catch_up_one_source", "catch_up_question_text", "trackers_asking_schedule"]) {
+    const requiredChecks = catchUpRetired
+      ? ["trackers_asking_schedule"]
+      : ["catch_up_one_source", "catch_up_question_text", "trackers_asking_schedule"];
+    for (const name of requiredChecks) {
       if (!checks.some(row => row.CONSTRAINT_NAME === name)) throw new Error(`Migration 0036 is missing check ${name}`);
     }
-    const [indexes] = await connection.query(`SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX, NON_UNIQUE
-      FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'catch_up_questions'
-      ORDER BY INDEX_NAME, SEQ_IN_INDEX`, [databaseName]);
-    for (const [name, field] of [...(retainsTaskSource ? [["catch_up_task_occurrence", "personal_task_id"]] : []),
-      ["catch_up_event_occurrence", "calendar_event_id"], ["catch_up_tracker_period", "tracker_id"]]) {
-      const columns = indexes.filter(row => row.INDEX_NAME === name && Number(row.NON_UNIQUE) === 0).map(row => row.COLUMN_NAME);
-      if (JSON.stringify(columns) !== JSON.stringify([field, "occurrence_key"])) throw new Error(`Migration 0036 is missing unique source/occurrence index ${name}`);
+    if (!catchUpRetired) {
+      const [indexes] = await connection.query(`SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX, NON_UNIQUE
+        FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'catch_up_questions'
+        ORDER BY INDEX_NAME, SEQ_IN_INDEX`, [databaseName]);
+      for (const [name, field] of [...(retainsTaskSource ? [["catch_up_task_occurrence", "personal_task_id"]] : []),
+        ["catch_up_event_occurrence", "calendar_event_id"], ["catch_up_tracker_period", "tracker_id"]]) {
+        const columns = indexes.filter(row => row.INDEX_NAME === name && Number(row.NON_UNIQUE) === 0).map(row => row.COLUMN_NAME);
+        if (JSON.stringify(columns) !== JSON.stringify([field, "occurrence_key"])) throw new Error(`Migration 0036 is missing unique source/occurrence index ${name}`);
+      }
     }
   }
   if (migration.version === 30) await assertVersion30Integrity(connection, databaseName);
@@ -1200,7 +1210,7 @@ export async function runDatabaseMigrations({
 
     if (pending.length === 0) {
       for (const migration of migrations.filter(({ version }) => version <= currentVersion)) {
-        await assertMigrationSpecificIntegrity(connection, migration, databaseName);
+        await assertMigrationSpecificIntegrity(connection, migration, databaseName, currentVersion);
       }
       await assertGeneralMariaDbIntegrity(connection, currentVersion, databaseName);
       output.write(`Chapeaux Fous MariaDB is already at schema version ${currentVersion}.\n`);

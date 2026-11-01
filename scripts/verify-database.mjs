@@ -16,13 +16,16 @@ export async function verifyDatabase(database) {
     throw new Error(`Database is not compatible with Agent Slayer:\n- ${inspection.problems.join("\n- ")}`);
   }
   const databaseName = database.prepare("SELECT DATABASE() AS name").get().name;
+  const schemaVersion = Number(database.prepare(
+    "SELECT schema_version FROM database_meta WHERE singleton = 1",
+  ).get().schema_version);
   const connection = {
     query: async (sql, parameters = []) => [database.prepare(sql).all(...parameters)],
   };
   // Reuse reviewed migration postconditions for keys, indexes and trigger guards.
   // These checks only SELECT metadata; verification never runs a migration.
   for (const migration of readMigrationLedger(migrationsFilename)) {
-    await assertMigrationSpecificIntegrity(connection, migration, databaseName);
+    await assertMigrationSpecificIntegrity(connection, migration, databaseName, schemaVersion);
   }
   const fullTextIndexes = database.prepare(`
     SELECT TABLE_NAME AS table_name, INDEX_NAME AS index_name,
