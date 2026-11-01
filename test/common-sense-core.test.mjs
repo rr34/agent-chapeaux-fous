@@ -14,6 +14,7 @@ import {
   normalizeCompletionAudit,
   parseStructuredModelOutput,
 } from "../src/common-sense-core.mjs";
+import { nativeCapabilityManifest } from "../src/native-capabilities.mjs";
 
 function validCore() {
   return {
@@ -192,6 +193,27 @@ test("orientation contains families and selections but no exact tool catalog", (
   assert.doesNotMatch(context, /todo_complete_batch/);
   assert.match(commonSenseInstructions, /common-sense orientation/i);
   assert.match(commonSenseInstructions, /not proof that every member is a current target/i);
+});
+
+test("orientation receives the compact journal object semantics needed to separate tracker values", () => {
+  const journal = nativeCapabilityManifest("journal");
+  const orientation = commonSenseContext({
+    requestId: "request-journal-measurements",
+    requestEventSeq: 9,
+    requestText: "log 100 sit ups and 5 minutes stretching",
+    recentConversation: [],
+    capabilityCatalog: [{
+      capability: journal.id,
+      title: journal.title,
+      summary: journal.summary,
+      objectTypes: [],
+      contextViews: [],
+    }],
+  });
+  assert.match(orientation, /tracker is one series with one canonical unit/u);
+  assert.match(orientation, /each entry belongs to one tracker/u);
+  assert.match(orientation, /values for different trackers are separate entries/u);
+  assert.doesNotMatch(orientation, /journal_add|tracker_create|journal_import/u);
 });
 
 test("orientation and execution preserve exact selected recurring occurrences", () => {

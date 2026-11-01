@@ -174,6 +174,45 @@ The ordinary development installation path is Android Wireless Debugging, not
 USB. Use the native Linux Android SDK `adb` under WSL; the Windows `adb.exe` may
 fail to connect even when the native Linux binary succeeds.
 
+#### Quick resume after leaving WSL
+
+Pixel: **Settings → System → Developer options → Wireless debugging**.
+Read the current port from **IP address & port**.
+
+Terminal 1:
+
+```bash
+cd /home/nate/code/agent-chapeaux-fous/mobile
+/home/nate/Android/Sdk/platform-tools/adb connect 192.168.1.210:CURRENT_PORT
+/home/nate/Android/Sdk/platform-tools/adb reverse tcp:8081 tcp:8081
+npm start -- --localhost
+```
+
+Terminal 2:
+
+```bash
+/home/nate/Android/Sdk/platform-tools/adb shell am start -a android.intent.action.VIEW -d 'exp+time-v3-technology-agent://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081' com.timev3.technologyagent
+```
+
+#### Rebuild and install after native changes
+
+Terminal 1:
+
+```bash
+cd /home/nate/code/agent-chapeaux-fous/mobile
+npm run android:build:debug
+/home/nate/Android/Sdk/platform-tools/adb connect 192.168.1.210:CURRENT_PORT
+/home/nate/Android/Sdk/platform-tools/adb install -r -g /home/nate/code/agent-chapeaux-fous/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+/home/nate/Android/Sdk/platform-tools/adb reverse tcp:8081 tcp:8081
+npm start -- --localhost
+```
+
+Terminal 2:
+
+```bash
+/home/nate/Android/Sdk/platform-tools/adb shell am start -a android.intent.action.VIEW -d 'exp+time-v3-technology-agent://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081' com.timev3.technologyagent
+```
+
 #### Full fresh Android development start (Pixel and WSL)
 
 1. On a Pixel, enable Developer options by opening **Settings → About phone**

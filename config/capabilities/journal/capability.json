@@ -4,7 +4,7 @@
   "version": 1,
   "id": "journal",
   "title": "Personal journal",
-  "summary": "Create and manage native journal trackers and groups, and read, record, and correct their entries.",
+  "summary": "Record and manage personal observations under reusable trackers. A tracker is one series with one canonical unit, and each entry belongs to one tracker; values for different trackers are separate entries even when logged together.",
   "aliases": [
     "journal",
     "tracker",

@@ -347,19 +347,20 @@ function correspondenceProgressText(
   const acceptedTotal = correspondenceProgressTotal(accepted);
   const plannedTotal = Math.max(acceptedTotal, correspondenceProgressTotal(planned));
   const percent = plannedTotal ? Math.min(100, Math.floor((acceptedTotal / plannedTotal) * 100)) : 100;
-  const detail = [
-    `contacts ${accepted.contacts.toLocaleString()}/${planned.contacts.toLocaleString()}`,
-    `calls ${accepted.calls.toLocaleString()}/${planned.calls.toLocaleString()}`,
-    `SMS ${accepted.sms.toLocaleString()}/${planned.sms.toLocaleString()}`,
-    `MMS ${accepted.mms.toLocaleString()}/${planned.mms.toLocaleString()}`,
-  ].join(' · ');
   const elapsedMinutes = Math.max(0, Date.now() - startedAt) / 60_000;
   const rate = elapsedMinutes > 0 && acceptedTotal > 0 ? acceptedTotal / elapsedMinutes : 0;
   const remaining = Math.max(0, plannedTotal - acceptedTotal);
-  const estimate = rate > 0 && remaining > 0
-    ? ` · ${Math.max(1, Math.round(rate)).toLocaleString()}/min · about ${formatRemaining((remaining / rate) * 60_000)} left`
-    : '';
-  return `${acceptedTotal.toLocaleString()}/${plannedTotal.toLocaleString()} (${percent}%) · ${detail}${estimate}`;
+  const estimate = rate > 0
+    ? remaining > 0
+      ? `${Math.max(1, Math.round(rate)).toLocaleString()}/min · about ${formatRemaining((remaining / rate) * 60_000)} left`
+      : `${Math.max(1, Math.round(rate)).toLocaleString()}/min · complete`
+    : 'Calculating rate and ETA…';
+  return [
+    `${acceptedTotal.toLocaleString()}/${plannedTotal.toLocaleString()} accepted (${percent}%)`,
+    `Contacts ${accepted.contacts.toLocaleString()}/${planned.contacts.toLocaleString()} · Calls ${accepted.calls.toLocaleString()}/${planned.calls.toLocaleString()}`,
+    `SMS ${accepted.sms.toLocaleString()}/${planned.sms.toLocaleString()} · MMS ${accepted.mms.toLocaleString()}/${planned.mms.toLocaleString()}`,
+    estimate,
+  ].join('\n');
 }
 
 const waitForRetry = (milliseconds: number) => new Promise<void>((resolve) => {
@@ -489,7 +490,7 @@ function CorrespondenceSyncModal({
           throw new Error('Allow at least one phone-data permission before synchronizing.');
         }
         setProgress(
-          `Batch ${batchNumber}: sending ${batch.contacts.length} contacts and ${batch.correspondence.length} communications… ${correspondenceProgressText(acceptedProgress, plannedProgress, synchronizationStartedAt)}`,
+          `Batch ${batchNumber} · sending\n${batch.contacts.length} contacts and ${batch.correspondence.length} communications\n${correspondenceProgressText(acceptedProgress, plannedProgress, synchronizationStartedAt)}`,
         );
         let accepted: Awaited<ReturnType<typeof synchronizeCorrespondence>> | null = null;
         for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -500,7 +501,7 @@ function CorrespondenceSyncModal({
             if (attempt === 3 || !retryableSyncError(caught)) throw caught;
             const delayMs = attempt * 2_000;
             setProgress(
-              `Batch ${batchNumber}: attempt ${attempt} failed (${errorMessage(caught)}). Retrying in ${delayMs / 1_000} seconds… ${correspondenceProgressText(acceptedProgress, plannedProgress, synchronizationStartedAt)}`,
+              `Batch ${batchNumber} · retrying\nAttempt ${attempt} failed: ${errorMessage(caught)}\nRetrying in ${delayMs / 1_000} seconds\n${correspondenceProgressText(acceptedProgress, plannedProgress, synchronizationStartedAt)}`,
             );
             await waitForRetry(delayMs);
           }
@@ -521,12 +522,12 @@ function CorrespondenceSyncModal({
         const more = Object.values(batch.hasMore).some(Boolean);
         if (!more) {
           setProgress(
-            `Complete: ${correspondenceProgressText(acceptedProgress, acceptedProgress, synchronizationStartedAt)}. ${totals.contactsRead} contacts read; ${totals.contactsCreated} created, ${totals.contactsMatched} matched, ${totals.contactNamesUpdated} names updated, and ${totals.contactMethodsCreated} methods added. ${totals.contactObservationsCreated} phone contact identities recorded. Communications: ${totals.correspondenceCreated} new, ${totals.correspondenceDeduplicated} cross-device duplicates linked, and ${totals.correspondenceUpdated} refreshed.`,
+            `Complete\n${correspondenceProgressText(acceptedProgress, acceptedProgress, synchronizationStartedAt)}\n\n${totals.contactsRead} contacts read; ${totals.contactsCreated} created, ${totals.contactsMatched} matched, ${totals.contactNamesUpdated} names updated, and ${totals.contactMethodsCreated} methods added. ${totals.contactObservationsCreated} phone contact identities recorded.\n\nCommunications: ${totals.correspondenceCreated} new, ${totals.correspondenceDeduplicated} cross-device duplicates linked, and ${totals.correspondenceUpdated} refreshed.`,
           );
           return;
         }
         setProgress(
-          `Batch ${batchNumber} accepted. ${correspondenceProgressText(acceptedProgress, plannedProgress, synchronizationStartedAt)}`,
+          `Batch ${batchNumber} · accepted\nPreparing next batch…\n${correspondenceProgressText(acceptedProgress, plannedProgress, synchronizationStartedAt)}`,
         );
       }
       throw new Error('Synchronization stopped after 10,000 batches. Run it again to continue.');
