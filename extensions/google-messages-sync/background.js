@@ -1,5 +1,6 @@
 const CONFIG_KEY = "timeV3GoogleMessagesConfig";
 const JOB_KEY = "timeV3GoogleMessagesJob";
+const COMMAND_STATUS_KEY = "timeV3GoogleMessagesCommandStatus";
 const COMMAND_ALARM = "timeV3GoogleMessagesCommands";
 let commandPollRunning = false;
 
@@ -21,11 +22,24 @@ function publicConfig(config = {}) {
 }
 
 async function state() {
-  const stored = await storageGet([CONFIG_KEY, JOB_KEY]);
+  const stored = await storageGet([CONFIG_KEY, JOB_KEY, COMMAND_STATUS_KEY]);
   return {
     config: publicConfig(stored[CONFIG_KEY]),
     job: stored[JOB_KEY] || null,
+    commandStatus: stored[COMMAND_STATUS_KEY] || null,
   };
+}
+
+async function commandStatus(status, detail, config = {}) {
+  const value = {
+    status,
+    detail,
+    serverUrl: config.serverUrl || null,
+    accountKey: config.accountKey || "default",
+    checkedAtMs: Date.now(),
+  };
+  await storageSet({ [COMMAND_STATUS_KEY]: value });
+  return value;
 }
 
 async function updateJob(patch) {
@@ -57,6 +71,7 @@ async function serverRequest(path, { method = "GET", body = null, allowNoContent
     responseBody = null;
   }
   if (!response.ok) throw new Error(responseBody?.error || `Time V3 returned HTTP ${response.status}.`);
+  if (responseBody == null) throw new Error("Time V3 returned a non-JSON response. Save only the server origin, without /app or another path.");
   return responseBody;
 }
 
@@ -93,28 +108,37 @@ async function reportPending(requestId, phase, error = null) {
   });
 }
 
-async function pollServerCommands() {
-  if (commandPollRunning) return;
+async function pollServerCommands({ surfaceErrors = false } = {}) {
+  if (commandPollRunning) return (await storageGet(COMMAND_STATUS_KEY))[COMMAND_STATUS_KEY] || null;
   commandPollRunning = true;
+  let config = {};
   try {
     const stored = await storageGet(CONFIG_KEY);
-    const config = stored[CONFIG_KEY] || {};
-    if (!config.serverUrl || !config.accessToken) return;
+    config = stored[CONFIG_KEY] || {};
+    if (!config.serverUrl || !config.accessToken) {
+      return await commandStatus("configuration_required", "Save the server URL and access token.", config);
+    }
+    await commandStatus("checking", "Checking Time V3 for a pending synchronization request…", config);
     const command = await serverRequest(
       `/api/correspondence/google-messages-sync/next?accountKey=${encodeURIComponent(config.accountKey || "default")}`,
       { allowNoContent: true },
     );
-    if (!command) return;
+    if (!command) return await commandStatus(
+      "connected",
+      "Connected successfully; this server has no pending request for this account key.",
+      config,
+    );
+    await commandStatus("request_received", `Received synchronization request ${command.requestId}.`, config);
     const current = await state();
     if (current.job?.status === "running") {
       await reportPending(command.requestId, "Waiting for the current browser synchronization to finish");
-      return;
+      return await commandStatus("waiting", "A browser synchronization is already running.", config);
     }
     const tabs = await chrome.tabs.query({ url: "https://messages.google.com/web/*" });
     const tab = tabs[0];
     if (!tab?.id) {
       await reportPending(command.requestId, "Open the paired Google Messages for Web tab in Brave");
-      return;
+      return await commandStatus("waiting", "Open the paired Google Messages for Web tab in Brave.", config);
     }
     try {
       const response = await chrome.tabs.sendMessage(tab.id, {
@@ -123,11 +147,17 @@ async function pollServerCommands() {
         requestId: command.requestId,
       });
       if (!response?.ok) throw new Error(response?.error || "The Google Messages tab did not start synchronization.");
+      return await commandStatus("started", "The Google Messages tab accepted the synchronization request.", config);
     } catch {
       await reportPending(command.requestId, "Reload the Google Messages for Web tab so the extension can connect");
+      return await commandStatus("waiting", "Reload the Google Messages for Web tab so the extension can connect.", config);
     }
-  } catch {
-    // The alarm will retry. Connection errors must not disable popup-driven synchronization.
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error("Time V3 command check failed:", error);
+    const status = await commandStatus("error", detail, config).catch(() => ({ status: "error", detail }));
+    if (surfaceErrors) throw new Error(detail);
+    return status;
   } finally {
     commandPollRunning = false;
   }
@@ -141,10 +171,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
       if (message?.type === "SAVE_CONFIG") {
-        const serverUrl = String(message.config?.serverUrl || "").trim().replace(/\/+$/u, "");
+        const suppliedServerUrl = String(message.config?.serverUrl || "").trim();
+        let parsedServerUrl;
+        try { parsedServerUrl = new URL(suppliedServerUrl); } catch { throw new Error("Server URL is invalid."); }
+        const serverUrl = parsedServerUrl.origin;
         const suppliedAccessToken = String(message.config?.accessToken || "").trim();
         const accountKey = String(message.config?.accountKey || "default").trim();
-        if (!/^https?:\/\//u.test(serverUrl)) throw new Error("Server URL must begin with http:// or https://.");
+        if (!["http:", "https:"].includes(parsedServerUrl.protocol)) throw new Error("Server URL must begin with http:// or https://.");
         if (!/^[A-Za-z0-9._-]+$/u.test(accountKey)) throw new Error("Account key contains unsupported characters.");
         const previous = (await storageGet(CONFIG_KEY))[CONFIG_KEY] || {};
         const accessToken = suppliedAccessToken || previous.accessToken || "";
@@ -153,6 +186,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await storageSet({ [CONFIG_KEY]: config });
         sendResponse({ ok: true, config: publicConfig(config) });
         void pollServerCommands();
+        return;
+      }
+      if (message?.type === "CHECK_COMMANDS") {
+        sendResponse({ ok: true, commandStatus: await pollServerCommands({ surfaceErrors: true }) });
         return;
       }
       if (message?.type === "START_SYNC") {

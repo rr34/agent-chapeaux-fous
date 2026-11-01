@@ -4,6 +4,7 @@ const fields = {
   accountKey: document.querySelector("#account-key"),
   fullHistory: document.querySelector("#full-history"),
   save: document.querySelector("#save"),
+  check: document.querySelector("#check"),
   sync: document.querySelector("#sync"),
   cancel: document.querySelector("#cancel"),
   status: document.querySelector("#status"),
@@ -23,11 +24,15 @@ async function messagesTab() {
   return tabs[0] || null;
 }
 
-function jobText(job, config) {
+function jobText(job, config, commandStatus) {
+  const command = commandStatus
+    ? `Server command check: ${commandStatus.status}\n${commandStatus.detail}\n${commandStatus.serverUrl || "No server URL"} · account ${commandStatus.accountKey || "default"}`
+    : "Server command check has not run yet.";
   if (!job) {
-    return config.lastSuccessfulSyncMs
+    const history = config.lastSuccessfulSyncMs
       ? `Last successful sync\n${new Date(config.lastSuccessfulSyncMs).toLocaleString()}`
       : "No synchronization has completed yet.";
+    return `${history}\n\n${command}`;
   }
   const total = job.conversations?.length || 0;
   const current = Math.min(total, Number(job.conversationIndex || 0) + (job.status === "complete" ? 0 : 1));
@@ -43,11 +48,13 @@ function jobText(job, config) {
     `Skipped without usable time ${Number(job.undatedSkipped || 0).toLocaleString()}`,
     `Elapsed ${minutes}:${String(seconds).padStart(2, "0")}`,
     job.error ? `Error: ${job.error}` : "",
-  ].filter(Boolean).join("\n");
+    "",
+    command,
+  ].filter((value, index, values) => value || (index > 0 && values[index - 1])).join("\n");
 }
 
 async function refresh() {
-  const { config, job } = await runtimeMessage({ type: "GET_STATE" });
+  const { config, job, commandStatus } = await runtimeMessage({ type: "GET_STATE" });
   if (document.activeElement !== fields.serverUrl) fields.serverUrl.value = config.serverUrl || "";
   fields.accessToken.placeholder = config.hasAccessToken
     ? "Saved — leave blank to keep it"
@@ -57,7 +64,7 @@ async function refresh() {
   const running = job?.status === "running";
   fields.sync.disabled = running;
   fields.cancel.disabled = !running;
-  fields.status.textContent = jobText(job, config);
+  fields.status.textContent = jobText(job, config, commandStatus);
 }
 
 fields.save.addEventListener("click", async () => {
@@ -75,10 +82,22 @@ fields.save.addEventListener("click", async () => {
       },
     });
     fields.accessToken.value = "";
-    fields.status.textContent = "Connection settings saved.";
+    await runtimeMessage({ type: "CHECK_COMMANDS" });
     await refresh();
   } catch (error) {
     fields.status.textContent = `Error: ${error.message}`;
+  }
+});
+
+fields.check.addEventListener("click", async () => {
+  fields.check.disabled = true;
+  try {
+    await runtimeMessage({ type: "CHECK_COMMANDS" });
+    await refresh();
+  } catch (error) {
+    fields.status.textContent = `Server command check failed:\n${error.message}`;
+  } finally {
+    fields.check.disabled = false;
   }
 });
 

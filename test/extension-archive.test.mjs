@@ -36,6 +36,7 @@ test("the downloadable Google Messages extension is a self-contained unpacked-ex
   const manifest = JSON.parse(entries.get(`${prefix}manifest.json`).toString("utf8"));
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.name, "Time V3 Google Messages Sync");
+  assert.equal(manifest.version, "0.2.1");
   assert.ok([...entries].every(([name]) => name.startsWith(prefix) && !name.includes("../")));
   assert.ok(!entries.has(`${prefix}.env`));
 });
@@ -62,5 +63,7 @@ test("Correspondence can request a sync that the extension polls and reports", (
   assert.match(server, /messagesWebSyncProgressMatch/u);
   assert.match(background, /pollServerCommands/u);
   assert.match(background, /reportJob/u);
+  assert.match(background, /CHECK_COMMANDS/u);
+  assert.match(background, /non-JSON response/u);
   assert.ok(manifest.permissions.includes("alarms"));
 });

@@ -12,7 +12,10 @@
       <label>Time V3 server URL<input id="server-url" type="url" placeholder="https://agent.example.com"></label>
       <label>Access token<input id="access-token" type="password" autocomplete="off"></label>
       <label>Account key<input id="account-key" type="text" value="default"></label>
-      <button id="save" type="button">Save connection</button>
+      <div class="actions">
+        <button id="save" type="button">Save connection</button>
+        <button id="check" type="button">Check server now</button>
+      </div>
       <label class="check"><input id="full-history" type="checkbox"> Rescan all available history</label>
       <div class="actions">
         <button id="sync" class="primary" type="button">Synchronize</button>

@@ -21,6 +21,10 @@ After connection settings are saved once, ordinary synchronization can be
 started from Time V3's **Correspondence** page with **Sync Google Messages**.
 The extension checks for that command at least every 30 seconds and reports its
 progress back to the page. Keep Brave and the paired Google Messages tab open.
+The popup's **Check server now** button performs an immediate command check and
+shows the exact server origin, account key, connection result, or HTTP error.
+The saved server URL is normalized to its origin, so an accidentally copied
+`/app` path cannot silently direct polling to the wrong endpoint.
 
 ## Data and limitations
 
