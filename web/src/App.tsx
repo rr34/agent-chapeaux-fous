@@ -5,7 +5,7 @@ import { CalendarGrid, DailyPaper, DayTimeline } from "./components/DailyPaper";
 import { Empty, ErrorState, Loading } from "./components/State";
 import { RoutineScreen } from "./components/RoutineCalendar";
 import { ObjectMentionInput, ObjectMentionText } from "./components/ObjectMentionInput";
-import { CalendarEventEditor, ContactEditor, JournalTrackerEditor, LibraryContentEditor, PhysicalItemEditor, TodoEditor, TodoItem } from "./components/EditableItems";
+import { CalendarEventEditor, ContactEditor, JournalEntryEditor, JournalTrackerEditor, LibraryContentEditor, PhysicalItemEditor, TodoEditor, TodoItem } from "./components/EditableItems";
 import { TrackerSchedule } from "./components/TrackerSchedule";
 import { SectionFilter } from "./components/SectionFilter";
 import { Markdown } from "./components/Markdown";
@@ -2173,6 +2173,7 @@ function JournalScreen() {
   const [serverQuery, setServerQuery] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState("all");
   const [addingTracker, setAddingTracker] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<Entity | null>(null);
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
   const journalParameters = new URLSearchParams({ limit: "500" });
   if (serverQuery) journalParameters.set("q", serverQuery);
@@ -2271,6 +2272,7 @@ function JournalScreen() {
                 attributes: [{ label: "Occurred", value: formatDisplayDate(textKey(entry, "occurredAtUtc", "createdAtUtc")) }],
               })}
               controls={<ObjectSelectionControls identity={journalEntryIdentity(entry)} subject={`journal entry ${entry.id}`} />}
+              onEdit={() => setEditingEntry(entry)}
             />)}
           </ul>
         </section>;
@@ -2282,6 +2284,7 @@ function JournalScreen() {
       onClose={() => setAddingTracker(false)}
       onChanged={reloadJournal}
     />}
+    {editingEntry && <JournalEntryEditor entry={editingEntry} onClose={() => setEditingEntry(null)} onChanged={reloadJournal} />}
     {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={reloadJournal} />}
   </>;
 }

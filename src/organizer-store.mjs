@@ -13,6 +13,9 @@ import {
   setTodoGroupSequenceMode,
 } from "./todo-group-operations.mjs";
 import { renameJournalGroup } from "./journal-group-operations.mjs";
+import {
+  JournalEntryOperationError, updateJournalEntry,
+} from "./journal-entry-operations.mjs";
 
 const { rrulestr } = rrulePackage;
 const dayMilliseconds = 86_400_000;
@@ -1013,6 +1016,7 @@ function publicJournalEntry(row) {
     externalId: row.external_id,
     createdAtUtc: row.created_at_utc,
     updatedAtUtc: row.updated_at_utc,
+    version: row.updated_at_utc ?? row.created_at_utc,
   };
 }
 
@@ -4422,6 +4426,42 @@ export class OrganizerStore {
       this.database.exec("ROLLBACK");
       if (error?.code === "ER_DUP_ENTRY") {
         throw new OrganizerInputError("A tracker with that name already exists.", 409);
+      }
+      throw error;
+    }
+  }
+
+  updateJournalEntry(idValue, input) {
+    const id = identifier(idValue, "journal entry id");
+    this.database.exec("START TRANSACTION");
+    try {
+      const result = updateJournalEntry(this.database, {
+        entryId: id,
+        contentText: input?.contentText,
+        numberValue: input?.numberValue,
+        occurredAtUtc: input?.occurredAtUtc,
+        expectedVersion: input?.version ?? "",
+      });
+      const before = publicJournalEntry(result.before);
+      const entry = publicJournalEntry(result.entry);
+      this.#activity({
+        eventType: "personal_journal.updated",
+        status: "complete",
+        name: "Personal journal entry updated",
+        subjectType: "journal_entry",
+        subjectId: id,
+        contentText: entry.contentText,
+        payload: {
+          changes: changedFields(before, entry, ["contentText", "numberValue", "occurredAtUtc"]),
+          entry,
+        },
+      });
+      this.database.exec("COMMIT");
+      return entry;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      if (error instanceof JournalEntryOperationError) {
+        throw new OrganizerInputError(error.message, error.statusCode);
       }
       throw error;
     }

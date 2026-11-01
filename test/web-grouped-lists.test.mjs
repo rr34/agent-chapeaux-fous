@@ -59,8 +59,22 @@ test("the Journal heading opens a tracker-only editor", () => {
   assert.match(source, /<JournalTrackerEditor/);
   assert.match(editors, /export function JournalTrackerEditor/);
   assert.match(editors, /api\("\/api\/journal-trackers"/);
-  assert.doesNotMatch(editors.slice(editors.indexOf("export function JournalTrackerEditor"), editors.indexOf("interface PhysicalItemDraft")), /journal-entries/);
+  assert.doesNotMatch(editors.slice(editors.indexOf("export function JournalTrackerEditor"), editors.indexOf("interface JournalEntryDraft")), /journal-entries/);
   assert.match(serverSource, /organizer\.createJournalTracker/);
+});
+
+test("expanded journal entry cards open a version-safe edit modal", () => {
+  const source = screenSource("JournalScreen", "UsageScreen");
+  const editors = fs.readFileSync(new URL("../web/src/components/EditableItems.tsx", import.meta.url), "utf8");
+  const card = fs.readFileSync(new URL("../web/src/components/object-cards/JournalEntryCard.tsx", import.meta.url), "utf8");
+  assert.match(source, /<JournalEntryCard[\s\S]*onEdit=\{\(\) => setEditingEntry\(entry\)\}/);
+  assert.match(source, /editingEntry && <JournalEntryEditor/);
+  assert.match(card, /props\.onEdit \? \[\{ key: "edit", label: "Edit"/);
+  assert.match(editors, /export function JournalEntryEditor/);
+  assert.match(editors, /method: "PATCH"/);
+  assert.match(editors, /version: String\(entry\.version \|\| ""\)/);
+  assert.match(editors, /`\/api\/journal-entries\/\$\{Number\(entry\.id\)\}`/);
+  assert.match(serverSource, /organizer\.updateJournalEntry/);
 });
 
 test("grouped list rows have shared and responsive styling", () => {

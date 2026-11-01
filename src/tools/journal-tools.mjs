@@ -1,5 +1,6 @@
 import { selectedFields } from "./record-fields.mjs";
 import { renameJournalGroup } from "../journal-group-operations.mjs";
+import { updateJournalEntry } from "../journal-entry-operations.mjs";
 
 const toolDescriptions = Object.freeze({
   "journal_add": {
@@ -1096,33 +1097,23 @@ export function registerJournalTools(registry, store, ledger) {
       const database = store.requireReady();
       database.exec("START TRANSACTION");
       try {
-        const beforeRow = joinedEntry(database, entryId);
-        if (!beforeRow) throw new Error(`Journal entry ${entryId} does not exist`);
-        const values = {};
-        if (contentText !== null) values.content_text = requiredText(contentText, "Journal content", 10000);
+        let selectedNumberValue;
         if (clearNumberValue) {
           if (numberValue !== null) {
             throw new Error("clear_number_value cannot be combined with a new number_value");
           }
-          values.number_value = null;
+          selectedNumberValue = null;
         } else {
-          if (numberValue !== null) values.number_value = numberValue;
+          selectedNumberValue = numberValue === null ? undefined : numberValue;
         }
-        if (occurredAtUtc !== null) {
-          const selectedOccurrence = normalizedInstant(occurredAtUtc, { label: "Journal occurrence time" });
-          if (selectedOccurrence === null) throw new Error("Journal occurrence time cannot be empty");
-          values.occurred_at_utc = selectedOccurrence;
-        }
-        if (Object.keys(values).length === 0) throw new Error("No journal entry changes were supplied");
-        if (numberValue !== null && beforeRow.tracker_unit.toLowerCase() === "set me") {
-          throw new Error(`Set the canonical unit for tracker ${beforeRow.tracker_name} before changing its number`);
-        }
-        values.updated_at_utc = new Date().toISOString();
-        const assignments = Object.keys(values).map((column) => `\`${column}\` = ?`).join(", ");
-        database.prepare(`UPDATE journal3_entries SET ${assignments} WHERE journal_entry_id = ?`)
-          .run(...Object.values(values), entryId);
-        const entry = databaseEntry(joinedEntry(database, entryId));
-        const result = { updated: true, before: databaseEntry(beforeRow), entry };
+        const updated = updateJournalEntry(database, {
+          entryId,
+          ...(contentText === null ? {} : { contentText }),
+          ...(selectedNumberValue === undefined ? {} : { numberValue: selectedNumberValue }),
+          ...(occurredAtUtc === null ? {} : { occurredAtUtc }),
+        });
+        const entry = databaseEntry(updated.entry);
+        const result = { updated: true, before: databaseEntry(updated.before), entry };
         ledger.append({
           type: "personal_journal.updated", status: "complete", actorType: "tool",
           actorName: "journal_update", turnId: context.requestId, operationId: context.callId,

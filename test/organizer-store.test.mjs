@@ -928,6 +928,51 @@ test("the web organizer creates a journal tracker without fabricating an entry",
   }
 });
 
+test("the web organizer updates one journal entry with optimistic concurrency", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.target);
+  try {
+    const created = organizer.createJournalEntry({
+      trackerName: "Sleep",
+      groupName: "Health",
+      contentText: "Slept 6 hours.",
+      numberValue: 6,
+      trackerUnit: "hours",
+      occurredAtUtc: "2026-08-16T12:00:00.000Z",
+    });
+    const updated = organizer.updateJournalEntry(created.id, {
+      version: created.version,
+      contentText: "Slept 7.5 hours and woke rested.",
+      numberValue: 7.5,
+      occurredAtUtc: "2026-08-17T11:30:00.000Z",
+    });
+
+    assert.equal(updated.id, created.id);
+    assert.equal(updated.trackerId, created.trackerId);
+    assert.equal(updated.contentText, "Slept 7.5 hours and woke rested.");
+    assert.equal(updated.numberValue, 7.5);
+    assert.equal(updated.occurredAtUtc, "2026-08-17T11:30:00.000Z");
+    assert.equal(updated.source, created.source);
+    assert.notEqual(updated.version, created.version);
+    assert.throws(
+      () => organizer.updateJournalEntry(created.id, {
+        version: created.version,
+        contentText: "Stale correction",
+        numberValue: null,
+        occurredAtUtc: "2026-08-17T11:30:00.000Z",
+      }),
+      (error) => error instanceof OrganizerInputError && error.statusCode === 409,
+    );
+    assert.equal(organizer.listJournalEntries({ trackerId: created.trackerId }).length, 1);
+    assert.equal(organizer.database.prepare(`
+      SELECT COUNT(*) AS count FROM activity_events WHERE event_type = 'personal_journal.updated'
+    `).get().count, 1);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("numeric journal averages give each recorded local day one equal weight", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.target);

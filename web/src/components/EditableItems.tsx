@@ -389,6 +389,67 @@ export function JournalTrackerEditor({ groups, initialGroupId, onClose, onChange
   </EditorFrame>;
 }
 
+interface JournalEntryDraft {
+  contentText: string;
+  numberValue: string;
+  occurredAt: string;
+}
+
+export function JournalEntryEditor({ entry, onClose, onChanged }: {
+  entry: Entity;
+  onClose: () => void;
+  onChanged: Changed;
+}) {
+  const [draft, setDraft] = useState<JournalEntryDraft>({
+    contentText: String(entry.contentText || ""),
+    numberValue: entry.numberValue == null ? "" : String(entry.numberValue),
+    occurredAt: localDateTimeValue(String(entry.occurredAtUtc || "")),
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    const numberValue = draft.numberValue.trim() === "" ? null : Number(draft.numberValue);
+    if (numberValue !== null && !Number.isFinite(numberValue)) {
+      setError("Numeric value must be a finite number or left blank.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await api(`/api/journal-entries/${Number(entry.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          version: String(entry.version || ""),
+          contentText: draft.contentText,
+          numberValue,
+          occurredAtUtc: localDateTimeIso(draft.occurredAt),
+        }),
+      });
+      await onChanged();
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not update the journal entry.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <EditorFrame title="Edit journal entry" onClose={onClose}>
+    <form onSubmit={(event) => void save(event)}>
+      <header className="object-editor-heading"><div><p className="eyebrow">Journal</p><h2>Edit entry</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
+      <label>Entry<textarea autoFocus required rows={6} maxLength={10_000} value={draft.contentText} onChange={(event) => setDraft({ ...draft, contentText: event.target.value })} /></label>
+      <div className="object-editor-grid">
+        <label>Occurred<input required type="datetime-local" step="1" value={draft.occurredAt} onChange={(event) => setDraft({ ...draft, occurredAt: event.target.value })} /></label>
+        <label>Numeric value <span className="field-hint">Optional{entry.trackerUnit ? ` · ${String(entry.trackerUnit)}` : ""}</span><input type="number" step="any" value={draft.numberValue} onChange={(event) => setDraft({ ...draft, numberValue: event.target.value })} /></label>
+      </div>
+      {error && <p className="inline-error" role="alert">{error}</p>}
+      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={saving || !draft.contentText.trim() || !draft.occurredAt}>{saving ? "Saving…" : "Save entry"}</button></footer>
+    </form>
+  </EditorFrame>;
+}
+
 interface PhysicalItemDraft {
   groupId: string;
   name: string;
