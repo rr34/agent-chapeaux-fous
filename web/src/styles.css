@@ -33,12 +33,13 @@ a { color: inherit; }
 .sidebar nav button, .token-button { border: 0; color: #cdd2c7; background: transparent; text-align: left; border-radius: 10px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; font-size: 14px; }
 .sidebar nav button > .nav-icon { width: 23px; height: 23px; display: grid; flex: 0 0 23px; place-items: center; border: 1px solid #596253; border-radius: 7px; }
 .nav-icon--letter { font-family: "Newsreader", Georgia, serif; font-size: 13px; }
+.nav-icon--symbol { font-size: 16px; font-weight: 750; line-height: 1; }
 .tlom-person-icon { width: 14px; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
 .tlom-person-icon-head { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
 .tlom-person-icon-body { width: 12px; height: 6px; border-radius: 6px 6px 3px 3px; background: currentColor; }
 .tlom-todo-icon { width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; border: 1.5px solid currentColor; }
 .tlom-todo-icon-check { width: 7px; height: 4px; border-left: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); }
-.nav-icon--calendar svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
+.nav-icon--calendar svg, .nav-icon--svg svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
 .nav-icon--hat-outline img { width: 19px; height: 19px; object-fit: contain; filter: invert(1); }
 .sidebar nav button:hover, .sidebar nav button.active { color: white; background: #3a4334; }
 .sidebar nav button.active > .nav-icon { background: #dfe5d7; color: #30382b; border-color: #dfe5d7; }
@@ -105,6 +106,7 @@ a { color: inherit; }
 .first-class-object-action--danger:hover { color: #8c3025; border-color: #e1b7aa; background: #fff3ef; }
 .compact-object-card { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
 .compact-object-card.has-leading { grid-template-columns: auto minmax(0, 1fr) auto; }
+.compact-object-card.contact-card { grid-template-columns: auto minmax(8rem, 1fr) auto; }
 .compact-object-leading { align-self: center; }
 .compact-object-identity { min-width: 0; display: grid; gap: 2px; }
 .compact-object-identity span { color: var(--olive); font-size: 9px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
@@ -1055,7 +1057,8 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .music-track-list span { display: grid; min-width: 0; }
 .music-track-list small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .music-track-list li > button { width: 40px; min-width: 40px; padding-inline: 0; font-size: 1.2rem; }
-.concert-queue { display: grid; gap: 1rem; margin: -10px 0 2rem; padding: clamp(1rem, 2.5vw, 1.5rem); border: 1px solid #909b85; border-radius: 16px; background: linear-gradient(145deg, #f7f8f3, #e7ebdf); box-shadow: 0 14px 35px rgba(36, 43, 30, .08); }
+.music-screen.has-concert { padding-bottom: clamp(20rem, 52vh, 40rem); }
+.music-screen .concert-queue { position: fixed; z-index: 25; left: 248px; right: 1rem; bottom: calc(var(--agent-composer-clearance) + 6.75rem); height: clamp(18rem, 48vh, 38rem); overflow-y: auto; overscroll-behavior: contain; display: grid; align-content: start; gap: 1rem; margin: 0; padding: clamp(1rem, 2.5vw, 1.5rem); border: 1px solid #909b85; border-radius: 16px; background: linear-gradient(145deg, #f7f8f3, #e7ebdf); box-shadow: 0 14px 35px rgba(36, 43, 30, .18); }
 .concert-queue-heading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; }
 .concert-queue-heading h2 { margin: .15rem 0 0; font: 600 32px/1 "Newsreader", Georgia, serif; }
 .concert-queue-heading p { margin: .4rem 0 0; color: var(--muted); }
@@ -1116,6 +1119,7 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
   .concert-voice-volume > small { grid-column: 1; }
   .concert-queue-actions { justify-content: stretch; }
   .concert-queue-actions > * { flex: 1; }
+  .music-screen .concert-queue { left: .75rem; right: .75rem; bottom: calc(var(--agent-composer-clearance) + 9.25rem); height: min(42vh, 28rem); }
   .music-mini-player { left: .75rem; right: .75rem; grid-template-columns: 1fr auto; }
   .music-player-transport { grid-column: 1 / -1; }
 }

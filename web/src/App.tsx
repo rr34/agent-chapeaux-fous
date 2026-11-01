@@ -52,7 +52,7 @@ import hatOutlineUrl from "./assets/logo-outline-hat.svg";
 const navigation = [
   ["agent", "Agent"], ["search", "Search"], ["hats", "Hats"], ["routine", "Routine"], ["calendar", "Calendar"],
   ["journal", "Journal"], ["contacts", "Contacts"], ["correspondence", "Correspondence"], ["things", "Things"], ["todos", "To do"],
-  ["files", "Files"], ["music", "Music"], ["content", "Library"], ["payments", "Payments"], ["account", "Account"],
+  ["files", "Files"], ["music", "Music"], ["content", "Content Library"], ["payments", "Payments"], ["account", "Account"],
   ["video-scripts", "Video Scripts"],
 ] as const;
 
@@ -63,6 +63,37 @@ const calendarMonthOptions = Array.from({ length: 12 }, (_, index) => ({
 }));
 
 type NavigationItem = typeof navigation[number];
+
+const navigationSvgIcons: Partial<Record<NavigationItem[0], ReactNode>> = {
+  routine: <>
+    <rect x="3" y="3" width="14" height="14" rx="2" />
+    <rect x="7" y="7" width="14" height="14" rx="2" />
+    <path d="M11 5v4M17 5v4M7 11h14" />
+  </>,
+  journal: <>
+    <rect x="4" y="3" width="16" height="18" rx="2" />
+    <path d="M8 3v18M11 8h6M11 12h6" />
+  </>,
+  correspondence: <path d="M4 12h16M7 8l-4 4 4 4M17 8l4 4-4 4" />,
+  things: <>
+    <path d="m4 7 8-4 8 4-8 4-8-4Z" />
+    <path d="M4 7v10l8 4 8-4V7M12 11v10" />
+  </>,
+  files: <path d="M3 7V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />,
+  music: <>
+    <path d="M9 18V5l12-2v13M9 9l12-2" />
+    <circle cx="6" cy="18" r="3" />
+    <circle cx="18" cy="16" r="3" />
+  </>,
+  content: <>
+    <path d="M3 11v2a2 2 0 0 0 2 2h3l8 4V5L8 9H5a2 2 0 0 0-2 2Z" />
+    <path d="m7 15 1 6h3l-1-5M19 9a4 4 0 0 1 0 6" />
+  </>,
+  account: <>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v3M12 19v3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M2 12h3M19 12h3M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12" />
+  </>,
+};
 
 function NavigationIcon({ id, label }: { id: NavigationItem[0]; label: NavigationItem[1] }) {
   if (id === "contacts") {
@@ -90,6 +121,15 @@ function NavigationIcon({ id, label }: { id: NavigationItem[0]; label: Navigatio
   if (id === "agent" || id === "hats") {
     return <span className="nav-icon nav-icon--hat-outline" aria-hidden="true">
       <img src={hatOutlineUrl} alt="" />
+    </span>;
+  }
+  if (id === "payments") {
+    return <span className="nav-icon nav-icon--symbol" aria-hidden="true">$</span>;
+  }
+  const svgIcon = navigationSvgIcons[id];
+  if (svgIcon) {
+    return <span className="nav-icon nav-icon--svg" aria-hidden="true">
+      <svg viewBox="0 0 24 24">{svgIcon}</svg>
     </span>;
   }
   return <span className="nav-icon nav-icon--letter" aria-hidden="true">{label.slice(0, 1)}</span>;
@@ -1777,7 +1817,7 @@ function ContactsScreen() {
 }
 
 const genericScreens: Record<GenericObjectKind, { eyebrow: string; title: string; detail: string; url: string; key: string }> = {
-  content: { eyebrow: "Reference shelf", title: "Library", detail: "Reusable material and published content.", url: "/api/content-items?limit=1000", key: "content" },
+  content: { eyebrow: "Reference shelf", title: "Content Library", detail: "Reusable material and published content.", url: "/api/content-items?limit=1000", key: "content" },
   "video-scripts": { eyebrow: "Production", title: "Video Scripts", detail: "Scripts grounded in completed conversations.", url: "/api/video-scripts?status=all&limit=500", key: "scripts" },
   files: { eyebrow: "Durable artifacts", title: "Files", detail: "Uploads, generated documents, and their source evidence.", url: "/api/files?limit=200", key: "files" },
 };
@@ -1957,7 +1997,7 @@ function LibraryScreen() {
     else setServerQuery(nextQuery);
   };
   return <>
-    <PageHeading eyebrow="Reference shelf" title="Library" detail="Reusable material and published content." groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={libraryGroupOptions} totalCount={content.length} disabled={groupsLoading} />} actions={<button className="button" type="button" onClick={() => setAddingContent(true)}>Add content</button>} />
+    <PageHeading eyebrow="Reference shelf" title="Content Library" detail="Reusable material and published content." groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={libraryGroupOptions} totalCount={content.length} disabled={groupsLoading} />} actions={<button className="button" type="button" onClick={() => setAddingContent(true)}>Add content</button>} />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchLibrary} searching={loading} count={visibleContent.length} noun="item" />
     {(loading || groupsLoading) && <Loading />}
     {error && <ErrorState error={error} retry={reloadLibrary} />}

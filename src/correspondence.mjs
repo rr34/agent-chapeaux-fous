@@ -412,19 +412,108 @@ export class CorrespondenceService {
   }
 
   repairBaselineReplyLinks(db, sourceAccountKey) {
-    db.prepare(`UPDATE correspondence AS child
-      JOIN jmap_email_sync_work_items AS staged
-        ON staged.source_account_key = child.source_account_key AND staged.email_id = child.external_id
-      LEFT JOIN (
-        SELECT internet_message_id, MIN(correspondence_id) AS parent_id, COUNT(*) AS match_count
-        FROM correspondence WHERE medium = 'email' AND source_account_key = ?
-          AND internet_message_id IS NOT NULL GROUP BY internet_message_id
-      ) AS parent_match ON parent_match.internet_message_id = staged.in_reply_to_message_id
-      SET child.in_reply_to_id = CASE
-        WHEN parent_match.match_count = 1 AND parent_match.parent_id <> child.correspondence_id
-          THEN parent_match.parent_id ELSE NULL END
-      WHERE child.medium = 'email' AND child.source_account_key = ?
-        AND staged.source_account_key = ?`).run(sourceAccountKey, sourceAccountKey, sourceAccountKey);
+    const parentIds = new Map();
+    let parentPosition = 0;
+    let parentCount = 0;
+    while (true) {
+      const parentRows = db.prepare(`SELECT correspondence_id, internet_message_id FROM correspondence
+        WHERE medium = 'email' AND source_account_key = ? AND internet_message_id IS NOT NULL
+          AND correspondence_id > ? ORDER BY correspondence_id LIMIT 5000`)
+        .all(sourceAccountKey, parentPosition);
+      for (const row of parentRows) {
+        const matches = parentIds.get(row.internet_message_id) || [];
+        matches.push(Number(row.correspondence_id));
+        parentIds.set(row.internet_message_id, matches);
+      }
+      parentCount += parentRows.length;
+      this.emailSyncProgress = {
+        ...this.emailSyncProgress, phase: "Indexing email reply IDs", processed: parentCount, total: null,
+      };
+      if (parentRows.length < 5000) break;
+      parentPosition = Number(parentRows.at(-1).correspondence_id);
+    }
+    let referencePosition = 0;
+    let repaired = 0;
+    while (true) {
+      const references = db.prepare(`SELECT child.correspondence_id, child.in_reply_to_id,
+          staged.in_reply_to_message_id
+        FROM jmap_email_sync_work_items AS staged JOIN correspondence AS child
+          ON child.medium = 'email' AND child.source_account_key = staged.source_account_key
+            AND child.external_id = staged.email_id
+        WHERE staged.source_account_key = ? AND child.correspondence_id > ?
+          AND (staged.in_reply_to_message_id IS NOT NULL OR child.in_reply_to_id IS NOT NULL)
+        ORDER BY child.correspondence_id LIMIT 5000`).all(sourceAccountKey, referencePosition);
+      const repairs = references.map((reference) => {
+        const childId = Number(reference.correspondence_id);
+        const matches = parentIds.get(reference.in_reply_to_message_id) || [];
+        return { childId, parentId: matches.length === 1 && matches[0] !== childId ? matches[0] : null };
+      });
+      for (let index = 0; index < repairs.length; index += 500) {
+        const batch = repairs.slice(index, index + 500);
+        const cases = batch.map(() => "WHEN ? THEN ?").join(" ");
+        const placeholders = batch.map(() => "?").join(", ");
+        db.exec("START TRANSACTION");
+        try {
+          db.prepare(`UPDATE correspondence SET in_reply_to_id = CASE correspondence_id ${cases}
+            ELSE in_reply_to_id END WHERE correspondence_id IN (${placeholders})`).run(
+            ...batch.flatMap(({ childId, parentId }) => [childId, parentId]),
+            ...batch.map(({ childId }) => childId),
+          );
+          db.exec("COMMIT");
+        } catch (error) {
+          db.exec("ROLLBACK");
+          throw error;
+        }
+        repaired += batch.length;
+        this.emailSyncProgress = {
+          ...this.emailSyncProgress, phase: "Linking email replies", processed: repaired, total: null,
+        };
+      }
+      if (references.length < 5000) break;
+      referencePosition = Number(references.at(-1).correspondence_id);
+    }
+  }
+
+  deleteStaleBaselineEmails(db, sourceAccountKey) {
+    let deleted = 0;
+    while (true) {
+      const rows = db.prepare(`SELECT stale.correspondence_id FROM correspondence AS stale
+        LEFT JOIN jmap_email_sync_work_items AS staged
+          ON staged.source_account_key = ? AND staged.email_id = stale.external_id
+        WHERE stale.medium = 'email' AND stale.source_account_key = ? AND staged.email_id IS NULL
+        ORDER BY stale.correspondence_id LIMIT 500`).all(sourceAccountKey, sourceAccountKey);
+      if (!rows.length) break;
+      const ids = rows.map(({ correspondence_id: id }) => Number(id));
+      db.exec("START TRANSACTION");
+      try {
+        const placeholders = ids.map(() => "?").join(", ");
+        deleted += Number(db.prepare(`DELETE FROM correspondence WHERE correspondence_id IN (${placeholders})`)
+          .run(...ids)?.changes || 0);
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+      this.emailSyncProgress = {
+        ...this.emailSyncProgress, phase: "Removing stale email rows", processed: deleted, total: null,
+      };
+    }
+    return deleted;
+  }
+
+  clearCompletedEmailSyncWork(db, sourceAccountKey) {
+    let removed = 0;
+    while (true) {
+      const result = db.prepare(`DELETE FROM jmap_email_sync_work_items
+        WHERE source_account_key = ? LIMIT 5000`).run(sourceAccountKey);
+      const changes = Number(result?.changes || 0);
+      removed += changes;
+      if (changes < 5000) break;
+      this.emailSyncProgress = {
+        ...this.emailSyncProgress, phase: "Clearing completed email sync work", processed: removed, total: null,
+      };
+    }
+    db.prepare("DELETE FROM jmap_email_sync_work WHERE source_account_key = ?").run(sourceAccountKey);
   }
 
   async performEmailSync(context = {}) {
@@ -435,6 +524,10 @@ export class CorrespondenceService {
       .get(sourceAccountKey);
     let baseline = db.prepare("SELECT * FROM jmap_email_sync_work WHERE source_account_key = ?")
       .get(sourceAccountKey);
+    if (previousSync?.email_state && baseline) {
+      this.clearCompletedEmailSyncWork(db, sourceAccountKey);
+      baseline = null;
+    }
     const mailboxRows = ((await this.jmap.call("Mailbox/get", { accountId, ids: null })).list || []).map(mailboxSnapshot);
     const mailboxIds = new Set(mailboxRows.map(({ mailboxId }) => mailboxId));
     this.saveMailboxSnapshot(db, sourceAccountKey, mailboxRows);
@@ -564,23 +657,19 @@ export class CorrespondenceService {
       if (ids.length < emailSyncBatchSize) break;
     }
     this.emailSyncProgress = { ...this.emailSyncProgress, phase: "Finalizing full email baseline", processed: synchronized, total };
+    this.repairBaselineReplyLinks(db, sourceAccountKey);
+    const deleted = queryChanged ? 0 : this.deleteStaleBaselineEmails(db, sourceAccountKey);
     db.exec("START TRANSACTION");
-    let deleted = 0;
     try {
-      this.repairBaselineReplyLinks(db, sourceAccountKey);
-      if (!queryChanged) deleted = Number(db.prepare(`DELETE FROM correspondence WHERE medium = 'email'
-        AND source_account_key = ? AND NOT EXISTS (SELECT 1 FROM jmap_email_sync_work_items AS staged
-          WHERE staged.source_account_key = ? AND staged.email_id = correspondence.external_id)`)
-        .run(sourceAccountKey, sourceAccountKey)?.changes || 0);
       db.prepare(`INSERT INTO jmap_email_sync_state (source_account_key, email_state, synchronized_at_utc)
         VALUES (?, ?, UTC_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE email_state = VALUES(email_state),
         synchronized_at_utc = VALUES(synchronized_at_utc)`).run(sourceAccountKey, baseline.target_email_state);
-      db.prepare("DELETE FROM jmap_email_sync_work WHERE source_account_key = ?").run(sourceAccountKey);
       db.exec("COMMIT");
     } catch (error) {
       db.exec("ROLLBACK");
       throw error;
     }
+    this.clearCompletedEmailSyncWork(db, sourceAccountKey);
     const result = { account_id: accountId, mode: "full", synchronized, deleted, total: total ?? synchronized,
       mailboxes: mailboxRows.length, email_state: baseline.target_email_state, resumed: Number(baseline.next_position || 0) > 0 };
     this.ledger.append({ type: "correspondence.email_synchronized", status: "complete", actorType: context.actorType || "user",

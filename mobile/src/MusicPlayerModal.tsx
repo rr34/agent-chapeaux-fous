@@ -1,4 +1,5 @@
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus, useAudioPlaylist, useAudioPlaylistStatus } from 'expo-audio';
+import * as Clipboard from 'expo-clipboard';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Modal, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -57,6 +58,21 @@ function sequenceText(sequence: MusicSequence | null, fallback: string): string 
 
 function trackTitle(file: MusicFile): string {
   return sequenceText(file.metadata?.sequence2 ?? file.metadata?.sequence1 ?? null, file.title);
+}
+
+function concertDescriptionText(files: MusicFile[]): string {
+  const tracks = files.map((file, index) => {
+    const metadata = file.metadata;
+    const title = trackTitle(file);
+    const details = [
+      metadata?.work.title && metadata.work.title !== title ? metadata.work.title : null,
+      metadata?.work.creators?.length ? metadata.work.creators.join(', ') : null,
+      metadata?.performers?.length ? `Performed by ${metadata.performers.join(', ')}` : null,
+      metadata?.release?.title ? `From ${metadata.release.title}` : null,
+    ].filter((value): value is string => Boolean(value));
+    return `${index + 1}. ${[title, ...details].join(' — ')}`;
+  });
+  return `Concert\n\n${tracks.join('\n')}`;
 }
 
 function spokenSequenceText(sequence: MusicSequence): string {
@@ -427,7 +443,7 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
   const [preparingConcert, setPreparingConcert] = useState(false);
   const [preparationProgress, setPreparationProgress] = useState('');
   const [preparedConcert, setPreparedConcert] = useState<PreparedConcert | null>(null);
-  const [voiceVolume, setVoiceVolume] = useState(0.5);
+  const [voiceVolume, setVoiceVolume] = useState(0.7);
   const [notice, setNotice] = useState('');
   const [filterText, setFilterText] = useState('');
   const boundaryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -797,6 +813,16 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
     void playAt(queueIndex);
   };
 
+  const copyConcertDescription = async () => {
+    const musicFiles = queue.filter((item): item is MusicItem => item.kind === 'music').map((item) => item.file);
+    try {
+      await Clipboard.setStringAsync(concertDescriptionText(musicFiles));
+      setNotice('Concert description copied.');
+    } catch {
+      setNotice('Could not copy the concert description.');
+    }
+  };
+
   const close = () => {
     playbackVersion.current += 1;
     changing.current = false;
@@ -816,6 +842,7 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
         <View style={styles.flex}><Text style={styles.type}>ONE PLAYBACK QUEUE</Text><Text style={styles.concertTitle}>{summary}</Text></View>
         <Pressable onPress={clear} style={styles.clearButton}><Text style={styles.clearText}>CLEAR</Text></Pressable>
       </View>
+      <Pressable accessibilityRole="button" onPress={() => void copyConcertDescription()} style={styles.copyDescriptionButton}><Text style={styles.copyDescriptionText}>COPY CONCERT DESCRIPTION</Text></Pressable>
       <Text style={styles.narrationHeading}>SPOKEN INTRODUCTIONS</Text>
       <Text style={styles.narrationHelp}>An AI voice appears before every track. Choose what it announces.</Text>
       <View style={styles.voiceVolumeControl}>
@@ -975,6 +1002,8 @@ const styles = StyleSheet.create({
   concertTitle: { color: colors.ink, fontSize: 17, fontWeight: '800' },
   clearButton: { minHeight: 34, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center', borderRadius: 8, borderWidth: 1, borderColor: colors.border },
   clearText: { color: colors.warning, fontSize: 9, fontWeight: '900', letterSpacing: 1 },
+  copyDescriptionButton: { minHeight: 40, alignItems: 'center', justifyContent: 'center', marginTop: 12, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: colors.accent },
+  copyDescriptionText: { color: colors.accent, fontSize: 9, fontWeight: '900', letterSpacing: 0.8 },
   narrationHeading: { color: colors.accent, fontSize: 9, fontWeight: '900', letterSpacing: 1.2, marginTop: 18 },
   narrationHelp: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 4 },
   voiceVolumeControl: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },

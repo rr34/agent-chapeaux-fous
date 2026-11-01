@@ -90,10 +90,14 @@ test("email synchronization preserves provider HTML and records the Email state"
     prepare(sql) {
       if (sql.startsWith("SELECT email_state")) return { get: () => undefined };
       if (sql.startsWith("SELECT * FROM jmap_email_sync_work")) return { get: () => undefined };
-      if (sql.startsWith("SELECT correspondence_id, external_id")) return { all: () => [
-        { correspondence_id: 41, external_id: "email-parent", internet_message_id: "message-parent@example.test" },
-        { correspondence_id: 42, external_id: "email-child", internet_message_id: "message-child@example.test" },
+      if (sql.startsWith("SELECT correspondence_id, internet_message_id")) return { all: () => [
+        { correspondence_id: 41, internet_message_id: "message-parent@example.test" },
+        { correspondence_id: 42, internet_message_id: "message-child@example.test" },
       ] };
+      if (sql.startsWith("SELECT child.correspondence_id")) return { all: () => [{
+        correspondence_id: 42, in_reply_to_id: null, in_reply_to_message_id: "message-parent@example.test",
+      }] };
+      if (sql.startsWith("SELECT stale.correspondence_id")) return { all: () => [] };
       if (sql.startsWith("SELECT correspondence_id")) return { get: (_sourceAccountKey, externalId) => ({
         correspondence_id: correspondenceIds.get(externalId),
       }) };
@@ -151,7 +155,8 @@ test("email synchronization preserves provider HTML and records the Email state"
     [42, "jmap:account-1", "inbox-1"], [42, "jmap:account-1", "project-1"],
     [41, "jmap:account-1", "inbox-1"],
   ]);
-  assert.ok(calls.some(({ sql }) => sql.startsWith("UPDATE correspondence AS child")));
+  const baselineReplyWrite = calls.find(({ sql }) => sql.startsWith("UPDATE correspondence SET in_reply_to_id = CASE"));
+  assert.deepEqual(baselineReplyWrite.args, [42, 41, 42]);
   const participantWrites = calls.filter(({ sql }) => sql.includes("INSERT INTO correspondence_participants_join"));
   assert.equal(participantWrites[0].args[5], "M".repeat(500));
   const stateWrite = calls.find(({ sql }) => sql.includes("INSERT INTO jmap_email_sync_state"));
@@ -169,7 +174,9 @@ test("email synchronization commits bounded pages and continues past the first 1
     prepare(sql) {
       if (sql.startsWith("SELECT email_state")) return { get: () => undefined };
       if (sql.startsWith("SELECT * FROM jmap_email_sync_work")) return { get: () => undefined };
-      if (sql.startsWith("SELECT correspondence_id, external_id")) return { all: () => [] };
+      if (sql.startsWith("SELECT correspondence_id, internet_message_id")) return { all: () => [] };
+      if (sql.startsWith("SELECT child.correspondence_id")) return { all: () => [] };
+      if (sql.startsWith("SELECT stale.correspondence_id")) return { all: () => [] };
       return { run() {} };
     },
   };
@@ -207,6 +214,9 @@ test("an interrupted full email baseline resumes from its durable position", asy
         source_account_key: "jmap:account-1", target_email_state: "baseline-state", query_state: "query-state",
         next_position: 2_900, total: 100_001, synchronized_count: 2_900, query_changed: 0,
       }) };
+      if (sql.startsWith("SELECT correspondence_id, internet_message_id")) return { all: () => [] };
+      if (sql.startsWith("SELECT child.correspondence_id")) return { all: () => [] };
+      if (sql.startsWith("SELECT stale.correspondence_id")) return { all: () => [] };
       return { run: () => ({ changes: 0 }) };
     },
   };
@@ -231,14 +241,16 @@ test("an interrupted full email baseline resumes from its durable position", asy
   assert.equal(result.resumed, true);
 });
 
-test("later email synchronization consumes JMAP changes without repeating the full query", async () => {
+test("later email synchronization clears completed work and consumes JMAP changes without repeating the full query", async () => {
   const calls = [];
   const writes = [];
   const database = {
     exec() {},
     prepare(sql) {
       if (sql.startsWith("SELECT email_state")) return { get: () => ({ email_state: "state-1" }) };
-      if (sql.startsWith("SELECT * FROM jmap_email_sync_work")) return { get: () => undefined };
+      if (sql.startsWith("SELECT * FROM jmap_email_sync_work")) return { get: () => ({
+        source_account_key: "jmap:account-1", target_email_state: "state-1", next_position: 10,
+      }) };
       if (sql.startsWith("SELECT correspondence_id FROM correspondence") && sql.includes("external_id = ?")) return { get: () => ({ correspondence_id: 51 }) };
       if (sql.startsWith("SELECT correspondence_id FROM correspondence") && sql.includes("internet_message_id = ?")) return { all: () => [] };
       if (sql.startsWith("SELECT correspondence_id, external_id")) return { all: () => [{
@@ -279,6 +291,8 @@ test("later email synchronization consumes JMAP changes without repeating the fu
   assert.equal(result.deleted, 1);
   assert.equal(result.email_state, "state-2");
   assert.equal(calls.some(({ method }) => method === "Email/query"), false);
+  assert.ok(writes.some(({ sql }) => sql.startsWith("DELETE FROM jmap_email_sync_work_items")));
+  assert.ok(writes.some(({ sql }) => sql.startsWith("DELETE FROM jmap_email_sync_work WHERE")));
   assert.deepEqual(calls.find(({ method }) => method === "Email/changes").input, {
     accountId: "account-1", sinceState: "state-1", maxChanges: 500,
   });
@@ -299,7 +313,9 @@ test("an expired JMAP changes cursor restarts a full baseline", async () => {
         cursorRead++ === 0 ? { email_state: "expired-state" } : undefined
       ) };
       if (sql.startsWith("SELECT * FROM jmap_email_sync_work")) return { get: () => undefined };
-      if (sql.startsWith("SELECT correspondence_id, external_id")) return { all: () => [] };
+      if (sql.startsWith("SELECT correspondence_id, internet_message_id")) return { all: () => [] };
+      if (sql.startsWith("SELECT child.correspondence_id")) return { all: () => [] };
+      if (sql.startsWith("SELECT stale.correspondence_id")) return { all: () => [] };
       return { run: (...args) => writes.push({ sql, args }) };
     },
   };

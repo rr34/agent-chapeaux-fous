@@ -91,6 +91,8 @@ test("collapsed contact cards render the contact name as their identity", () => 
   assert.match(contact, /className=\{`contact-card/);
   assert.match(compact, /<strong>\{object\.display\}<\/strong>/);
   assert.match(styles, /\.compact-object-card\.has-leading \{[^}]*grid-template-columns: auto minmax\(0, 1fr\) auto;/s);
+  assert.match(styles, /\.compact-object-card\.contact-card \{[^}]*grid-template-columns: auto minmax\(8rem, 1fr\) auto;/s);
+  assert.doesNotMatch(styles, /\.compact-object-card\.contact-card > \.compact-object-controls \{[^}]*grid-row:/s);
 });
 
 test("calendar event cards keep notes and event details behind the shared expansion", () => {

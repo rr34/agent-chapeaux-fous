@@ -33,12 +33,22 @@ test("the web concert has an explicit high-contrast playback timeline", () => {
   assert.match(styles, /\.music-player-timeline input::-moz-range-progress/u);
 });
 
-test("web narration has a live volume independent from full-volume music", () => {
-  assert.match(player, /const \[voiceVolume, setVoiceVolume\] = useState\(0\.5\)/u);
+test("web narration defaults to 70% and stays independent from full-volume music", () => {
+  assert.match(player, /const \[voiceVolume, setVoiceVolume\] = useState\(0\.7\)/u);
   assert.match(player, /audio\.current\.volume = current\.kind === "narration" \? voiceVolume : 1/u);
   assert.match(player, /aria-label="AI voice volume"/u);
   assert.match(player, /min="0" max="100" step="10"/u);
   assert.match(player, /Relative to music · adjustable during playback/u);
+});
+
+test("the web concert floats at a stable bottom height and copies its track description", () => {
+  const styles = fs.readFileSync(new URL("../web/src/styles.css", import.meta.url), "utf8");
+  assert.match(player, /function concertDescriptionText\(files: MusicFile\[\]\)/u);
+  assert.match(player, /navigator\.clipboard\.writeText\(text\)/u);
+  assert.match(player, /document\.execCommand\("copy"\)/u);
+  assert.match(player, /await copyTextToClipboard\(text\)/u);
+  assert.match(player, />Copy concert description<\/button>/u);
+  assert.match(styles, /\.music-screen \.concert-queue \{[^}]*position: fixed;[^}]*bottom:[^}]*height:[^}]*overflow-y: auto;/su);
 });
 
 test("the web concert discloses and generates AI introductions", () => {

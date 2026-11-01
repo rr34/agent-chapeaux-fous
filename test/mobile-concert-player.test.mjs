@@ -34,14 +34,21 @@ test("concert queue discloses and streams temporary AI-voice introductions", () 
   assert.match(api, /narrationSource/u);
 });
 
-test("ordinary mobile narration has a live volume independent from full-volume music", () => {
-  assert.match(player, /const \[voiceVolume, setVoiceVolume\] = useState\(0\.5\)/u);
+test("ordinary mobile narration defaults to 70% and stays independent from full-volume music", () => {
+  assert.match(player, /const \[voiceVolume, setVoiceVolume\] = useState\(0\.7\)/u);
   assert.match(player, /if \(!preparedConcert && current\?\.kind === 'narration'\) player\.volume = voiceVolume/u);
   assert.match(player, /player\.replace\(musicSource[\s\S]*player\.volume = 1/u);
   assert.match(player, /player\.replace\(narrationSource[\s\S]*player\.volume = voiceVolume/u);
   assert.match(player, /accessibilityLabel="Decrease AI voice volume"/u);
   assert.match(player, /accessibilityLabel="Increase AI voice volume"/u);
   assert.match(player, /locked when prepared/u);
+});
+
+test("mobile copies a plain-text description of the ordered music tracks", () => {
+  assert.match(player, /import \* as Clipboard from 'expo-clipboard'/u);
+  assert.match(player, /function concertDescriptionText\(files: MusicFile\[\]\)/u);
+  assert.match(player, /await Clipboard\.setStringAsync\(concertDescriptionText\(musicFiles\)\)/u);
+  assert.match(player, />COPY CONCERT DESCRIPTION<\/Text>/u);
 });
 
 test("mobile can prepare separate files as one native screen-off playlist", () => {

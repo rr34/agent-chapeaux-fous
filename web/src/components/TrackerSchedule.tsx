@@ -84,9 +84,9 @@ export function TrackerSchedule({ tracker, onChanged }: {
 
   return <form className="tracker-schedule" onSubmit={(event) => void save(event)}>
     <label>
-      Log
+      Schedule tracker
       <select
-        aria-label={`Logging cadence for ${trackerName}`}
+        aria-label={`Schedule for ${trackerName}`}
         value={frequency}
         onChange={(event) => setFrequency(event.target.value as TrackerFrequency)}
       >

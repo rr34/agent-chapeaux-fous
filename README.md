@@ -166,30 +166,108 @@ requires a newer shell must report that mismatch literally and must not present
 missing native access as an ordinary permission denial.
 
 The ordinary development installation path is Android Wireless Debugging, not
-USB. On the phone, enable **Developer options → Wireless debugging**, choose
-**Pair device with pairing code**, and use the pairing address and pairing port:
+USB. Use the native Linux Android SDK `adb` under WSL; the Windows `adb.exe` may
+fail to connect even when the native Linux binary succeeds.
+
+#### Full fresh Android development start (Pixel and WSL)
+
+1. On a Pixel, enable Developer options by opening **Settings → About phone**
+   and tapping **Build number** seven times. Then open **Settings → System →
+   Developer options → Wireless debugging**. The phone and workstation must be
+   on the same Wi-Fi network.
+2. If `nate@unicornslayer` is not already listed under **Paired devices**, tap
+   **Pair device with pairing code**. Keep that dialog open and use its pairing
+   address, pairing port, and six-digit code:
+
+   ```bash
+   /home/nate/Android/Sdk/platform-tools/adb pair PHONE_IP:PAIRING_PORT
+   ```
+
+3. Return to the main Wireless debugging screen. Use its **IP address & port**,
+   not the port from the pairing dialog, to connect and verify the phone:
+
+   ```bash
+   /home/nate/Android/Sdk/platform-tools/adb connect PHONE_IP:DEBUG_PORT
+   /home/nate/Android/Sdk/platform-tools/adb devices -l
+   ```
+
+   Pairing and connecting are separate operations. If connection fails, toggle
+   Wireless debugging off and on, read the new port, and connect again. The
+   debugging port changes frequently.
+
+4. From the mobile project, check whether an old process owns Metro's port. If
+   the first command lists a stale Node/Expo process, stop that exact port owner
+   with the second command:
+
+   ```bash
+   cd /home/nate/code/agent-chapeaux-fous/mobile
+   fuser -v 8081/tcp
+   fuser -k 8081/tcp
+   ```
+
+5. For a genuinely clean phone start, clear this app's data and old ADB reverse
+   mappings. **The `pm clear` command erases the saved bearer token and every
+   other app setting.** Omit that command for an ordinary data-preserving
+   reinstall.
+
+   ```bash
+   /home/nate/Android/Sdk/platform-tools/adb shell pm clear com.timev3.technologyagent
+   /home/nate/Android/Sdk/platform-tools/adb reverse --remove-all
+   ```
+
+6. Generate the debug APK, install it over the existing package, and forward
+   the phone's Metro port to WSL:
+
+   ```bash
+   npm run android:build:debug
+   /home/nate/Android/Sdk/platform-tools/adb install -r -g /home/nate/code/agent-chapeaux-fous/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+   /home/nate/Android/Sdk/platform-tools/adb reverse tcp:8081 tcp:8081
+   ```
+
+   The generated file is
+   `mobile/android/app/build/outputs/apk/debug/app-debug.apk`. Installation with
+   `-r -g` replaces the native shell, retains app data unless it was explicitly
+   cleared above, and grants the permissions declared by the APK. Use this ADB
+   installation path when testing phone synchronization; installing the APK
+   manually through Files does not allowlist Android's hard-restricted
+   `READ_SMS` and `READ_CALL_LOG` permissions, and their Settings toggles can
+   remain disabled. Do not add ADB's `--restrict-permissions` install option.
+
+7. Start one clean Metro instance in the first terminal and leave it running:
+
+   ```bash
+   npm start -- --localhost --clear
+   ```
+
+8. In a second terminal, open the development client with an explicit Metro
+   port:
+
+   ```bash
+   /home/nate/Android/Sdk/platform-tools/adb shell am start -a android.intent.action.VIEW -d 'exp+time-v3-technology-agent://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081' com.timev3.technologyagent
+   ```
+
+This localhost-plus-ADB-reverse path requires no Expo login, tunnel, or QR code
+and avoids the dev-launcher `Invalid URL port: "-1"` crash. JavaScript,
+TypeScript, and styling changes then arrive through Fast Refresh. Rebuild and
+reinstall the APK after adding or updating a native Expo module, native
+dependency, Kotlin/Swift code, Android permission or service, or native app
+configuration. An error such as `Cannot find native module 'ExpoClipboard'`
+means Metro is serving newer JavaScript than the installed APK contains.
+
+The npm device wrapper prefers the current Windows Android SDK `adb.exe` when
+running under WSL, accepts an explicit binary through `ANDROID_ADB`, and falls
+back to `adb` on `PATH`. For this workstation, use the explicit native-Linux ADB
+commands above.
+
+To capture a startup crash after connecting the phone, clear the log, launch
+the app, and print only the fatal Android, React Native, and native-library
+records:
 
 ```bash
-cd mobile
-npm run phone:pair -- PHONE_IP:PAIRING_PORT
+/home/nate/Android/Sdk/platform-tools/adb logcat -c
+/home/nate/Android/Sdk/platform-tools/adb shell am start -W -n com.timev3.technologyagent/.MainActivity
+/home/nate/Android/Sdk/platform-tools/adb logcat -d -v time AndroidRuntime:E ReactNativeJS:E libc:F '*:S'
 ```
-
-Then use the separate address and port shown on the main Wireless debugging
-screen, build, connect, and install while retaining application data:
-
-```bash
-npm run android:build:debug
-npm run phone:connect -- PHONE_IP:DEBUG_PORT
-npm run phone:install
-npm run phone:inspect
-```
-
-The wrapper prefers the current Windows Android SDK `adb.exe` when running
-under WSL, accepts an explicit binary through `ANDROID_ADB`, and falls back to
-`adb` on `PATH`. Installation uses `-r -g`: replace the native shell while
-retaining app data and grant the permissions declared by that APK. JavaScript-
-only work continues through the visible Expo terminal and does not require an
-APK build or installation.
 
 ### Music upload and playback contract
 
@@ -255,7 +333,10 @@ support, stops at the exact end of the concert, and never silently continues
 into library music outside that queue. Playback choices remain user state and
 do not change stored file metadata. Both clients expose a 0–100% AI-voice
 volume relative to full-volume music; it affects narration only and remains
-adjustable during ordinary item-by-item playback.
+adjustable during ordinary item-by-item playback and defaults to 70%. Both
+clients can copy a plain-text numbered description of the concert's music
+tracks. On web, the concert builder is a fixed-height bottom overlay above the
+library, so changing its contents does not move the music list.
 
 Mobile additionally offers explicit preparation for screen-off playback. It
 stops and resets ordinary playback, preserves the queue, reuses matching

@@ -177,6 +177,42 @@ function musicTrackTitle(file: MusicFile) {
   return `${sequence.number == null ? "" : `${sequence.number}. `}${sequence.title || sequence.type}`;
 }
 
+function concertDescriptionText(files: MusicFile[]) {
+  const tracks = files.map((file, index) => {
+    const metadata = file.metadata;
+    const title = musicTrackTitle(file);
+    const details = [
+      metadata?.work.title && metadata.work.title !== title ? metadata.work.title : null,
+      metadata?.work.creators?.length ? metadata.work.creators.join(", ") : null,
+      metadata?.performers?.length ? `Performed by ${metadata.performers.join(", ")}` : null,
+      metadata?.release?.title ? `From ${metadata.release.title}` : null,
+    ].filter((value): value is string => Boolean(value));
+    return `${index + 1}. ${[title, ...details].join(" — ")}`;
+  });
+  return `Concert\n\n${tracks.join("\n")}`;
+}
+
+async function copyTextToClipboard(text: string) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch {
+    // Fall back for browsers that expose Clipboard but block it outside a secure context.
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.append(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("Clipboard is unavailable");
+}
+
 function spokenSequenceText(sequence: MusicSequence) {
   const type = sequence.type === "sequence" ? "section" : sequence.type;
   return `${type}${sequence.number == null ? "" : ` ${sequence.number}`}${sequence.title ? `, ${sequence.title}` : ""}`;
@@ -248,7 +284,7 @@ export function useWebMusicPlayer() {
   const [playing, setPlaying] = useState(false);
   const [playbackSeconds, setPlaybackSeconds] = useState(0);
   const [durationSeconds, setDurationSeconds] = useState(0);
-  const [voiceVolume, setVoiceVolume] = useState(0.5);
+  const [voiceVolume, setVoiceVolume] = useState(0.7);
   const [fields, setFields] = useState<NarrationField[]>(["work", "sequence", "creators"]);
   const audio = useRef<HTMLAudioElement>(null);
   const queueRef = useRef<ConcertItem[]>([]);
@@ -411,10 +447,20 @@ export function useWebMusicPlayer() {
     setPlaybackSeconds(seconds);
   };
 
+  const copyDescription = async () => {
+    const text = concertDescriptionText(musicItems.map((item) => item.file));
+    try {
+      await copyTextToClipboard(text);
+      setNotice("Concert description copied.");
+    } catch {
+      setNotice("Could not copy the concert description.");
+    }
+  };
+
   const progress = durationSeconds > 0 ? Math.min(100, playbackSeconds / durationSeconds * 100) : 0;
 
   return {
-    queue, musicItems, current, error, notice, fields, hasStarted, complete, transitioning, summary, voiceVolume, setVoiceVolume, enqueue, remove, clear, start, toggleField,
+    queue, musicItems, current, error, notice, fields, hasStarted, complete, transitioning, summary, voiceVolume, setVoiceVolume, enqueue, remove, clear, start, toggleField, copyDescription,
     element: queue.length ? <aside className="music-mini-player" aria-label="Concert player"><span><small>{current ? current.kind === "narration" ? "AI voice · Now playing" : "Now playing" : complete ? "Concert complete" : "Concert ready"}</small><strong>{current ? current.kind === "narration" ? current.title : musicTrackTitle(current.file) : summary}</strong></span>{current ? <div className="music-player-transport"><button className="music-player-toggle" aria-label={playing ? "Pause concert" : "Play concert"} disabled={!source} onClick={togglePlayback}>{playing ? "❚❚" : "▶"}</button><div className="music-player-timeline"><input aria-label="Playback position" aria-valuetext={`${formatPlaybackTime(playbackSeconds)} of ${formatPlaybackTime(durationSeconds)}`} max={durationSeconds || 0} min="0" step="0.1" type="range" value={Math.min(playbackSeconds, durationSeconds || 0)} onChange={(event) => seek(Number(event.target.value))} style={{ "--music-progress": `${progress}%` } as CSSProperties} /><div><time>{formatPlaybackTime(playbackSeconds)}</time><time>{formatPlaybackTime(durationSeconds)}</time></div></div><audio ref={audio} src={source} preload="auto" onDurationChange={(event) => setDurationSeconds(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onEnded={() => { setPlaying(false); void playAt(index + 1); }} onLoadedMetadata={(event) => setDurationSeconds(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onPause={() => setPlaying(false)} onPlay={() => setPlaying(true)} onTimeUpdate={(event) => setPlaybackSeconds(event.currentTarget.currentTime)} /></div> : <button className="button" disabled={transitioning} onClick={start}>{transitioning ? "Preparing AI voice…" : complete ? "Replay concert" : "Start concert"}</button>}<button className="button button--quiet" onClick={clear}>Clear</button></aside> : null,
   };
 }
@@ -426,8 +472,9 @@ export function MusicScreen({ player }: { player: ReturnType<typeof useWebMusicP
   const groups = useMemo(() => { const result = new Map<string, MusicFile[]>(); for (const file of files) { const name = file.metadata?.release?.title || file.metadata?.work?.title || "Other music"; result.set(name, [...(result.get(name) || []), file]); } return [...result.entries()]; }, [files]);
   const programGroups = concertProgramGroups(player.musicItems.map((item) => item.file));
   const programPositions = new Map(player.musicItems.map((item, position) => [item.file.fileId, position + 1]));
-  return <><header className="page-heading"><div><p className="eyebrow">Concert builder</p><h1>Music</h1><p>Build one guided program, then play it as a concert. Library selections never start playback.</p></div>{files.length > 0 && <button className="button" disabled={player.hasStarted} onClick={() => player.enqueue(files)}>Add all results</button>}</header>
-    {player.musicItems.length > 0 && <section className="concert-queue" aria-labelledby="concert-queue-heading"><header className="concert-queue-heading"><div><p className="eyebrow">One playback queue</p><h2 id="concert-queue-heading">Your concert</h2><p>{player.summary}</p></div><div className="concert-queue-actions">{!player.current && <button className="button" disabled={player.transitioning} onClick={player.start}>{player.transitioning ? "Preparing AI voice…" : player.complete ? "Replay concert" : "Start concert"}</button>}<button className="button button--quiet" onClick={player.clear}>Clear</button></div></header><div className="concert-guidance"><strong>Spoken introductions</strong><p>An AI voice introduces every track. Choose what it announces before the concert begins.</p><label className="concert-voice-volume"><span>AI voice volume <strong>{Math.round(player.voiceVolume * 100)}%</strong></span><input aria-label="AI voice volume" type="range" min="0" max="100" step="10" value={Math.round(player.voiceVolume * 100)} onChange={(event) => player.setVoiceVolume(Number(event.target.value) / 100)} /><small>Relative to music · adjustable during playback</small></label><div className="concert-guidance-fields">{narrationChoices.map(({ field, label }) => <button className={player.fields.includes(field) ? "is-selected" : ""} aria-pressed={player.fields.includes(field)} disabled={player.hasStarted} key={field} onClick={() => player.toggleField(field)}>{label}</button>)}</div>{player.hasStarted && <small>This concert is fixed while it is playing. Clear it to build another.</small>}</div><div className="concert-program-groups">{programGroups.map((group) => <section className="concert-program-group" key={group.identity}><header>{group.releaseTitle && <small>{group.releaseTitle}</small>}<span>{group.eyebrow} · {group.files.length} {group.files.length === 1 ? "selection" : "selections"}</span><h3>{group.title}</h3>{group.detail && <p>{group.detail}</p>}</header><ol className="concert-program">{group.files.flatMap((file) => { const narration = player.queue.find((item) => item.kind === "narration" && item.file.fileId === file.fileId); const music = player.queue.find((item) => item.kind === "music" && item.file.fileId === file.fileId); return [<li className={`concert-program-narration${player.current?.key === narration?.key ? " is-current" : ""}`} key={`narration:${file.fileId}`}><span className="concert-program-narration-icon">◇</span><span><small>{narration?.kind === "narration" && narration.status === "generating" ? "AI voice · Generating…" : narration?.kind === "narration" && narration.status === "ready" ? "AI voice · Ready" : narration?.kind === "narration" && narration.status === "unavailable" ? "AI voice · Unavailable — will skip" : "AI voice · Will generate"}</small><strong>{narration?.kind === "narration" ? narration.title : `Introduction to ${musicTrackTitle(file)}`}</strong>{narration?.kind === "narration" && <small>{narration.text}</small>}</span></li>, <li className={player.current?.key === music?.key ? "is-current" : ""} key={`music:${file.fileId}`}><span className="concert-program-number">{programPositions.get(file.fileId)}</span><span>{player.current?.key === music?.key && <small>Now playing</small>}<strong>{musicTrackTitle(file)}</strong><small>{file.metadata?.performers?.join(" · ") || file.originalFilename}</small></span>{!player.hasStarted && <button className="button button--quiet" onClick={() => player.remove(file.fileId)}>Remove</button>}</li>]; })}</ol></section>)}</div></section>}
+  return <div className={`music-screen${player.musicItems.length ? " has-concert" : ""}`}><header className="page-heading"><div><p className="eyebrow">Concert builder</p><h1>Music</h1><p>Build one guided program, then play it as a concert. Library selections never start playback.</p></div>{files.length > 0 && <button className="button" disabled={player.hasStarted} onClick={() => player.enqueue(files)}>Add all results</button>}</header>
     {(player.notice || player.error) && <p className={player.error ? "form-error" : "status"}>{player.error || player.notice}</p>}
-    <div className="section-filter"><input aria-label="Filter music" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search work, movement, composer, performer, or notes" /></div>{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{!loading && !error && !groups.length && <Empty>No music found.</Empty>}<div className="library-groups">{groups.map(([name, tracks]) => <section className="library-group" key={name}><header className="library-group-heading"><h2>{name}</h2><button className="button button--quiet" disabled={player.hasStarted} onClick={() => player.enqueue(tracks)}>Add release</button></header><ul className="music-track-list">{tracks.map((track) => <li key={track.fileId}><span><strong>{musicTrackTitle(track)}</strong><small>{(track.metadata?.work.creators || []).join(", ") || track.originalFilename}</small></span><button className="button button--quiet" disabled={player.hasStarted || player.musicItems.some((item) => item.file.fileId === track.fileId)} aria-label={`Add ${musicTrackTitle(track)} to concert`} onClick={() => player.enqueue([track])}>+</button></li>)}</ul></section>)}</div></>;
+    <div className="section-filter"><input aria-label="Filter music" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search work, movement, composer, performer, or notes" /></div>{loading && <Loading />}{Boolean(error) && <ErrorState error={error} retry={reload} />}{!loading && !error && !groups.length && <Empty>No music found.</Empty>}<div className="library-groups">{groups.map(([name, tracks]) => <section className="library-group" key={name}><header className="library-group-heading"><h2>{name}</h2><button className="button button--quiet" disabled={player.hasStarted} onClick={() => player.enqueue(tracks)}>Add release</button></header><ul className="music-track-list">{tracks.map((track) => <li key={track.fileId}><span><strong>{musicTrackTitle(track)}</strong><small>{(track.metadata?.work.creators || []).join(", ") || track.originalFilename}</small></span><button className="button button--quiet" disabled={player.hasStarted || player.musicItems.some((item) => item.file.fileId === track.fileId)} aria-label={`Add ${musicTrackTitle(track)} to concert`} onClick={() => player.enqueue([track])}>+</button></li>)}</ul></section>)}</div>
+    {player.musicItems.length > 0 && <section className="concert-queue" aria-labelledby="concert-queue-heading"><header className="concert-queue-heading"><div><p className="eyebrow">One playback queue</p><h2 id="concert-queue-heading">Your concert</h2><p>{player.summary}</p></div><div className="concert-queue-actions">{!player.current && <button className="button" disabled={player.transitioning} onClick={player.start}>{player.transitioning ? "Preparing AI voice…" : player.complete ? "Replay concert" : "Start concert"}</button>}<button className="button button--quiet" onClick={() => void player.copyDescription()}>Copy concert description</button><button className="button button--quiet" onClick={player.clear}>Clear</button></div></header><div className="concert-guidance"><strong>Spoken introductions</strong><p>An AI voice introduces every track. Choose what it announces before the concert begins.</p><label className="concert-voice-volume"><span>AI voice volume <strong>{Math.round(player.voiceVolume * 100)}%</strong></span><input aria-label="AI voice volume" type="range" min="0" max="100" step="10" value={Math.round(player.voiceVolume * 100)} onChange={(event) => player.setVoiceVolume(Number(event.target.value) / 100)} /><small>Relative to music · adjustable during playback</small></label><div className="concert-guidance-fields">{narrationChoices.map(({ field, label }) => <button className={player.fields.includes(field) ? "is-selected" : ""} aria-pressed={player.fields.includes(field)} disabled={player.hasStarted} key={field} onClick={() => player.toggleField(field)}>{label}</button>)}</div>{player.hasStarted && <small>This concert is fixed while it is playing. Clear it to build another.</small>}</div><div className="concert-program-groups">{programGroups.map((group) => <section className="concert-program-group" key={group.identity}><header>{group.releaseTitle && <small>{group.releaseTitle}</small>}<span>{group.eyebrow} · {group.files.length} {group.files.length === 1 ? "selection" : "selections"}</span><h3>{group.title}</h3>{group.detail && <p>{group.detail}</p>}</header><ol className="concert-program">{group.files.flatMap((file) => { const narration = player.queue.find((item) => item.kind === "narration" && item.file.fileId === file.fileId); const music = player.queue.find((item) => item.kind === "music" && item.file.fileId === file.fileId); return [<li className={`concert-program-narration${player.current?.key === narration?.key ? " is-current" : ""}`} key={`narration:${file.fileId}`}><span className="concert-program-narration-icon">◇</span><span><small>{narration?.kind === "narration" && narration.status === "generating" ? "AI voice · Generating…" : narration?.kind === "narration" && narration.status === "ready" ? "AI voice · Ready" : narration?.kind === "narration" && narration.status === "unavailable" ? "AI voice · Unavailable — will skip" : "AI voice · Will generate"}</small><strong>{narration?.kind === "narration" ? narration.title : `Introduction to ${musicTrackTitle(file)}`}</strong>{narration?.kind === "narration" && <small>{narration.text}</small>}</span></li>, <li className={player.current?.key === music?.key ? "is-current" : ""} key={`music:${file.fileId}`}><span className="concert-program-number">{programPositions.get(file.fileId)}</span><span>{player.current?.key === music?.key && <small>Now playing</small>}<strong>{musicTrackTitle(file)}</strong><small>{file.metadata?.performers?.join(" · ") || file.originalFilename}</small></span>{!player.hasStarted && <button className="button button--quiet" onClick={() => player.remove(file.fileId)}>Remove</button>}</li>]; })}</ol></section>)}</div></section>}
+  </div>;
 }
