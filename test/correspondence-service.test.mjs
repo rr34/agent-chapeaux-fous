@@ -118,7 +118,7 @@ test("email synchronization preserves provider HTML and records the Email state"
           inReplyTo: ["message-parent@example.test"], subject: "Re: Status", sentAt: "2026-10-31T23:43:51-07:00",
           receivedAt: "2026-10-31T23:43:52-07:00", preview: "fallback",
           mailboxIds: { "inbox-1": true, "project-1": true }, keywords: { "$seen": true, "$flagged": false },
-          from: [{ email: "me@example.test", name: "Me" }], to: [{ email: "alex@example.test", name: "Alex" }],
+          from: [{ email: "me@example.test", name: "M".repeat(501) }], to: [{ email: "alex@example.test", name: "Alex" }],
           textBody: [], htmlBody: [{ partId: "html" }], bodyValues: { html: { value: "<p>Ready</p>" } },
         }, {
           id: "email-parent", threadId: "thread-1", messageId: ["message-parent@example.test"],
@@ -152,6 +152,8 @@ test("email synchronization preserves provider HTML and records the Email state"
     [41, "jmap:account-1", "inbox-1"],
   ]);
   assert.ok(calls.some(({ sql }) => sql.startsWith("UPDATE correspondence AS child")));
+  const participantWrites = calls.filter(({ sql }) => sql.includes("INSERT INTO correspondence_participants_join"));
+  assert.equal(participantWrites[0].args[5], "M".repeat(500));
   const stateWrite = calls.find(({ sql }) => sql.includes("INSERT INTO jmap_email_sync_state"));
   assert.equal(stateWrite.args[1], "email-state");
   assert.equal(executions.filter((value) => value === "START TRANSACTION").length,

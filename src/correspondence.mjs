@@ -31,6 +31,18 @@ function emailKeywords(value) {
   }
 }
 
+function boundedProviderText(value, maximumCharacters) {
+  if (value == null) return null;
+  let result = "";
+  let count = 0;
+  for (const character of String(value)) {
+    if (count >= maximumCharacters) break;
+    result += character;
+    count += 1;
+  }
+  return result || null;
+}
+
 function mailboxSnapshot(value) {
   const mailboxId = String(value?.id ?? "");
   const name = String(value?.name ?? "").trim();
@@ -99,7 +111,7 @@ function participantRows(message) {
   return roles.flatMap((role) => (message[role] || []).map((participant) => ({
     role: role === "replyTo" ? "reply_to" : role,
     address: String(participant.email || "").trim(),
-    displayName: participant.name || null,
+    displayName: boundedProviderText(participant.name, 500),
   })).filter(({ role, address }) => {
     const key = `${role}\u0000${emailAddress(address)}`;
     if (!address || seen.has(key)) return false;

@@ -100,3 +100,15 @@ export type MusicNarration = {
   streamUrl: string;
 };
 
+export type PreparedConcert = {
+  concertId: string;
+  voiceVolume: number;
+  failedNarrationCount: number;
+  expiresAtMs: number;
+  items: Array<{
+    kind: 'narration' | 'music';
+    queueIndex: number;
+    streamUrl: string;
+  }>;
+};
+

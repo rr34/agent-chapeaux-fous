@@ -29,10 +29,12 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "Allow Time V3 Technology Agent to record voice requests you explicitly submit."
+          "microphonePermission": "Allow Time V3 Technology Agent to record voice requests you explicitly submit.",
+          "enableBackgroundPlayback": true
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      "expo-status-bar"
     ]
   }
 }

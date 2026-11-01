@@ -1,11 +1,11 @@
-import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus, useAudioPlaylist, useAudioPlaylistStatus } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Modal, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { fetchMusic, generateMusicNarration, musicSource, narrationSource } from './api';
+import { createPreparedConcert, discardPreparedConcert, fetchMusic, generateMusicNarration, musicSource, narrationSource, preparedConcertSource } from './api';
 import { colors } from './theme';
-import type { ConnectionSettings, MusicFile, MusicNarration, MusicSequence } from './types';
+import type { ConnectionSettings, MusicFile, MusicNarration, MusicSequence, PreparedConcert } from './types';
 
 type WorkGroup = { key: string; title: string; type: string | null; creators: string[]; catalogue: string[]; files: MusicFile[] };
 type ReleaseGroup = { key: string; title: string; type: string | null; version: string | null; release: boolean; files: MusicFile[]; works: WorkGroup[] };
@@ -424,6 +424,9 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
   const [lastCleared, setLastCleared] = useState<ConcertItem[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
+  const [preparingConcert, setPreparingConcert] = useState(false);
+  const [preparationProgress, setPreparationProgress] = useState('');
+  const [preparedConcert, setPreparedConcert] = useState<PreparedConcert | null>(null);
   const [voiceVolume, setVoiceVolume] = useState(0.5);
   const [notice, setNotice] = useState('');
   const [filterText, setFilterText] = useState('');
@@ -436,10 +439,14 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
   const narrationPromises = useRef(new Map<string, Promise<NarrationItem | null>>());
   const player = useAudioPlayer(null, { updateInterval: 250, keepAudioSessionActive: true });
   const status = useAudioPlayerStatus(player);
+  const playlist = useAudioPlaylist({ sources: [], loop: 'none', updateInterval: 250 });
+  const playlistStatus = useAudioPlaylistStatus(playlist);
   const filteredFiles = useMemo(() => files.filter((file) => musicMatchesFilter(file, filterText)), [files, filterText]);
   const groups = useMemo(() => releaseGroups(filteredFiles), [filteredFiles]);
   const concertRows = useMemo(() => concertDisplayRows(queue), [queue]);
   const current = currentIndex >= 0 ? queue[currentIndex] ?? null : null;
+  const playbackStatus = preparedConcert ? playlistStatus : status;
+  const concertLocked = hasStarted || preparingConcert || Boolean(preparedConcert);
   const musicCount = queue.filter((item) => item.kind === 'music').length;
   const narrationCount = queue.length - musicCount;
   const musicDurationKnown = queue.every((item) => item.kind !== 'music' || (item.file.durationMs ?? 0) > 0);
@@ -475,18 +482,42 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
     if (boundaryTimer.current) clearTimeout(boundaryTimer.current);
     if (playTimer.current) clearTimeout(playTimer.current);
     player.clearLockScreenControls();
-  }, [player]);
+    playlist.clearLockScreenControls();
+  }, [player, playlist]);
 
   useEffect(() => {
-    if (hasStarted) return;
+    if (concertLocked) return;
     updateQueue((items) => items.map((item) => item.kind === 'narration'
       ? { ...item, text: spokenText(item.file, fields), status: 'planned', narration: null }
       : item));
-  }, [fields, hasStarted, updateQueue]);
+  }, [concertLocked, fields, updateQueue]);
 
   useEffect(() => {
-    if (current?.kind === 'narration') player.volume = voiceVolume;
-  }, [current?.key, player, voiceVolume]);
+    if (!preparedConcert && current?.kind === 'narration') player.volume = voiceVolume;
+  }, [current?.key, player, preparedConcert, voiceVolume]);
+
+  useEffect(() => {
+    if (!preparedConcert || !hasStarted) return;
+    const preparedItem = preparedConcert.items[playlistStatus.currentIndex];
+    if (!preparedItem) return;
+    setCurrentIndex(preparedItem.queueIndex);
+    const item = queueRef.current[preparedItem.queueIndex];
+    if (!item) return;
+    playlist.updateLockScreenMetadata({
+      title: item.kind === 'narration' ? item.title : trackTitle(item.file),
+      artist: item.kind === 'narration'
+        ? 'AI voice · Time v3 Concert'
+        : item.file.metadata?.work.creators?.join(', ') || item.file.metadata?.performers?.join(', ') || undefined,
+      albumTitle: item.file.metadata?.release?.title || item.file.metadata?.work.title || undefined,
+    });
+  }, [hasStarted, playlist, playlistStatus.currentIndex, preparedConcert]);
+
+  useEffect(() => {
+    if (!preparedConcert || !hasStarted || !playlistStatus.didJustFinish) return;
+    if (playlistStatus.currentIndex + 1 < preparedConcert.items.length) return;
+    setComplete(true);
+    setNotice('Concert complete. Playback stopped.');
+  }, [hasStarted, playlistStatus.currentIndex, playlistStatus.didJustFinish, preparedConcert]);
 
   const prepareNarration = useCallback(async (index: number): Promise<NarrationItem | null> => {
     const item = queueRef.current[index];
@@ -571,6 +602,7 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
   }, [loadItem, prepareNarration]);
 
   useEffect(() => {
+    if (preparedConcert) return;
     if (!status.didJustFinish || handledFinish.current || currentIndex < 0) return;
     handledFinish.current = true;
     if (currentIndex + 1 >= queueRef.current.length) {
@@ -582,10 +614,10 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
     if (!next) return;
     setNotice(next.kind === 'narration' ? `Next: ${next.title}` : `Next: ${trackTitle(next.file)}`);
     boundaryTimer.current = setTimeout(() => void playAt(currentIndex + 1), 500);
-  }, [currentIndex, playAt, status.didJustFinish]);
+  }, [currentIndex, playAt, preparedConcert, status.didJustFinish]);
 
   const add = (selected: MusicFile[]) => {
-    if (hasStarted) return;
+    if (concertLocked) return;
     const present = new Set(queueRef.current.filter((item): item is MusicItem => item.kind === 'music').map((item) => item.file.fileId));
     const additions = selected.filter((file) => !present.has(file.fileId));
     setLastCleared(null);
@@ -594,14 +626,96 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
     setNotice(`${additions.length} ${additions.length === 1 ? 'track' : 'tracks'} added to the concert.`);
   };
 
-  const clear = () => {
+  const resetPlaybackToConcert = () => {
     playbackVersion.current += 1;
     changing.current = false;
-    setTransitioning(false);
     if (boundaryTimer.current) clearTimeout(boundaryTimer.current);
     if (playTimer.current) clearTimeout(playTimer.current);
     player.pause();
     player.clearLockScreenControls();
+    playlist.pause();
+    playlist.clearLockScreenControls();
+    setCurrentIndex(-1);
+    setHasStarted(false);
+    setComplete(false);
+  };
+
+  const prepareForScreenOff = async () => {
+    if (preparingConcert || !queueRef.current.some((item) => item.kind === 'music')) return;
+    resetPlaybackToConcert();
+    const preparationVersion = playbackVersion.current;
+    setQueueOpen(true);
+    setPreparingConcert(true);
+    setTransitioning(true);
+    setNotice('Preparing every AI introduction for screen-off playback.');
+    try {
+      const narrationIndexes = queueRef.current.flatMap((item, index) => item.kind === 'narration' && voiceVolume > 0 ? [index] : []);
+      let nextIndex = 0;
+      let completedCount = 0;
+      const workers = Array.from({ length: Math.min(2, narrationIndexes.length) }, async () => {
+        while (nextIndex < narrationIndexes.length) {
+          const queueIndex = narrationIndexes[nextIndex];
+          nextIndex += 1;
+          if (queueIndex == null) break;
+          await prepareNarration(queueIndex);
+          completedCount += 1;
+          setPreparationProgress(`${completedCount}/${narrationIndexes.length} introductions`);
+        }
+      });
+      await Promise.all(workers);
+      if (preparationVersion !== playbackVersion.current) return;
+      const preparedItems: Array<
+        | { kind: 'narration'; queueIndex: number; text: string; sourceNarrationId: string }
+        | { kind: 'music'; queueIndex: number; fileId: number }
+      > = [];
+      queueRef.current.forEach((item, queueIndex) => {
+        if (item.kind === 'music') {
+          preparedItems.push({ kind: 'music', queueIndex, fileId: item.file.fileId });
+        } else if (voiceVolume > 0 && item.status === 'ready' && item.narration) {
+          preparedItems.push({ kind: 'narration', queueIndex, text: item.text, sourceNarrationId: item.narration.narrationId });
+        }
+      });
+      const concert = await createPreparedConcert(settings, { voiceVolume, items: preparedItems });
+      if (preparationVersion !== playbackVersion.current) {
+        void discardPreparedConcert(settings, concert.concertId).catch(() => {});
+        return;
+      }
+      playlist.clear();
+      for (const item of concert.items) {
+        const queueItem = queueRef.current[item.queueIndex];
+        const name = queueItem?.kind === 'narration' ? queueItem.title : queueItem ? trackTitle(queueItem.file) : 'Concert audio';
+        playlist.add(preparedConcertSource(settings, item.streamUrl, name));
+      }
+      setPreparedConcert(concert);
+      const skipped = concert.failedNarrationCount;
+      setNotice(skipped
+        ? `Concert prepared. ${skipped} unavailable ${skipped === 1 ? 'introduction will' : 'introductions will'} be skipped.`
+        : 'Concert prepared for continuous screen-off playback.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not prepare this concert.');
+    } finally {
+      setPreparationProgress('');
+      setPreparingConcert(false);
+      setTransitioning(false);
+    }
+  };
+
+  const discardPrepared = () => {
+    const concertId = preparedConcert?.concertId;
+    resetPlaybackToConcert();
+    playlist.clear();
+    setPreparedConcert(null);
+    setNotice('Prepared concert discarded. The concert queue is still here.');
+    if (concertId) void discardPreparedConcert(settings, concertId).catch(() => {});
+  };
+
+  const clear = () => {
+    const concertId = preparedConcert?.concertId;
+    resetPlaybackToConcert();
+    setTransitioning(false);
+    setPreparingConcert(false);
+    playlist.clear();
+    setPreparedConcert(null);
     setLastCleared(queueRef.current);
     updateQueue(() => []);
     setCurrentIndex(-1);
@@ -609,6 +723,7 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
     setComplete(false);
     setQueueOpen(false);
     setNotice('Concert cleared.');
+    if (concertId) void discardPreparedConcert(settings, concertId).catch(() => {});
   };
 
   const undo = () => {
@@ -619,7 +734,7 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
   };
 
   const toggleField = (field: NarrationField) => {
-    if (hasStarted) return;
+    if (concertLocked) return;
     setFields((currentFields) => {
       if (!currentFields.includes(field)) return [...currentFields, field];
       if (currentFields.length === 1) { setNotice('Keep at least one spoken metadata field.'); return currentFields; }
@@ -628,10 +743,39 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
   };
 
   const adjustVoiceVolume = (change: number) => {
+    if (preparedConcert || preparingConcert) return;
     setVoiceVolume((value) => Math.min(1, Math.max(0, Math.round((value + change) * 10) / 10)));
   };
 
+  const playPreparedAt = (preparedIndex: number) => {
+    if (!preparedConcert) return;
+    const preparedItem = preparedConcert.items[preparedIndex];
+    const item = preparedItem ? queueRef.current[preparedItem.queueIndex] : null;
+    if (!preparedItem || !item) return;
+    player.pause();
+    player.clearLockScreenControls();
+    playlist.skipTo(preparedIndex);
+    setCurrentIndex(preparedItem.queueIndex);
+    setHasStarted(true);
+    setComplete(false);
+    setNotice('');
+    playlist.setActiveForLockScreen(true, {
+      title: item.kind === 'narration' ? item.title : trackTitle(item.file),
+      artist: item.kind === 'narration'
+        ? 'AI voice · Time v3 Concert'
+        : item.file.metadata?.work.creators?.join(', ') || item.file.metadata?.performers?.join(', ') || undefined,
+      albumTitle: item.file.metadata?.release?.title || item.file.metadata?.work.title || undefined,
+    }, { showNextTrack: true, showPreviousTrack: true });
+    playlist.play();
+  };
+
   const playOrPause = () => {
+    if (preparedConcert) {
+      if (playlistStatus.playing) { playlist.pause(); return; }
+      if (!hasStarted || complete || !current) { playPreparedAt(0); return; }
+      playlist.play();
+      return;
+    }
     if (status.playing) { player.pause(); return; }
     if (!hasStarted || complete || !current) {
       setHasStarted(true);
@@ -643,6 +787,11 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
   };
 
   const playTrackFromConcert = (queueIndex: number) => {
+    if (preparedConcert) {
+      const preparedIndex = preparedConcert.items.findIndex((item) => item.queueIndex === queueIndex && item.kind === 'music');
+      if (preparedIndex >= 0) playPreparedAt(preparedIndex);
+      return;
+    }
     setHasStarted(true);
     setComplete(false);
     void playAt(queueIndex);
@@ -656,6 +805,8 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
     if (playTimer.current) clearTimeout(playTimer.current);
     player.pause();
     player.clearLockScreenControls();
+    playlist.pause();
+    playlist.clearLockScreenControls();
     onClose();
   };
 
@@ -670,21 +821,29 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
       <View style={styles.voiceVolumeControl}>
         <View style={styles.flex}>
           <Text style={styles.voiceVolumeLabel}>AI VOICE VOLUME</Text>
-          <Text style={styles.voiceVolumeHelp}>Relative to music · adjustable during playback</Text>
+          <Text style={styles.voiceVolumeHelp}>{preparedConcert ? 'Locked into the prepared narration files' : 'Relative to music · locked when prepared'}</Text>
         </View>
-        <Pressable accessibilityLabel="Decrease AI voice volume" accessibilityRole="button" disabled={voiceVolume <= 0} onPress={() => adjustVoiceVolume(-0.1)} style={[styles.voiceVolumeButton, voiceVolume <= 0 && styles.disabled]}><Text style={styles.voiceVolumeButtonText}>−</Text></Pressable>
+        <Pressable accessibilityLabel="Decrease AI voice volume" accessibilityRole="button" disabled={voiceVolume <= 0 || preparingConcert || Boolean(preparedConcert)} onPress={() => adjustVoiceVolume(-0.1)} style={[styles.voiceVolumeButton, (voiceVolume <= 0 || preparingConcert || Boolean(preparedConcert)) && styles.disabled]}><Text style={styles.voiceVolumeButtonText}>−</Text></Pressable>
         <Text accessibilityLabel={`AI voice volume ${Math.round(voiceVolume * 100)} percent`} style={styles.voiceVolumeValue}>{Math.round(voiceVolume * 100)}%</Text>
-        <Pressable accessibilityLabel="Increase AI voice volume" accessibilityRole="button" disabled={voiceVolume >= 1} onPress={() => adjustVoiceVolume(0.1)} style={[styles.voiceVolumeButton, voiceVolume >= 1 && styles.disabled]}><Text style={styles.voiceVolumeButtonText}>+</Text></Pressable>
+        <Pressable accessibilityLabel="Increase AI voice volume" accessibilityRole="button" disabled={voiceVolume >= 1 || preparingConcert || Boolean(preparedConcert)} onPress={() => adjustVoiceVolume(0.1)} style={[styles.voiceVolumeButton, (voiceVolume >= 1 || preparingConcert || Boolean(preparedConcert)) && styles.disabled]}><Text style={styles.voiceVolumeButtonText}>+</Text></Pressable>
       </View>
       <View style={styles.fieldChoices}>{narrationChoices.map(({ field, label }) => {
         const selected = fields.includes(field);
         return (
-          <Pressable key={field} disabled={hasStarted} onPress={() => toggleField(field)} style={[styles.fieldChoice, selected && styles.fieldChoiceSelected, hasStarted && styles.disabled]}>
+          <Pressable key={field} disabled={concertLocked} onPress={() => toggleField(field)} style={[styles.fieldChoice, selected && styles.fieldChoiceSelected, concertLocked && styles.disabled]}>
             <Text style={[styles.fieldChoiceText, selected && styles.fieldChoiceTextSelected]}>{label}</Text>
           </Pressable>
         );
       })}</View>
-      {hasStarted && <Text style={styles.frozen}>This concert is fixed while it is playing. Clear it to build another.</Text>}
+      <View style={styles.preparePanel}>
+        <Text style={styles.prepareTitle}>SCREEN-OFF PLAYBACK</Text>
+        <Text style={styles.prepareHelp}>Generates the remaining introductions now, locks this volume into those temporary files, and hands the separate files to a native playlist.</Text>
+        {preparingConcert ? <View style={styles.preparingRow}><ActivityIndicator color={colors.accent} size="small" /><Text style={styles.preparingText}>PREPARING {preparationProgress}</Text></View> : preparedConcert ? <View style={styles.prepareButtons}>
+          <Pressable onPress={() => playPreparedAt(0)} style={[styles.prepareButton, styles.prepareButtonPrimary]}><Text style={styles.prepareButtonText}>PLAY PREPARED CONCERT</Text></Pressable>
+          <Pressable onPress={discardPrepared} style={styles.prepareButton}><Text style={styles.discardButtonText}>DISCARD PREPARED CONCERT</Text></Pressable>
+        </View> : <Pressable disabled={!musicCount} onPress={() => void prepareForScreenOff()} style={[styles.prepareButton, styles.prepareButtonPrimary, !musicCount && styles.disabled]}><Text style={styles.prepareButtonText}>PREPARE FOR SCREEN-OFF PLAYBACK</Text></Pressable>}
+      </View>
+      {preparedConcert ? <Text style={styles.frozen}>Narration choices and AI voice volume are locked. Discard the prepared concert to change them without clearing the queue.</Text> : hasStarted ? <Text style={styles.frozen}>This concert is fixed while it is playing. You can still prepare it for screen-off playback or clear it.</Text> : null}
     </View>
   );
 
@@ -730,7 +889,7 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
             data={groups}
             keyExtractor={(group) => group.key}
             contentContainerStyle={[groups.length ? styles.list : styles.emptyList, current ? styles.withPlayer : queue.length ? styles.withBar : null]}
-            renderItem={({ item }) => <LibraryCard group={item} currentFileId={current?.kind === 'music' ? current.file.fileId : null} disabled={hasStarted} onAdd={add} />}
+            renderItem={({ item }) => <LibraryCard group={item} currentFileId={current?.kind === 'music' ? current.file.fileId : null} disabled={concertLocked} onAdd={add} />}
             refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} tintColor={colors.accent} />}
             ListEmptyComponent={loading ? <ActivityIndicator color={colors.accent} size="large" /> : filterText.trim() && files.length ? <View style={styles.empty}><Text style={styles.emptyTitle}>No matching music</Text><Text style={styles.emptyCopy}>Try another title, composer, performer, catalogue number, or movement.</Text></View> : <View style={styles.empty}><Text style={styles.emptyTitle}>No music yet</Text><Text style={styles.emptyCopy}>Upload MP3 files to the agent and ask it to identify and organize them.</Text></View>}
           />
@@ -746,7 +905,7 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
             <Text style={styles.nowLabel}>{queueOpen ? 'MUSIC LIBRARY' : 'CONCERT'}</Text><Text numberOfLines={1} style={styles.barText}>{summary}</Text>
           </Pressable>
           <Pressable disabled={transitioning} onPress={playOrPause} style={[styles.mainControl, transitioning && styles.disabled]}>
-            {transitioning ? <ActivityIndicator color={colors.ink} size="small" /> : <Text style={styles.mainControlText}>PLAY</Text>}
+            {transitioning ? <ActivityIndicator color={colors.ink} size="small" /> : <Text style={styles.mainControlText}>{preparedConcert ? 'PLAY CONCERT' : 'PLAY'}</Text>}
           </Pressable>
         </View>}
 
@@ -757,13 +916,13 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
             <Text numberOfLines={1} style={styles.nowWork}>{current.file.metadata?.work.title || current.file.title}</Text>
             <Text numberOfLines={2} style={styles.nowTrack}>{current.kind === 'narration' ? current.title : trackTitle(current.file)}</Text>
           </Pressable>
-          <View style={styles.timeRow}><Text style={styles.time}>{formatTime(status.currentTime)}</Text><View style={styles.progress}><View style={[styles.progressFill, { width: `${status.duration > 0 ? Math.min(100, status.currentTime / status.duration * 100) : 0}%` }]} /></View><Text style={styles.time}>{formatTime(status.duration)}</Text></View>
+          <View style={styles.timeRow}><Text style={styles.time}>{formatTime(playbackStatus.currentTime)}</Text><View style={styles.progress}><View style={[styles.progressFill, { width: `${playbackStatus.duration > 0 ? Math.min(100, playbackStatus.currentTime / playbackStatus.duration * 100) : 0}%` }]} /></View><Text style={styles.time}>{formatTime(playbackStatus.duration)}</Text></View>
           <View style={styles.controls}>
-            <Pressable disabled={currentIndex <= 0 || transitioning} onPress={() => void playAt(currentIndex - 1)} style={[styles.control, (currentIndex <= 0 || transitioning) && styles.disabled]}><Text style={styles.controlText}>PREV</Text></Pressable>
-            <Pressable onPress={() => void player.seekTo(Math.max(0, status.currentTime - 15))} style={styles.control}><Text style={styles.controlText}>−15</Text></Pressable>
-            <Pressable disabled={transitioning} onPress={playOrPause} style={[styles.mainControl, transitioning && styles.disabled]}>{transitioning ? <ActivityIndicator color={colors.ink} size="small" /> : <Text style={styles.mainControlText}>{status.playing ? 'PAUSE' : complete ? 'REPLAY' : 'PLAY'}</Text>}</Pressable>
-            <Pressable onPress={() => void player.seekTo(Math.min(status.duration || status.currentTime + 15, status.currentTime + 15))} style={styles.control}><Text style={styles.controlText}>+15</Text></Pressable>
-            <Pressable disabled={currentIndex + 1 >= queue.length || transitioning} onPress={() => void playAt(currentIndex + 1)} style={[styles.control, (currentIndex + 1 >= queue.length || transitioning) && styles.disabled]}><Text style={styles.controlText}>NEXT</Text></Pressable>
+            <Pressable disabled={(preparedConcert ? playlistStatus.currentIndex <= 0 : currentIndex <= 0) || transitioning} onPress={() => preparedConcert ? playlist.previous() : void playAt(currentIndex - 1)} style={[styles.control, ((preparedConcert ? playlistStatus.currentIndex <= 0 : currentIndex <= 0) || transitioning) && styles.disabled]}><Text style={styles.controlText}>PREV</Text></Pressable>
+            <Pressable onPress={() => void (preparedConcert ? playlist : player).seekTo(Math.max(0, playbackStatus.currentTime - 15))} style={styles.control}><Text style={styles.controlText}>−15</Text></Pressable>
+            <Pressable disabled={transitioning} onPress={playOrPause} style={[styles.mainControl, transitioning && styles.disabled]}>{transitioning ? <ActivityIndicator color={colors.ink} size="small" /> : <Text style={styles.mainControlText}>{playbackStatus.playing ? 'PAUSE' : complete ? 'REPLAY' : 'PLAY'}</Text>}</Pressable>
+            <Pressable onPress={() => void (preparedConcert ? playlist : player).seekTo(Math.min(playbackStatus.duration || playbackStatus.currentTime + 15, playbackStatus.currentTime + 15))} style={styles.control}><Text style={styles.controlText}>+15</Text></Pressable>
+            <Pressable disabled={(preparedConcert ? playlistStatus.currentIndex + 1 >= preparedConcert.items.length : currentIndex + 1 >= queue.length) || transitioning} onPress={() => preparedConcert ? playlist.next() : void playAt(currentIndex + 1)} style={[styles.control, ((preparedConcert ? playlistStatus.currentIndex + 1 >= preparedConcert.items.length : currentIndex + 1 >= queue.length) || transitioning) && styles.disabled]}><Text style={styles.controlText}>NEXT</Text></Pressable>
           </View>
         </View>}
       </SafeAreaView>
@@ -830,6 +989,16 @@ const styles = StyleSheet.create({
   fieldChoiceText: { color: colors.muted, fontSize: 10, fontWeight: '800' },
   fieldChoiceTextSelected: { color: colors.ink },
   frozen: { color: colors.gold, fontSize: 11, lineHeight: 16, marginTop: 10 },
+  preparePanel: { gap: 8, marginTop: 14, paddingTop: 13, borderTopWidth: 1, borderTopColor: colors.border },
+  prepareTitle: { color: colors.accent, fontSize: 9, fontWeight: '900', letterSpacing: 1.2 },
+  prepareHelp: { color: colors.muted, fontSize: 11, lineHeight: 16 },
+  prepareButtons: { gap: 8 },
+  prepareButton: { minHeight: 42, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: colors.border },
+  prepareButtonPrimary: { borderColor: colors.accent, backgroundColor: '#351719' },
+  prepareButtonText: { color: colors.ink, fontSize: 10, fontWeight: '900', letterSpacing: 0.7 },
+  discardButtonText: { color: colors.warning, fontSize: 9, fontWeight: '900', letterSpacing: 0.6 },
+  preparingRow: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, borderRadius: 10, backgroundColor: colors.surface },
+  preparingText: { color: colors.ink, fontSize: 10, fontWeight: '900', letterSpacing: 0.7 },
   groupHeader: { marginTop: 14, paddingHorizontal: 14, paddingTop: 16, paddingBottom: 13, borderTopLeftRadius: 14, borderTopRightRadius: 14, borderWidth: 1, borderBottomWidth: 0, borderColor: colors.border, backgroundColor: '#18181A' },
   groupRelease: { color: colors.muted, fontSize: 10, marginBottom: 5 },
   groupEyebrow: { color: colors.gold, fontSize: 9, fontWeight: '900', letterSpacing: 1.5 },
@@ -864,8 +1033,8 @@ const styles = StyleSheet.create({
   nowTrack: { color: colors.ink, fontSize: 17, fontWeight: '800', marginTop: 2 },
   timeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 9 },
   time: { width: 38, color: colors.muted, fontSize: 10, fontVariant: ['tabular-nums'] },
-  progress: { flex: 1, height: 3, overflow: 'hidden', backgroundColor: colors.border, borderRadius: 2 },
-  progressFill: { height: 3, backgroundColor: colors.accent },
+  progress: { flex: 1, height: 6, overflow: 'hidden', backgroundColor: '#505057', borderRadius: 3 },
+  progressFill: { height: 6, backgroundColor: '#FF4545' },
   controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 },
   control: { minWidth: 46, minHeight: 36, alignItems: 'center', justifyContent: 'center' },
   controlText: { color: colors.muted, fontSize: 9, fontWeight: '900' },

@@ -36,6 +36,7 @@ import { runtimeIdentity } from "./runtime-identity.mjs";
 import { WhisperTranscriber } from "./transcriber.mjs";
 import { OpenAISpeechService } from "./openai-speech.mjs";
 import { MusicNarrationService } from "./music-narration.mjs";
+import { PreparedConcertService } from "./prepared-concert.mjs";
 import { MusicDurationResolver } from "./music-duration.mjs";
 import { VideoRenderWorker } from "./video-render-worker.mjs";
 import { registerDailyPaperTools } from "./tools/daily-paper-tools.mjs";
@@ -230,7 +231,9 @@ const speech = new OpenAISpeechService({
 const musicNarration = new MusicNarrationService({
   speech,
   voice: config.ttsMusicNarrationVoice,
+  maximumEntries: 300,
 });
+const preparedConcerts = new PreparedConcertService({ narration: musicNarration });
 const musicDurationResolver = new MusicDurationResolver({ ledger, mediaRoot: config.mediaRoot });
 if (videoScripts) {
   videoRenderWorker = new VideoRenderWorker({
@@ -285,6 +288,63 @@ function byteRange(header, size) {
   }
   if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start >= size || end < start) return false;
   return { start, end: Math.min(end, size - 1) };
+}
+
+function sendAudioBuffer(request, response, { bytes, mimeType, filename, aiGenerated = false }) {
+  const range = byteRange(request.headers.range, bytes.length);
+  if (range === false) {
+    response.writeHead(416, {
+      "Content-Range": `bytes */${bytes.length}`,
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "private, no-store",
+    });
+    response.end();
+    return;
+  }
+  const start = range?.start ?? 0;
+  const end = range?.end ?? bytes.length - 1;
+  response.writeHead(range ? 206 : 200, {
+    "Content-Type": mimeType,
+    "Content-Length": end - start + 1,
+    "Content-Disposition": `inline; filename="${filename}"`,
+    "Accept-Ranges": "bytes",
+    ...(range ? { "Content-Range": `bytes ${start}-${end}/${bytes.length}` } : {}),
+    "Cache-Control": "private, no-store",
+    ...(aiGenerated ? { "X-AI-Generated": "true" } : {}),
+  });
+  response.end(bytes.subarray(start, end + 1));
+}
+
+async function sendStoredMusic(request, response, file) {
+  const filename = safeMediaPath(config.mediaRoot, file.storage_path);
+  const stat = await fsp.stat(filename).catch(() => null);
+  if (!stat?.isFile()) {
+    sendJson(response, 404, { error: "The stored music file is missing" });
+    return;
+  }
+  const range = byteRange(request.headers.range, stat.size);
+  if (range === false) {
+    response.writeHead(416, {
+      "Content-Range": `bytes */${stat.size}`,
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "private, no-store",
+    });
+    response.end();
+    return;
+  }
+  const start = range?.start ?? 0;
+  const end = range?.end ?? stat.size - 1;
+  const downloadName = String(file.original_filename || `music-${file.file_id}.mp3`)
+    .replace(/[^A-Za-z0-9._-]+/g, "-");
+  response.writeHead(range ? 206 : 200, {
+    "Content-Type": file.mime_type || "audio/mpeg",
+    "Content-Length": end - start + 1,
+    "Content-Disposition": `inline; filename="${downloadName}"`,
+    "Accept-Ranges": "bytes",
+    ...(range ? { "Content-Range": `bytes ${start}-${end}/${stat.size}` } : {}),
+    "Cache-Control": "private, no-store",
+  });
+  fs.createReadStream(filename, { start, end }).pipe(response);
 }
 
 function sendOAuthPage(response, statusCode, { title, message, redirect = false }) {
@@ -508,6 +568,39 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "GET" && url.pathname === "/health") {
       const body = health();
       sendJson(response, body.ready ? 200 : 503, body);
+      return;
+    }
+    const preparedConcertStreamMatch = /^\/api\/music\/prepared-concerts\/([0-9a-f-]{36})\/items\/(\d+)\/stream$/u.exec(url.pathname);
+    if (request.method === "GET" && preparedConcertStreamMatch) {
+      const item = preparedConcerts.playbackItem(
+        preparedConcertStreamMatch[1],
+        Number(preparedConcertStreamMatch[2]),
+        url.searchParams.get("token"),
+      );
+      if (!item) {
+        sendJson(response, 404, { error: "Prepared concert audio was not found or has expired" });
+        return;
+      }
+      if (item.kind === "narration") {
+        const narration = musicNarration.get(item.narrationId);
+        if (!narration) {
+          sendJson(response, 404, { error: "Prepared concert narration was not found or has expired" });
+          return;
+        }
+        sendAudioBuffer(request, response, {
+          bytes: narration.bytes,
+          mimeType: narration.mimeType,
+          filename: `prepared-concert-narration-${narration.narrationId}.wav`,
+          aiGenerated: true,
+        });
+        return;
+      }
+      const file = ledger.file(item.fileId);
+      if (!file || file.media_kind !== "audio" || !parseMusicMetadataDescription(file.description).metadata) {
+        sendJson(response, 404, { error: "Prepared concert music was not found" });
+        return;
+      }
+      await sendStoredMusic(request, response, file);
       return;
     }
     if (await serveStatic(request, response)) return;
@@ -1314,6 +1407,27 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 201, { narration });
       return;
     }
+    if (request.method === "POST" && url.pathname === "/api/music/prepared-concerts") {
+      const input = await readJson(request, 256 * 1024);
+      if (!Array.isArray(input?.items)) {
+        throw Object.assign(new Error("Prepared concert items are required"), { statusCode: 400 });
+      }
+      for (const item of input.items) {
+        if (item?.kind !== "music") continue;
+        const fileId = Number(item.fileId);
+        const file = Number.isSafeInteger(fileId) ? ledger.file(fileId) : null;
+        if (!file || file.media_kind !== "audio" || !parseMusicMetadataDescription(file.description).metadata) {
+          throw Object.assign(new Error(`Music file ${String(item.fileId)} is not available for concert playback`), { statusCode: 400 });
+        }
+      }
+      sendJson(response, 201, { concert: await preparedConcerts.create(input) });
+      return;
+    }
+    const preparedConcertMatch = /^\/api\/music\/prepared-concerts\/([0-9a-f-]{36})$/u.exec(url.pathname);
+    if (request.method === "DELETE" && preparedConcertMatch) {
+      sendJson(response, 200, { discarded: preparedConcerts.discard(preparedConcertMatch[1]) });
+      return;
+    }
     const musicNarrationStreamMatch = /^\/api\/music\/narrations\/([0-9a-f-]{36})\/stream$/u.exec(url.pathname);
     if (request.method === "GET" && musicNarrationStreamMatch) {
       const narration = musicNarration.get(musicNarrationStreamMatch[1]);
@@ -1321,28 +1435,12 @@ const server = http.createServer(async (request, response) => {
         sendJson(response, 404, { error: "Concert narration was not found or has expired" });
         return;
       }
-      const range = byteRange(request.headers.range, narration.bytes.length);
-      if (range === false) {
-        response.writeHead(416, {
-          "Content-Range": `bytes */${narration.bytes.length}`,
-          "Accept-Ranges": "bytes",
-          "Cache-Control": "private, no-store",
-        });
-        response.end();
-        return;
-      }
-      const start = range?.start ?? 0;
-      const end = range?.end ?? narration.bytes.length - 1;
-      response.writeHead(range ? 206 : 200, {
-        "Content-Type": narration.mimeType,
-        "Content-Length": end - start + 1,
-        "Content-Disposition": `inline; filename="concert-narration-${narration.narrationId}.wav"`,
-        "Accept-Ranges": "bytes",
-        ...(range ? { "Content-Range": `bytes ${start}-${end}/${narration.bytes.length}` } : {}),
-        "Cache-Control": "private, no-store",
-        "X-AI-Generated": "true",
+      sendAudioBuffer(request, response, {
+        bytes: narration.bytes,
+        mimeType: narration.mimeType,
+        filename: `concert-narration-${narration.narrationId}.wav`,
+        aiGenerated: true,
       });
-      response.end(narration.bytes.subarray(start, end + 1));
       return;
     }
     const musicStreamMatch = /^\/api\/music\/(\d+)\/stream$/.exec(url.pathname);
@@ -1356,35 +1454,7 @@ const server = http.createServer(async (request, response) => {
         sendJson(response, 404, { error: "Music file was not found" });
         return;
       }
-      const filename = safeMediaPath(config.mediaRoot, file.storage_path);
-      const stat = await fsp.stat(filename).catch(() => null);
-      if (!stat?.isFile()) {
-        sendJson(response, 404, { error: "The stored music file is missing" });
-        return;
-      }
-      const range = byteRange(request.headers.range, stat.size);
-      if (range === false) {
-        response.writeHead(416, {
-          "Content-Range": `bytes */${stat.size}`,
-          "Accept-Ranges": "bytes",
-          "Cache-Control": "private, no-store",
-        });
-        response.end();
-        return;
-      }
-      const start = range?.start ?? 0;
-      const end = range?.end ?? stat.size - 1;
-      const downloadName = String(file.original_filename || `music-${file.file_id}.mp3`)
-        .replace(/[^A-Za-z0-9._-]+/g, "-");
-      response.writeHead(range ? 206 : 200, {
-        "Content-Type": file.mime_type || "audio/mpeg",
-        "Content-Length": end - start + 1,
-        "Content-Disposition": `inline; filename="${downloadName}"`,
-        "Accept-Ranges": "bytes",
-        ...(range ? { "Content-Range": `bytes ${start}-${end}/${stat.size}` } : {}),
-        "Cache-Control": "private, no-store",
-      });
-      fs.createReadStream(filename, { start, end }).pipe(response);
+      await sendStoredMusic(request, response, file);
       return;
     }
     const fileDownloadMatch = /^\/api\/files\/(\d+)\/download$/.exec(url.pathname);

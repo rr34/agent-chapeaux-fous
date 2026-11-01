@@ -1,5 +1,5 @@
 import type { CorrespondenceBatch } from '../modules/time-v3-native/src/TimeV3NativeModule';
-import type { AgentRequest, ConnectionSettings, Health, MusicFile, MusicNarration } from './types';
+import type { AgentRequest, ConnectionSettings, Health, MusicFile, MusicNarration, PreparedConcert } from './types';
 
 export type CorrespondenceSyncResult = {
   protocol: 'timev3.android-correspondence-sync';
@@ -139,6 +139,32 @@ export async function generateMusicNarration(
     body: JSON.stringify({ text }),
   }, 120_000);
   return result.narration;
+}
+
+export async function createPreparedConcert(
+  settings: ConnectionSettings,
+  input: {
+    voiceVolume: number;
+    items: Array<
+      | { kind: 'narration'; queueIndex: number; text: string; sourceNarrationId: string }
+      | { kind: 'music'; queueIndex: number; fileId: number }
+    >;
+  },
+): Promise<PreparedConcert> {
+  const result = await requestJson<{ concert: PreparedConcert }>(settings, '/api/music/prepared-concerts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  }, 120_000);
+  return result.concert;
+}
+
+export async function discardPreparedConcert(settings: ConnectionSettings, concertId: string): Promise<void> {
+  await requestJson(settings, `/api/music/prepared-concerts/${encodeURIComponent(concertId)}`, { method: 'DELETE' });
+}
+
+export function preparedConcertSource(settings: ConnectionSettings, streamUrl: string, name: string) {
+  return { uri: `${settings.baseUrl}${streamUrl}`, name };
 }
 
 export async function submitText(settings: ConnectionSettings, text: string): Promise<{ requestId: string }> {

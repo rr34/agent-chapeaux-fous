@@ -2,6 +2,24 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { MusicNarrationService } from "../src/music-narration.mjs";
 
+function pcmWav(samples) {
+  const bytes = Buffer.alloc(44 + samples.length * 2);
+  bytes.write("RIFF", 0, "ascii");
+  bytes.writeUInt32LE(bytes.length - 8, 4);
+  bytes.write("WAVEfmt ", 8, "ascii");
+  bytes.writeUInt32LE(16, 16);
+  bytes.writeUInt16LE(1, 20);
+  bytes.writeUInt16LE(1, 22);
+  bytes.writeUInt32LE(24_000, 24);
+  bytes.writeUInt32LE(48_000, 28);
+  bytes.writeUInt16LE(2, 32);
+  bytes.writeUInt16LE(16, 34);
+  bytes.write("data", 36, "ascii");
+  bytes.writeUInt32LE(samples.length * 2, 40);
+  samples.forEach((sample, index) => bytes.writeInt16LE(sample, 44 + index * 2));
+  return bytes;
+}
+
 test("music narration generates temporary disclosed speech audio", async () => {
   const calls = [];
   const service = new MusicNarrationService({
@@ -43,6 +61,31 @@ test("music narration rejects missing or oversized text before speech generation
   await assert.rejects(() => service.create({ text: " " }), /required/u);
   await assert.rejects(() => service.create({ text: "x".repeat(2_001) }), /2000/u);
   assert.equal(calls, 0);
+});
+
+test("prepared narration reuses generated speech and locks gain into PCM samples", async () => {
+  let calls = 0;
+  let id = 0;
+  const service = new MusicNarrationService({
+    speech: {
+      async synthesize() {
+        calls += 1;
+        return { bytes: pcmWav([1_000, -1_000]), mimeType: "audio/wav", durationMs: 50, model: "test", voice: "cedar" };
+      },
+    },
+    createId: () => `narration-${++id}`,
+  });
+  const original = await service.create({ text: "Allegro." });
+  const prepared = await service.createPrepared({ text: "Allegro.", volume: 0.5, sourceNarrationId: original.narrationId });
+
+  assert.equal(calls, 1);
+  assert.equal(prepared.preparedVolume, 0.5);
+  assert.equal(service.get(prepared.narrationId).bytes.readInt16LE(44), 500);
+  assert.equal(service.get(prepared.narrationId).bytes.readInt16LE(46), -500);
+  assert.equal(service.get(original.narrationId).bytes.readInt16LE(44), 1_000);
+  await assert.rejects(() => service.createPrepared({ text: "Allegro.", volume: 1.1, sourceNarrationId: original.narrationId }), /between 0 and 1/u);
+  await assert.rejects(() => service.createPrepared({ text: "Different text.", volume: 0.5, sourceNarrationId: original.narrationId, sourceOnly: true }), /does not match/u);
+  assert.equal(calls, 1);
 });
 
 test("music narration expires temporary audio and bounds the cache", async () => {

@@ -11,6 +11,51 @@ function narrationText(value) {
   return text;
 }
 
+function narrationVolume(value) {
+  const volume = Number(value);
+  if (!Number.isFinite(volume) || volume < 0 || volume > 1) {
+    throw Object.assign(new Error("Narration volume must be between 0 and 1"), { statusCode: 400 });
+  }
+  return volume;
+}
+
+function scaledPcmWav(bytes, volume) {
+  const output = Buffer.from(bytes);
+  if (volume === 1) return output;
+  if (output.length < 44 || output.toString("ascii", 0, 4) !== "RIFF" || output.toString("ascii", 8, 12) !== "WAVE") {
+    throw new Error("Generated narration is not a supported WAV file");
+  }
+  let offset = 12;
+  let format = null;
+  let bitsPerSample = null;
+  let dataOffset = null;
+  let dataLength = null;
+  while (offset + 8 <= output.length) {
+    const chunkType = output.toString("ascii", offset, offset + 4);
+    const chunkLength = output.readUInt32LE(offset + 4);
+    const contentOffset = offset + 8;
+    if (contentOffset + chunkLength > output.length) break;
+    if (chunkType === "fmt " && chunkLength >= 16) {
+      format = output.readUInt16LE(contentOffset);
+      bitsPerSample = output.readUInt16LE(contentOffset + 14);
+    }
+    if (chunkType === "data") {
+      dataOffset = contentOffset;
+      dataLength = chunkLength;
+      break;
+    }
+    offset = contentOffset + chunkLength + (chunkLength % 2);
+  }
+  if (format !== 1 || bitsPerSample !== 16 || dataOffset == null || dataLength == null || dataLength % 2 !== 0) {
+    throw new Error("Generated narration WAV must contain 16-bit PCM audio");
+  }
+  for (let sampleOffset = dataOffset; sampleOffset < dataOffset + dataLength; sampleOffset += 2) {
+    const scaled = Math.round(output.readInt16LE(sampleOffset) * volume);
+    output.writeInt16LE(Math.max(-32_768, Math.min(32_767, scaled)), sampleOffset);
+  }
+  return output;
+}
+
 export class MusicNarrationService {
   constructor({
     speech,
@@ -81,8 +126,56 @@ export class MusicNarrationService {
     };
   }
 
+  async createPrepared(input) {
+    const text = narrationText(input?.text);
+    const volume = narrationVolume(input?.volume);
+    const source = input?.sourceNarrationId ? this.get(input.sourceNarrationId) : null;
+    if (input?.sourceOnly && (source?.text !== text || source.preparedVolume != null)) {
+      throw Object.assign(new Error("The source narration is unavailable or does not match"), { statusCode: 409 });
+    }
+    const generated = source?.text === text && source.preparedVolume == null
+      ? source
+      : await this.speech.synthesize(text, {
+        instructions: this.instructions,
+        voice: this.voice,
+      });
+    const bytes = scaledPcmWav(generated.bytes, volume);
+    if (bytes.length > this.maximumBytes) {
+      throw Object.assign(new Error("Generated narration is too large"), { statusCode: 413 });
+    }
+    const narrationId = this.createId();
+    const createdAtMs = this.now();
+    this.entries.set(narrationId, {
+      narrationId,
+      text,
+      bytes,
+      mimeType: generated.mimeType,
+      durationMs: generated.durationMs,
+      model: generated.model,
+      voice: generated.voice,
+      aiGenerated: true,
+      preparedVolume: volume,
+      createdAtMs,
+      expiresAtMs: createdAtMs + this.ttlMs,
+    });
+    this.prune();
+    return {
+      narrationId,
+      durationMs: generated.durationMs,
+      model: generated.model,
+      voice: generated.voice,
+      aiGenerated: true,
+      preparedVolume: volume,
+      streamUrl: `/api/music/narrations/${narrationId}/stream`,
+    };
+  }
+
   get(narrationId) {
     this.prune();
     return this.entries.get(String(narrationId)) ?? null;
+  }
+
+  remove(narrationId) {
+    return this.entries.delete(String(narrationId));
   }
 }

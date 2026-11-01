@@ -34,14 +34,29 @@ test("concert queue discloses and streams temporary AI-voice introductions", () 
   assert.match(api, /narrationSource/u);
 });
 
-test("mobile narration has a live volume independent from full-volume music", () => {
+test("ordinary mobile narration has a live volume independent from full-volume music", () => {
   assert.match(player, /const \[voiceVolume, setVoiceVolume\] = useState\(0\.5\)/u);
-  assert.match(player, /if \(current\?\.kind === 'narration'\) player\.volume = voiceVolume/u);
+  assert.match(player, /if \(!preparedConcert && current\?\.kind === 'narration'\) player\.volume = voiceVolume/u);
   assert.match(player, /player\.replace\(musicSource[\s\S]*player\.volume = 1/u);
   assert.match(player, /player\.replace\(narrationSource[\s\S]*player\.volume = voiceVolume/u);
   assert.match(player, /accessibilityLabel="Decrease AI voice volume"/u);
   assert.match(player, /accessibilityLabel="Increase AI voice volume"/u);
-  assert.match(player, /adjustable during playback/u);
+  assert.match(player, /locked when prepared/u);
+});
+
+test("mobile can prepare separate files as one native screen-off playlist", () => {
+  assert.match(player, /useAudioPlaylist\(\{ sources: \[\], loop: 'none', updateInterval: 250 \}\)/u);
+  assert.match(player, /PREPARE FOR SCREEN-OFF PLAYBACK/u);
+  assert.match(player, /PLAY PREPARED CONCERT/u);
+  assert.match(player, /DISCARD PREPARED CONCERT/u);
+  assert.match(player, /await prepareNarration\(queueIndex\)/u);
+  assert.match(player, /createPreparedConcert\(settings, \{ voiceVolume, items: preparedItems \}\)/u);
+  assert.match(player, /playlist\.add\(preparedConcertSource/u);
+  assert.match(player, /playlist\.setActiveForLockScreen\(true/u);
+  assert.match(player, /showNextTrack: true, showPreviousTrack: true/u);
+  assert.match(player, /item\.queueIndex === queueIndex && item\.kind === 'music'/u);
+  assert.match(api, /'\/api\/music\/prepared-concerts'/u);
+  assert.match(api, /method: 'DELETE'/u);
 });
 
 test("spoken introductions name the sequence type before its number", () => {

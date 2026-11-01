@@ -20,6 +20,7 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  type ScrollViewInstance,
   StyleSheet,
   Text,
   TextInput,
@@ -94,7 +95,7 @@ function ConnectionModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const setupScrollRef = useRef<ScrollView>(null);
+  const setupScrollRef = useRef<ScrollViewInstance>(null);
 
   useEffect(() => {
     if (!visible) return;

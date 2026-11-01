@@ -247,15 +247,33 @@ The concert queue is the only playback source. It visibly includes one
 disclosed AI-voice introduction before each music item, assembled from the
 listener's selected schema-v2 metadata fields. Speech audio is generated only
 when playback needs it, is held in a bounded temporary server cache, and is
-skipped without blocking the music when generation is unavailable. Once a
-concert begins its membership and narration choices remain fixed until the
-listener clears it. Clear is immediate and offers Undo. The authenticated
+skipped without blocking the music when generation is unavailable. During
+ordinary playback its membership and narration choices remain fixed. Clear is
+immediate and offers Undo. The authenticated
 player streams both stored music and temporary narration with HTTP range
 support, stops at the exact end of the concert, and never silently continues
 into library music outside that queue. Playback choices remain user state and
 do not change stored file metadata. Both clients expose a 0–100% AI-voice
 volume relative to full-volume music; it affects narration only and remains
-adjustable while the concert is playing.
+adjustable during ordinary item-by-item playback.
+
+Mobile additionally offers explicit preparation for screen-off playback. It
+stops and resets ordinary playback, preserves the queue, reuses matching
+introductions already generated during that concert, generates only the
+missing introductions, and skips any introduction that remains unavailable.
+The server writes the selected relative AI-voice volume into temporary
+prepared narration WAV files. The mobile client then gives those narration
+files and the original music files, still as separate ordered resources, to a
+native non-looping playlist with lock-screen next and previous controls. Track
+row Play begins directly with that music item; it does not replay the item's
+introduction. While a prepared concert exists its queue, narration fields, and
+AI-voice volume are locked. Discarding it removes the prepared variants and
+unlocks those choices without clearing the queue; Clear removes both the
+prepared concert and its queue. Prepared playback URLs are short-lived opaque
+capabilities so the native playlist can fetch them without exposing the main
+application access token. Web playback retains the ordinary item-by-item
+behavior and makes no promise that a browser will continue after the computer
+sleeps.
 
 Concert narration has its own `SLAYER_MUSIC_NARRATION_VOICE` setting and uses
 the restrained male `cedar` voice by default. It does not inherit the more
