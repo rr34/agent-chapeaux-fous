@@ -25,6 +25,7 @@ class FakeJmapClient {
           { id: "trash/one", name: "Trash", role: "trash" },
           { id: "drafts/one", name: "Drafts", role: "drafts" },
           { id: "sent/one", name: "Sent", role: "sent" },
+          { id: "receipts/one", name: "Receipts", role: null },
         ],
       };
     }
@@ -73,6 +74,9 @@ test("email_search sends RFC 8621 filter names and returns both query and Email 
     account_id: null,
     in_mailbox: "inbox1",
     in_mailbox_role: null,
+    in_mailbox_name: null,
+    message_id: null,
+    header_filters: [],
     text: "quarterly plan",
     from: "person@example.test",
     to: null,
@@ -119,6 +123,9 @@ test("email_search enforces its visible result limit before calling JMAP", async
       account_id: null,
       in_mailbox: null,
       in_mailbox_role: "inbox",
+      in_mailbox_name: null,
+      message_id: null,
+      header_filters: [],
       text: null,
       from: null,
       to: null,
@@ -141,6 +148,213 @@ test("email_search enforces its visible result limit before calling JMAP", async
     /limit must be at most 100/,
   );
   assert.equal(client.calls.length, 0);
+});
+
+test("email_search resolves a mailbox name and verifies Message-ID after bounded header search", async () => {
+  class HeaderSearchClient extends FakeJmapClient {
+    async call(method, argumentsObject, options = {}) {
+      if (method === "Email/get") {
+        this.calls.push({ method, argumentsObject, options });
+        return {
+          accountId: "account1", state: "email-1", notFound: [],
+          list: [{
+            id: "email1", subject: "October invoice",
+            messageId: ["invoice-123@example.test"],
+          }],
+        };
+      }
+      return super.call(method, argumentsObject, options);
+    }
+  }
+  const client = new HeaderSearchClient();
+  const registry = new ToolRegistry();
+  registerJmapEmailTools(registry, client);
+  const searchInput = {
+    account_id: null,
+    in_mailbox: null,
+    in_mailbox_role: null,
+    in_mailbox_name: "receipts",
+    message_id: "Message-ID: <invoice-123@example.test>",
+    header_filters: [{ name: "List-Id", value: "billing.example.test" }],
+    text: null,
+    from: "billing@example.test",
+    to: null,
+    cc: null,
+    bcc: null,
+    subject: "October invoice",
+    body: null,
+    after_utc: null,
+    before_utc: null,
+    has_attachment: null,
+    has_keyword: null,
+    not_keyword: null,
+    collapse_threads: false,
+    sort_property: "receivedAt",
+    sort_ascending: false,
+    position: 0,
+    limit: 25,
+    result_format: "compact",
+  };
+  const result = await registry.execute("email_search", searchInput);
+  const query = client.calls.find(({ method }) => method === "Email/query");
+  assert.deepEqual(query.argumentsObject.filter, {
+    operator: "AND",
+    conditions: [
+      { inMailbox: "receipts/one", from: "billing@example.test", subject: "October invoice" },
+      { header: ["Message-ID", "invoice-123@example.test"] },
+      { header: ["List-Id", "billing.example.test"] },
+    ],
+  });
+  const get = client.calls.find(({ method }) => method === "Email/get");
+  assert.equal(get.argumentsObject.properties.includes("messageId"), true);
+  assert.equal(result.resolvedMailboxId, "receipts/one");
+  assert.equal(result.resolvedMailboxName, "Receipts");
+  assert.equal(result.messages[0].email_id, "email1");
+  assert.deepEqual(result.messageIdResolution, {
+    requested: "invoice-123@example.test",
+    providerCandidateCount: 1,
+    inspectedCount: 1,
+    exactMatchCount: 1,
+    complete: true,
+    status: "resolved",
+  });
+
+  client.calls.length = 0;
+  await assert.rejects(
+    registry.execute("email_search", { ...searchInput, collapse_threads: true }),
+    /collapse_threads must be false/u,
+  );
+  await assert.rejects(
+    registry.execute("email_search", { ...searchInput, position: 1 }),
+    /position must be 0/u,
+  );
+  assert.equal(client.calls.length, 0);
+});
+
+test("email_search reports ambiguous exact Message-ID matches and rejects ambiguous mailbox names", async () => {
+  class AmbiguousClient extends FakeJmapClient {
+    async call(method, argumentsObject, options = {}) {
+      this.calls.push({ method, argumentsObject, options });
+      if (method === "Email/query") {
+        return {
+          accountId: "account1", queryState: "query-1", canCalculateChanges: true,
+          position: 0, ids: ["email1", "email2"], total: 2,
+        };
+      }
+      if (method === "Email/get") {
+        return {
+          accountId: "account1", state: "email-1", notFound: [],
+          list: [
+            { id: "email1", subject: "First", messageId: ["duplicate@example.test"] },
+            { id: "email2", subject: "Second", messageId: ["duplicate@example.test"] },
+          ],
+        };
+      }
+      if (method === "Mailbox/get") {
+        return {
+          accountId: "account1", state: "mailbox-1", notFound: [],
+          list: [
+            { id: "projects/one", name: "Projects", parentId: null },
+            { id: "projects/two", name: "Projects", parentId: "archive/one" },
+          ],
+        };
+      }
+      throw new Error(`Unexpected method ${method}`);
+    }
+  }
+  const client = new AmbiguousClient();
+  const registry = new ToolRegistry();
+  registerJmapEmailTools(registry, client);
+  const base = {
+    account_id: null,
+    in_mailbox: null,
+    in_mailbox_role: null,
+    in_mailbox_name: null,
+    message_id: "duplicate@example.test",
+    header_filters: [],
+    text: null,
+    from: null,
+    to: null,
+    cc: null,
+    bcc: null,
+    subject: null,
+    body: null,
+    after_utc: null,
+    before_utc: null,
+    has_attachment: null,
+    has_keyword: null,
+    not_keyword: null,
+    collapse_threads: false,
+    sort_property: "receivedAt",
+    sort_ascending: false,
+    position: 0,
+    limit: 25,
+    result_format: "ids",
+  };
+  const result = await registry.execute("email_search", base);
+  assert.equal(result.messages.length, 2);
+  assert.equal(result.messageIdResolution.status, "ambiguous");
+  assert.equal(result.messageIdResolution.exactMatchCount, 2);
+
+  await assert.rejects(
+    registry.execute("email_search", { ...base, message_id: null, in_mailbox_name: "Projects" }),
+    /mailbox name "Projects" is ambiguous/u,
+  );
+  assert.equal(client.calls.filter(({ method }) => method === "Email/query").length, 1);
+});
+
+test("email_search excludes provider header candidates that fail exact Message-ID verification", async () => {
+  class InexactHeaderClient extends FakeJmapClient {
+    async call(method, argumentsObject, options = {}) {
+      this.calls.push({ method, argumentsObject, options });
+      if (method === "Email/query") {
+        return {
+          accountId: "account1", queryState: "query-1", canCalculateChanges: true,
+          position: 0, ids: ["email1"], total: 1,
+        };
+      }
+      if (method === "Email/get") {
+        return {
+          accountId: "account1", state: "email-1", notFound: [],
+          list: [{ id: "email1", subject: "Fuzzy candidate", messageId: ["other@example.test"] }],
+        };
+      }
+      throw new Error(`Unexpected method ${method}`);
+    }
+  }
+  const client = new InexactHeaderClient();
+  const registry = new ToolRegistry();
+  registerJmapEmailTools(registry, client);
+  const result = await registry.execute("email_search", {
+    account_id: null,
+    in_mailbox: null,
+    in_mailbox_role: null,
+    in_mailbox_name: null,
+    message_id: "wanted@example.test",
+    header_filters: [],
+    text: null,
+    from: null,
+    to: null,
+    cc: null,
+    bcc: null,
+    subject: null,
+    body: null,
+    after_utc: null,
+    before_utc: null,
+    has_attachment: null,
+    has_keyword: null,
+    not_keyword: null,
+    collapse_threads: false,
+    sort_property: "receivedAt",
+    sort_ascending: false,
+    position: 0,
+    limit: 25,
+    result_format: "compact",
+  });
+  assert.deepEqual(result.messages, []);
+  assert.equal(result.messageIdResolution.status, "not_found");
+  assert.equal(result.messageIdResolution.providerCandidateCount, 1);
+  assert.equal(result.messageIdResolution.exactMatchCount, 0);
 });
 
 test("bulk updates and saved cleanup selections use one recoverable JMAP write", async () => {

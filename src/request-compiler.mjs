@@ -39,7 +39,7 @@ const capabilityPatterns = new Map([
   ["database", /\b(?:database|db|mariadb|schema|table|ledger|audit trail|tool receipts?|activity events?|stored row|content item|content group|video job|correspondence)\b/iu],
   ["database-write", /(?:\b(?:write|insert|update|delete|remove|import|save|create|change)\b.{0,60}\b(?:database|db|mariadb|table|rows?|content items?|content groups?|video jobs?)\b)|(?:\b(?:database|db|mariadb|table|rows?|content items?|content groups?|video jobs?)\b.{0,60}\b(?:write|insert|update|delete|remove|import|save|create|change)\b)/iu],
   ["history", /\b(?:what did we|what have we|talked about|discussed|previous conversation|prior conversation|conversation history|earlier today|last time|yesterday we|recent exchange)\b/iu],
-  ["email", /\b(?:e-?mail|inbox|mailbox|sender|subject line|email thread|draft|compose|send (?:it|this|that|an?|the|a message)|message .{0,40}(?:to|on)|reply to|forward (?:it|this|that|the)|spam|trash folder|invite .{0,40}(?:to|for))\b/iu],
+  ["email", /\b(?:e-?mail|inbox|mailbox|sender|subject line|email thread|draft|compose|send (?:it|this|that|an?|the|a message)|message .{0,40}(?:to|on)|reply to|forward (?:it|this|that|the)|spam|trash folder|invite .{0,40}(?:to|for))\b|(?:^|\n)\s*(?:from|to|cc|bcc|subject|date|message-id)\s*:[^\n]+/iu],
   ["video", /\b(?:make|create|generate|produce).{0,40}\bvideo(?: script)?\b|\bvideo.{0,40}(?:script|interaction|request|response)\b|\b(?:add|put|save|move).{0,40}\bvideo\b.{0,50}\bcontent(?: library| sequence)?\b|\b(?:content|promo) library\b/iu],
   ["search", /\b(?:global|unified|cross[ -]?domain|everywhere)\s+search\b|\b(?:find|search|look for)\b.{0,80}\b(?:everything|anything|across (?:all|my)|everywhere|all (?:my|available) (?:data|records?|information))\b/iu],
 ]);

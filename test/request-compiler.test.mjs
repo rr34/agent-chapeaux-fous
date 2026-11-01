@@ -399,6 +399,21 @@ test("an email request receives email and durable-profile tools, not unrelated d
   assert.equal(selection.fallbackAll, false);
 });
 
+test("a pasted visible or raw email header selects the structured email capability", () => {
+  const selection = selectRequestCapabilities({
+    tools,
+    text: [
+      "Delete this:",
+      "From: billing@example.test",
+      "Subject: October invoice",
+      "Date: Sat, 31 Oct 2026 15:14:00 -0400",
+      "Message-ID: <invoice-123@example.test>",
+    ].join("\n"),
+  });
+  assert.equal(selection.capabilities.includes("email"), true);
+  assert.equal(names(selection).includes("email_search"), true);
+});
+
 test("a plural contacts request selects focused contact tools without falling back", () => {
   const selection = selectRequestCapabilities({
     tools,

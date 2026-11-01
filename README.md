@@ -942,7 +942,10 @@ controls which exact tool schemas are callable.
   `email_update`, `email_bulk_update`, `email_cleanup_preview`,
   `email_cleanup_apply`, `email_cleanup_receipt_list`, `email_draft_create`, `email_send`,
   `email_submission_get`, and `email_attachment_get` provide a native JMAP mail
-  path. Compact searches keep Inbox triage bounded. Cleanup previews retain an
+  path. Compact searches keep Inbox triage bounded. Structured searches can
+  resolve unique mailbox names and query Message-ID or other bounded headers;
+  Message-ID candidates are verified against the exact parsed header and report
+  ambiguity instead of silently selecting one message. Cleanup previews retain an
   exact candidate set for 30 minutes; applying one uses its Email state token to
   reject stale writes and moves the reviewed set to Trash or Archive in one
   recoverable operation. Reads go to the live mail store rather than a database

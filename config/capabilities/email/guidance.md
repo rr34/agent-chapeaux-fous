@@ -8,8 +8,18 @@ recipient by contact name rather than an address, resolve that name with
 `contact_lookup_batch` before creating the draft. Preserve and use JMAP
 state tokens for follow-up change reads and optimistic writes. For Inbox triage,
 prefer one compact `email_search` over full metadata and never repeat an
-identical search merely to reconfirm its IDs. When cleanup needs several sender
-or phrase matches, call `email_cleanup_preview` once with all match and
+identical search merely to reconfirm its IDs. Parse copied visible email headers
+into the structured sender, recipient, subject, date, and mailbox filters rather
+than submitting the entire header block as provider text. Use `message_id` when
+a copied raw header supplies Message-ID; its resolution status reports whether
+the exact parsed-header match is unique, ambiguous, absent, or only partially
+inspected. Start Message-ID resolution at position zero without thread
+collapsing, and never treat an ambiguous or partial result as one exact message.
+Resolve a unique human mailbox name in the same search; when a name is
+ambiguous, inspect mailboxes and use the exact returned mailbox ID. Use
+`global_search` for broad cross-domain discovery, not as a replacement for these
+email-specific filters or before an email mutation. When cleanup needs several
+sender or phrase matches, call `email_cleanup_preview` once with all match and
 exclusion criteria. If the user has already authorized the exact cleanup, apply
 that saved selection with `email_cleanup_apply`; otherwise summarize the preview
 and wait for approval. When waiting, state the exact selected count so a

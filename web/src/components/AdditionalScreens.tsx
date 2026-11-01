@@ -146,7 +146,7 @@ export function AccountScreen({ usage }: { usage: React.ReactNode }) {
 
 type MusicSequence = { type: string; number: number | string | null; title: string | null };
 type MusicMetadata = {
-  release: { type: string | null; title: string | null; version: string | null; trackNumber: number | string | null } | null;
+  release: { type: string | null; title: string | null; version: string | null; discNumber: number | string | null; side: string | null; trackNumber: number | string | null } | null;
   work: { type: string | null; title: string | null; version: string | null; creators: string[] | null; catalogue: string[] | null };
   sequence1: MusicSequence | null;
   sequence2: MusicSequence | null;
@@ -160,6 +160,8 @@ type NarrationField = "work" | "sequence" | "creators" | "catalogue" | "composit
 type ConcertItem =
   | { key: string; kind: "music"; file: MusicFile }
   | { key: string; kind: "narration"; file: MusicFile; title: string; text: string; status: "planned" | "generating" | "ready" | "unavailable"; narration: MusicNarration | null };
+type MusicWorkGroup = { key: string; title: string; type: string | null; creators: string[]; catalogue: string[]; files: MusicFile[] };
+type MusicReleaseGroup = { key: string; title: string; type: string | null; version: string | null; release: boolean; files: MusicFile[]; works: MusicWorkGroup[] };
 
 const narrationChoices: Array<{ field: NarrationField; label: string }> = [
   { field: "work", label: "Work" },
@@ -175,6 +177,63 @@ function musicTrackTitle(file: MusicFile) {
   const sequence = file.metadata?.sequence2 || file.metadata?.sequence1;
   if (!sequence) return file.title;
   return `${sequence.number == null ? "" : `${sequence.number}. `}${sequence.title || sequence.type}`;
+}
+
+function musicOrderNumber(value: number | string | null | undefined) {
+  return typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10) || Number.MAX_SAFE_INTEGER;
+}
+
+function sortWebMusicWork(files: MusicFile[]) {
+  return [...files].sort((left, right) => (
+    musicOrderNumber(left.metadata?.sequence1?.number) - musicOrderNumber(right.metadata?.sequence1?.number)
+    || musicOrderNumber(left.metadata?.sequence2?.number) - musicOrderNumber(right.metadata?.sequence2?.number)
+    || musicOrderNumber(left.metadata?.release?.trackNumber) - musicOrderNumber(right.metadata?.release?.trackNumber)
+    || left.fileId - right.fileId
+  ));
+}
+
+function sortWebMusicRelease(files: MusicFile[]) {
+  return [...files].sort((left, right) => (
+    musicOrderNumber(left.metadata?.release?.discNumber) - musicOrderNumber(right.metadata?.release?.discNumber)
+    || String(left.metadata?.release?.side ?? "").localeCompare(String(right.metadata?.release?.side ?? ""))
+    || musicOrderNumber(left.metadata?.release?.trackNumber) - musicOrderNumber(right.metadata?.release?.trackNumber)
+    || left.fileId - right.fileId
+  ));
+}
+
+function webMusicReleaseGroups(files: MusicFile[]): MusicReleaseGroup[] {
+  const releases = new Map<string, MusicReleaseGroup & { workMap: Map<string, MusicWorkGroup> }>();
+  for (const file of files) {
+    const release = file.metadata?.release;
+    const work = file.metadata?.work;
+    const workTitle = work?.title || (release ? "Tracks" : file.title || file.originalFilename || `File ${file.fileId}`);
+    const creators = work?.creators ?? [];
+    const catalogue = work?.catalogue ?? [];
+    const workKey = JSON.stringify([work?.type ?? "unknown", workTitle, creators, catalogue]);
+    const releaseKey = release ? JSON.stringify([release.type, release.title, release.version]) : `standalone:${workKey}`;
+    const group = releases.get(releaseKey) ?? {
+      key: releaseKey,
+      title: release?.title || workTitle,
+      type: release?.type ?? work?.type ?? null,
+      version: release?.version ?? null,
+      release: Boolean(release),
+      files: [],
+      works: [],
+      workMap: new Map<string, MusicWorkGroup>(),
+    };
+    const workGroup = group.workMap.get(workKey) ?? { key: workKey, title: workTitle, type: work?.type ?? null, creators, catalogue, files: [] };
+    workGroup.files.push(file);
+    group.workMap.set(workKey, workGroup);
+    group.files.push(file);
+    releases.set(releaseKey, group);
+  }
+  for (const group of releases.values()) {
+    group.files = sortWebMusicRelease(group.files);
+    group.works = [...group.workMap.values()]
+      .map((work) => ({ ...work, files: sortWebMusicWork(work.files) }))
+      .sort((left, right) => musicOrderNumber(left.files[0]?.metadata?.release?.trackNumber) - musicOrderNumber(right.files[0]?.metadata?.release?.trackNumber) || left.title.localeCompare(right.title));
+  }
+  return [...releases.values()].map(({ workMap: _workMap, ...group }) => group).sort((left, right) => left.title.localeCompare(right.title));
 }
 
 function concertDescriptionText(files: MusicFile[]) {
@@ -471,16 +530,29 @@ export function useWebMusicPlayer(onMusicScreen = false) {
   };
 }
 
+function WebMusicTrackList({ files, player }: { files: MusicFile[]; player: ReturnType<typeof useWebMusicPlayer> }) {
+  return <ul className="music-track-list">{files.map((track) => <li key={track.fileId}><span><strong>{musicTrackTitle(track)}</strong><small>{track.metadata?.performers?.join(" · ") || track.originalFilename}</small></span><button className="button button--quiet music-add-button" disabled={player.hasStarted || player.musicItems.some((item) => item.file.fileId === track.fileId)} aria-label={`Add ${musicTrackTitle(track)} to concert`} onClick={() => player.enqueue([track])}>+</button></li>)}</ul>;
+}
+
+function WebMusicLibraryGroup({ group, player }: { group: MusicReleaseGroup; player: ReturnType<typeof useWebMusicPlayer> }) {
+  const standalone = !group.release && group.works.length === 1 ? group.works[0] : null;
+  return <section className="library-group" key={group.key}>
+    <header className="library-group-heading"><div><small>{group.type || "music"}</small><h2>{group.title}</h2>{group.version && <p>{group.version}</p>}{standalone && <p>{[...standalone.catalogue, ...standalone.creators].join(" · ")}</p>}</div><button className="button button--quiet music-add-button" disabled={player.hasStarted} aria-label={`Add ${group.title} to concert`} onClick={() => player.enqueue(group.files)}>+</button></header>
+    {group.release ? <div className="music-work-groups">{group.works.map((work) => <section className="music-work-group" key={work.key}><header className="music-work-heading"><span><small>{work.type || "work"}</small><strong>{work.title}</strong>{(work.catalogue.length > 0 || work.creators.length > 0) && <em>{[...work.catalogue, ...work.creators].join(" · ")}</em>}</span><button className="button button--quiet music-add-button" disabled={player.hasStarted} aria-label={`Add ${work.title} to concert`} onClick={() => player.enqueue(work.files)}>+</button></header><WebMusicTrackList files={work.files} player={player} /></section>)}</div> : <WebMusicTrackList files={group.files} player={player} />}
+  </section>;
+}
+
 export function MusicScreen({ player }: { player: ReturnType<typeof useWebMusicPlayer> }) {
   const { data, error, loading, reload } = useApi<{ files: MusicFile[] }>("/api/music?limit=500");
   const [query, setQuery] = useState("");
   const files = (data?.files || []).filter((file) => JSON.stringify(file).toLocaleLowerCase().includes(query.toLocaleLowerCase()));
-  const groups = useMemo(() => { const result = new Map<string, MusicFile[]>(); for (const file of files) { const name = file.metadata?.release?.title || file.metadata?.work?.title || "Other music"; result.set(name, [...(result.get(name) || []), file]); } return [...result.entries()]; }, [files]);
+  const groups = useMemo(() => webMusicReleaseGroups(files), [files]);
+  const orderedFiles = groups.flatMap((group) => group.files);
   const programGroups = concertProgramGroups(player.musicItems.map((item) => item.file));
   const programPositions = new Map(player.musicItems.map((item, position) => [item.file.fileId, position + 1]));
-  return <div className={`music-screen${player.concertExpanded ? " concert-expanded" : ""}`}><header className="page-heading"><div><p className="eyebrow">Concert builder</p><h1>Music</h1><p>Build one guided program, then play it as a concert. Library selections never start playback.</p></div>{files.length > 0 && <button className="button" disabled={player.hasStarted} onClick={() => player.enqueue(files)}>Add all results</button>}</header>
+  return <div className={`music-screen${player.concertExpanded ? " concert-expanded" : ""}`}><header className="page-heading"><div><p className="eyebrow">Concert builder</p><h1>Music</h1><p>Build one guided program, then play it as a concert. Library selections never start playback.</p></div>{orderedFiles.length > 0 && <button className="button" disabled={player.hasStarted} onClick={() => player.enqueue(orderedFiles)}>Add all results</button>}</header>
     {(player.notice || player.error) && <p className={player.error ? "form-error" : "status"}>{player.error || player.notice}</p>}
-    <div className="section-filter"><input aria-label="Filter music" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search work, movement, composer, performer, or notes" /></div>{loading && <Loading />}{Boolean(error) && <ErrorState error={error} retry={reload} />}{!loading && !error && !groups.length && <Empty>No music found.</Empty>}<div className="library-groups">{groups.map(([name, tracks]) => <section className="library-group" key={name}><header className="library-group-heading"><h2>{name}</h2><button className="button button--quiet music-add-button" disabled={player.hasStarted} aria-label={`Add ${name} to concert`} onClick={() => player.enqueue(tracks)}>+</button></header><ul className="music-track-list">{tracks.map((track) => <li key={track.fileId}><span><strong>{musicTrackTitle(track)}</strong><small>{(track.metadata?.work.creators || []).join(", ") || track.originalFilename}</small></span><button className="button button--quiet music-add-button" disabled={player.hasStarted || player.musicItems.some((item) => item.file.fileId === track.fileId)} aria-label={`Add ${musicTrackTitle(track)} to concert`} onClick={() => player.enqueue([track])}>+</button></li>)}</ul></section>)}</div>
+    <div className="section-filter"><input aria-label="Filter music" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search work, movement, composer, performer, or notes" /></div>{loading && <Loading />}{Boolean(error) && <ErrorState error={error} retry={reload} />}{!loading && !error && !groups.length && <Empty>No music found.</Empty>}<div className="library-groups">{groups.map((group) => <WebMusicLibraryGroup group={group} player={player} key={group.key} />)}</div>
     {player.musicItems.length > 0 && player.concertExpanded && <section className="concert-queue is-expanded" aria-label="Concert">
         <header className="concert-queue-heading"><div><p className="eyebrow">One playback queue</p><h2 id="concert-queue-heading">Your concert</h2><p>{player.summary}</p></div><div className="concert-queue-actions"><button className="button button--quiet" aria-expanded="true" onClick={() => player.setConcertExpanded(false)}>Collapse</button>{!player.current && <button className="button" disabled={player.transitioning} onClick={player.start}>{player.transitioning ? "Preparing AI voice…" : player.complete ? "Replay concert" : "Start concert"}</button>}<button className="button button--quiet" onClick={() => void player.copyDescription()}>Copy concert description</button><button className="button button--quiet" onClick={player.clear}>Clear</button></div></header>
         <div className="concert-guidance"><strong>Spoken introductions</strong><p>An AI voice introduces every track. Choose what it announces before the concert begins.</p><label className="concert-voice-volume"><span>AI voice volume <strong>{Math.round(player.voiceVolume * 100)}%</strong></span><input aria-label="AI voice volume" type="range" min="0" max="100" step="10" value={Math.round(player.voiceVolume * 100)} onChange={(event) => player.setVoiceVolume(Number(event.target.value) / 100)} /><small>Relative to music · adjustable during playback</small></label><div className="concert-guidance-fields">{narrationChoices.map(({ field, label }) => <button className={player.fields.includes(field) ? "is-selected" : ""} aria-pressed={player.fields.includes(field)} disabled={player.hasStarted} key={field} onClick={() => player.toggleField(field)}>{label}</button>)}</div>{player.hasStarted && <small>This concert is fixed while it is playing. Clear it to build another.</small>}</div>

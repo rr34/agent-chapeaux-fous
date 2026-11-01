@@ -5,18 +5,39 @@ import test from "node:test";
 const player = fs.readFileSync(new URL("../web/src/components/AdditionalScreens.tsx", import.meta.url), "utf8");
 
 test("the web music library can only add music to the concert", () => {
-  const library = player.slice(player.indexOf("export function MusicScreen"));
+  const library = player.slice(player.indexOf("function WebMusicTrackList"));
   const styles = fs.readFileSync(new URL("../web/src/styles.css", import.meta.url), "utf8");
   assert.match(library, /Library selections never start playback\./u);
-  assert.match(library, /aria-label=\{`Add \$\{name\} to concert`\}/u);
+  assert.match(library, /aria-label=\{`Add \$\{group\.title\} to concert`\}/u);
+  assert.match(library, /aria-label=\{`Add \$\{work\.title\} to concert`\}/u);
   assert.doesNotMatch(library, />Add release<\/button>/u);
   assert.match(styles, /\.music-screen \.library-groups \{[^}]*gap: 12px;/su);
   assert.match(styles, /\.music-track-list li \{[^}]*min-height: 36px;[^}]*padding: \.15rem \.2rem \.15rem \.45rem;/su);
+  assert.match(styles, /\.music-screen \.library-group-heading h2 \{[^}]*font-size: 25px;/su);
+  assert.match(styles, /\.music-track-list strong \{[^}]*font-size: 16px;/su);
+  assert.match(styles, /\.music-track-list small \{[^}]*font-size: 13px;/su);
   assert.match(styles, /\.music-add-button \{[^}]*width: 32px;[^}]*min-width: 32px;[^}]*height: 32px;/su);
   assert.match(library, /aria-label=\{`Add \$\{musicTrackTitle\(track\)\} to concert`\}/u);
+  assert.match(library, /player\.enqueue\(group\.files\)/u);
+  assert.match(library, /player\.enqueue\(work\.files\)/u);
   assert.match(library, /player\.enqueue\(\[track\]\)/u);
   assert.doesNotMatch(library, /player\.play\(track\)/u);
   assert.doesNotMatch(library, />Play<\/button>/u);
+});
+
+test("the web library mirrors mobile release, work, and movement ordering", () => {
+  const styles = fs.readFileSync(new URL("../web/src/styles.css", import.meta.url), "utf8");
+  assert.match(player, /function webMusicReleaseGroups\(files: MusicFile\[\]\)/u);
+  assert.match(player, /sortWebMusicRelease\(group\.files\)/u);
+  assert.match(player, /sortWebMusicWork\(work\.files\)/u);
+  assert.match(player, /release\?\.discNumber/u);
+  assert.match(player, /release\?\.trackNumber/u);
+  assert.match(player, /sequence1\?\.number/u);
+  assert.match(player, /sequence2\?\.number/u);
+  assert.match(player, /className="music-work-heading"/u);
+  assert.match(player, /groups\.flatMap\(\(group\) => group\.files\)/u);
+  assert.match(styles, /\.music-work-groups/u);
+  assert.match(styles, /\.music-work-heading/u);
 });
 
 test("web playback starts and advances only through the assembled concert", () => {

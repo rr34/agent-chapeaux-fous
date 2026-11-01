@@ -177,6 +177,18 @@ const nullableString = { type: ["string", "null"] };
 const nullableBoolean = { type: ["boolean", "null"] };
 const nullableInteger = { type: ["integer", "null"] };
 const nullableStringArray = { type: ["array", "null"], items: { type: "string" } };
+const emailHeaderFilter = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    name: {
+      type: "string", minLength: 1, maxLength: 100,
+      pattern: "^[!-9;-~]+$",
+    },
+    value: { type: ["string", "null"], minLength: 1, maxLength: 998 },
+  },
+  required: ["name", "value"],
+};
 const address = {
   type: "object",
   additionalProperties: false,
@@ -355,6 +367,52 @@ async function mailboxForRole(client, accountId, role) {
   return mailbox;
 }
 
+async function resolveMailboxSelector(client, accountId, { id, role, name }) {
+  const supplied = [id, role, name].filter((value) => value != null);
+  if (supplied.length > 1) {
+    throw new Error("Supply only one of in_mailbox, in_mailbox_role, or in_mailbox_name");
+  }
+  if (id != null) return { id, name: null, role: null };
+  if (role != null) {
+    const mailbox = await mailboxForRole(client, accountId, role);
+    return { id: mailbox.id, name: mailbox.name ?? null, role: mailbox.role ?? null };
+  }
+  if (name == null) return { id: null, name: null, role: null };
+  const requestedName = String(name).trim();
+  if (!requestedName) throw new Error("in_mailbox_name must not be blank");
+  const result = await mailboxes(client, accountId);
+  const matches = result.list.filter((mailbox) => (
+    String(mailbox.name ?? "").trim().localeCompare(requestedName, undefined, { sensitivity: "accent" }) === 0
+  ));
+  if (!matches.length) throw new Error(`No JMAP mailbox has the exact name ${JSON.stringify(requestedName)}`);
+  if (matches.length > 1) {
+    throw new Error(
+      `JMAP mailbox name ${JSON.stringify(requestedName)} is ambiguous; list mailboxes and supply the exact mailbox id`,
+    );
+  }
+  return { id: matches[0].id, name: matches[0].name ?? null, role: matches[0].role ?? null };
+}
+
+function normalizeMessageId(value) {
+  let normalized = String(value).trim().replace(/^message-id\s*:\s*/iu, "").trim();
+  if (normalized.startsWith("<") && normalized.endsWith(">")) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  if (!normalized) throw new Error("message_id must contain a Message-ID value");
+  return normalized;
+}
+
+function queryFilter(baseCondition, headerFilters) {
+  const conditions = [];
+  if (Object.keys(baseCondition).length) conditions.push(baseCondition);
+  for (const { name, value } of headerFilters) {
+    conditions.push({ header: value == null ? [name] : [name, value] });
+  }
+  if (!conditions.length) return {};
+  if (conditions.length === 1) return conditions[0];
+  return { operator: "AND", conditions };
+}
+
 function criterionFilter(criterion, inMailbox) {
   const filter = compact({
     inMailbox,
@@ -527,14 +585,24 @@ const nativeToolContracts = Object.freeze({
 
 export async function searchJmapEmail(client, input) {
   const accountId = account(client, input.account_id);
-  if (input.in_mailbox && input.in_mailbox_role) {
-    throw new Error("Supply in_mailbox or in_mailbox_role, not both");
+  const requestedMessageId = input.message_id == null ? null : normalizeMessageId(input.message_id);
+  if (requestedMessageId != null && input.collapse_threads) {
+    throw new Error("collapse_threads must be false when resolving message_id");
   }
-  const inMailbox = input.in_mailbox_role
-    ? (await mailboxForRole(client, accountId, input.in_mailbox_role)).id
-    : input.in_mailbox;
-  const filter = compact({
-    inMailbox,
+  if (requestedMessageId != null && input.position !== 0) {
+    throw new Error("position must be 0 when resolving message_id");
+  }
+  const resolvedMailbox = await resolveMailboxSelector(client, accountId, {
+    id: input.in_mailbox,
+    role: input.in_mailbox_role,
+    name: input.in_mailbox_name,
+  });
+  const headers = [
+    ...(requestedMessageId == null ? [] : [{ name: "Message-ID", value: requestedMessageId }]),
+    ...input.header_filters,
+  ];
+  const filter = queryFilter(compact({
+    inMailbox: resolvedMailbox.id,
     text: input.text,
     from: input.from,
     to: input.to,
@@ -547,7 +615,7 @@ export async function searchJmapEmail(client, input) {
     hasAttachment: input.has_attachment,
     hasKeyword: input.has_keyword,
     notKeyword: input.not_keyword,
-  });
+  }), headers);
   const query = await client.call("Email/query", {
     accountId,
     filter,
@@ -557,23 +625,49 @@ export async function searchJmapEmail(client, input) {
     limit: boundedInteger(input.limit, 25, 1, 100, "limit"),
     calculateTotal: true,
   });
+  const selectedProperties = input.result_format === "ids"
+    ? ["id"]
+    : input.result_format === "compact" ? [...compactSummaryProperties] : [...summaryProperties];
+  if (requestedMessageId != null && !selectedProperties.includes("messageId")) {
+    selectedProperties.push("messageId");
+  }
   const messages = query.ids.length
     ? await client.call("Email/get", getArguments(
       accountId,
       query.ids,
       "none",
       100_000,
-      input.result_format === "ids"
-        ? ["id"]
-        : input.result_format === "compact" ? compactSummaryProperties : summaryProperties,
+      selectedProperties,
     ))
     : { accountId, state: null, list: [], notFound: [] };
+  const returnedMessages = requestedMessageId == null
+    ? messages.list
+    : messages.list.filter((message) => (
+      (message.messageId ?? []).some((value) => normalizeMessageId(value) === requestedMessageId)
+    ));
+  const pagePosition = Number(query.position ?? input.position ?? 0);
+  const pageComplete = pagePosition + query.ids.length >= query.total;
+  const inspectionComplete = pageComplete && (messages.notFound ?? []).length === 0;
+  const exactMatchCount = returnedMessages.length;
+  const messageIdResolution = requestedMessageId == null ? null : {
+    requested: requestedMessageId,
+    providerCandidateCount: query.total,
+    inspectedCount: messages.list.length,
+    exactMatchCount,
+    complete: inspectionComplete,
+    status: !inspectionComplete
+      ? "partial"
+      : exactMatchCount === 0 ? "not_found" : exactMatchCount === 1 ? "resolved" : "ambiguous",
+  };
   return {
     ...query,
-    resolvedMailboxId: inMailbox ?? null,
+    resolvedMailboxId: resolvedMailbox.id,
+    resolvedMailboxName: resolvedMailbox.name,
+    resolvedMailboxRole: resolvedMailbox.role,
     resultFormat: input.result_format,
     emailState: messages.state,
-    messages: messages.list.map(identifiedEmail),
+    messageIdResolution,
+    messages: returnedMessages.map(identifiedEmail),
     notFound: messages.notFound,
   };
 }
@@ -635,13 +729,16 @@ export function registerJmapEmailTools(registry, client) {
 
   registry.register({
     name: "email_search",
-    description: "Search the live JMAP mail store and return bounded ids, compact summaries, or full metadata plus exact query and Email state tokens. All non-null filters are combined. Prefer compact for inbox triage and full only when complete headers are needed. A mailbox role can be resolved without listing all mailboxes.",
+    description: "Search the live JMAP mail store with structured message, mailbox, address, date, content, keyword, Message-ID, and bounded header filters. Return bounded ids, compact summaries, or full metadata plus exact query and Email state tokens. All non-null filters are combined. Message-ID search starts at position 0 without thread collapsing, verifies exact parsed-header matches, and reports whether resolution is unique, ambiguous, absent, or partial. Prefer compact for inbox triage and full only when complete headers are needed. A unique mailbox name or standard mailbox role can be resolved without a separate mailbox-list call.",
     parameters: {
       type: "object", additionalProperties: false,
       properties: {
         account_id: nullableString,
         in_mailbox: nullableString,
         in_mailbox_role: { type: ["string", "null"], enum: [...mailboxRoles, null] },
+        in_mailbox_name: { type: ["string", "null"], minLength: 1, maxLength: 500 },
+        message_id: { type: ["string", "null"], minLength: 1, maxLength: 998 },
+        header_filters: { type: "array", maxItems: 10, items: emailHeaderFilter },
         text: nullableString,
         from: nullableString,
         to: nullableString,
@@ -662,7 +759,8 @@ export function registerJmapEmailTools(registry, client) {
         result_format: { type: "string", enum: ["ids", "compact", "full"] },
       },
       required: [
-        "account_id", "in_mailbox", "in_mailbox_role", "text", "from", "to", "cc", "bcc", "subject", "body",
+        "account_id", "in_mailbox", "in_mailbox_role", "in_mailbox_name", "message_id", "header_filters",
+        "text", "from", "to", "cc", "bcc", "subject", "body",
         "after_utc", "before_utc", "has_attachment", "has_keyword", "not_keyword",
         "collapse_threads", "sort_property", "sort_ascending", "position", "limit", "result_format",
       ],
