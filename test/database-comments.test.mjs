@@ -4,12 +4,19 @@ import fs from "node:fs";
 import test from "node:test";
 import { baselineFilename } from "../scripts/agent-schema.mjs";
 import { runDatabaseMigrations, joinTableRenames } from "../scripts/migrate-database.mjs";
-import { verifyDatabase } from "../scripts/verify-database.mjs";
+import { databaseSchemaVersionLine, verifyDatabase } from "../scripts/verify-database.mjs";
 import { MariaDatabaseSync } from "../src/mariadb-sync.mjs";
-import { SlayerDatabase } from "../src/database.mjs";
+import { requiredDatabaseSchemaVersion, SlayerDatabase } from "../src/database.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerDatabaseTools } from "../src/tools/database-tools.mjs";
 import { temporaryDatabase, baselineBeforeCatchUp } from "./helpers.mjs";
+
+test("database verification reports the current and required schema versions", () => {
+  assert.equal(databaseSchemaVersionLine(60),
+    `Database schema version: 60 (application requires ${requiredDatabaseSchemaVersion}).`);
+  assert.equal(databaseSchemaVersionLine(null),
+    `Database schema version: unavailable (application requires ${requiredDatabaseSchemaVersion}).`);
+});
 
 function catalog(database) {
   const laterTables = new Set([

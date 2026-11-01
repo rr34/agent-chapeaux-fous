@@ -4,11 +4,23 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import { SlayerDatabase, inspectDatabase, summarizeDatabaseObjects } from "../src/database.mjs";
+import {
+  SlayerDatabase, inspectDatabase, requiredDatabaseSchemaVersion, summarizeDatabaseObjects,
+} from "../src/database.mjs";
 import { repositoryRoot } from "./agent-schema.mjs";
 import { databaseConnectionFromEnvironment } from "./mariadb-schema.mjs";
 import { assertMigrationSpecificIntegrity, migrationsFilename } from "./migrate-database.mjs";
 import { readMigrationLedger } from "./database-migrations.mjs";
+
+export function readDatabaseSchemaVersion(database) {
+  const row = database.prepare("SELECT schema_version FROM database_meta WHERE singleton = 1").get();
+  const version = Number(row?.schema_version);
+  return Number.isSafeInteger(version) && version >= 0 ? version : null;
+}
+
+export function databaseSchemaVersionLine(schemaVersion) {
+  return `Database schema version: ${schemaVersion ?? "unavailable"} (application requires ${requiredDatabaseSchemaVersion}).`;
+}
 
 export async function verifyDatabase(database) {
   const inspection = inspectDatabase(database);
@@ -16,9 +28,7 @@ export async function verifyDatabase(database) {
     throw new Error(`Database is not compatible with Agent Slayer:\n- ${inspection.problems.join("\n- ")}`);
   }
   const databaseName = database.prepare("SELECT DATABASE() AS name").get().name;
-  const schemaVersion = Number(database.prepare(
-    "SELECT schema_version FROM database_meta WHERE singleton = 1",
-  ).get().schema_version);
+  const schemaVersion = readDatabaseSchemaVersion(database);
   const connection = {
     query: async (sql, parameters = []) => [database.prepare(sql).all(...parameters)],
   };
@@ -49,6 +59,8 @@ export async function verifyDatabase(database) {
       type: object.table_type === "BASE TABLE" ? "table" : "view",
     }))),
     fullTextIndexCount: new Set(fullTextIndexes.map(row => `${row.table_name}.${row.index_name}`)).size,
+    schemaVersion,
+    requiredSchemaVersion: requiredDatabaseSchemaVersion,
   };
 }
 
@@ -59,6 +71,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const connection = databaseConnectionFromEnvironment();
   const store = new SlayerDatabase({ engine: "mariadb", connection });
   try {
+    const schemaVersion = store.database ? readDatabaseSchemaVersion(store.database) : null;
+    console.log(databaseSchemaVersionLine(schemaVersion));
     if (!store.status.ready) throw new Error(store.status.reason);
     const database = store.requireReady();
     const counts = await verifyDatabase(database);
