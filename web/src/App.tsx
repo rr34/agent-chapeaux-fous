@@ -51,6 +51,12 @@ const navigation = [
   ["video-scripts", "Video Scripts"],
 ] as const;
 
+const calendarMonthOptions = Array.from({ length: 12 }, (_, index) => ({
+  value: String(index + 1).padStart(2, "0"),
+  label: new Intl.DateTimeFormat(undefined, { month: "long", timeZone: "UTC" })
+    .format(new Date(Date.UTC(2000, index, 1))),
+}));
+
 type NavigationItem = typeof navigation[number];
 
 function NavigationIcon({ id, label }: { id: NavigationItem[0]; label: NavigationItem[1] }) {
@@ -427,6 +433,10 @@ function GroupEditor({ group, onClose, onChanged, deleteAction }: {
 function shiftLocalDate(value: string, days: number) {
   const [year, month, day] = value.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
+function calendarMonthAnchor(year: string | number, month: string | number) {
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-01`;
 }
 
 function linkedTodosForEvents(events: DailyPaperModel["todayEvents"]) {
@@ -1371,6 +1381,12 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
   const [displayDate, setDisplayDate] = useState(date);
   const [filterQuery, setFilterQuery] = useState("");
   const [serverQuery, setServerQuery] = useState("");
+  const displayYear = displayDate.slice(0, 4);
+  const displayMonth = displayDate.slice(5, 7);
+  const calendarYearOptions = useMemo(() => {
+    const currentYear = Number(date.slice(0, 4));
+    return Array.from({ length: 201 }, (_, index) => currentYear - 100 + index);
+  }, [date]);
   const requestParameters = new URLSearchParams({ date: selectedDate, rangeDate: displayDate, timeZone, paperSize: "letter", includeCompletedTodos: "false" });
   const { data, error, loading, reload } = useApi<DailyPaperModel>(`/api/daily-paper?${requestParameters}`);
   const calendarSearchUrl = serverQuery
@@ -1429,7 +1445,14 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
     <PageHeading eyebrow="Authoritative calendar" title="Calendar" detail="A shared React view for the screen and the page." actions={
       <><button className="button" type="button" onClick={() => setAddingEvent(true)}>Add calendar event</button><button className="button button--quiet" onClick={() => void generate()} disabled={generating || !data}>{generating ? "Making PDF…" : "Download daily PDF"}</button></>
     } />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchCalendar} searching={loading || calendarSearchLoading} count={matchingEventCount} noun="event" />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchCalendar} searching={loading || calendarSearchLoading} count={matchingEventCount} noun="event" controls={<>
+      <SectionSelectFilter label="Year" value={displayYear} onChange={(year) => setDisplayDate(calendarMonthAnchor(year, displayMonth))} disabled={loading}>
+        {calendarYearOptions.map((year) => <option value={year} key={year}>{year}</option>)}
+      </SectionSelectFilter>
+      <SectionSelectFilter label="Month" value={displayMonth} onChange={(month) => setDisplayDate(calendarMonthAnchor(displayYear, month))} disabled={loading}>
+        {calendarMonthOptions.map((month) => <option value={month.value} key={month.value}>{month.label}</option>)}
+      </SectionSelectFilter>
+    </>} />
     {generationNotice && <div className="calendar-generation-notice surface" role="status"><span>{generationNotice}</span>{dismissGenerationNotice && <button className="button button--quiet" onClick={dismissGenerationNotice}>Dismiss</button>}</div>}
     {generationError && <ErrorState
       error={generationError}

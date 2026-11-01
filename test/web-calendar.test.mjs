@@ -45,6 +45,14 @@ test("calendar week arrows move only the displayed range and Today restores toda
   assert.match(styles, /\.calendar-range-arrow \{[^}]*width: 100%/s);
 });
 
+test("calendar filter card selects the displayed year and month without changing the selected day", () => {
+  assert.match(appSource, /<SectionFilter[^>]*controls=\{<>[\s\S]*label="Year"[\s\S]*label="Month"[\s\S]*<\/>\} \/>/);
+  assert.match(appSource, /onChange=\{\(year\) => setDisplayDate\(calendarMonthAnchor\(year, displayMonth\)\)\}/);
+  assert.match(appSource, /onChange=\{\(month\) => setDisplayDate\(calendarMonthAnchor\(displayYear, month\)\)\}/);
+  assert.match(appSource, /function calendarMonthAnchor\([\s\S]*-01`;/);
+  assert.doesNotMatch(appSource, /onChange=\{\((?:year|month)\) => setSelectedDate/);
+});
+
 test("calendar marks the first displayed day with its month and ISO week", () => {
   assert.match(calendarSource, /calendarRangeMarkerLabel\(days\[0\]\.localDate\)/);
   assert.match(calendarSource, /calendar-range-marker/);
