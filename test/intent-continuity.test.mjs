@@ -104,6 +104,38 @@ test("mutation evidence stays connected to outcome identities and exact final ca
   assert.deepEqual(findings[0].outcomeRefs, ["create_watch_job.watch_job"]);
 });
 
+test("one homogeneous batch outcome accepts its exact distinct object count without audit", () => {
+  const core = {
+    actions: [{
+      actionId: "record_exercise",
+      outcomeObjects: [{
+        outcomeId: "exercise_entries",
+        description: "The batch of separate entries for the requested tracker values.",
+        objectType: "journal.entry",
+        targetRefs: [],
+        cardinality: { minimum: 2, maximum: 2, basis: "request" },
+      }],
+    }],
+  };
+  const entryReferences = (id) => [{
+    type: "journal.entry",
+    source: "native:journal",
+    objects: [{ id, ref: `agent-slayer://journal-entries/${id}`, display: `Entry ${id}` }],
+  }];
+  const outcomeRef = "record_exercise.exercise_entries";
+  const receipts = [236, 237].map((id) => ({
+    ok: true,
+    tool: "journal_add",
+    objectReferences: entryReferences(id),
+    intentOutcomeRefs: [outcomeRef],
+  }));
+  assert.deepEqual(intentOutcomeFindings({
+    core,
+    receipts,
+    registry: { get: () => ({ annotations: { readOnlyHint: false } }) },
+  }), []);
+});
+
 test("multiple unbound outcomes of one type defer correspondence to semantic audit", () => {
   const core = {
     actions: ["first", "second"].map((name) => ({

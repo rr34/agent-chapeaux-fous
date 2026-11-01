@@ -4,7 +4,7 @@
   "version": 1,
   "id": "journal",
   "title": "Personal journal",
-  "summary": "Record and manage personal observations under reusable trackers. A tracker is one series with one canonical unit, and each entry belongs to one tracker; values for different trackers are separate entries even when logged together.",
+  "summary": "Record and manage personal observations under reusable trackers. A tracker is one series with one canonical unit, and each entry belongs to one tracker. Values for different trackers requested together form one batch of separate entries.",
   "aliases": [
     "journal",
     "tracker",

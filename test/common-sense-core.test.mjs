@@ -195,7 +195,7 @@ test("orientation contains families and selections but no exact tool catalog", (
   assert.match(commonSenseInstructions, /not proof that every member is a current target/i);
 });
 
-test("orientation receives the compact journal object semantics needed to separate tracker values", () => {
+test("orientation receives the compact journal object and batch semantics for tracker values", () => {
   const journal = nativeCapabilityManifest("journal");
   const orientation = commonSenseContext({
     requestId: "request-journal-measurements",
@@ -212,7 +212,7 @@ test("orientation receives the compact journal object semantics needed to separa
   });
   assert.match(orientation, /tracker is one series with one canonical unit/u);
   assert.match(orientation, /each entry belongs to one tracker/u);
-  assert.match(orientation, /values for different trackers are separate entries/u);
+  assert.match(orientation, /values for different trackers requested together form one batch of separate entries/iu);
   assert.doesNotMatch(orientation, /journal_add|tracker_create|journal_import/u);
 });
 
