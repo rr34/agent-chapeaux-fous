@@ -75,10 +75,16 @@
       found.set(id, {
         id,
         href: `https://messages.google.com/web/conversations/${encodeURIComponent(id)}`,
-        title: text[0] || "Unknown conversation",
+        title: text[0] || link.getAttribute("aria-label") || link.getAttribute("title") || "Unknown conversation",
         listScrollTop: scroller?.scrollTop || 0,
       });
     }
+  }
+
+  function conversationContainer() {
+    return document.querySelector("mw-conversation-container, mws-conversation-container")
+      || document.querySelector("mws-messages-list")?.parentElement
+      || null;
   }
 
   async function discoverConversations() {
@@ -276,7 +282,7 @@
   }
 
   async function extractMessages(conversationId) {
-    const conversation = document.querySelector("mw-conversation-container");
+    const conversation = conversationContainer();
     if (!conversation) throw new Error("Google Messages did not render the selected conversation.");
     const header = headerMetadata(conversation);
     const wrappers = [...conversation.querySelectorAll("mws-message-wrapper")];
@@ -364,14 +370,15 @@
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (conversationIdFromHref(location.href) === conversationId
-          && document.querySelector("mw-conversation-container mws-message-wrapper")) return true;
+          && document.querySelector("mws-message-wrapper")) return true;
       await sleep(200);
     }
     return false;
   }
 
   async function navigateToConversation(target) {
-    if (conversationIdFromHref(location.href) === target.id && await waitForConversation(target.id, 2000)) return true;
+    const alreadyAtTarget = conversationIdFromHref(location.href) === target.id;
+    if (alreadyAtTarget && await waitForConversation(target.id, 12_000)) return true;
     let link = [...document.querySelectorAll('a[href*="/web/conversations/"]')]
       .find((candidate) => conversationIdFromHref(candidate.href) === target.id);
     if (!link) {
@@ -387,6 +394,9 @@
     if (link) {
       link.click();
       if (await waitForConversation(target.id)) return true;
+    }
+    if (alreadyAtTarget) {
+      throw new Error(`Google Messages opened ${target.title}, but its message list did not render. Reload the tab once and retry.`);
     }
     await updateJob({ phase: `Opening ${target.title}` });
     location.assign(target.href);
@@ -442,7 +452,8 @@
         const target = job.conversations[index];
         job = await updateJob({ conversationIndex: index, phase: `Opening ${target.title}` });
         if (!await navigateToConversation(target)) return;
-        const conversation = document.querySelector("mw-conversation-container");
+        const conversation = conversationContainer();
+        if (!conversation) throw new Error(`Google Messages did not render the message list for ${target.title}.`);
         job = await updateJob({ phase: `Loading history for ${target.title}` });
         await loadThread(conversation, job.sinceMs, async (loaded, oldest) => {
           job = await updateJob({
