@@ -4,13 +4,16 @@ This unpacked Manifest V3 extension performs an explicit foreground synchronizat
 
 ## Install in Brave desktop
 
-1. Open `brave://extensions`.
-2. Enable **Developer mode**.
-3. Select **Load unpacked**.
-4. Choose this `extensions/google-messages-sync` directory.
+1. On Time V3's **Correspondence** page, select **Download Messages extension**.
+2. Extract `time-v3-google-messages-sync.zip`.
+3. Open `brave://extensions` and enable **Developer mode**.
+4. Select **Load unpacked** and choose the extracted `time-v3-google-messages-sync` folder.
 5. Open and pair `https://messages.google.com/web/`.
 6. Open the extension, enter the Time V3 server URL and access token, and save them.
 7. Select **Rescan all available history** for the initial import, then select **Synchronize**.
+
+During repository development, the source `extensions/google-messages-sync`
+directory can be selected directly instead of downloading and extracting it.
 
 Later runs overlap the prior successful run by two days and replay stable Google message identities safely. A complete-history run can take a long time because Google Messages initially renders only a small recent window and loads older messages in batches.
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { api, authenticatedObjectUrl, getAccessToken, setAccessToken } from "../api";
+import { api, authenticatedObjectUrl, downloadAuthenticated, getAccessToken, setAccessToken } from "../api";
 import { useApi } from "../hooks";
 import type { Entity, SelectedObjectCandidate } from "../types";
 import { Empty, ErrorState, Loading } from "./State";
@@ -49,6 +49,7 @@ export function CorrespondenceScreen() {
   const [groupBy, setGroupBy] = useState("date");
   const [page, setPage] = useState(0);
   const [syncing, setSyncing] = useState(false);
+  const [downloadingExtension, setDownloadingExtension] = useState(false);
   const [notice, setNotice] = useState("");
   const parameters = new URLSearchParams({ limit: "200", offset: String(page * 200) });
   if (query.trim()) parameters.set("q", query.trim());
@@ -89,11 +90,22 @@ export function CorrespondenceScreen() {
     } catch (caught) { setNotice(caught instanceof Error ? caught.message : String(caught)); }
     finally { setSyncing(false); }
   };
+  const downloadExtension = async () => {
+    setDownloadingExtension(true); setNotice("");
+    try {
+      await downloadAuthenticated(
+        "/api/extensions/google-messages-sync/download",
+        "time-v3-google-messages-sync.zip",
+      );
+      setNotice("Extension downloaded. Extract the ZIP, then use Load unpacked in brave://extensions and select the extracted folder.");
+    } catch (caught) { setNotice(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setDownloadingExtension(false); }
+  };
   return <>
-    <header className="page-heading"><div><p className="eyebrow">Every channel, one record</p><h1>Correspondence</h1><p>Email, messages, calls, and voicemail consolidated without replacing their authoritative apps.</p></div><button className="button" disabled={syncing} onClick={() => void sync()}>{syncing ? "Syncing…" : "Sync email"}</button></header>
+    <header className="page-heading"><div><p className="eyebrow">Every channel, one record</p><h1>Correspondence</h1><p>Email, messages, calls, and voicemail consolidated without replacing their authoritative apps.</p></div><div className="heading-actions"><button className="button button--quiet" disabled={downloadingExtension} onClick={() => void downloadExtension()}>{downloadingExtension ? "Downloading…" : "Download Messages extension"}</button><button className="button" disabled={syncing} onClick={() => void sync()}>{syncing ? "Syncing…" : "Sync email"}</button></div></header>
     <div className="section-filter correspondence-filters">
       <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search subject or body" />
-      <select value={medium} onChange={(event) => setMedium(event.target.value)}><option value="">All media</option>{["email", "sms", "mms", "call", "voicemail", "chat", "other"].map((value) => <option key={value}>{value}</option>)}</select>
+      <select value={medium} onChange={(event) => setMedium(event.target.value)}><option value="">All media</option>{["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "other"].map((value) => <option key={value}>{value}</option>)}</select>
       <select value={direction} onChange={(event) => setDirection(event.target.value)}><option value="">All directions</option><option>inbound</option><option>outbound</option></select>
       <select aria-label="Email mailbox" value={mailbox} onChange={(event) => setMailbox(event.target.value)}><option value="">All mailboxes</option>{(data?.mailboxes || []).map((value) => <option key={value.mailbox_id} value={value.mailbox_id}>{value.name}</option>)}</select>
       <select value={groupBy} onChange={(event) => setGroupBy(event.target.value)}><option value="date">Group by date</option><option value="contact">Group by contact</option><option value="medium">Group by medium</option><option value="direction">Group by direction</option></select>

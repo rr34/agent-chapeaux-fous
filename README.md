@@ -196,8 +196,13 @@ is retained as a source observation with its web metadata. Zero or multiple
 candidates remain separate records. RCS is never folded into an Android SMS or
 MMS record merely because its text is similar.
 
-To install it in Brave, open `brave://extensions`, enable **Developer mode**,
-choose **Load unpacked**, and select:
+To install it without browsing into WSL, open Time V3's **Correspondence** page,
+choose **Download Messages extension**, extract the downloaded ZIP, then open
+`brave://extensions`, enable **Developer mode**, choose **Load unpacked**, and
+select the extracted `time-v3-google-messages-sync` folder.
+
+For repository development, **Load unpacked** may instead select the source
+directory directly:
 
 ```text
 /home/nate/code/agent-chapeaux-fous/extensions/google-messages-sync

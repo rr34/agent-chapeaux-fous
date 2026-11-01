@@ -5,6 +5,7 @@ import http from "node:http";
 import path from "node:path";
 import { loadConfig } from "./config.mjs";
 import { createStaticHandler } from "./static-files.mjs";
+import { createGoogleMessagesExtensionArchive } from "./extension-archive.mjs";
 import { createFileArtifactSource } from "./artifact-source.mjs";
 import { ContextBuilder } from "./context.mjs";
 import { SlayerDatabase } from "./database.mjs";
@@ -643,6 +644,17 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "GET" && url.pathname === "/api/hats") {
       sendJson(response, 200, hatCatalog.publicManual(registry.toolDefinitions(), capabilityForTool));
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/extensions/google-messages-sync/download") {
+      const archive = await createGoogleMessagesExtensionArchive(config.repositoryRoot);
+      response.writeHead(200, {
+        "Content-Type": "application/zip",
+        "Content-Length": archive.length,
+        "Content-Disposition": 'attachment; filename="time-v3-google-messages-sync.zip"',
+        "Cache-Control": "private, no-store",
+      });
+      response.end(archive);
       return;
     }
     if (!store.status.ready) {
