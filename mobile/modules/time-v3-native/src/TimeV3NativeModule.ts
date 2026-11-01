@@ -17,6 +17,13 @@ export type CorrespondenceCursor = {
   mmsId: number;
 };
 
+export type CorrespondenceProgressCounts = {
+  contacts: number;
+  calls: number;
+  sms: number;
+  mms: number;
+};
+
 export type AndroidContact = {
   externalId: string;
   updatedAtMs: number;
@@ -74,6 +81,7 @@ declare class TimeV3NativeModule extends NativeModule {
   composeText(recipient: string, body: string): Promise<void>;
   getCorrespondencePermissions(): Promise<CorrespondencePermissions>;
   requestCorrespondencePermissions(): Promise<unknown>;
+  countCorrespondenceRemaining(cursor: CorrespondenceCursor): Promise<CorrespondenceProgressCounts>;
   readCorrespondenceBatch(cursor: CorrespondenceCursor, limit: number): Promise<CorrespondenceBatch>;
 }
 

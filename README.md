@@ -116,6 +116,11 @@ The phone reads those operating-system providers only after their individual
 runtime permissions are granted. Synchronization is a visible foreground
 action: the app must report permission state, progress, completion, and errors
 literally rather than implying that an unavailable source was synchronized.
+Before sending, it counts the records remaining after each source cursor. During
+the run it reports accepted versus planned contacts, calls, SMS, and MMS,
+percentage, throughput, estimated time remaining, current batch, and retry
+state. A transient upload may be retried as the same batch, but the cursor moves
+only after a server-confirmed commit.
 
 Each source has its own stable `(timestamp, provider ID)` cursor. The phone may
 persist a returned cursor only after the server atomically commits the complete

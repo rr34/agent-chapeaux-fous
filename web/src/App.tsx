@@ -90,8 +90,8 @@ const navigationSvgIcons: Partial<Record<NavigationItem[0], ReactNode>> = {
     <path d="m7 15 1 6h3l-1-5M19 9a4 4 0 0 1 0 6" />
   </>,
   account: <>
+    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.73v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.73l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z" />
     <circle cx="12" cy="12" r="4" />
-    <path d="M12 2v3M12 19v3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M2 12h3M19 12h3M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12" />
   </>,
 };
 
@@ -128,7 +128,7 @@ function NavigationIcon({ id, label }: { id: NavigationItem[0]; label: Navigatio
   }
   const svgIcon = navigationSvgIcons[id];
   if (svgIcon) {
-    return <span className="nav-icon nav-icon--svg" aria-hidden="true">
+    return <span className={`nav-icon nav-icon--svg${id === "account" ? " nav-icon--account" : ""}`} aria-hidden="true">
       <svg viewBox="0 0 24 24">{svgIcon}</svg>
     </span>;
   }

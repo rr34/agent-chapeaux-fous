@@ -29,7 +29,9 @@ import {
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import TimeV3Native, {
+  type CorrespondenceBatch,
   type CorrespondencePermissions,
+  type CorrespondenceProgressCounts,
 } from './modules/time-v3-native/src/TimeV3NativeModule';
 import {
   ApiError,
@@ -284,7 +286,92 @@ const noCorrespondencePermissions: CorrespondencePermissions = {
   messages: false,
 };
 
-const requiredCorrespondenceShellVersion = 3;
+const emptyCorrespondenceProgress = (): CorrespondenceProgressCounts => ({
+  contacts: 0,
+  calls: 0,
+  sms: 0,
+  mms: 0,
+});
+
+const correspondenceProgressTotal = (counts: CorrespondenceProgressCounts) => (
+  counts.contacts + counts.calls + counts.sms + counts.mms
+);
+
+function correspondenceBatchCounts(batch: CorrespondenceBatch): CorrespondenceProgressCounts {
+  const counts = emptyCorrespondenceProgress();
+  counts.contacts = batch.contacts.length;
+  for (const item of batch.correspondence) {
+    if (item.medium === 'call') counts.calls += 1;
+    else counts[item.medium] += 1;
+  }
+  return counts;
+}
+
+function addCorrespondenceProgress(
+  left: CorrespondenceProgressCounts,
+  right: CorrespondenceProgressCounts,
+): CorrespondenceProgressCounts {
+  return {
+    contacts: left.contacts + right.contacts,
+    calls: left.calls + right.calls,
+    sms: left.sms + right.sms,
+    mms: left.mms + right.mms,
+  };
+}
+
+function includeCorrespondenceProgress(
+  planned: CorrespondenceProgressCounts,
+  observed: CorrespondenceProgressCounts,
+): CorrespondenceProgressCounts {
+  return {
+    contacts: Math.max(planned.contacts, observed.contacts),
+    calls: Math.max(planned.calls, observed.calls),
+    sms: Math.max(planned.sms, observed.sms),
+    mms: Math.max(planned.mms, observed.mms),
+  };
+}
+
+function formatRemaining(milliseconds: number): string {
+  const minutes = Math.max(1, Math.ceil(milliseconds / 60_000));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours} hr ${remainder} min` : `${hours} hr`;
+}
+
+function correspondenceProgressText(
+  accepted: CorrespondenceProgressCounts,
+  planned: CorrespondenceProgressCounts,
+  startedAt: number,
+): string {
+  const acceptedTotal = correspondenceProgressTotal(accepted);
+  const plannedTotal = Math.max(acceptedTotal, correspondenceProgressTotal(planned));
+  const percent = plannedTotal ? Math.min(100, Math.floor((acceptedTotal / plannedTotal) * 100)) : 100;
+  const detail = [
+    `contacts ${accepted.contacts.toLocaleString()}/${planned.contacts.toLocaleString()}`,
+    `calls ${accepted.calls.toLocaleString()}/${planned.calls.toLocaleString()}`,
+    `SMS ${accepted.sms.toLocaleString()}/${planned.sms.toLocaleString()}`,
+    `MMS ${accepted.mms.toLocaleString()}/${planned.mms.toLocaleString()}`,
+  ].join(' · ');
+  const elapsedMinutes = Math.max(0, Date.now() - startedAt) / 60_000;
+  const rate = elapsedMinutes > 0 && acceptedTotal > 0 ? acceptedTotal / elapsedMinutes : 0;
+  const remaining = Math.max(0, plannedTotal - acceptedTotal);
+  const estimate = rate > 0 && remaining > 0
+    ? ` · ${Math.max(1, Math.round(rate)).toLocaleString()}/min · about ${formatRemaining((remaining / rate) * 60_000)} left`
+    : '';
+  return `${acceptedTotal.toLocaleString()}/${plannedTotal.toLocaleString()} (${percent}%) · ${detail}${estimate}`;
+}
+
+const waitForRetry = (milliseconds: number) => new Promise<void>((resolve) => {
+  setTimeout(resolve, milliseconds);
+});
+
+function retryableSyncError(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status === null) return true;
+  return error.status === 408 || error.status === 429 || error.status >= 500;
+}
+
+const requiredCorrespondenceShellVersion = 4;
 
 function PermissionRow({ label, granted }: { label: string; granted: boolean }) {
   return (
@@ -374,8 +461,11 @@ function CorrespondenceSyncModal({
       if (!granted.contacts && !granted.calls && !granted.messages) {
         throw new Error('No phone-data permissions are granted. Nothing was read or sent to the server.');
       }
-      setProgress('Reading phone data…');
+      setProgress('Counting remaining phone data…');
       let cursor = await loadCorrespondenceCursor();
+      let plannedProgress = await TimeV3Native.countCorrespondenceRemaining(cursor);
+      let acceptedProgress = emptyCorrespondenceProgress();
+      const synchronizationStartedAt = Date.now();
       const totals = {
         contactsRead: 0,
         contactsCreated: 0,
@@ -389,16 +479,36 @@ function CorrespondenceSyncModal({
       };
       for (let batchNumber = 1; batchNumber <= 10_000; batchNumber += 1) {
         const batch = await TimeV3Native.readCorrespondenceBatch(cursor, 100);
+        const batchProgress = correspondenceBatchCounts(batch);
+        plannedProgress = includeCorrespondenceProgress(
+          plannedProgress,
+          addCorrespondenceProgress(acceptedProgress, batchProgress),
+        );
         setPermissions(batch.permissions);
         if (!batch.permissions.contacts && !batch.permissions.calls && !batch.permissions.messages) {
           throw new Error('Allow at least one phone-data permission before synchronizing.');
         }
         setProgress(
-          `Batch ${batchNumber}: sending ${batch.contacts.length} contacts and ${batch.correspondence.length} communications…`,
+          `Batch ${batchNumber}: sending ${batch.contacts.length} contacts and ${batch.correspondence.length} communications… ${correspondenceProgressText(acceptedProgress, plannedProgress, synchronizationStartedAt)}`,
         );
-        const accepted = await synchronizeCorrespondence(settings, batch);
+        let accepted: Awaited<ReturnType<typeof synchronizeCorrespondence>> | null = null;
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+          try {
+            accepted = await synchronizeCorrespondence(settings, batch);
+            break;
+          } catch (caught) {
+            if (attempt === 3 || !retryableSyncError(caught)) throw caught;
+            const delayMs = attempt * 2_000;
+            setProgress(
+              `Batch ${batchNumber}: attempt ${attempt} failed (${errorMessage(caught)}). Retrying in ${delayMs / 1_000} seconds… ${correspondenceProgressText(acceptedProgress, plannedProgress, synchronizationStartedAt)}`,
+            );
+            await waitForRetry(delayMs);
+          }
+        }
+        if (!accepted) throw new Error(`Batch ${batchNumber} ended without a server response.`);
         await saveCorrespondenceCursor(batch.nextCursor);
         cursor = batch.nextCursor;
+        acceptedProgress = addCorrespondenceProgress(acceptedProgress, batchProgress);
         totals.contactsRead += accepted.contacts.received;
         totals.contactsCreated += accepted.contacts.created;
         totals.contactsMatched += accepted.contacts.matched;
@@ -411,10 +521,13 @@ function CorrespondenceSyncModal({
         const more = Object.values(batch.hasMore).some(Boolean);
         if (!more) {
           setProgress(
-            `Complete: ${totals.contactsRead} contacts read; ${totals.contactsCreated} created, ${totals.contactsMatched} matched, ${totals.contactNamesUpdated} names updated, and ${totals.contactMethodsCreated} methods added. ${totals.contactObservationsCreated} phone contact identities recorded. Communications: ${totals.correspondenceCreated} new, ${totals.correspondenceDeduplicated} cross-device duplicates linked, and ${totals.correspondenceUpdated} refreshed.`,
+            `Complete: ${correspondenceProgressText(acceptedProgress, acceptedProgress, synchronizationStartedAt)}. ${totals.contactsRead} contacts read; ${totals.contactsCreated} created, ${totals.contactsMatched} matched, ${totals.contactNamesUpdated} names updated, and ${totals.contactMethodsCreated} methods added. ${totals.contactObservationsCreated} phone contact identities recorded. Communications: ${totals.correspondenceCreated} new, ${totals.correspondenceDeduplicated} cross-device duplicates linked, and ${totals.correspondenceUpdated} refreshed.`,
           );
           return;
         }
+        setProgress(
+          `Batch ${batchNumber} accepted. ${correspondenceProgressText(acceptedProgress, plannedProgress, synchronizationStartedAt)}`,
+        );
       }
       throw new Error('Synchronization stopped after 10,000 batches. Run it again to continue.');
     } catch (caught) {

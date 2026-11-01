@@ -52,7 +52,7 @@ class TimeV3NativeModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("TimeV3Native")
 
-    Constant("nativeShellVersion") { 3 }
+    Constant("nativeShellVersion") { 4 }
     Constant("nativeCapabilities") {
       listOf(
         "compose_text_v1",
@@ -60,6 +60,7 @@ class TimeV3NativeModule : Module() {
         "contact_change_time_v1",
         "call_log_read_v1",
         "sms_mms_read_v1",
+        "correspondence_remaining_count_v1",
       )
     }
 
@@ -93,6 +94,12 @@ class TimeV3NativeModule : Module() {
         readBatch(cursor, requestedLimit.coerceIn(1, 250))
       }
     }
+
+    AsyncFunction("countCorrespondenceRemaining") Coroutine { cursor: CorrespondenceCursor ->
+      withContext(Dispatchers.IO) {
+        countRemaining(cursor)
+      }
+    }
   }
 
   private fun requireContext(): Context = appContext.reactContext
@@ -112,6 +119,83 @@ class TimeV3NativeModule : Module() {
       ?: "unknown-android-device"
     return MessageDigest.getInstance("SHA-256").digest(source.toByteArray())
       .take(16).joinToString("") { "%02x".format(it) }
+  }
+
+  private fun countRows(
+    context: Context,
+    uri: Uri,
+    idColumn: String,
+    selection: String,
+    selectionArgs: Array<String>,
+  ): Int = context.contentResolver.query(
+    uri,
+    arrayOf(idColumn),
+    selection,
+    selectionArgs,
+    null,
+  )?.use { result -> result.count } ?: 0
+
+  private fun countRemaining(cursor: CorrespondenceCursor): Map<String, Int> {
+    val context = requireContext()
+    val permissions = permissionMap(context)
+    val contactsSelection = "(${ContactsContract.Contacts.CONTACT_LAST_UPDATED_TIMESTAMP} > ? OR " +
+      "(${ContactsContract.Contacts.CONTACT_LAST_UPDATED_TIMESTAMP} = ? AND ${ContactsContract.Contacts._ID} > ?))"
+    val callsSelection = "(${CallLog.Calls.DATE} > ? OR " +
+      "(${CallLog.Calls.DATE} = ? AND ${CallLog.Calls._ID} > ?))"
+    val smsSelection = "((${Telephony.Sms.DATE} > ? OR " +
+      "(${Telephony.Sms.DATE} = ? AND ${Telephony.Sms._ID} > ?))) AND " +
+      "${Telephony.Sms.TYPE} != ?"
+    val mmsSelection = "((${Telephony.Mms.DATE} > ? OR " +
+      "(${Telephony.Mms.DATE} = ? AND ${Telephony.Mms._ID} > ?))) AND " +
+      "${Telephony.Mms.MESSAGE_BOX} != ?"
+    return mapOf(
+      "contacts" to if (permissions["contacts"] == true) countRows(
+        context,
+        ContactsContract.Contacts.CONTENT_URI,
+        ContactsContract.Contacts._ID,
+        contactsSelection,
+        arrayOf(
+          cursor.contactsUpdatedAtMs.toLong().toString(),
+          cursor.contactsUpdatedAtMs.toLong().toString(),
+          cursor.contactsId.toLong().toString(),
+        ),
+      ) else 0,
+      "calls" to if (permissions["calls"] == true) countRows(
+        context,
+        CallLog.Calls.CONTENT_URI,
+        CallLog.Calls._ID,
+        callsSelection,
+        arrayOf(
+          cursor.callsAtMs.toLong().toString(),
+          cursor.callsAtMs.toLong().toString(),
+          cursor.callsId.toLong().toString(),
+        ),
+      ) else 0,
+      "sms" to if (permissions["messages"] == true) countRows(
+        context,
+        Telephony.Sms.CONTENT_URI,
+        Telephony.Sms._ID,
+        smsSelection,
+        arrayOf(
+          cursor.smsAtMs.toLong().toString(),
+          cursor.smsAtMs.toLong().toString(),
+          cursor.smsId.toLong().toString(),
+          Telephony.Sms.MESSAGE_TYPE_DRAFT.toString(),
+        ),
+      ) else 0,
+      "mms" to if (permissions["messages"] == true) countRows(
+        context,
+        Telephony.Mms.CONTENT_URI,
+        Telephony.Mms._ID,
+        mmsSelection,
+        arrayOf(
+          (cursor.mmsAtMs.toLong() / 1000).toString(),
+          (cursor.mmsAtMs.toLong() / 1000).toString(),
+          cursor.mmsId.toLong().toString(),
+          "3",
+        ),
+      ) else 0,
+    )
   }
 
   private fun readBatch(cursor: CorrespondenceCursor, limit: Int): Map<String, Any?> {
@@ -339,13 +423,17 @@ class TimeV3NativeModule : Module() {
       Telephony.Sms.DATE, Telephony.Sms.DATE_SENT, Telephony.Sms.TYPE,
       Telephony.Sms.THREAD_ID, Telephony.Sms.SUBSCRIPTION_ID, Telephony.Sms.STATUS,
     )
-    val selection = "(${Telephony.Sms.DATE} > ? OR (${Telephony.Sms.DATE} = ? AND ${Telephony.Sms._ID} > ?))"
+    val selection = "((${Telephony.Sms.DATE} > ? OR (${Telephony.Sms.DATE} = ? AND ${Telephony.Sms._ID} > ?))) AND " +
+      "${Telephony.Sms.TYPE} != ?"
     val rows = mutableListOf<Map<String, Any?>>()
     val point = start.copy()
     var hasMore = false
     context.contentResolver.query(
       Telephony.Sms.CONTENT_URI, projection, selection,
-      arrayOf(start.timestamp.toString(), start.timestamp.toString(), start.id.toString()),
+      arrayOf(
+        start.timestamp.toString(), start.timestamp.toString(), start.id.toString(),
+        Telephony.Sms.MESSAGE_TYPE_DRAFT.toString(),
+      ),
       "${Telephony.Sms.DATE} ASC, ${Telephony.Sms._ID} ASC",
     )?.use { result ->
       var read = 0
@@ -357,7 +445,6 @@ class TimeV3NativeModule : Module() {
         point.id = id
         read += 1
         val type = result.long(Telephony.Sms.TYPE).toInt()
-        if (type == Telephony.Sms.MESSAGE_TYPE_DRAFT) continue
         val inbound = type == Telephony.Sms.MESSAGE_TYPE_INBOX
         val sentAt = result.long(Telephony.Sms.DATE_SENT)
         rows += mapOf(
@@ -404,13 +491,17 @@ class TimeV3NativeModule : Module() {
       Telephony.Mms.MESSAGE_BOX, Telephony.Mms.THREAD_ID,
       Telephony.Mms.SUBSCRIPTION_ID, Telephony.Mms.MESSAGE_TYPE,
     )
-    val selection = "(${Telephony.Mms.DATE} > ? OR (${Telephony.Mms.DATE} = ? AND ${Telephony.Mms._ID} > ?))"
+    val selection = "((${Telephony.Mms.DATE} > ? OR (${Telephony.Mms.DATE} = ? AND ${Telephony.Mms._ID} > ?))) AND " +
+      "${Telephony.Mms.MESSAGE_BOX} != ?"
     val rows = mutableListOf<Map<String, Any?>>()
     val point = start.copy()
     var hasMore = false
     context.contentResolver.query(
       Telephony.Mms.CONTENT_URI, projection, selection,
-      arrayOf((start.timestamp / 1000).toString(), (start.timestamp / 1000).toString(), start.id.toString()),
+      arrayOf(
+        (start.timestamp / 1000).toString(), (start.timestamp / 1000).toString(),
+        start.id.toString(), "3",
+      ),
       "${Telephony.Mms.DATE} ASC, ${Telephony.Mms._ID} ASC",
     )?.use { result ->
       var read = 0
@@ -422,7 +513,6 @@ class TimeV3NativeModule : Module() {
         point.id = id
         read += 1
         val box = result.long(Telephony.Mms.MESSAGE_BOX).toInt()
-        if (box == 3) continue
         val inbound = box == 1
         val sentAt = result.long(Telephony.Mms.DATE_SENT) * 1000
         rows += mapOf(

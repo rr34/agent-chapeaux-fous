@@ -40,9 +40,11 @@ a { color: inherit; }
 .tlom-todo-icon { width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; border: 1.5px solid currentColor; }
 .tlom-todo-icon-check { width: 7px; height: 4px; border-left: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); }
 .nav-icon--calendar svg, .nav-icon--svg svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
+.sidebar nav button > .nav-icon--account { border: 0; }
 .nav-icon--hat-outline img { width: 19px; height: 19px; object-fit: contain; filter: invert(1); }
 .sidebar nav button:hover, .sidebar nav button.active { color: white; background: #3a4334; }
 .sidebar nav button.active > .nav-icon { background: #dfe5d7; color: #30382b; border-color: #dfe5d7; }
+.sidebar nav button.active > .nav-icon--account { color: inherit; background: transparent; }
 .sidebar nav button.active > .nav-icon--hat-outline img { filter: none; }
 .token-settings { position: relative; margin-top: auto; }
 .token-button { width: 100%; border-top: 1px solid #424a3d; border-radius: 0; opacity: .75; }
@@ -106,7 +108,6 @@ a { color: inherit; }
 .first-class-object-action--danger:hover { color: #8c3025; border-color: #e1b7aa; background: #fff3ef; }
 .compact-object-card { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
 .compact-object-card.has-leading { grid-template-columns: auto minmax(0, 1fr) auto; }
-.compact-object-card.contact-card { grid-template-columns: auto minmax(8rem, 1fr) auto; }
 .compact-object-leading { align-self: center; }
 .compact-object-identity { min-width: 0; display: grid; gap: 2px; }
 .compact-object-identity span { color: var(--olive); font-size: 9px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
@@ -127,17 +128,17 @@ a { color: inherit; }
 .first-class-object-card:has(.object-selection-checkbox:checked),
 .compact-object-card:has(.object-selection-checkbox:checked) { border-color: var(--olive-dark); box-shadow: 0 0 0 3px rgba(104, 116, 90, .12); }
 .object-card-controls { display: inline-flex; align-items: center; gap: 6px; }
-.correspondence-card .first-class-object-label,
-.correspondence-card .compact-object-identity > span:first-child { display: none; }
+.first-class-object-card.correspondence-card > .first-class-object-content > .first-class-object-label,
+.compact-object-card.correspondence-card > .compact-object-identity > span:first-child { display: none; }
 .correspondence-card-indicators, .correspondence-card-leading { display: flex; align-items: center; gap: 4px; }
 .correspondence-card-indicator { width: 34px; height: 34px; display: inline-grid; place-items: center; color: var(--olive-dark); }
 .correspondence-card-indicator svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .correspondence-card-indicator circle[r="1"] { fill: currentColor; stroke: none; }
 .compact-object-card.correspondence-card { align-items: start; }
 .compact-object-card.correspondence-card > .compact-object-leading { padding-top: 1px; }
-.correspondence-card.has-generic-display .compact-object-identity > strong,
-.first-class-object-card.correspondence-card.has-generic-display .first-class-object-title { display: none; }
-.correspondence-card .compact-object-details { display: block; margin-top: 2px; }
+.compact-object-card.correspondence-card.has-generic-display > .compact-object-identity > strong,
+.first-class-object-card.correspondence-card.has-generic-display > .first-class-object-content > .first-class-object-title { display: none; }
+.compact-object-card.correspondence-card > .compact-object-identity > .compact-object-details { display: block; margin-top: 2px; }
 .correspondence-card-compact-details { min-width: 0; display: grid; gap: 5px; }
 .correspondence-card-preview { display: -webkit-box; overflow: hidden; color: var(--muted); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; white-space: pre-wrap; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .calendar-event-card,

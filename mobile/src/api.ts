@@ -85,8 +85,8 @@ async function requestJson<T>(
     return body as T;
   } catch (error) {
     if (error instanceof ApiError) throw error;
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new ApiError('The server did not respond in time.');
+    if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
+      throw new ApiError(`The server did not respond within ${Math.round(timeoutMs / 1_000)} seconds.`);
     }
     throw new ApiError(error instanceof Error ? error.message : 'Could not reach the server.');
   } finally {
@@ -202,6 +202,6 @@ export async function synchronizeCorrespondence(
       contacts: batch.contacts,
       correspondence: batch.correspondence,
     }),
-  }, 60_000);
+  }, 180_000);
 }
 
