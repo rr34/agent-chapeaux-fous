@@ -424,6 +424,7 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
   const [lastCleared, setLastCleared] = useState<ConcertItem[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
+  const [voiceVolume, setVoiceVolume] = useState(0.5);
   const [notice, setNotice] = useState('');
   const [filterText, setFilterText] = useState('');
   const boundaryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -483,6 +484,10 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
       : item));
   }, [fields, hasStarted, updateQueue]);
 
+  useEffect(() => {
+    if (current?.kind === 'narration') player.volume = voiceVolume;
+  }, [current?.key, player, voiceVolume]);
+
   const prepareNarration = useCallback(async (index: number): Promise<NarrationItem | null> => {
     const item = queueRef.current[index];
     if (!item || item.kind !== 'narration') return null;
@@ -513,6 +518,7 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
     setNotice('');
     if (item.kind === 'music') {
       player.replace(musicSource(settings, item.file));
+      player.volume = 1;
       player.setActiveForLockScreen(true, {
         title: trackTitle(item.file),
         artist: item.file.metadata?.work.creators?.join(', ') || item.file.metadata?.performers?.join(', ') || undefined,
@@ -522,10 +528,11 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
       if (nextNarration >= 0) void prepareNarration(nextNarration);
     } else if (item.narration) {
       player.replace(narrationSource(settings, item.narration, item.title));
+      player.volume = voiceVolume;
       player.setActiveForLockScreen(true, { title: item.title, artist: 'AI voice · Time v3 Concert', albumTitle: item.file.metadata?.release?.title || item.file.metadata?.work.title || undefined });
     }
     playTimer.current = setTimeout(() => player.play(), 100);
-  }, [player, prepareNarration, settings]);
+  }, [player, prepareNarration, settings, voiceVolume]);
 
   const playAt = useCallback(async (requestedIndex: number) => {
     if (changing.current) return;
@@ -620,6 +627,10 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
     });
   };
 
+  const adjustVoiceVolume = (change: number) => {
+    setVoiceVolume((value) => Math.min(1, Math.max(0, Math.round((value + change) * 10) / 10)));
+  };
+
   const playOrPause = () => {
     if (status.playing) { player.pause(); return; }
     if (!hasStarted || complete || !current) {
@@ -656,6 +667,15 @@ export function MusicPlayerModal({ visible, settings, onClose }: { visible: bool
       </View>
       <Text style={styles.narrationHeading}>SPOKEN INTRODUCTIONS</Text>
       <Text style={styles.narrationHelp}>An AI voice appears before every track. Choose what it announces.</Text>
+      <View style={styles.voiceVolumeControl}>
+        <View style={styles.flex}>
+          <Text style={styles.voiceVolumeLabel}>AI VOICE VOLUME</Text>
+          <Text style={styles.voiceVolumeHelp}>Relative to music · adjustable during playback</Text>
+        </View>
+        <Pressable accessibilityLabel="Decrease AI voice volume" accessibilityRole="button" disabled={voiceVolume <= 0} onPress={() => adjustVoiceVolume(-0.1)} style={[styles.voiceVolumeButton, voiceVolume <= 0 && styles.disabled]}><Text style={styles.voiceVolumeButtonText}>−</Text></Pressable>
+        <Text accessibilityLabel={`AI voice volume ${Math.round(voiceVolume * 100)} percent`} style={styles.voiceVolumeValue}>{Math.round(voiceVolume * 100)}%</Text>
+        <Pressable accessibilityLabel="Increase AI voice volume" accessibilityRole="button" disabled={voiceVolume >= 1} onPress={() => adjustVoiceVolume(0.1)} style={[styles.voiceVolumeButton, voiceVolume >= 1 && styles.disabled]}><Text style={styles.voiceVolumeButtonText}>+</Text></Pressable>
+      </View>
       <View style={styles.fieldChoices}>{narrationChoices.map(({ field, label }) => {
         const selected = fields.includes(field);
         return (
@@ -798,6 +818,12 @@ const styles = StyleSheet.create({
   clearText: { color: colors.warning, fontSize: 9, fontWeight: '900', letterSpacing: 1 },
   narrationHeading: { color: colors.accent, fontSize: 9, fontWeight: '900', letterSpacing: 1.2, marginTop: 18 },
   narrationHelp: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  voiceVolumeControl: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  voiceVolumeLabel: { color: colors.ink, fontSize: 10, fontWeight: '900', letterSpacing: 1 },
+  voiceVolumeHelp: { color: colors.muted, fontSize: 9, marginTop: 3 },
+  voiceVolumeButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 18, borderWidth: 1, borderColor: colors.accent, backgroundColor: '#2A1D1A' },
+  voiceVolumeButtonText: { color: colors.ink, fontSize: 20, fontWeight: '700', lineHeight: 22 },
+  voiceVolumeValue: { minWidth: 42, color: colors.gold, fontSize: 12, fontWeight: '900', textAlign: 'center', fontVariant: ['tabular-nums'] },
   fieldChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 10 },
   fieldChoice: { minHeight: 32, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center', borderRadius: 16, borderWidth: 1, borderColor: colors.border },
   fieldChoiceSelected: { borderColor: colors.accent, backgroundColor: '#2A1D1A' },

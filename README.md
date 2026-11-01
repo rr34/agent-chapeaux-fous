@@ -253,7 +253,9 @@ listener clears it. Clear is immediate and offers Undo. The authenticated
 player streams both stored music and temporary narration with HTTP range
 support, stops at the exact end of the concert, and never silently continues
 into library music outside that queue. Playback choices remain user state and
-do not change stored file metadata.
+do not change stored file metadata. Both clients expose a 0–100% AI-voice
+volume relative to full-volume music; it affects narration only and remains
+adjustable while the concert is playing.
 
 Concert narration has its own `SLAYER_MUSIC_NARRATION_VOICE` setting and uses
 the restrained male `cedar` voice by default. It does not inherit the more

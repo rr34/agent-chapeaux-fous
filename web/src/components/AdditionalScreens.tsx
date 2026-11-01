@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { api, authenticatedObjectUrl, getAccessToken, setAccessToken } from "../api";
 import { useApi } from "../hooks";
 import type { Entity, SelectedObjectCandidate } from "../types";
@@ -35,7 +36,7 @@ function correspondencePreview(value: string | null) {
 }
 
 function correspondenceMediumGroup(medium: string) {
-  return medium === "sms" || medium === "mms" ? "sms / mms" : medium;
+  return ["sms", "mms", "rcs", "imessage"].includes(medium) ? "messages" : medium;
 }
 
 export function CorrespondenceScreen() {
@@ -188,6 +189,11 @@ function formatConcertDuration(milliseconds: number) {
   return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} hr${minutes % 60 ? ` ${minutes % 60} min` : ""}`;
 }
 
+function formatPlaybackTime(seconds: number) {
+  const safe = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
+  return `${Math.floor(safe / 60)}:${String(Math.floor(safe % 60)).padStart(2, "0")}`;
+}
+
 function concertProgramGroups(files: MusicFile[]) {
   const groups: Array<{ identity: string; title: string; releaseTitle: string | null; eyebrow: string; detail: string; files: MusicFile[] }> = [];
   for (const file of files) {
@@ -220,6 +226,10 @@ export function useWebMusicPlayer() {
   const [hasStarted, setHasStarted] = useState(false);
   const [complete, setComplete] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [playbackSeconds, setPlaybackSeconds] = useState(0);
+  const [durationSeconds, setDurationSeconds] = useState(0);
+  const [voiceVolume, setVoiceVolume] = useState(0.5);
   const [fields, setFields] = useState<NarrationField[]>(["work", "sequence", "creators"]);
   const audio = useRef<HTMLAudioElement>(null);
   const queueRef = useRef<ConcertItem[]>([]);
@@ -244,12 +254,18 @@ export function useWebMusicPlayer() {
     let active = true; let objectUrl = "";
     if (!current) { setSource(""); return; }
     setSource("");
+    setPlaying(false);
+    setPlaybackSeconds(0);
+    setDurationSeconds(0);
     const streamUrl = current.kind === "music" ? current.file.streamUrl : current.narration?.streamUrl;
     if (!streamUrl) return;
     void authenticatedObjectUrl(streamUrl).then((url) => { if (!active) return; objectUrl = url; setSource(url); }).catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)));
     return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [current?.key]);
   useEffect(() => { if (source) void audio.current?.play().catch(() => setNotice("Concert is ready. Press play to continue.")); }, [source]);
+  useEffect(() => {
+    if (audio.current && current) audio.current.volume = current.kind === "narration" ? voiceVolume : 1;
+  }, [current?.key, source, voiceVolume]);
 
   const prepareNarration = async (requestedIndex: number, version: number) => {
     const item = queueRef.current[requestedIndex];
@@ -362,9 +378,25 @@ export function useWebMusicPlayer() {
     setNotice("Track removed from the concert.");
   };
 
+  const togglePlayback = () => {
+    const element = audio.current;
+    if (!element || !source) return;
+    if (element.paused) void element.play().catch(() => setNotice("Concert is ready. Press play to continue."));
+    else element.pause();
+  };
+
+  const seek = (seconds: number) => {
+    const element = audio.current;
+    if (!element) return;
+    element.currentTime = seconds;
+    setPlaybackSeconds(seconds);
+  };
+
+  const progress = durationSeconds > 0 ? Math.min(100, playbackSeconds / durationSeconds * 100) : 0;
+
   return {
-    queue, musicItems, current, error, notice, fields, hasStarted, complete, transitioning, summary, enqueue, remove, clear, start, toggleField,
-    element: queue.length ? <aside className="music-mini-player" aria-label="Concert player"><span><small>{current ? current.kind === "narration" ? "AI voice · Now playing" : "Now playing" : complete ? "Concert complete" : "Concert ready"}</small><strong>{current ? current.kind === "narration" ? current.title : musicTrackTitle(current.file) : summary}</strong></span>{current ? <audio ref={audio} src={source} controls onEnded={() => void playAt(index + 1)} /> : <button className="button" disabled={transitioning} onClick={start}>{transitioning ? "Preparing AI voice…" : complete ? "Replay concert" : "Start concert"}</button>}<button className="button button--quiet" onClick={clear}>Clear</button></aside> : null,
+    queue, musicItems, current, error, notice, fields, hasStarted, complete, transitioning, summary, voiceVolume, setVoiceVolume, enqueue, remove, clear, start, toggleField,
+    element: queue.length ? <aside className="music-mini-player" aria-label="Concert player"><span><small>{current ? current.kind === "narration" ? "AI voice · Now playing" : "Now playing" : complete ? "Concert complete" : "Concert ready"}</small><strong>{current ? current.kind === "narration" ? current.title : musicTrackTitle(current.file) : summary}</strong></span>{current ? <div className="music-player-transport"><button className="music-player-toggle" aria-label={playing ? "Pause concert" : "Play concert"} disabled={!source} onClick={togglePlayback}>{playing ? "❚❚" : "▶"}</button><div className="music-player-timeline"><input aria-label="Playback position" aria-valuetext={`${formatPlaybackTime(playbackSeconds)} of ${formatPlaybackTime(durationSeconds)}`} max={durationSeconds || 0} min="0" step="0.1" type="range" value={Math.min(playbackSeconds, durationSeconds || 0)} onChange={(event) => seek(Number(event.target.value))} style={{ "--music-progress": `${progress}%` } as CSSProperties} /><div><time>{formatPlaybackTime(playbackSeconds)}</time><time>{formatPlaybackTime(durationSeconds)}</time></div></div><audio ref={audio} src={source} preload="auto" onDurationChange={(event) => setDurationSeconds(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onEnded={() => { setPlaying(false); void playAt(index + 1); }} onLoadedMetadata={(event) => setDurationSeconds(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onPause={() => setPlaying(false)} onPlay={() => setPlaying(true)} onTimeUpdate={(event) => setPlaybackSeconds(event.currentTarget.currentTime)} /></div> : <button className="button" disabled={transitioning} onClick={start}>{transitioning ? "Preparing AI voice…" : complete ? "Replay concert" : "Start concert"}</button>}<button className="button button--quiet" onClick={clear}>Clear</button></aside> : null,
   };
 }
 
@@ -376,7 +408,7 @@ export function MusicScreen({ player }: { player: ReturnType<typeof useWebMusicP
   const programGroups = concertProgramGroups(player.musicItems.map((item) => item.file));
   const programPositions = new Map(player.musicItems.map((item, position) => [item.file.fileId, position + 1]));
   return <><header className="page-heading"><div><p className="eyebrow">Concert builder</p><h1>Music</h1><p>Build one guided program, then play it as a concert. Library selections never start playback.</p></div>{files.length > 0 && <button className="button" disabled={player.hasStarted} onClick={() => player.enqueue(files)}>Add all results</button>}</header>
-    {player.musicItems.length > 0 && <section className="concert-queue" aria-labelledby="concert-queue-heading"><header className="concert-queue-heading"><div><p className="eyebrow">One playback queue</p><h2 id="concert-queue-heading">Your concert</h2><p>{player.summary}</p></div><div className="concert-queue-actions">{!player.current && <button className="button" disabled={player.transitioning} onClick={player.start}>{player.transitioning ? "Preparing AI voice…" : player.complete ? "Replay concert" : "Start concert"}</button>}<button className="button button--quiet" onClick={player.clear}>Clear</button></div></header><div className="concert-guidance"><strong>Spoken introductions</strong><p>An AI voice introduces every track. Choose what it announces before the concert begins.</p><div className="concert-guidance-fields">{narrationChoices.map(({ field, label }) => <button className={player.fields.includes(field) ? "is-selected" : ""} aria-pressed={player.fields.includes(field)} disabled={player.hasStarted} key={field} onClick={() => player.toggleField(field)}>{label}</button>)}</div>{player.hasStarted && <small>This concert is fixed while it is playing. Clear it to build another.</small>}</div><div className="concert-program-groups">{programGroups.map((group) => <section className="concert-program-group" key={group.identity}><header>{group.releaseTitle && <small>{group.releaseTitle}</small>}<span>{group.eyebrow} · {group.files.length} {group.files.length === 1 ? "selection" : "selections"}</span><h3>{group.title}</h3>{group.detail && <p>{group.detail}</p>}</header><ol className="concert-program">{group.files.flatMap((file) => { const narration = player.queue.find((item) => item.kind === "narration" && item.file.fileId === file.fileId); const music = player.queue.find((item) => item.kind === "music" && item.file.fileId === file.fileId); return [<li className={`concert-program-narration${player.current?.key === narration?.key ? " is-current" : ""}`} key={`narration:${file.fileId}`}><span className="concert-program-narration-icon">◇</span><span><small>{narration?.kind === "narration" && narration.status === "generating" ? "AI voice · Generating…" : narration?.kind === "narration" && narration.status === "ready" ? "AI voice · Ready" : narration?.kind === "narration" && narration.status === "unavailable" ? "AI voice · Unavailable — will skip" : "AI voice · Will generate"}</small><strong>{narration?.kind === "narration" ? narration.title : `Introduction to ${musicTrackTitle(file)}`}</strong>{narration?.kind === "narration" && <small>{narration.text}</small>}</span></li>, <li className={player.current?.key === music?.key ? "is-current" : ""} key={`music:${file.fileId}`}><span className="concert-program-number">{programPositions.get(file.fileId)}</span><span>{player.current?.key === music?.key && <small>Now playing</small>}<strong>{musicTrackTitle(file)}</strong><small>{file.metadata?.performers?.join(" · ") || file.originalFilename}</small></span>{!player.hasStarted && <button className="button button--quiet" onClick={() => player.remove(file.fileId)}>Remove</button>}</li>]; })}</ol></section>)}</div></section>}
+    {player.musicItems.length > 0 && <section className="concert-queue" aria-labelledby="concert-queue-heading"><header className="concert-queue-heading"><div><p className="eyebrow">One playback queue</p><h2 id="concert-queue-heading">Your concert</h2><p>{player.summary}</p></div><div className="concert-queue-actions">{!player.current && <button className="button" disabled={player.transitioning} onClick={player.start}>{player.transitioning ? "Preparing AI voice…" : player.complete ? "Replay concert" : "Start concert"}</button>}<button className="button button--quiet" onClick={player.clear}>Clear</button></div></header><div className="concert-guidance"><strong>Spoken introductions</strong><p>An AI voice introduces every track. Choose what it announces before the concert begins.</p><label className="concert-voice-volume"><span>AI voice volume <strong>{Math.round(player.voiceVolume * 100)}%</strong></span><input aria-label="AI voice volume" type="range" min="0" max="100" step="10" value={Math.round(player.voiceVolume * 100)} onChange={(event) => player.setVoiceVolume(Number(event.target.value) / 100)} /><small>Relative to music · adjustable during playback</small></label><div className="concert-guidance-fields">{narrationChoices.map(({ field, label }) => <button className={player.fields.includes(field) ? "is-selected" : ""} aria-pressed={player.fields.includes(field)} disabled={player.hasStarted} key={field} onClick={() => player.toggleField(field)}>{label}</button>)}</div>{player.hasStarted && <small>This concert is fixed while it is playing. Clear it to build another.</small>}</div><div className="concert-program-groups">{programGroups.map((group) => <section className="concert-program-group" key={group.identity}><header>{group.releaseTitle && <small>{group.releaseTitle}</small>}<span>{group.eyebrow} · {group.files.length} {group.files.length === 1 ? "selection" : "selections"}</span><h3>{group.title}</h3>{group.detail && <p>{group.detail}</p>}</header><ol className="concert-program">{group.files.flatMap((file) => { const narration = player.queue.find((item) => item.kind === "narration" && item.file.fileId === file.fileId); const music = player.queue.find((item) => item.kind === "music" && item.file.fileId === file.fileId); return [<li className={`concert-program-narration${player.current?.key === narration?.key ? " is-current" : ""}`} key={`narration:${file.fileId}`}><span className="concert-program-narration-icon">◇</span><span><small>{narration?.kind === "narration" && narration.status === "generating" ? "AI voice · Generating…" : narration?.kind === "narration" && narration.status === "ready" ? "AI voice · Ready" : narration?.kind === "narration" && narration.status === "unavailable" ? "AI voice · Unavailable — will skip" : "AI voice · Will generate"}</small><strong>{narration?.kind === "narration" ? narration.title : `Introduction to ${musicTrackTitle(file)}`}</strong>{narration?.kind === "narration" && <small>{narration.text}</small>}</span></li>, <li className={player.current?.key === music?.key ? "is-current" : ""} key={`music:${file.fileId}`}><span className="concert-program-number">{programPositions.get(file.fileId)}</span><span>{player.current?.key === music?.key && <small>Now playing</small>}<strong>{musicTrackTitle(file)}</strong><small>{file.metadata?.performers?.join(" · ") || file.originalFilename}</small></span>{!player.hasStarted && <button className="button button--quiet" onClick={() => player.remove(file.fileId)}>Remove</button>}</li>]; })}</ol></section>)}</div></section>}
     {(player.notice || player.error) && <p className={player.error ? "form-error" : "status"}>{player.error || player.notice}</p>}
     <div className="section-filter"><input aria-label="Filter music" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search work, movement, composer, performer, or notes" /></div>{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{!loading && !error && !groups.length && <Empty>No music found.</Empty>}<div className="library-groups">{groups.map(([name, tracks]) => <section className="library-group" key={name}><header className="library-group-heading"><h2>{name}</h2><button className="button button--quiet" disabled={player.hasStarted} onClick={() => player.enqueue(tracks)}>Add release</button></header><ul className="music-track-list">{tracks.map((track) => <li key={track.fileId}><span><strong>{musicTrackTitle(track)}</strong><small>{(track.metadata?.work.creators || []).join(", ") || track.originalFilename}</small></span><button className="button button--quiet" disabled={player.hasStarted || player.musicItems.some((item) => item.file.fileId === track.fileId)} aria-label={`Add ${musicTrackTitle(track)} to concert`} onClick={() => player.enqueue([track])}>+</button></li>)}</ul></section>)}</div></>;
 }

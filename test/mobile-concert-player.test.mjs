@@ -34,6 +34,16 @@ test("concert queue discloses and streams temporary AI-voice introductions", () 
   assert.match(api, /narrationSource/u);
 });
 
+test("mobile narration has a live volume independent from full-volume music", () => {
+  assert.match(player, /const \[voiceVolume, setVoiceVolume\] = useState\(0\.5\)/u);
+  assert.match(player, /if \(current\?\.kind === 'narration'\) player\.volume = voiceVolume/u);
+  assert.match(player, /player\.replace\(musicSource[\s\S]*player\.volume = 1/u);
+  assert.match(player, /player\.replace\(narrationSource[\s\S]*player\.volume = voiceVolume/u);
+  assert.match(player, /accessibilityLabel="Decrease AI voice volume"/u);
+  assert.match(player, /accessibilityLabel="Increase AI voice volume"/u);
+  assert.match(player, /adjustable during playback/u);
+});
+
 test("spoken introductions name the sequence type before its number", () => {
   assert.match(player, /function spokenSequenceText\(sequence: MusicSequence\)/u);
   assert.match(player, /` \$\{sequence\.number\}`/u);
