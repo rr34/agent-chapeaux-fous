@@ -1086,6 +1086,133 @@ rules rather than assuming a transaction can roll back the complete schema
 change. Database comment changes are applied by the migration runner along with the
 deployed revision.
 
+### Mobile application: development, QR testing, and standalone release
+
+The Android-first Expo application under `mobile/` is a client of the Time V3
+Technology Agent HTTP service. Typed and recorded requests enter the server's
+existing FIFO queue and preserve its orientation, execution, audit, repair, and
+usage trace.
+
+The mobile application includes:
+
+- HTTPS server pairing with the bearer token stored by `expo-secure-store`;
+- recent request history with live queue/progress polling;
+- exact typed-request submission to `POST /api/requests`;
+- native audio recording and raw upload to `POST /api/voice`;
+- an authenticated release-and-work-aware MP3 library and single concert queue
+  backed by `GET /api/music`;
+- visible temporary AI-voice introductions generated from listener-selected
+  music metadata; and
+- an explicit Android `ACTION_SENDTO` handoff to the default messaging app.
+
+The messaging handoff creates a draft. Time V3 Technology Agent does not send
+it and is not the default SMS application.
+
+#### Development build
+
+Prepare and run the Android development build with:
+
+```bash
+cd mobile
+npm install
+npx expo prebuild --platform android
+npx expo run:android
+```
+
+This project requires a development build rather than Expo Go because
+`modules/time-v3-native` contains native Kotlin and Swift code. The Android
+emulator permits `http://10.0.2.2` for local development; every other configured
+server address must use HTTPS.
+
+#### First physical Android phone and QR testing
+
+The debug APK is generated at:
+
+```text
+mobile/android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+On a fresh phone:
+
+1. Connect the phone to Wi-Fi and finish Android's initial setup and system
+   updates.
+2. In Windows File Explorer, open
+   `\\wsl.localhost\Ubuntu-22.04\home\nate\code\agent-chapeaux-fous\mobile\android\app\build\outputs\apk\debug`,
+   then transfer `app-debug.apk` to the phone's **Download** folder by USB,
+   cloud storage, or another trusted file-transfer method.
+3. Open the APK on the phone. When Android asks, allow the app used to open the
+   file to install unknown apps, then install it.
+4. Launch **Time V3 Technology Agent**. Android may show the Expo development
+   client launcher until Metro is available.
+5. On the development computer, start Metro with a tunnel:
+
+   ```bash
+   cd /home/nate/code/agent-chapeaux-fous/mobile
+   npm start -- --tunnel
+   ```
+
+6. Open the tunnel URL or scan its QR code from the development-client launcher.
+   Keep that terminal running while developing.
+7. Enter the bearer token in the app and use **TEST & CONNECT**. The production
+   HTTPS server address is built into the app.
+
+This direct APK route does not require Google Play, Android Studio, Developer
+Options, or USB debugging. Turn off the temporary **Install unknown apps**
+permission after installation if it is not otherwise needed.
+
+JavaScript, TypeScript, styling, and ordinary API-client edits use Fast Refresh
+and do not require reinstalling the APK. Rebuild and reinstall after changing
+Kotlin, Swift, native dependencies, native permissions, services, intent
+declarations, or `app.json` native configuration. To rebuild the debug APK:
+
+```bash
+cd /home/nate/code/agent-chapeaux-fous/mobile
+npx expo prebuild --clean --platform android
+cd android
+./gradlew assembleDebug
+```
+
+The tunnel permits the phone to connect from a different network, but the
+development client still depends on Metro running on the computer.
+
+#### Standalone release for use away from the development computer
+
+After the current mobile changes pass QR/Fast Refresh testing, build a release
+APK with the JavaScript bundle embedded:
+
+```bash
+cd /home/nate/code/agent-chapeaux-fous/mobile
+npm run typecheck
+cd android
+NODE_ENV=production ./gradlew assembleRelease
+```
+
+The generated APK is:
+
+```text
+mobile/android/app/build/outputs/apk/release/app-release.apk
+```
+
+Transfer the APK to the phone and open it to install or update **Time V3
+Technology Agent**. Then verify the standalone path:
+
+1. Stop Metro on the development computer.
+2. Turn off Wi-Fi on the phone and leave cellular data enabled.
+3. Open the installed app and confirm that it connects.
+4. Submit a small request and confirm that its response arrives.
+
+The standalone app does not require the development computer or home Wi-Fi. It
+does require internet access through Wi-Fi or cellular data because it is a
+client of `https://agent.timev3tech.com` on the VPS; it is not an offline copy
+of the server-side Agent.
+
+Building or installing the mobile client does not update the VPS application,
+restart `agent-slayer.service`, or require a database migration. Deploy server
+changes separately with the applicable no-migration or migration procedure
+above. The current Android release build uses the repository's debug signing
+key and is suitable for personal sideloading. Configure and preserve a
+permanent release/upload key before distributing through Google Play.
+
 ## Daily catch-up
 
 Open **Check-in**, choose the catch-up settings at the top, and click **Start

@@ -71,6 +71,7 @@ test("expanded journal entry cards open a version-safe edit modal", () => {
   assert.match(source, /editingEntry && <JournalEntryEditor/);
   assert.match(card, /props\.onEdit \? \[\{ key: "edit", label: "Edit"/);
   assert.match(editors, /export function JournalEntryEditor/);
+  assert.match(editors, /<h2>Edit \{trackerName\} entry<\/h2>/);
   assert.match(editors, /method: "PATCH"/);
   assert.match(editors, /version: String\(entry\.version \|\| ""\)/);
   assert.match(editors, /`\/api\/journal-entries\/\$\{Number\(entry\.id\)\}`/);

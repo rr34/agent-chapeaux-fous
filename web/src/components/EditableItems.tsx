@@ -407,6 +407,7 @@ export function JournalEntryEditor({ entry, onClose, onChanged }: {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const trackerName = String(entry.trackerName || "Journal");
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -436,9 +437,9 @@ export function JournalEntryEditor({ entry, onClose, onChanged }: {
     }
   };
 
-  return <EditorFrame title="Edit journal entry" onClose={onClose}>
+  return <EditorFrame title={`Edit ${trackerName} journal entry`} onClose={onClose}>
     <form onSubmit={(event) => void save(event)}>
-      <header className="object-editor-heading"><div><p className="eyebrow">Journal</p><h2>Edit entry</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
+      <header className="object-editor-heading"><div><p className="eyebrow">Journal</p><h2>Edit {trackerName} entry</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
       <label>Entry<textarea autoFocus required rows={6} maxLength={10_000} value={draft.contentText} onChange={(event) => setDraft({ ...draft, contentText: event.target.value })} /></label>
       <div className="object-editor-grid">
         <label>Occurred<input required type="datetime-local" step="1" value={draft.occurredAt} onChange={(event) => setDraft({ ...draft, occurredAt: event.target.value })} /></label>
