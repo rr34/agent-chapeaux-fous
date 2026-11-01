@@ -19,8 +19,9 @@ export function normalizePricingBook(value) {
   if (legacy) return { default: legacy, unrecorded: legacy };
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const book = {};
-  for (const tier of aiPricingTiers) {
-    const pricing = normalizePricing(value[tier]);
+  for (const [tier, candidate] of Object.entries(value)) {
+    if (!tier.trim() || tier.length > 128) continue;
+    const pricing = normalizePricing(candidate);
     if (pricing) book[tier] = pricing;
   }
   return Object.keys(book).length ? book : null;

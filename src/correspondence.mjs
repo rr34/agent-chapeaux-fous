@@ -8,6 +8,14 @@ function emailAddress(value) {
   return String(value ?? "").trim().toLocaleLowerCase("en-US");
 }
 
+function emailInstant(value, label) {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string") throw new Error(`${label} must be an RFC 3339 timestamp`);
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) throw new Error(`${label} must be an RFC 3339 timestamp`);
+  return parsed.toISOString();
+}
+
 function canonicalHtml(value) {
   if (value == null) return null;
   const text = String(value);
@@ -228,7 +236,9 @@ export class CorrespondenceService {
       for (const message of messages) {
         const participants = participantRows(message);
         const outbound = participants.some(({ role, address }) => ["from", "sender"].includes(role) && emailAddress(address) === selfAddress);
-        const occurredAt = message.sentAt || message.receivedAt || new Date().toISOString();
+        const sentAt = emailInstant(message.sentAt, `Email ${message.id} sentAt`);
+        const receivedAt = emailInstant(message.receivedAt, `Email ${message.id} receivedAt`);
+        const occurredAt = sentAt || receivedAt || new Date().toISOString();
         db.prepare(`INSERT INTO correspondence
           (medium, direction, source_account_key, thread_key, external_id, internet_message_id,
            in_reply_to_id, subject, body, delivery_status, occurred_at_utc, sent_at_utc, received_at_utc)
@@ -238,8 +248,8 @@ export class CorrespondenceService {
             delivery_status = VALUES(delivery_status), occurred_at_utc = VALUES(occurred_at_utc),
             sent_at_utc = VALUES(sent_at_utc), received_at_utc = VALUES(received_at_utc)`).run(
           outbound ? "outbound" : "inbound", sourceAccountKey, message.threadId || null, message.id,
-          message.messageId?.[0] || null, message.inReplyTo?.[0] || null, message.subject || null,
-          partBody(message), outbound ? "sent" : "delivered", occurredAt, message.sentAt || null, message.receivedAt || null,
+          message.messageId?.[0] || null, null, message.subject || null,
+          partBody(message), outbound ? "sent" : "delivered", occurredAt, sentAt, receivedAt,
         );
         const item = db.prepare("SELECT correspondence_id FROM correspondence WHERE medium = 'email' AND source_account_key = ? AND external_id = ?").get(sourceAccountKey, message.id);
         db.prepare("DELETE FROM correspondence_participants_join WHERE correspondence_id = ?").run(item.correspondence_id);
@@ -260,6 +270,27 @@ export class CorrespondenceService {
         db.prepare(`DELETE FROM correspondence WHERE medium = 'email' AND source_account_key = ?
           AND external_id NOT IN (${placeholders})`).run(sourceAccountKey, ...ids);
       } else db.prepare("DELETE FROM correspondence WHERE medium = 'email' AND source_account_key = ?").run(sourceAccountKey);
+      const importedRows = db.prepare(`SELECT correspondence_id, external_id, internet_message_id
+        FROM correspondence WHERE medium = 'email' AND source_account_key = ?`).all(sourceAccountKey);
+      const idsByExternalId = new Map();
+      const idsByMessageId = new Map();
+      for (const row of importedRows) {
+        const correspondenceId = positiveId(row.correspondence_id, "correspondence_id");
+        idsByExternalId.set(row.external_id, correspondenceId);
+        if (!row.internet_message_id) continue;
+        const matchingIds = idsByMessageId.get(row.internet_message_id) || [];
+        matchingIds.push(correspondenceId);
+        idsByMessageId.set(row.internet_message_id, matchingIds);
+      }
+      const updateReply = db.prepare("UPDATE correspondence SET in_reply_to_id = ? WHERE correspondence_id = ?");
+      for (const message of messages) {
+        const correspondenceId = idsByExternalId.get(message.id);
+        const matchingIds = idsByMessageId.get(message.inReplyTo?.[0]) || [];
+        const inReplyToId = matchingIds.length === 1 && matchingIds[0] !== correspondenceId
+          ? matchingIds[0]
+          : null;
+        updateReply.run(inReplyToId, correspondenceId);
+      }
       db.prepare(`INSERT INTO jmap_email_sync_state (source_account_key, email_state, synchronized_at_utc)
         VALUES (?, ?, UTC_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE email_state = VALUES(email_state),
         synchronized_at_utc = VALUES(synchronized_at_utc)`).run(sourceAccountKey, emailState);

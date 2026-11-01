@@ -235,8 +235,8 @@ Playback choices such as stopping after an individual movement are user state,
 not stored facts about the file. Valid schema-v1 descriptions remain readable
 through a deterministic v2 projection; new ingestion and agent updates use v2.
 
-The mobile music library includes only stored audio records whose descriptions
-validate as music metadata. Voice requests and other ordinary audio recordings
+The mobile and web music libraries include only stored audio records whose
+descriptions validate as music metadata. Voice requests and other ordinary audio recordings
 remain durable files but are not music-library entries. The player presents
 release, work, and sequence titles separately and sorts them by release
 placement and work sequence. Releases, works, and individual tracks expose one
@@ -561,9 +561,11 @@ on a resumed thread.
 
 OpenAI calls record literal input, cached-input, output, reasoning, and total
 tokens plus an estimated cost using configurable prices. The AI Usage screen
-shows month and recorded totals and a per-call history. Estimates are editable
-because provider prices can change; historical token counts remain the durable
-authority. Each request card and trace also break usage down by orientation,
+shows consolidated totals and a per-call history, with the 100 most recent
+calls selected by default. Its editable per-million-token rate table identifies
+browser-entered prices as their source; no rate is inferred from recorded
+history. Estimates are editable because provider prices can change; historical
+token counts remain the durable authority. Each request card and trace also break usage down by orientation,
 execution, audit, and repair, including reasoning effort, tokens, elapsed time,
 and recorded estimated cost. Orientation defaults to `medium` reasoning,
 execution uses the main configured effort, audit defaults to `low`, and repair
@@ -1238,9 +1240,12 @@ the selection and network controls. Phone synchronization remains mobile-only.
 
 The web-only **Music** section follows Files in navigation, reads the same
 authenticated library as mobile, groups recordings by release or work, and
-keeps playback available in a persistent mini-player while navigating the web
-application. **Account** combines Profile, AI Usage, and browser access-token
-management. Profile facts are first-class selectable objects.
+uses the same queue-only concert model: library actions only add music, the
+assembled concert is the sole playback source, and disclosed AI-voice
+introductions precede its tracks. A persistent concert player remains available
+while navigating the web application. **Account** combines Profile, AI Usage,
+and browser access-token management. Profile facts are first-class selectable
+objects.
 
 `sms_draft_create` prepares an unsent structured handoff for one exact contact
 and receivable phone method. Mobile opens the normal Messages app with recipient

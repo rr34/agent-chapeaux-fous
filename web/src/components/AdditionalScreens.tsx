@@ -107,7 +107,7 @@ export function ProfileScreen() {
     try { await api("/api/profile-facts", { method: "POST", body: JSON.stringify({ factType, text }) }); setText(""); await reload(); }
     finally { setSaving(false); }
   };
-  return <><form className="profile-fact-form" onSubmit={(event) => { event.preventDefault(); void save(); }}><label>Fact type<input value={factType} pattern="[a-z][a-z0-9_]*" onChange={(event) => setFactType(event.target.value)} /></label><label>Profile fact<textarea required value={text} onChange={(event) => setText(event.target.value)} /></label><button className="button" disabled={saving}>{saving ? "Saving…" : "Add profile fact"}</button></form>{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}<div className="card-grid">{(data?.facts || []).map((fact) => {
+  return <><form className="profile-fact-form" onSubmit={(event) => { event.preventDefault(); void save(); }}><label>Fact type<input value={factType} pattern="[a-z][a-z0-9_]*" onChange={(event) => setFactType(event.target.value)} /></label><label>Profile fact<textarea required value={text} onChange={(event) => setText(event.target.value)} /></label><button className="button" disabled={saving}>{saving ? "Saving…" : "Add profile fact"}</button></form>{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}<div className="profile-fact-list">{(data?.facts || []).map((fact) => {
     const identity: SelectedObjectCandidate = {
       mention: `@${String(fact.text).slice(0, 160)}`,
       type: "profile.fact", source: "native:profile", id: Number(fact.id),
@@ -124,27 +124,247 @@ export function AccountScreen({ usage }: { usage: React.ReactNode }) {
   return <><header className="page-heading"><div><p className="eyebrow">Identity and service</p><h1>Account</h1><p>Your durable profile, model usage, and this browser’s access.</p></div></header><nav className="account-tabs"><button className={tab === "profile" ? "active" : ""} onClick={() => setTab("profile")}>Profile</button><button className={tab === "usage" ? "active" : ""} onClick={() => setTab("usage")}>AI usage</button><button className={tab === "access" ? "active" : ""} onClick={() => setTab("access")}>Access</button></nav>{tab === "profile" ? <ProfileScreen /> : tab === "usage" ? usage : <form className="profile-fact-form" onSubmit={(event) => { event.preventDefault(); setAccessToken(token); }}><label>Access token<input type="password" value={token} onChange={(event) => setToken(event.target.value)} /></label><button className="button">Save token</button></form>}</>;
 }
 
-export type MusicFile = { fileId: number; title: string; originalFilename: string | null; durationMs: number | null; streamUrl: string; metadata: any; metadataError: string | null };
+type MusicSequence = { type: string; number: number | string | null; title: string | null };
+type MusicMetadata = {
+  release: { type: string | null; title: string | null; version: string | null; trackNumber: number | string | null } | null;
+  work: { type: string | null; title: string | null; version: string | null; creators: string[] | null; catalogue: string[] | null };
+  sequence1: MusicSequence | null;
+  sequence2: MusicSequence | null;
+  performers: string[] | null;
+  compositionDate: string | null;
+  notes: string | null;
+};
+export type MusicFile = { fileId: number; title: string; originalFilename: string | null; durationMs: number | null; streamUrl: string; metadata: MusicMetadata | null; metadataError: string | null };
+type MusicNarration = { narrationId: string; durationMs: number; streamUrl: string };
+type NarrationField = "work" | "sequence" | "creators" | "catalogue" | "compositionDate" | "performers" | "notes";
+type ConcertItem =
+  | { key: string; kind: "music"; file: MusicFile }
+  | { key: string; kind: "narration"; file: MusicFile; title: string; text: string; status: "planned" | "generating" | "ready" | "unavailable"; narration: MusicNarration | null };
+
+const narrationChoices: Array<{ field: NarrationField; label: string }> = [
+  { field: "work", label: "Work" },
+  { field: "sequence", label: "Movement" },
+  { field: "creators", label: "Composer" },
+  { field: "catalogue", label: "Catalogue" },
+  { field: "compositionDate", label: "Date" },
+  { field: "performers", label: "Performers" },
+  { field: "notes", label: "Notes" },
+];
+
+function musicTrackTitle(file: MusicFile) {
+  const sequence = file.metadata?.sequence2 || file.metadata?.sequence1;
+  if (!sequence) return file.title;
+  return `${sequence.number == null ? "" : `${sequence.number}. `}${sequence.title || sequence.type}`;
+}
+
+function spokenSequenceText(sequence: MusicSequence) {
+  const type = sequence.type === "sequence" ? "section" : sequence.type;
+  return `${type}${sequence.number == null ? "" : ` ${sequence.number}`}${sequence.title ? `, ${sequence.title}` : ""}`;
+}
+
+function concertIntroduction(file: MusicFile, fields: NarrationField[]) {
+  const metadata = file.metadata;
+  const sequence = metadata?.sequence2 || metadata?.sequence1;
+  const parts: string[] = [];
+  if (fields.includes("sequence") && sequence) parts.push(`Next, ${spokenSequenceText(sequence)}.`);
+  if (fields.includes("work") && metadata?.work.title) parts.push(`From ${metadata.work.title}.`);
+  if (fields.includes("creators") && metadata?.work.creators?.length) parts.push(`By ${metadata.work.creators.join(", ")}.`);
+  if (fields.includes("catalogue") && metadata?.work.catalogue?.length) parts.push(`Catalogue ${metadata.work.catalogue.join(", ")}.`);
+  if (fields.includes("compositionDate") && metadata?.compositionDate) parts.push(`Composed ${metadata.compositionDate}.`);
+  if (fields.includes("performers") && metadata?.performers?.length) parts.push(`Performed by ${metadata.performers.join(", ")}.`);
+  if (fields.includes("notes") && metadata?.notes) parts.push(metadata.notes.slice(0, 600));
+  return parts.length ? parts.join(" ") : `Next, ${musicTrackTitle(file)}.`;
+}
+
+function concertItems(files: MusicFile[], fields: NarrationField[]): ConcertItem[] {
+  return files.flatMap((file) => [
+    { key: `narration:${file.fileId}`, kind: "narration", file, title: `Introduction to ${musicTrackTitle(file)}`, text: concertIntroduction(file, fields), status: "planned", narration: null },
+    { key: `music:${file.fileId}`, kind: "music", file },
+  ] as ConcertItem[]);
+}
+
+function formatConcertDuration(milliseconds: number) {
+  const minutes = Math.max(0, Math.round(milliseconds / 60_000));
+  return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} hr${minutes % 60 ? ` ${minutes % 60} min` : ""}`;
+}
+
+function concertProgramGroups(files: MusicFile[]) {
+  const groups: Array<{ identity: string; title: string; releaseTitle: string | null; eyebrow: string; detail: string; files: MusicFile[] }> = [];
+  for (const file of files) {
+    const release = file.metadata?.release;
+    const work = file.metadata?.work;
+    const songsOnRelease = Boolean(release?.title && work?.type === "song");
+    const identity = songsOnRelease
+      ? JSON.stringify(["release", release?.type, release?.title, release?.version])
+      : work?.title ? JSON.stringify(["work", work.type, work.title, work.version, work.creators, work.catalogue]) : `file:${file.fileId}`;
+    const last = groups.at(-1);
+    if (last?.identity === identity) { last.files.push(file); continue; }
+    groups.push({
+      identity,
+      title: songsOnRelease ? release?.title || file.title : work?.title || file.title,
+      releaseTitle: songsOnRelease ? null : release?.title || null,
+      eyebrow: `${songsOnRelease ? release?.type || "release" : work?.type || "music"}`,
+      detail: songsOnRelease ? release?.version || "" : [...(work?.catalogue || []), ...(work?.creators || [])].join(" · "),
+      files: [file],
+    });
+  }
+  return groups;
+}
+
 export function useWebMusicPlayer() {
-  const [queue, setQueue] = useState<MusicFile[]>([]);
-  const [index, setIndex] = useState(0);
+  const [queue, setQueue] = useState<ConcertItem[]>([]);
+  const [index, setIndex] = useState(-1);
   const [source, setSource] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [hasStarted, setHasStarted] = useState(false);
+  const [complete, setComplete] = useState(false);
+  const [transitioning, setTransitioning] = useState(false);
+  const [fields, setFields] = useState<NarrationField[]>(["work", "sequence", "creators"]);
   const audio = useRef<HTMLAudioElement>(null);
-  const current = queue[index] || null;
+  const queueRef = useRef<ConcertItem[]>([]);
+  const playbackVersion = useRef(0);
+  const changing = useRef(false);
+  const narrationPromises = useRef(new Map<string, Promise<ConcertItem | null>>());
+  const current = index >= 0 ? queue[index] || null : null;
+  const musicItems = queue.filter((item): item is Extract<ConcertItem, { kind: "music" }> => item.kind === "music");
+  const duration = musicItems.reduce((total, item) => total + (item.file.durationMs || 0), 0);
+  const durationKnown = musicItems.every((item) => (item.file.durationMs || 0) > 0);
+  const summary = `${musicItems.length} ${musicItems.length === 1 ? "track" : "tracks"} · ${musicItems.length} spoken · ${durationKnown ? formatConcertDuration(duration) : "duration unavailable"}`;
+
+  const updateQueue = (update: (previous: ConcertItem[]) => ConcertItem[]) => {
+    setQueue((previous) => {
+      const next = update(previous);
+      queueRef.current = next;
+      return next;
+    });
+  };
+
   useEffect(() => {
     let active = true; let objectUrl = "";
     if (!current) { setSource(""); return; }
-    void authenticatedObjectUrl(current.streamUrl).then((url) => { if (!active) return; objectUrl = url; setSource(url); }).catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)));
+    setSource("");
+    const streamUrl = current.kind === "music" ? current.file.streamUrl : current.narration?.streamUrl;
+    if (!streamUrl) return;
+    void authenticatedObjectUrl(streamUrl).then((url) => { if (!active) return; objectUrl = url; setSource(url); }).catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)));
     return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [current?.fileId]);
-  useEffect(() => { if (source) void audio.current?.play().catch(() => {}); }, [source]);
+  }, [current?.key]);
+  useEffect(() => { if (source) void audio.current?.play().catch(() => setNotice("Concert is ready. Press play to continue.")); }, [source]);
+
+  const prepareNarration = async (requestedIndex: number, version: number) => {
+    const item = queueRef.current[requestedIndex];
+    if (!item || item.kind !== "narration") return item || null;
+    if (item.status === "ready" && item.narration) return item;
+    const existing = narrationPromises.current.get(item.key);
+    if (existing) return existing;
+    const promise = (async () => {
+      updateQueue((items) => items.map((candidate) => candidate.key === item.key && candidate.kind === "narration" ? { ...candidate, status: "generating" } : candidate));
+      try {
+        const result = await api<{ narration: MusicNarration }>("/api/music/narrations", { method: "POST", body: JSON.stringify({ text: item.text }) });
+        if (version !== playbackVersion.current) return null;
+        const ready: ConcertItem = { ...item, status: "ready", narration: result.narration };
+        updateQueue((items) => items.map((candidate) => candidate.key === item.key ? ready : candidate));
+        return ready;
+      } catch {
+        if (version !== playbackVersion.current) return null;
+        updateQueue((items) => items.map((candidate) => candidate.key === item.key && candidate.kind === "narration" ? { ...candidate, status: "unavailable", narration: null } : candidate));
+        return null;
+      } finally {
+        narrationPromises.current.delete(item.key);
+      }
+    })();
+    narrationPromises.current.set(item.key, promise);
+    return promise;
+  };
+
+  const playAt = async (requestedIndex: number) => {
+    if (changing.current) return;
+    const version = playbackVersion.current;
+    changing.current = true;
+    setTransitioning(true);
+    try {
+      let nextIndex = requestedIndex;
+      while (nextIndex < queueRef.current.length) {
+        let item = queueRef.current[nextIndex];
+        if (!item) break;
+        if (item.kind === "narration" && (!item.narration || item.status !== "ready")) {
+          setNotice(`Preparing AI voice: ${item.title}`);
+          const prepared = await prepareNarration(nextIndex, version);
+          if (version !== playbackVersion.current) return;
+          if (!prepared) {
+            setNotice(`AI voice unavailable. Continuing with ${musicTrackTitle(item.file)}.`);
+            nextIndex += 1;
+            continue;
+          }
+          item = prepared;
+        }
+        setError("");
+        setNotice("");
+        setIndex(nextIndex);
+        if (item.kind === "music") {
+          const nextNarration = queueRef.current.findIndex((candidate, candidateIndex) => candidateIndex > nextIndex && candidate.kind === "narration");
+          if (nextNarration >= 0) void prepareNarration(nextNarration, version);
+        }
+        return;
+      }
+      setIndex(-1);
+      setComplete(true);
+      setNotice("Concert complete. Playback stopped.");
+    } finally {
+      if (version === playbackVersion.current) {
+        changing.current = false;
+        setTransitioning(false);
+      }
+    }
+  };
+
+  const clear = () => {
+    playbackVersion.current += 1;
+    changing.current = false;
+    narrationPromises.current.clear();
+    audio.current?.pause();
+    updateQueue(() => []);
+    setIndex(-1);
+    setHasStarted(false);
+    setComplete(false);
+    setTransitioning(false);
+    setNotice("Concert cleared.");
+    setError("");
+  };
+
+  const enqueue = (files: MusicFile[]) => {
+    if (hasStarted) return;
+    const present = new Set(queueRef.current.filter((item) => item.kind === "music").map((item) => item.file.fileId));
+    const additions = files.filter((file) => !present.has(file.fileId));
+    if (!additions.length) { setNotice("That music is already in the concert."); return; }
+    updateQueue((items) => [...items, ...concertItems(additions, fields)]);
+    setNotice(`${additions.length} ${additions.length === 1 ? "track" : "tracks"} added to the concert.`);
+  };
+
+  const start = () => {
+    if (!musicItems.length || transitioning) return;
+    setHasStarted(true);
+    setComplete(false);
+    void playAt(0);
+  };
+
+  const toggleField = (field: NarrationField) => {
+    if (hasStarted) return;
+    const nextFields = fields.includes(field) ? fields.filter((candidate) => candidate !== field) : [...fields, field];
+    if (!nextFields.length) { setNotice("Keep at least one spoken metadata field."); return; }
+    setFields(nextFields);
+    updateQueue((items) => items.map((item) => item.kind === "narration" ? { ...item, text: concertIntroduction(item.file, nextFields), status: "planned", narration: null } : item));
+  };
+
+  const remove = (fileId: number) => {
+    if (hasStarted) return;
+    updateQueue((items) => items.filter((item) => item.file.fileId !== fileId));
+    setNotice("Track removed from the concert.");
+  };
+
   return {
-    queue, current, error,
-    enqueue: (files: MusicFile[]) => setQueue((existing) => [...existing, ...files.filter((file) => !existing.some((item) => item.fileId === file.fileId))]),
-    play: (file: MusicFile) => { setQueue((existing) => { const position = existing.findIndex((item) => item.fileId === file.fileId); if (position >= 0) { setIndex(position); return existing; } setIndex(existing.length); return [...existing, file]; }); },
-    clear: () => { setQueue([]); setIndex(0); },
-    element: current ? <aside className="music-mini-player"><span><small>Now playing</small><strong>{current.title}</strong></span><audio ref={audio} src={source} controls onEnded={() => setIndex((value) => value + 1 < queue.length ? value + 1 : value)} /><button onClick={() => { setQueue([]); setIndex(0); }}>Clear</button></aside> : null,
+    queue, musicItems, current, error, notice, fields, hasStarted, complete, transitioning, summary, enqueue, remove, clear, start, toggleField,
+    element: queue.length ? <aside className="music-mini-player" aria-label="Concert player"><span><small>{current ? current.kind === "narration" ? "AI voice · Now playing" : "Now playing" : complete ? "Concert complete" : "Concert ready"}</small><strong>{current ? current.kind === "narration" ? current.title : musicTrackTitle(current.file) : summary}</strong></span>{current ? <audio ref={audio} src={source} controls onEnded={() => void playAt(index + 1)} /> : <button className="button" disabled={transitioning} onClick={start}>{transitioning ? "Preparing AI voice…" : complete ? "Replay concert" : "Start concert"}</button>}<button className="button button--quiet" onClick={clear}>Clear</button></aside> : null,
   };
 }
 
@@ -153,5 +373,10 @@ export function MusicScreen({ player }: { player: ReturnType<typeof useWebMusicP
   const [query, setQuery] = useState("");
   const files = (data?.files || []).filter((file) => JSON.stringify(file).toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   const groups = useMemo(() => { const result = new Map<string, MusicFile[]>(); for (const file of files) { const name = file.metadata?.release?.title || file.metadata?.work?.title || "Other music"; result.set(name, [...(result.get(name) || []), file]); } return [...result.entries()]; }, [files]);
-  return <><header className="page-heading"><div><p className="eyebrow">Library playback</p><h1>Music</h1><p>Browse the same authenticated music library available on mobile.</p></div>{files.length > 0 && <button className="button" onClick={() => player.enqueue(files)}>Add all to queue</button>}</header><div className="section-filter"><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search work, movement, composer, performer, or notes" /></div>{player.error && <p className="form-error">{player.error}</p>}{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{!loading && !error && !groups.length && <Empty>No music found.</Empty>}<div className="library-groups">{groups.map(([name, tracks]) => <section className="library-group" key={name}><header className="library-group-heading"><h2>{name}</h2><button className="button button--quiet" onClick={() => player.enqueue(tracks)}>Add release</button></header><ul className="music-track-list">{tracks.map((track) => <li key={track.fileId}><span><strong>{track.metadata?.sequence2?.title || track.metadata?.sequence1?.title || track.title}</strong><small>{(track.metadata?.work?.creators || []).join(", ") || track.originalFilename}</small></span><button onClick={() => player.play(track)}>Play</button><button onClick={() => player.enqueue([track])}>Queue</button></li>)}</ul></section>)}</div></>;
+  const programGroups = concertProgramGroups(player.musicItems.map((item) => item.file));
+  const programPositions = new Map(player.musicItems.map((item, position) => [item.file.fileId, position + 1]));
+  return <><header className="page-heading"><div><p className="eyebrow">Concert builder</p><h1>Music</h1><p>Build one guided program, then play it as a concert. Library selections never start playback.</p></div>{files.length > 0 && <button className="button" disabled={player.hasStarted} onClick={() => player.enqueue(files)}>Add all results</button>}</header>
+    {player.musicItems.length > 0 && <section className="concert-queue" aria-labelledby="concert-queue-heading"><header className="concert-queue-heading"><div><p className="eyebrow">One playback queue</p><h2 id="concert-queue-heading">Your concert</h2><p>{player.summary}</p></div><div className="concert-queue-actions">{!player.current && <button className="button" disabled={player.transitioning} onClick={player.start}>{player.transitioning ? "Preparing AI voice…" : player.complete ? "Replay concert" : "Start concert"}</button>}<button className="button button--quiet" onClick={player.clear}>Clear</button></div></header><div className="concert-guidance"><strong>Spoken introductions</strong><p>An AI voice introduces every track. Choose what it announces before the concert begins.</p><div className="concert-guidance-fields">{narrationChoices.map(({ field, label }) => <button className={player.fields.includes(field) ? "is-selected" : ""} aria-pressed={player.fields.includes(field)} disabled={player.hasStarted} key={field} onClick={() => player.toggleField(field)}>{label}</button>)}</div>{player.hasStarted && <small>This concert is fixed while it is playing. Clear it to build another.</small>}</div><div className="concert-program-groups">{programGroups.map((group) => <section className="concert-program-group" key={group.identity}><header>{group.releaseTitle && <small>{group.releaseTitle}</small>}<span>{group.eyebrow} · {group.files.length} {group.files.length === 1 ? "selection" : "selections"}</span><h3>{group.title}</h3>{group.detail && <p>{group.detail}</p>}</header><ol className="concert-program">{group.files.flatMap((file) => { const narration = player.queue.find((item) => item.kind === "narration" && item.file.fileId === file.fileId); const music = player.queue.find((item) => item.kind === "music" && item.file.fileId === file.fileId); return [<li className={`concert-program-narration${player.current?.key === narration?.key ? " is-current" : ""}`} key={`narration:${file.fileId}`}><span className="concert-program-narration-icon">◇</span><span><small>{narration?.kind === "narration" && narration.status === "generating" ? "AI voice · Generating…" : narration?.kind === "narration" && narration.status === "ready" ? "AI voice · Ready" : narration?.kind === "narration" && narration.status === "unavailable" ? "AI voice · Unavailable — will skip" : "AI voice · Will generate"}</small><strong>{narration?.kind === "narration" ? narration.title : `Introduction to ${musicTrackTitle(file)}`}</strong>{narration?.kind === "narration" && <small>{narration.text}</small>}</span></li>, <li className={player.current?.key === music?.key ? "is-current" : ""} key={`music:${file.fileId}`}><span className="concert-program-number">{programPositions.get(file.fileId)}</span><span>{player.current?.key === music?.key && <small>Now playing</small>}<strong>{musicTrackTitle(file)}</strong><small>{file.metadata?.performers?.join(" · ") || file.originalFilename}</small></span>{!player.hasStarted && <button className="button button--quiet" onClick={() => player.remove(file.fileId)}>Remove</button>}</li>]; })}</ol></section>)}</div></section>}
+    {(player.notice || player.error) && <p className={player.error ? "form-error" : "status"}>{player.error || player.notice}</p>}
+    <div className="section-filter"><input aria-label="Filter music" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search work, movement, composer, performer, or notes" /></div>{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{!loading && !error && !groups.length && <Empty>No music found.</Empty>}<div className="library-groups">{groups.map(([name, tracks]) => <section className="library-group" key={name}><header className="library-group-heading"><h2>{name}</h2><button className="button button--quiet" disabled={player.hasStarted} onClick={() => player.enqueue(tracks)}>Add release</button></header><ul className="music-track-list">{tracks.map((track) => <li key={track.fileId}><span><strong>{musicTrackTitle(track)}</strong><small>{(track.metadata?.work.creators || []).join(", ") || track.originalFilename}</small></span><button className="button button--quiet" disabled={player.hasStarted || player.musicItems.some((item) => item.file.fileId === track.fileId)} aria-label={`Add ${musicTrackTitle(track)} to concert`} onClick={() => player.enqueue([track])}>+</button></li>)}</ul></section>)}</div></>;
 }

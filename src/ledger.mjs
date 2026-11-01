@@ -68,6 +68,28 @@ function searchPatterns(value) {
     `%${term.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`);
 }
 
+function individualModelCalls(responsePayload, fallbackModel) {
+  const completed = Array.isArray(responsePayload?.protocolEvents)
+    ? responsePayload.protocolEvents.filter((event) => event?.type === "response.completed")
+    : [];
+  if (!completed.length || completed.some((event) => !event.usage || typeof event.usage !== "object")) return [];
+  return completed.map((event, index) => ({
+    callIndex: index + 1,
+    model: event.model ?? fallbackModel ?? null,
+    serviceTier: event.serviceTier ?? null,
+    status: event.status ?? null,
+    elapsedMs: event.elapsedMs != null && Number.isFinite(Number(event.elapsedMs))
+      ? Number(event.elapsedMs)
+      : null,
+    inputTokens: Number(event.usage.inputTokens ?? 0),
+    cachedInputTokens: Number(event.usage.cachedInputTokens ?? 0),
+    cacheWriteTokens: Number(event.usage.cacheWriteTokens ?? 0),
+    outputTokens: Number(event.usage.outputTokens ?? 0),
+    reasoningOutputTokens: Number(event.usage.reasoningOutputTokens ?? 0),
+    totalTokens: Number(event.usage.totalTokens ?? 0),
+  }));
+}
+
 const receivedEventTypes = ["request.received", "voice.request.received"];
 const responseEventTypes = ["assistant.response", "agent.turn.end"];
 const conversationTextEventTypes = [
@@ -1127,6 +1149,7 @@ export class Ledger {
         workflowStep: event.payload?.workflowStep ?? null,
         reasoningEffort: event.payload?.reasoningEffort ?? null,
         modelCallCount: llmCallCountForUsage(event.payload, responsePayload),
+        calls: individualModelCalls(responsePayload, row.response_model),
         usageByServiceTier: event.payload?.usageByServiceTier ?? null,
         inputTokens: Number(tokenUsage.inputTokens ?? 0),
         cachedInputTokens: Number(tokenUsage.cachedInputTokens ?? 0),

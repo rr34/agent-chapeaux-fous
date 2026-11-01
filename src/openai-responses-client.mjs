@@ -477,7 +477,9 @@ export class OpenAIResponsesClient {
               : ["Authorization header value redacted"],
           },
         });
+        const callStartedAtMs = Date.now();
         response = await this.request(requestBody, remainingMs, serializedRequestBody);
+        const elapsedMs = Math.max(0, Date.now() - callStartedAtMs);
         const currentUsage = usageFor(response);
         const serviceTier = typeof response.service_tier === "string" && response.service_tier.trim()
           ? response.service_tier.trim()
@@ -503,6 +505,7 @@ export class OpenAIResponsesClient {
           status: response.status ?? null,
           incompleteDetails: response.incomplete_details ?? null,
           providerError: response.error ?? null,
+          elapsedMs,
           usage: currentUsage,
           outputTypes: (response.output ?? []).map((item) => item.type),
         };

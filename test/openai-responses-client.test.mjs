@@ -222,6 +222,8 @@ test("OpenAI Responses sends the exact request, image, and tool schemas through 
     { model: "gpt-5.6-terra", serviceTier: "incentivized-tier" },
     { model: "gpt-5.6-terra", serviceTier: "incentivized-tier" },
   ]);
+  assert.ok(result.events.filter(event => event.type === "response.completed")
+    .every(event => Number.isSafeInteger(event.elapsedMs) && event.elapsedMs >= 0));
   assert.equal(result.usage.contextInputTokens, 1400);
   assert.equal(Object.hasOwn(result.usage, "estimatedCostUsd"), false);
   assert.equal(Object.hasOwn(result.usage, "pricing"), false);

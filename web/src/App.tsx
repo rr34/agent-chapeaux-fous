@@ -39,6 +39,10 @@ import { selectedObjectSummary } from "./object-selection-summary";
 import { formatDisplayDate, formatLocalDate } from "./date-format";
 import { matchesSearch } from "./search-filter";
 import { compareSequenceValuesDescending } from "./sequence-order";
+import {
+  aiPricingStorageKey, aiUsageCost, loadAiPricing, normalizeAiPricing,
+  type AiPricingBook, type AiUsageCostInput,
+} from "./ai-usage";
 import type {
   DailyPaperModel, DailyPaperTodoGroup, Entity, LinkedTodo, RequestRecord,
   PersistedObjectCandidate, SelectedObjectCandidate, StoredFileBinding,
@@ -2250,7 +2254,7 @@ function JournalScreen() {
     else setServerQuery(nextQuery);
   };
   return <>
-    <PageHeading eyebrow="A record of lived time" title="Journal" detail="Trackers and recent entries, kept alongside the calendar without pretending they are appointments." groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={journalGroupOptions} totalCount={journalTrackers.length + journalEntries.length} disabled={loading || entriesLoading} />} actions={<button className="button" type="button" disabled={groupsLoading || Boolean(groupError)} onClick={() => setAddingTracker(true)}>Add tracker</button>} />
+    <PageHeading eyebrow="A record of lived time" title="Journal" groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={journalGroupOptions} totalCount={journalTrackers.length + journalEntries.length} disabled={loading || entriesLoading} />} actions={<button className="button" type="button" disabled={groupsLoading || Boolean(groupError)} onClick={() => setAddingTracker(true)}>Add tracker</button>} />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchJournal} searching={loading || entriesLoading} count={visibleCount} noun="result" />
     {(loading || entriesLoading) && <Loading />}
     {error && <ErrorState error={error} retry={reloadJournal} />}
@@ -2313,22 +2317,164 @@ function JournalScreen() {
   </>;
 }
 
+type AiUsageCall = AiUsageCostInput & {
+  eventSeq: number;
+  callIndex: number | null;
+  requestId: string | null;
+  occurredAtUtc: string;
+  model: string | null;
+  transport: string | null;
+  workflowStep: string | null;
+  reasoningEffort: string | null;
+  status: string | null;
+  elapsedMs: number | null;
+  modelCallCount: number | null;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+};
+
+type AiUsageEntry = Omit<AiUsageCall, "callIndex" | "serviceTier" | "status"> & {
+  usageByServiceTier?: AiUsageCostInput["usageByServiceTier"];
+  calls?: Array<Omit<AiUsageCall, "eventSeq" | "requestId" | "occurredAtUtc" | "transport" | "workflowStep" | "reasoningEffort" | "modelCallCount">>;
+};
+
+const defaultAiPricingTiers = ["default", "incentivized-tier", "unrecorded"];
+
+function aiUsageCalls(entries: AiUsageEntry[]) {
+  return entries.flatMap<AiUsageCall>((entry) => entry.calls?.length
+    ? [...entry.calls].reverse().map((call) => ({
+      ...call,
+      eventSeq: entry.eventSeq,
+      requestId: entry.requestId,
+      occurredAtUtc: entry.occurredAtUtc,
+      transport: entry.transport,
+      workflowStep: entry.workflowStep,
+      reasoningEffort: entry.reasoningEffort,
+      modelCallCount: 1,
+    }))
+    : [{ ...entry, callIndex: null, serviceTier: null, status: null }]);
+}
+
+function aiPricingTierLabel(tier: string) {
+  if (tier === "default") return "Default";
+  if (tier === "incentivized-tier") return "Incentivized";
+  if (tier === "unrecorded") return "Older records · tier unrecorded";
+  return tier;
+}
+
+function formatAiUsd(value: number) {
+  const digits = value > 0 && value < 0.01 ? 4 : 2;
+  return new Intl.NumberFormat(undefined, {
+    style: "currency", currency: "USD", minimumFractionDigits: digits, maximumFractionDigits: digits,
+  }).format(value);
+}
+
+function formatAiCallDuration(value: number | null) {
+  if (value == null) return "—";
+  const elapsed = Number(value);
+  if (!Number.isFinite(elapsed)) return "—";
+  return elapsed < 1000 ? `${elapsed} ms` : `${(elapsed / 1000).toFixed(elapsed < 10_000 ? 1 : 0)} s`;
+}
+
 function UsageScreen() {
   const [filterQuery, setFilterQuery] = useState("");
   const [serverQuery, setServerQuery] = useState("");
+  const [limit, setLimit] = useState(100);
+  const [pricing, setPricing] = useState<AiPricingBook>(loadAiPricing);
+  const [selectedTier, setSelectedTier] = useState("default");
+  const [pricingDraft, setPricingDraft] = useState({ inputPerMillion: "", cachedInputPerMillion: "", cacheWritePerMillion: "", outputPerMillion: "" });
+  const [pricingMessage, setPricingMessage] = useState("");
   const usageParameters = new URLSearchParams({ limit: "10000" });
   if (serverQuery) usageParameters.set("q", serverQuery);
-  const { data, error, loading, reload } = useApi<{ entries: Entity[]; current: Entity }>(`/api/ai-usage?${usageParameters}`);
-  const visibleEntries = (data?.entries || []).filter((entry) => matchesSearch(entry, filterQuery));
-  const totals = useMemo(() => visibleEntries.reduce<{ calls: number; input: number; output: number }>(
-    (result, entry) => ({ calls: result.calls + 1, input: result.input + Number(readKey(entry, "inputTokens", "input_tokens") || 0), output: result.output + Number(readKey(entry, "outputTokens", "output_tokens") || 0) }), { calls: 0, input: 0, output: 0 },
-  ), [visibleEntries]);
+  const { data, error, loading, reload } = useApi<{ entries: AiUsageEntry[]; current: Entity }>(`/api/ai-usage?${usageParameters}`);
+  const allCalls = useMemo(() => aiUsageCalls(data?.entries || []), [data]);
+  const calls = useMemo(() => allCalls.slice(0, limit), [allCalls, limit]);
+  const visibleCalls = useMemo(() => calls.filter((call) => matchesSearch(call, filterQuery)), [calls, filterQuery]);
+  const summaryCalls = useMemo(() => allCalls.filter((call) => matchesSearch(call, filterQuery)), [allCalls, filterQuery]);
+  const pricingTiers = useMemo(() => {
+    const observed = allCalls.flatMap((call) => [
+      call.serviceTier,
+      ...(call.usageByServiceTier || []).map((part) => part.serviceTier),
+    ]).filter((tier): tier is string => Boolean(tier));
+    return [...new Set([...defaultAiPricingTiers, ...Object.keys(pricing), ...observed])];
+  }, [allCalls, pricing]);
+  const totals = useMemo(() => {
+    const costs = summaryCalls.map((call) => aiUsageCost(call, pricing));
+    return summaryCalls.reduce((result, call, index) => ({
+      calls: result.calls + (Number.isSafeInteger(call.modelCallCount) ? Number(call.modelCallCount) : 0),
+      input: result.input + Number(call.inputTokens || 0),
+      output: result.output + Number(call.outputTokens || 0),
+      cost: result.cost == null || !Number.isFinite(costs[index]) ? null : result.cost + Number(costs[index]),
+    }), { calls: 0, input: 0, output: 0, cost: summaryCalls.length ? 0 as number | null : null });
+  }, [summaryCalls, pricing]);
+  useEffect(() => {
+    const selected = pricing[selectedTier];
+    setPricingDraft({
+      inputPerMillion: selected == null ? "" : String(selected.inputPerMillion),
+      cachedInputPerMillion: selected == null ? "" : String(selected.cachedInputPerMillion),
+      cacheWritePerMillion: selected == null ? "" : String(selected.cacheWritePerMillion),
+      outputPerMillion: selected == null ? "" : String(selected.outputPerMillion),
+    });
+  }, [pricing, selectedTier]);
+  useEffect(() => {
+    const syncPricing = (event: StorageEvent) => {
+      if (event.key === aiPricingStorageKey || event.key == null) setPricing(loadAiPricing());
+    };
+    window.addEventListener("storage", syncPricing);
+    return () => window.removeEventListener("storage", syncPricing);
+  }, []);
   const searchUsage = () => {
     const nextQuery = filterQuery.trim();
     if (nextQuery === serverQuery) void reload();
     else setServerQuery(nextQuery);
   };
-  return <><PageHeading eyebrow="Metered model work" title="AI Usage" detail={`${textKey(data?.current || {}, "transport")} · ${textKey(data?.current || {}, "model")}`} /><SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchUsage} searching={loading} count={visibleEntries.length} noun="call" />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}<div className="metric-grid"><article><span>Calls</span><strong>{totals.calls.toLocaleString()}</strong></article><article><span>Input tokens</span><strong>{totals.input.toLocaleString()}</strong></article><article><span>Output tokens</span><strong>{totals.output.toLocaleString()}</strong></article></div></>;
+  const savePricing = (next: AiPricingBook, message: string) => {
+    try {
+      if (Object.keys(next).length) localStorage.setItem(aiPricingStorageKey, JSON.stringify(next));
+      else localStorage.removeItem(aiPricingStorageKey);
+      setPricing(next);
+      setPricingMessage(message);
+    } catch {
+      setPricingMessage("This browser could not save the prices.");
+    }
+  };
+  const submitPricing = (event: FormEvent) => {
+    event.preventDefault();
+    const selected = normalizeAiPricing(pricingDraft);
+    if (!selected) {
+      setPricingMessage("Enter all four prices as zero or greater.");
+      return;
+    }
+    savePricing({ ...pricing, [selectedTier]: selected }, `Saved ${aiPricingTierLabel(selectedTier)} prices in this browser.`);
+  };
+  const clearSelectedPricing = () => {
+    const next = { ...pricing };
+    delete next[selectedTier];
+    savePricing(next, `Cleared ${aiPricingTierLabel(selectedTier)} prices.`);
+  };
+  return <><PageHeading eyebrow="Metered model work" title="AI Usage" detail={`${textKey(data?.current || {}, "transport")} · ${textKey(data?.current || {}, "model")}`} />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchUsage} searching={loading} count={visibleCalls.length} noun="call" />
+    {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}
+    <div className="metric-grid usage-summary"><article><span>LLM calls</span><strong>{totals.calls.toLocaleString()}</strong></article><article><span>Input tokens</span><strong>{totals.input.toLocaleString()}</strong></article><article><span>Output tokens</span><strong>{totals.output.toLocaleString()}</strong></article><article><span>Estimated cost</span><strong>{totals.cost == null ? "Set prices" : formatAiUsd(totals.cost)}</strong></article></div>
+    <p className="usage-summary-note">Consolidated totals cover up to 10,000 recent usage records; the call table below shows the selected recent-call limit.</p>
+    <section className="surface usage-pricing" aria-labelledby="usage-pricing-heading">
+      <header className="usage-section-heading"><div><p className="eyebrow">Cost calculator</p><h2 id="usage-pricing-heading">Prices per one million tokens</h2><p>Rates are entered by you on this screen and saved only in this browser. Provider responses supply the token counts and service tiers; no provider, server, environment, or built-in prices are substituted.</p></div></header>
+      <form className="usage-pricing-form" onSubmit={submitPricing}>
+        <label>Service tier<select value={selectedTier} onChange={(event) => { setSelectedTier(event.target.value); setPricingMessage(""); }}>{pricingTiers.map((tier) => <option value={tier} key={tier}>{aiPricingTierLabel(tier)}</option>)}</select></label>
+        <label>Input USD<input type="number" min="0" step="0.0001" required value={pricingDraft.inputPerMillion} onChange={(event) => setPricingDraft({ ...pricingDraft, inputPerMillion: event.target.value })} /></label>
+        <label>Cached input USD<input type="number" min="0" step="0.0001" required value={pricingDraft.cachedInputPerMillion} onChange={(event) => setPricingDraft({ ...pricingDraft, cachedInputPerMillion: event.target.value })} /></label>
+        <label>Cache write USD<input type="number" min="0" step="0.0001" required value={pricingDraft.cacheWritePerMillion} onChange={(event) => setPricingDraft({ ...pricingDraft, cacheWritePerMillion: event.target.value })} /></label>
+        <label>Output USD<input type="number" min="0" step="0.0001" required value={pricingDraft.outputPerMillion} onChange={(event) => setPricingDraft({ ...pricingDraft, outputPerMillion: event.target.value })} /></label>
+        <div className="usage-pricing-actions"><button className="button" type="submit">Save prices</button><button className="button button--quiet" type="button" disabled={!pricing[selectedTier]} onClick={clearSelectedPricing}>Clear tier</button></div>
+      </form>
+      {pricingMessage && <p className="usage-pricing-message" role="status">{pricingMessage}</p>}
+      <div className="usage-table-scroll"><table className="usage-table usage-rate-table"><thead><tr><th>Service tier</th><th>Input</th><th>Cached input</th><th>Cache write</th><th>Output</th><th>Source</th></tr></thead><tbody>{pricingTiers.map((tier) => { const rate = pricing[tier]; return <tr key={tier}><td>{aiPricingTierLabel(tier)}</td><td>{rate ? formatAiUsd(rate.inputPerMillion) : "Not set"}</td><td>{rate ? formatAiUsd(rate.cachedInputPerMillion) : "Not set"}</td><td>{rate ? formatAiUsd(rate.cacheWritePerMillion) : "Not set"}</td><td>{rate ? formatAiUsd(rate.outputPerMillion) : "Not set"}</td><td>{rate ? "Entered here · this browser" : "No price source"}</td></tr>; })}</tbody></table></div>
+    </section>
+    <section className="surface usage-history" aria-labelledby="usage-history-heading">
+      <header className="usage-section-heading"><div><p className="eyebrow">Provider round trips</p><h2 id="usage-history-heading">Recent model calls</h2><p>Individual provider calls are shown when their metrics were recorded. An older aggregate row can represent more than one LLM call.</p></div><label>Show<select value={limit} onChange={(event) => setLimit(Number(event.target.value))}><option value={25}>25 calls</option><option value={100}>100 calls</option><option value={250}>250 calls</option><option value={1000}>1,000 calls</option></select></label></header>
+      {!loading && !error && !visibleCalls.length ? <Empty>No metered model calls found.</Empty> : <div className="usage-table-scroll"><table className="usage-table"><thead><tr><th>When</th><th>Model / step</th><th>Tier</th><th>Calls</th><th>Duration</th><th>Input</th><th>Cached</th><th>Cache write</th><th>Output</th><th>Reasoning</th><th>Total</th><th>Estimated cost</th></tr></thead><tbody>{visibleCalls.map((call) => { const cost = aiUsageCost(call, pricing); return <tr key={`${call.eventSeq}:${call.callIndex ?? "aggregate"}`}><td>{formatDisplayDate(call.occurredAtUtc)}</td><td><strong>{call.model || call.transport || "Unknown"}</strong><small>{[call.workflowStep, call.reasoningEffort].filter(Boolean).join(" · ") || "Step unrecorded"}</small></td><td>{call.serviceTier || call.usageByServiceTier?.map((part) => part.serviceTier || "Unrecorded").join(", ") || "Unrecorded"}</td><td>{Number.isSafeInteger(call.modelCallCount) ? Number(call.modelCallCount).toLocaleString() : "—"}</td><td>{formatAiCallDuration(call.elapsedMs)}</td><td>{Number(call.inputTokens || 0).toLocaleString()}</td><td>{Number(call.cachedInputTokens || 0).toLocaleString()}</td><td>{Number(call.cacheWriteTokens || 0).toLocaleString()}</td><td>{Number(call.outputTokens || 0).toLocaleString()}</td><td>{Number(call.reasoningOutputTokens || 0).toLocaleString()}</td><td>{Number(call.totalTokens || 0).toLocaleString()}</td><td>{cost == null ? "Price not set" : formatAiUsd(cost)}</td></tr>; })}</tbody></table></div>}
+    </section>
+  </>;
 }
 
 interface StripeConnectionStatus {
@@ -3106,7 +3252,7 @@ function Workspace() {
   else if (view === "music") screen = <MusicScreen player={musicPlayer} />;
   else if (view === "correspondence") screen = <CorrespondenceScreen />;
   else screen = <GenericScreen kind={view as keyof typeof genericScreens} />;
-  return <ObjectSelectionProvider selections={agentObjectSelections} toggleSelection={toggleObjectSelection}><div className={`app-shell${musicPlayer.current ? " has-music-player" : ""}`}><aside className="sidebar"><a className="brand" href="/app"><img src="/icon.svg" alt="" /><span>Time v3<br />Agent</span></a><nav>{navigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><NavigationIcon id={id} label={label} />{label}</button>)}</nav></aside><main className="workspace">{screen}</main>{musicPlayer.element}<AgentComposer
+  return <ObjectSelectionProvider selections={agentObjectSelections} toggleSelection={toggleObjectSelection}><div className={`app-shell${musicPlayer.queue.length ? " has-music-player" : ""}`}><aside className="sidebar"><a className="brand" href="/app"><img src="/icon.svg" alt="" /><span>Time v3<br />Agent</span></a><nav>{navigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><NavigationIcon id={id} label={label} />{label}</button>)}</nav></aside><main className="workspace">{screen}</main>{musicPlayer.element}<AgentComposer
     text={agentDraft}
     setText={setAgentDraft}
     selections={agentObjectSelections}

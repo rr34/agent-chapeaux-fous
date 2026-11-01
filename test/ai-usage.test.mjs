@@ -45,6 +45,15 @@ test("tier price books calculate each provider service tier separately", () => {
   assert.equal(aiEntryCost(usage, { default: prices }), null);
 });
 
+test("price books preserve user-entered cards for newly observed service tiers", () => {
+  const book = { priority: prices, "future-tier": { ...prices, outputPerMillion: "4" } };
+  assert.deepEqual(normalizePricingBook(book), {
+    priority: prices,
+    "future-tier": { ...prices, outputPerMillion: 4 },
+  });
+  assert.equal(pricingForTier(book, "priority").inputPerMillion, 1);
+});
+
 test("totals count a usage event once and ignore historical cost estimates", () => {
   const entry = { eventSeq: 3, inputTokens: 1000000, cachedInputTokens: 0,
     cacheWriteTokens: 0, outputTokens: 0, totalTokens: 1000000, recordedEstimatedCostUsd: 99 };
@@ -139,4 +148,34 @@ test("usage API includes round-trip counts and selects only the matching precedi
   assert.match(query, /SELECT MAX\(candidate.event_seq\)/);
   assert.match(query, /candidate.event_seq < usage_event.event_seq/);
   assert.match(query, /candidate.turn_id <=> usage_event.turn_id/);
+});
+
+test("usage API exposes per-round-trip metrics when the provider trace recorded them", () => {
+  const ledger = new Ledger({ requireReady: () => ({ prepare() {
+    return { all() { return [{
+      event_seq: 9,
+      turn_id: "request",
+      occurred_at_utc: "2026-11-01T12:00:00.000Z",
+      payload_json: JSON.stringify({ tokenUsage: { inputTokens: 13, outputTokens: 5, totalTokens: 18 } }),
+      response_model: "gpt-test",
+      response_payload_json: JSON.stringify({ protocolEvents: [{
+        type: "response.completed", model: "gpt-test-2026", serviceTier: "priority", status: "completed", elapsedMs: 432,
+        usage: { inputTokens: 13, cachedInputTokens: 3, cacheWriteTokens: 0, outputTokens: 5,
+          reasoningOutputTokens: 2, totalTokens: 18 },
+      }] }),
+    }]; } };
+  } }) });
+  assert.deepEqual(ledger.modelUsage()[0].calls, [{
+    callIndex: 1,
+    model: "gpt-test-2026",
+    serviceTier: "priority",
+    status: "completed",
+    elapsedMs: 432,
+    inputTokens: 13,
+    cachedInputTokens: 3,
+    cacheWriteTokens: 0,
+    outputTokens: 5,
+    reasoningOutputTokens: 2,
+    totalTokens: 18,
+  }]);
 });
