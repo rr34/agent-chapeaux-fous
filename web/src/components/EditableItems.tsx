@@ -557,7 +557,6 @@ interface CalendarDraft {
   isPoint: boolean;
   isAllDay: boolean;
   status: string;
-  planningPromptText: string;
   timeZone: string;
   recurrence: RecurrenceDraft;
 }
@@ -575,7 +574,6 @@ function calendarDraft(event: CalendarEvent): CalendarDraft {
     isPoint: !event.isAllDay && !endsAt,
     isAllDay: event.isAllDay,
     status: event.status || "active",
-    planningPromptText: event.planningPromptText || "",
     timeZone: event.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone,
     recurrence: recurrenceDraft(event.recurrenceRule, localDateTimeValue(event.startsAtUtc).slice(0, 10)),
   };
@@ -596,7 +594,6 @@ function newCalendarDraft(initialDate?: string): CalendarDraft {
     isPoint: true,
     isAllDay: false,
     status: "active",
-    planningPromptText: "",
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     recurrence: recurrenceDraft(null, date),
   };
@@ -662,7 +659,6 @@ export function CalendarEventEditor({ eventId, recurring = false, initialDate, o
           endsAtUtc: !draft.isAllDay && draft.isPoint ? null : localDateTimeIso(draft.endsAt),
           isAllDay: draft.isAllDay,
           status: draft.status,
-          planningPromptText: draft.planningPromptText,
           timeZone: draft.timeZone,
           recurrenceRule: buildRecurrenceRule(draft.recurrence),
         }),
@@ -731,7 +727,6 @@ export function CalendarEventEditor({ eventId, recurring = false, initialDate, o
         </div>
         <label>Location<input maxLength={1000} value={draft.location} onChange={(change) => setDraft({ ...draft, location: change.target.value })} /></label>
         <label>Notes (optional)<textarea rows={4} value={draft.description} onChange={(change) => setDraft({ ...draft, description: change.target.value })} /></label>
-        <label>Planning prompt<textarea rows={3} maxLength={10_000} value={draft.planningPromptText} onChange={(change) => setDraft({ ...draft, planningPromptText: change.target.value })} /></label>
         <RecurrenceEditor value={draft.recurrence} onChange={(recurrence) => setDraft({ ...draft, recurrence })} />
         <label>Status<select value={draft.status} onChange={(change) => setDraft({ ...draft, status: change.target.value })}><option value="active">Active</option><option value="archived">Archived</option></select></label>
       </>}
@@ -751,7 +746,6 @@ interface CalendarRoutineDraft {
   timeZone: string;
   isAllDay: boolean;
   recurrence: RecurrenceDraft;
-  planningPromptText: string;
 }
 
 function calendarRoutineDraft(routine: CalendarRoutine): CalendarRoutineDraft {
@@ -767,7 +761,6 @@ function calendarRoutineDraft(routine: CalendarRoutine): CalendarRoutineDraft {
     timeZone: routine.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone,
     isAllDay: routine.isAllDay,
     recurrence: recurrenceDraft(routine.recurrenceRule, startsAt.slice(0, 10), true),
-    planningPromptText: routine.planningPromptText || "",
   };
 }
 
@@ -783,7 +776,6 @@ function newCalendarRoutineDraft(): CalendarRoutineDraft {
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     isAllDay: false,
     recurrence: recurrenceDraft("FREQ=WEEKLY", anchorDate, true),
-    planningPromptText: "",
   };
 }
 
@@ -849,7 +841,6 @@ export function CalendarRoutineEditor({ routineId, onClose, onChanged }: {
           timeZone: draft.timeZone,
           isAllDay: draft.isAllDay,
           recurrenceRule: buildRecurrenceRule(draft.recurrence, true),
-          planningPromptText: draft.planningPromptText,
         }),
       });
       await onChanged();
@@ -895,7 +886,6 @@ export function CalendarRoutineEditor({ routineId, onClose, onChanged }: {
         <label>Time zone<input required maxLength={100} value={draft.timeZone} onChange={(change) => setDraft({ ...draft, timeZone: change.target.value })} /></label>
         <label>Location<input maxLength={1000} value={draft.location} onChange={(change) => setDraft({ ...draft, location: change.target.value })} /></label>
         <label>Description<textarea rows={4} maxLength={10_000} value={draft.description} onChange={(change) => setDraft({ ...draft, description: change.target.value })} /></label>
-        <label>Planning prompt<textarea rows={3} maxLength={10_000} value={draft.planningPromptText} onChange={(change) => setDraft({ ...draft, planningPromptText: change.target.value })} /></label>
         <RecurrenceEditor required showEnding={false} value={draft.recurrence} onChange={(recurrence) => setDraft({ ...draft, recurrence })} />
       </>}
       {error && <p className="inline-error" role="alert">{error}</p>}

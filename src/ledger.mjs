@@ -797,6 +797,13 @@ export class Ledger {
     const events = projectedEvents ?? this.trace(request.turnId);
     const terminal = [...events].reverse().find((event) => terminalEventTypes.includes(event.type));
     const response = [...events].reverse().find((event) => responseEventTypes.includes(event.type));
+    const smsDraftResult = [...events].reverse().find((event) => (
+      event.type === "tool.result"
+      && event.status === "complete"
+      && (event.name === "sms_draft_create" || event.payload?.name === "sms_draft_create")
+      && event.payload?.result?.status === "ready"
+      && event.payload?.result?.draft
+    ))?.payload?.result?.draft ?? null;
     const transcript = events.find((event) => ["transcription.complete", "voice.transcription.end"].includes(event.type));
     const usage = requestUsage(events);
     const compiled = includePresentation
@@ -884,6 +891,7 @@ export class Ledger {
         scriptSelectable: true,
       } : {}),
       ...(video ? { video } : {}),
+      ...(smsDraftResult ? { smsDraft: smsDraftResult } : {}),
       ...(events.some((event) => event.type === "conversation.started")
         ? { conversationStarted: true }
         : {}),

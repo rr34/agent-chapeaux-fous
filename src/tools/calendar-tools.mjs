@@ -6,7 +6,7 @@ import { localDateForInstant } from "../temporal-consistency.mjs";
 import { selectedFields } from "./record-fields.mjs";
 
 const toolDescriptions = Object.freeze({
-  "calendar_event_add": { "summary": "Create one native calendar event, defaulting to a start-only point event when the user gives no end or duration; also supports planning prompts, all-day events, and recurrence." },
+  "calendar_event_add": { "summary": "Create one native calendar event, defaulting to a start-only point event when the user gives no end or duration; also supports all-day events and recurrence." },
   "calendar_event_contact_link_set": { "summary": "Atomically link, change, or unlink up to 500 exact contact and concrete-calendar-event pairs with explicit roles; no invitation is sent and no to-do is changed." },
   "calendar_event_list": {
     "protocol": "agent-slayer.tool-description",
@@ -92,7 +92,6 @@ const calendarEventRecordSchema = {
     source_event_id: { description: "Ledger event that caused this calendar record to be created when known." },
     created_at_utc: { description: "UTC timestamp when this local calendar record was inserted." },
     updated_at_utc: { description: "UTC timestamp of the latest recorded change to this local calendar record." },
-    planning_prompt_text: { description: "Optional question the agent should proactively ask to help the user decide how this scheduled time will be used. Null means no proactive planning question is attached to this event." },
     linked_todos: {
       type: "array",
       description: "Personal to-dos associated with this event through the many-to-many join.",
@@ -117,7 +116,7 @@ const calendarEventFields = [
   "calendar_event_id", "calendar_routine_id", "routine_occurrence_key",
   "ical_uid", "ical_recurrence_id", "title", "description",
   "location_text", "starts_at_utc", "ends_at_utc", "time_zone", "is_all_day",
-  "status", "recurrence_rule", "planning_prompt_text", "source_event_id",
+  "status", "recurrence_rule", "source_event_id",
   "created_at_utc", "updated_at_utc",
 ];
 const contactFields = ["contact_id", "display_name", "birth_date"];
@@ -132,7 +131,7 @@ const calendarRoutineRecordSchema = {
     routine_title: { description: "Human-facing title copied as the compact identity display." },
     title: {}, description: {}, location_text: {},
     first_starts_at_utc: {}, first_ends_at_utc: {}, time_zone: {}, is_all_day: {},
-    recurrence_rule: {}, disabled_at_utc: {}, planning_prompt_text: {},
+    recurrence_rule: {}, disabled_at_utc: {},
     source_event_id: {}, created_at_utc: {}, updated_at_utc: {}, version: {},
   },
 };
@@ -258,7 +257,6 @@ function displayOccurrence(database, item) {
         occurrence_starts_at_utc: item.startsAtUtc,
         occurrence_ends_at_utc: item.endsAtUtc,
         is_generated_occurrence: true,
-        planning_state: null,
       },
     };
   }
@@ -271,7 +269,6 @@ function displayOccurrence(database, item) {
       occurrence_starts_at_utc: item.startsAtUtc,
       occurrence_ends_at_utc: item.endsAtUtc,
       is_generated_occurrence: Boolean(item.isGeneratedOccurrence),
-      planning_state: item.planningState ?? null,
     },
   };
 }
@@ -303,7 +300,7 @@ const nativeToolContracts = Object.freeze({
 });
 
 export function registerCalendarTools(
-  registry, store, organizer, ledger, searchCoordinator = null, planningService = null,
+  registry, store, organizer, ledger, searchCoordinator = null,
 ) {
   registry = registry.withCapability?.("calendar", toolDescriptions, nativeToolContracts) ?? registry;
   registry.register({
@@ -344,7 +341,7 @@ export function registerCalendarTools(
 
   registry.register({
     name: "calendar_event_list",
-    description: "List the user's calendar schedule in an explicit UTC range. Recurring events are expanded into computed occurrences and contact birthdays shown by the calendar are included. Stored records use exact calendar_events field names; occurrence_* fields describe the computed display instance, including whether event planning is needed, deferred, planned, or not applicable.",
+    description: "List the user's calendar schedule in an explicit UTC range. Recurring events are expanded into computed occurrences and contact birthdays shown by the calendar are included. Stored records use exact calendar_events field names and occurrence_* fields describe the computed display instance.",
     outputSchema: {
       type: "object",
       properties: {
@@ -359,11 +356,6 @@ export function registerCalendarTools(
                 type: "object",
                 description: "Computed schedule instance. occurrence_starts_at_utc and occurrence_ends_at_utc are UTC instants for this occurrence; stored event times describe its series.",
                 properties: {
-                  planning_state: {
-                    type: ["string", "null"],
-                    enum: ["needs_planning", "deferred", "planned", null],
-                    description: "Occurrence-specific planning state derived from the event's saved planning prompt and its current check-in resolution. Null means this occurrence has no planning prompt.",
-                  },
                 },
               },
             },
@@ -383,13 +375,7 @@ export function registerCalendarTools(
     async execute({ starts_at_utc: startsAtUtc, ends_at_utc: endsAtUtc }, context) {
       const database = store.requireReady();
       const listed = organizer.listCalendar({ from: startsAtUtc, to: endsAtUtc });
-      const occurrences = (planningService
-        ? planningService.withCalendarPlanningStates(listed)
-        : listed.map((item) => ({
-          ...item,
-          planningState: item.planningPromptText?.trim() ? "needs_planning" : null,
-        })))
-        .map((item) => displayOccurrence(database, item));
+      const occurrences = listed.map((item) => displayOccurrence(database, item));
       return {
         starts_at_utc: normalizedIso(startsAtUtc, "starts_at_utc", { required: true }),
         ends_at_utc: normalizedIso(endsAtUtc, "ends_at_utc", { required: true }),
@@ -401,7 +387,7 @@ export function registerCalendarTools(
 
   registry.register({
     name: "calendar_event_add",
-    description: "Create one native calendar event with an optional planning_prompt_text containing the exact question to ask about time that still needs planning. When the user supplies a start time without an end or duration, create a point event with ends_at_utc=null instead of inventing a duration. Use is_all_day=true when the user names a day without a specific time, with starts_at_utc representing local midnight and time_zone preserving that local date. For repetition, supply structured recurrence concepts including numbered weekdays or days of the month; never write RRULE syntax.",
+    description: "Create one native calendar event. When the user supplies a start time without an end or duration, create a point event with ends_at_utc=null instead of inventing a duration. Use is_all_day=true when the user names a day without a specific time, with starts_at_utc representing local midnight and time_zone preserving that local date. For repetition, supply structured recurrence concepts including numbered weekdays or days of the month; never write RRULE syntax.",
     outputSchema: {
       type: "object",
       properties: { event: calendarEventRecordSchema },
@@ -413,7 +399,6 @@ export function registerCalendarTools(
         title: { type: "string", minLength: 1, maxLength: 500, description: "Human-readable event name shown on the calendar." },
         description: { ...optionalText, description: "Complete available description or notes for the event." },
         location_text: { ...optionalText, description: "Human-readable physical, virtual, or meeting location." },
-        planning_prompt_text: { ...optionalText, description: "Optional question the agent should proactively ask to help the user decide how this scheduled time will be used. Null means no proactive planning question is attached to this event." },
         starts_at_utc: { type: "string", description: "UTC instant when the event starts." },
         ends_at_utc: { ...optionalText, description: "UTC instant when the event ends. Use null for a start-only point event when the user gives no end or duration; never invent a duration." },
         time_zone: { ...optionalText, description: "IANA or provider time-zone name used to display the event in its intended local time." },
@@ -450,15 +435,15 @@ export function registerCalendarTools(
         const inserted = database.prepare(`
           INSERT INTO calendar_events (
             title, description, location_text, starts_at_utc, ends_at_utc,
-            time_zone, is_all_day, status, recurrence_rule, planning_prompt_text
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            time_zone, is_all_day, status, recurrence_rule
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           RETURNING calendar_event_id
         `).get(
           normalizedText(input.title, "title", 500, { required: true }),
           normalizedText(input.description, "description", 10_000),
           normalizedText(input.location_text, "location_text", 1_000),
           startsAtUtc, endsAtUtc, timeZone, input.is_all_day ? 1 : 0, input.status,
-          recurrenceRule, normalizedText(input.planning_prompt_text, "planning_prompt_text", 10_000),
+          recurrenceRule,
         );
         let event = calendarEvent(database, inserted.calendar_event_id);
         const sourceEventId = writeEvent(database, ledger, context, {
@@ -483,7 +468,7 @@ export function registerCalendarTools(
 
   registry.register({
     name: "calendar_event_update",
-    description: "Update or cancel a stored calendar event with explicit scope. Use scope=event for a one-time event, an already materialized RRULE exception, or one concrete event generated by a calendar routine; a routine-generated event has calendar_routine_id and routine_occurrence_key but no recurrence_rule, and changing it does not rewrite its routine or sibling events. For an RRULE recurring master, scope=series is required: changes affect the whole series, including past and future computed occurrences; separately edited exceptions are not rewritten. Use calendar_event_occurrence_update with the RRULE series ID and original occurrence start to change just one computed occurrence. An exact composer selection carrying occurrenceStartsAtUtc already establishes one-occurrence scope. Choose series only when the user requests the whole series; if scope is otherwise unclear, offer just this occurrence or the whole series before changing anything. Null means leave a field unchanged; use an empty string to clear description, location_text, planning_prompt_text, or time_zone. An empty ends_at_utc clears the end and makes a timed event a start-only point in time. Change recurrence separately with calendar_event_recurrence_set.",
+    description: "Update or cancel a stored calendar event with explicit scope. Use scope=event for a one-time event, an already materialized RRULE exception, or one concrete event generated by a calendar routine; a routine-generated event has calendar_routine_id and routine_occurrence_key but no recurrence_rule, and changing it does not rewrite its routine or sibling events. For an RRULE recurring master, scope=series is required: changes affect the whole series, including past and future computed occurrences; separately edited exceptions are not rewritten. Use calendar_event_occurrence_update with the RRULE series ID and original occurrence start to change just one computed occurrence. An exact composer selection carrying occurrenceStartsAtUtc already establishes one-occurrence scope. Choose series only when the user requests the whole series; if scope is otherwise unclear, offer just this occurrence or the whole series before changing anything. Null means leave a field unchanged; use an empty string to clear description, location_text, or time_zone. An empty ends_at_utc clears the end and makes a timed event a start-only point in time. Change recurrence separately with calendar_event_recurrence_set.",
     outputSchema: {
       type: "object",
       properties: {
@@ -500,7 +485,6 @@ export function registerCalendarTools(
         title: { ...optionalText, description: "Human-readable event name shown on the calendar." },
         description: { ...optionalText, description: "Complete available description or notes for the event." },
         location_text: { ...optionalText, description: "Human-readable physical, virtual, or meeting location." },
-        planning_prompt_text: { ...optionalText, description: "Question to ask about this scheduled time. Null leaves it unchanged; an empty string clears it." },
         starts_at_utc: { ...optionalText, description: "UTC instant when the event starts." },
         ends_at_utc: { ...optionalText, description: "UTC instant when the event ends. Null leaves it unchanged; an empty string clears it and makes a timed event a start-only point in time." },
         time_zone: { ...optionalText, description: "IANA or provider time-zone name used to display the event in its intended local time." },
@@ -525,11 +509,6 @@ export function registerCalendarTools(
       if (input.title !== null) values.title = normalizedText(input.title, "title", 500, { required: true });
       if (input.description !== null) values.description = normalizedText(input.description, "description", 10_000);
       if (input.location_text !== null) values.location_text = normalizedText(input.location_text, "location_text", 1_000);
-      if (input.planning_prompt_text !== undefined && input.planning_prompt_text !== null) {
-        values.planning_prompt_text = normalizedText(
-          input.planning_prompt_text, "planning_prompt_text", 10_000,
-        );
-      }
       if (input.starts_at_utc !== null) {
         values.starts_at_utc = normalizedIso(input.starts_at_utc, "starts_at_utc", { required: true });
         validateCalendarTemporalTarget(values.starts_at_utc, context);
@@ -569,10 +548,10 @@ export function registerCalendarTools(
 
   registry.register({
     name: "calendar_event_occurrence_update",
-    description: "Move, cancel, rename, or comment on exactly one computed occurrence of an active RRULE recurring calendar-event master. Obtain the exact occurrence from calendar_event_list, an exact composer selection carrying occurrenceStartsAtUtc, or a source-linked catch-up question. Supply the RRULE series calendar_event_id and exact original occurrence_starts_at_utc; never use a moved start as the occurrence identity. The calendar service atomically excludes the original occurrence and creates or updates its materialized exception, preserving other occurrences, participants, time zone, and duration. Repeating the same request reuses the exception. A concrete event generated by a calendar routine is already an independently stored event, not an RRULE occurrence; update its returned calendar_event_id with calendar_event_update and scope=event. Null fields preserve current values; empty description clears it.",
+    description: "Move, cancel, rename, or comment on exactly one computed occurrence of an active RRULE recurring calendar-event master. Obtain the exact occurrence from calendar_event_list or an exact composer selection carrying occurrenceStartsAtUtc. Supply the RRULE series calendar_event_id and exact original occurrence_starts_at_utc; never use a moved start as the occurrence identity. The calendar service atomically excludes the original occurrence and creates or updates its materialized exception, preserving other occurrences, participants, time zone, and duration. Repeating the same request reuses the exception. A concrete event generated by a calendar routine is already an independently stored event, not an RRULE occurrence; update its returned calendar_event_id with calendar_event_update and scope=event. Null fields preserve current values; empty description clears it.",
     parameters: { type: "object", additionalProperties: false, properties: {
       calendar_event_id: { type: "integer", minimum: 1 },
-      occurrence_starts_at_utc: { type: "string", description: "Exact original UTC occurrence identity from the calendar, an exact composer occurrence selection, or a catch-up source_occurrence_key. Never pass a plan:-prefixed question key." },
+      occurrence_starts_at_utc: { type: "string", description: "Exact original UTC occurrence identity from the calendar or an exact composer occurrence selection." },
       starts_at_utc: { ...optionalText, description: "New UTC start, or null to preserve. Duration is preserved unless ends_at_utc is supplied." },
       ends_at_utc: optionalText,
       title: optionalText, description: optionalText,
@@ -782,7 +761,7 @@ export function registerCalendarTools(
       title: { type: "string", minLength: 1, maxLength: 500 }, description: optionalText,
       location_text: optionalText, starts_at_utc: { type: "string" }, ends_at_utc: optionalText,
       time_zone: { type: "string", minLength: 1 }, is_all_day: { type: "boolean" },
-      recurrence: recurrenceSchema, planning_prompt_text: optionalText,
+      recurrence: recurrenceSchema,
     }, required: ["title", "description", "location_text", "starts_at_utc", "ends_at_utc",
       "time_zone", "is_all_day", "recurrence"] },
     async execute(input, context) {
@@ -798,7 +777,6 @@ export function registerCalendarTools(
         title: input.title, description: input.description, location: input.location_text,
         startsAtUtc, endsAtUtc, timeZone, isAllDay: input.is_all_day,
         recurrenceRule: buildRecurrenceRule(input.recurrence),
-        planningPromptText: input.planning_prompt_text,
       }, { actorType: "tool", actorName: "calendar_routine_add", source: "agent-slayer",
         channel: context.channel, requestId: context.requestId, callId: context.callId });
       return { created: true, routine: calendarRoutine(store.requireReady(), result.routine.id),
@@ -808,7 +786,7 @@ export function registerCalendarTools(
 
   registry.register({
     name: "calendar_routine_update",
-    description: "Update or disable a reusable calendar routine. For an ordinary delete or remove request, disabled=true is the routine resource's reversible delete lifecycle: it stops generating new events while its definition and already generated calendar events remain. Report that literal retained-state effect rather than claiming permanent erasure. Null leaves every optional update field unchanged; use an empty string to clear description, location_text, ends_at_utc, or planning_prompt_text.",
+    description: "Update or disable a reusable calendar routine. For an ordinary delete or remove request, disabled=true is the routine resource's reversible delete lifecycle: it stops generating new events while its definition and already generated calendar events remain. Report that literal retained-state effect rather than claiming permanent erasure. Null leaves every optional update field unchanged; use an empty string to clear description, location_text, or ends_at_utc.",
     outputSchema: { type: "object", properties: { routine: calendarRoutineRecordSchema } },
     parameters: { type: "object", additionalProperties: false, properties: {
       calendar_routine_id: { type: "integer", minimum: 1 }, version: { type: "string" },
@@ -820,7 +798,6 @@ export function registerCalendarTools(
       time_zone: { ...optionalText, description: "New IANA time zone. Null leaves it unchanged; it cannot be cleared." },
       is_all_day: { type: ["boolean", "null"], description: "New all-day state. Null leaves it unchanged." },
       recurrence: { ...recurrenceSchema, description: "New structured recurrence. Null leaves it unchanged; a routine's recurrence cannot be cleared." },
-      planning_prompt_text: { ...optionalText, description: "New planning question. Null leaves it unchanged; an empty string clears it." },
       disabled: { type: ["boolean", "null"], description: "True disables the routine and stops new event generation; false re-enables it; null leaves it unchanged." },
     }, required: ["calendar_routine_id", "version"] },
     async execute(input, context) {
@@ -833,7 +810,6 @@ export function registerCalendarTools(
       if (input.time_zone != null) update.timeZone = validateTimeZone(input.time_zone);
       if (input.is_all_day != null) update.isAllDay = input.is_all_day;
       if (input.recurrence != null) update.recurrenceRule = buildRecurrenceRule(input.recurrence);
-      if (input.planning_prompt_text != null) update.planningPromptText = input.planning_prompt_text;
       if (input.disabled != null) update.disabled = input.disabled;
       const routine = organizer.updateCalendarRoutine(input.calendar_routine_id, update,
         { actorType: "tool", actorName: "calendar_routine_update", source: "agent-slayer",

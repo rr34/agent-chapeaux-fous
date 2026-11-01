@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CatchUpService } from "../src/catch-up.mjs";
 import { SlayerDatabase } from "../src/database.mjs";
 import { Ledger } from "../src/ledger.mjs";
 import { OrganizerStore } from "../src/organizer-store.mjs";
@@ -17,9 +16,8 @@ function calendarFixture(context) {
   const organizer = new OrganizerStore(temporary.target);
   context.after(() => organizer.close());
   const ledger = new Ledger(store);
-  const planning = new CatchUpService(store, organizer, ledger);
   const registry = new ToolRegistry();
-  registerCalendarTools(registry, store, organizer, ledger, null, planning);
+  registerCalendarTools(registry, store, organizer, ledger);
   return { store, organizer, ledger, registry };
 }
 
@@ -127,7 +125,6 @@ test("native calendar tools create, list, update, and cancel stored events", asy
     occurrence_starts_at_utc: "2026-08-18T19:00:00.000Z",
     occurrence_ends_at_utc: "2026-08-18T20:00:00.000Z",
     is_generated_occurrence: false,
-    planning_state: null,
   });
 
   const updated = await registry.execute("calendar_event_update", {
@@ -429,7 +426,6 @@ test("disabling a routine preserves fields passed as null and supports explicit 
       until_date: null,
       time_zone: "America/New_York",
     },
-    planning_prompt_text: "Which workout will you do?",
   });
 
   const disabled = await registry.execute("calendar_routine_update", {
@@ -443,13 +439,11 @@ test("disabling a routine preserves fields passed as null and supports explicit 
     time_zone: null,
     is_all_day: null,
     recurrence: null,
-    planning_prompt_text: null,
     disabled: true,
   });
   assert.equal(disabled.routine.description, "Start the day moving");
   assert.equal(disabled.routine.location_text, "Home gym");
   assert.equal(disabled.routine.first_ends_at_utc, "2026-09-14T10:45:00.000Z");
-  assert.equal(disabled.routine.planning_prompt_text, "Which workout will you do?");
   assert.ok(disabled.routine.disabled_at_utc);
 
   const cleared = await registry.execute("calendar_routine_update", {
@@ -458,55 +452,11 @@ test("disabling a routine preserves fields passed as null and supports explicit 
     description: "",
     location_text: "",
     ends_at_utc: "",
-    planning_prompt_text: "",
   });
   assert.equal(cleared.routine.description, null);
   assert.equal(cleared.routine.location_text, null);
   assert.equal(cleared.routine.first_ends_at_utc, null);
-  assert.equal(cleared.routine.planning_prompt_text, null);
   assert.ok(cleared.routine.disabled_at_utc);
-});
-
-test("calendar events store and clear an optional planning prompt", async (context) => {
-  const { registry } = calendarFixture(context);
-  const created = await registry.execute("calendar_event_add", {
-    title: "Time with the kids",
-    description: null,
-    location_text: null,
-    planning_prompt_text: "What should we do during this block?",
-    starts_at_utc: "2026-09-05T20:00:00.000Z",
-    ends_at_utc: "2026-09-06T00:00:00.000Z",
-    time_zone: "America/New_York",
-    is_all_day: false,
-    status: "confirmed",
-    recurrence: null,
-  });
-  assert.equal(created.event.planning_prompt_text, "What should we do during this block?");
-  const beforeClear = await registry.execute("calendar_event_list", {
-    starts_at_utc: "2026-09-05T00:00:00.000Z",
-    ends_at_utc: "2026-09-07T00:00:00.000Z",
-  });
-  assert.equal(beforeClear.occurrences[0].occurrence.planning_state, "needs_planning");
-
-  const updated = await registry.execute("calendar_event_update", {
-    calendar_event_id: created.event.calendar_event_id,
-    scope: "event",
-    title: null,
-    description: null,
-    location_text: null,
-    planning_prompt_text: "",
-    starts_at_utc: null,
-    ends_at_utc: null,
-    time_zone: null,
-    is_all_day: null,
-    status: null,
-  });
-  assert.equal(updated.event.planning_prompt_text, null);
-  const afterClear = await registry.execute("calendar_event_list", {
-    starts_at_utc: "2026-09-05T00:00:00.000Z",
-    ends_at_utc: "2026-09-07T00:00:00.000Z",
-  });
-  assert.equal(afterClear.occurrences[0].occurrence.planning_state, null);
 });
 
 test("calendar mutations reject a start instant outside the source-authorized weekday target", async (context) => {

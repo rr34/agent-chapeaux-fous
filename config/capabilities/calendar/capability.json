@@ -75,15 +75,6 @@
         "update": { "tool": "calendar_event_todo_link_set", "batch": { "mode": "array", "input": "/links" }, "note": "Set the exact edge kind without reconstructing sibling links." },
         "unlink": { "tool": "calendar_event_todo_link_set", "batch": { "mode": "array", "input": "/links" } }
       }
-    },
-    {
-      "id": "calendar.event_correspondence",
-      "kind": "relationship",
-      "title": "Calendar event correspondence provenance",
-      "summary": "A source-owned correspondence link retained with a calendar event.",
-      "management": "system",
-      "reason": "Correspondence ingestion owns this provenance edge; calendar CRUD must not rewrite imported provider evidence.",
-      "storage": { "table": "calendar_events_correspondence_join" }
     }
   ],
   "guidance": "guidance.md"

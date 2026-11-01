@@ -21,6 +21,13 @@ export type AgentRequest = {
   response: string | null;
   error: string | null;
   progress?: RequestProgress;
+  smsDraft?: {
+    contact_id: number;
+    contact_method_id: number;
+    contact_name: string;
+    address: string;
+    body: string;
+  };
 };
 
 export type Health = {

@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 58.
+-- Target: MariaDB 10.11, schema version 59.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -385,7 +385,6 @@ CREATE TABLE calendar_routines (
     is_all_day           TINYINT NOT NULL DEFAULT 0 COMMENT '1 when generated events represent calendar days rather than precise clock times; otherwise 0.',
     recurrence_rule      TEXT NOT NULL COMMENT 'RFC 5545 RRULE defining when concrete calendar events are generated.',
     disabled_at_utc      DATETIME(3) COMMENT 'UTC instant when this routine stopped generating events; null while enabled.',
-    planning_prompt_text TEXT COMMENT 'Optional proactive planning question copied to generated calendar events.',
     source_event_id      VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Activity event that created this calendar routine when known.',
     created_at_utc       DATETIME(3) NOT NULL
                          DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this routine was created.',
@@ -394,8 +393,7 @@ CREATE TABLE calendar_routines (
     KEY calendar_routines_start (first_starts_at_utc, disabled_at_utc),
     CONSTRAINT calendar_routines_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
     CONSTRAINT calendar_routines_all_day CHECK (is_all_day IN (0, 1)),
-    CONSTRAINT calendar_routines_ends CHECK (first_ends_at_utc IS NULL OR first_ends_at_utc >= first_starts_at_utc),
-    CONSTRAINT calendar_routines_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000)
+    CONSTRAINT calendar_routines_ends CHECK (first_ends_at_utc IS NULL OR first_ends_at_utc >= first_starts_at_utc)
 ) ENGINE=InnoDB COMMENT='Defines reusable temporal patterns that generate concrete calendar events in bounded ranges. Calendar routines never create to-dos and are never advanced by task completion. One row is one recurrence definition; generated occurrences are ordinary calendar_events rows linked by calendar_routine_id and routine_occurrence_key.';
 
 CREATE TABLE calendar_events (
@@ -407,9 +405,6 @@ CREATE TABLE calendar_events (
     -- location_text keywords: ["where is the event", "meeting location"]
     -- starts_at_utc keywords: ["when does it start", "start time", "appointment time"]
     -- ends_at_utc keywords: ["when does it end", "end time"]
-    -- planning_prompt_text synonyms: ["planning question"]
-    -- planning_prompt_text keywords: ["plan", "proactive question", "blank time"]
-    -- planning_prompt_text examples: ["What should we do during these four hours with the kids?"]
     -- fk:calendar_events_source meaning: Connects this calendar event to the observable event identified by source_event_id.
     -- fk:calendar_events_source cardinality: Each calendar event may reference zero or one observable event; one referenced record may be used by many calendar event records.
     -- fk:calendar_events_source importantRules: ["Deleting the referenced row preserves this row and clears the reference."]
@@ -435,7 +430,6 @@ CREATE TABLE calendar_events (
     created_at_utc      DATETIME(3) NOT NULL
                         DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this local calendar record was inserted. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     updated_at_utc      DATETIME(3) COMMENT 'UTC timestamp of the latest recorded change to this local calendar record. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
-    planning_prompt_text TEXT COMMENT 'Optional question the agent should proactively ask to help the user decide how this scheduled time will be used. Format: Plain text question. Null means no proactive planning question is attached to this event.',
     -- ical_single_guard: Generated iCalendar UID used only for a non-recurring imported event so that the same single event cannot be stored twice. Format: Binary SHA-independent copy of ical_uid; null for recurrence instances. Database-generated value used by calendar_events_ical_single; applications must not write it.
     ical_single_guard   VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin
                         AS (IF(ical_uid IS NOT NULL AND ical_recurrence_id IS NULL, ical_uid, NULL)) PERSISTENT,
@@ -447,9 +441,8 @@ CREATE TABLE calendar_events (
     CONSTRAINT calendar_events_routine FOREIGN KEY (calendar_routine_id) REFERENCES calendar_routines(calendar_routine_id) ON DELETE RESTRICT,
     CONSTRAINT calendar_events_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
     CONSTRAINT calendar_events_all_day CHECK (is_all_day IN (0, 1)),
-    CONSTRAINT calendar_events_routine_pair CHECK ((calendar_routine_id IS NULL) = (routine_occurrence_key IS NULL)),
-    CONSTRAINT calendar_events_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000)
-) ENGINE=InnoDB COMMENT='Stores every concrete commitment and scheduled event in the user''s one authoritative agent calendar. A row may be independent, imported, or generated from calendar_routines. starts_at_utc and ends_at_utc are UTC instants; time_zone preserves the intended display zone. routine_occurrence_key preserves idempotent generation identity while edits may move the concrete event. planning_prompt_text is optional. Sensitivity: Contains the user''s private schedule, locations, participants, and imported calendar identifiers.';
+    CONSTRAINT calendar_events_routine_pair CHECK ((calendar_routine_id IS NULL) = (routine_occurrence_key IS NULL))
+) ENGINE=InnoDB COMMENT='Stores every concrete commitment and scheduled event in the user''s one authoritative agent calendar. A row may be independent, imported, or generated from calendar_routines. starts_at_utc and ends_at_utc are UTC instants; time_zone preserves the intended display zone. routine_occurrence_key preserves idempotent generation identity while edits may move the concrete event. Sensitivity: Contains the user''s private schedule, locations, participants, and imported calendar identifiers.';
 
 CREATE TABLE calendar_event_exclusions (
     -- sourceOfTruth: true
@@ -652,28 +645,6 @@ CREATE TABLE calendar_events_todo_join (
     CONSTRAINT calendar_events_todo_join_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,
     CONSTRAINT calendar_events_todo_join_task FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE CASCADE
 ) ENGINE=InnoDB COMMENT='Links concrete calendar events to personal to-dos. Either side may have many links. Deleting either parent removes only its association rows. Calendar events own all temporal facts; to-dos own work and completion state.';
-
-CREATE TABLE catch_up_questions (
-    question_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable identifier for a generated question about exactly one existing domain record.',
-    calendar_event_id BIGINT UNSIGNED COMMENT 'Actual calendar event or recurring series being reviewed. Exactly one source foreign key must be present; occurrence_key distinguishes instances of a series.',
-    tracker_id BIGINT UNSIGNED COMMENT 'Actual journal tracker whose current scheduled logging period needs an observation.',
-    occurrence_key VARCHAR(160) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Stable source-owned identity: event for a one-time event, an ISO UTC calendar occurrence, or a journal logging-period start.',
-    source_version CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'SHA-256 of material source data used to generate this question. Prevents stale answers and reopens questions when the relevant source data changes.',
-    question_text VARCHAR(2000) NOT NULL COMMENT 'Code-generated question grounded in the linked source record. This is data, never an instruction or permission grant.',
-    due_at_utc DATETIME(3) NOT NULL COMMENT 'Source-derived instant from which this question is eligible. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
-    ask_after DATETIME(3) COMMENT 'Explicit user deferral. A question is eligible only after both due_at_utc and this instant. Null means no deferral.',
-    resolved_at DATETIME(3) COMMENT 'When this occurrence was addressed or reconciled as no longer requiring an answer. Null means unresolved; this does not replace the source record status.',
-    comment TEXT COMMENT 'Optional user-supplied outcome or explanation about this source occurrence. No transcript is needed to interpret resolution.',
-    version BIGINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Optimistic concurrency version incremented whenever question state changes.',
-    PRIMARY KEY (question_id),
-    UNIQUE KEY catch_up_event_occurrence (calendar_event_id, occurrence_key),
-    UNIQUE KEY catch_up_tracker_period (tracker_id, occurrence_key),
-    KEY catch_up_due (resolved_at, due_at_utc, ask_after),
-    CONSTRAINT catch_up_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events (calendar_event_id) ON DELETE CASCADE,
-    CONSTRAINT catch_up_tracker FOREIGN KEY (tracker_id) REFERENCES journal2_trackers (tracker_id) ON DELETE CASCADE,
-    CONSTRAINT catch_up_one_source CHECK ((calendar_event_id IS NOT NULL) + (tracker_id IS NOT NULL) = 1),
-    CONSTRAINT catch_up_question_text CHECK (CHAR_LENGTH(TRIM(question_text)) > 0)
-) ENGINE=InnoDB COMMENT='On-demand questions generated from calendar occurrences and journal tracker periods. To-dos are intentionally non-temporal and do not independently create catch-up deadlines. Source foreign keys and live domain data drive questions and reconciliation; conversations are only an interface. Sensitivity: Contains private commitments and user comments.';
 
 CREATE TABLE reminders (
     -- sourceOfTruth: true
@@ -1203,7 +1174,7 @@ CREATE SQL SECURITY INVOKER VIEW object_relationship_edges AS
 -- owning reads. This live projection is not a relationship-set snapshot and
 -- never authorizes writes.
 -- sourceOfTruth: false
--- derivedFrom: ["activity_event_files_join", "contacts_tags_join", "calendar_event_contacts_join", "payment_invoice_line_receipts_join", "calendar_events_todo_join", "todo_content_join", "physical_items_todo_join", "physical_items_content_join", "physical_items_files_join", "physical_items_contacts_join", "video_script_sources_join", "todo_correspondence_join", "calendar_events_correspondence_join", "correspondence_files_join", "correspondence_participants_join", "todo_personal", "physical_items", "payment_invoices", "payment_invoice_lines", "journal2_trackers", "journal3_entries", "calendar_events", "catch_up_questions", "content_items", "video_jobs"]
+-- derivedFrom: ["activity_event_files_join", "contacts_tags_join", "calendar_event_contacts_join", "payment_invoice_line_receipts_join", "calendar_events_todo_join", "todo_content_join", "physical_items_todo_join", "physical_items_content_join", "physical_items_files_join", "physical_items_contacts_join", "video_script_sources_join", "todo_correspondence_join", "calendar_events_correspondence_join", "correspondence_files_join", "correspondence_participants_join", "todo_personal", "physical_items", "payment_invoices", "payment_invoice_lines", "journal2_trackers", "journal3_entries", "calendar_events", "content_items", "video_jobs"]
 -- from_type: Domain-qualified type of the lookup endpoint for this directed row.
 -- from_id: Text-preserving local or provider identifier of the lookup endpoint; first-class consumers restore the declared scalar type during hydration.
 -- relationship_type: Stable application relationship name shared by both directions of one edge.
@@ -1485,24 +1456,6 @@ WITH canonical_edges AS (
 
   UNION ALL
   SELECT
-    'calendar.event', CAST(question.calendar_event_id AS CHAR), 'event-question',
-    'catch_up.question', CAST(question.question_id AS CHAR), 'review',
-    'catch_up_questions', JSON_OBJECT('question_id', question.question_id),
-    NULL, NULL, NULL, JSON_OBJECT()
-  FROM catch_up_questions AS question
-  WHERE question.calendar_event_id IS NOT NULL
-
-  UNION ALL
-  SELECT
-    'journal.tracker', CAST(question.tracker_id AS CHAR), 'tracker-question',
-    'catch_up.question', CAST(question.question_id AS CHAR), 'review',
-    'catch_up_questions', JSON_OBJECT('question_id', question.question_id),
-    NULL, NULL, NULL, JSON_OBJECT()
-  FROM catch_up_questions AS question
-  WHERE question.tracker_id IS NOT NULL
-
-  UNION ALL
-  SELECT
     'video.content_group', CAST(content.content_group_id AS CHAR), 'content-group',
     'video.content_item', CAST(content.content_id AS CHAR), 'membership',
     'content_items', JSON_OBJECT('content_id', content.content_id),
@@ -1749,7 +1702,6 @@ CREATE VIEW upcoming_calendar AS
 -- source_event_id inheritsFrom: calendar_events.source_event_id
 -- created_at_utc inheritsFrom: calendar_events.created_at_utc
 -- updated_at_utc inheritsFrom: calendar_events.updated_at_utc
--- planning_prompt_text inheritsFrom: calendar_events.planning_prompt_text
 -- ical_single_guard inheritsFrom: calendar_events.ical_single_guard
 
 SELECT * FROM calendar_events
@@ -1861,4 +1813,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 58, 'Chapeaux Fous MariaDB database');
+VALUES (1, 59, 'Chapeaux Fous MariaDB database');

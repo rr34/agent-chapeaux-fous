@@ -354,6 +354,21 @@ async function assertVersion32Integrity(connection, databaseName) {
 }
 
 export async function assertMigrationSpecificIntegrity(connection, migration, databaseName) {
+  if (migration.version === 59) {
+    const [retiredTables] = await connection.query(`SELECT TABLE_NAME FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'catch_up_questions'`, [databaseName]);
+    if (retiredTables.length) throw new Error("Migration 0059 left catch_up_questions in place");
+    const [retiredColumns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME
+      FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ?
+        AND TABLE_NAME IN ('calendar_events', 'calendar_routines')
+        AND COLUMN_NAME = 'planning_prompt_text'`, [databaseName]);
+    if (retiredColumns.length) throw new Error("Migration 0059 left calendar planning prompts in place");
+    const [views] = await connection.query(`SELECT VIEW_DEFINITION FROM information_schema.VIEWS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'object_relationship_edges'`, [databaseName]);
+    if (views.length !== 1 || /catch_up_questions|catch_up\.question/u.test(views[0].VIEW_DEFINITION)) {
+      throw new Error("Migration 0059 did not retire Check-in object-network edges");
+    }
+  }
   if (migration.version === 58) {
     const [tables] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE
       FROM information_schema.TABLES

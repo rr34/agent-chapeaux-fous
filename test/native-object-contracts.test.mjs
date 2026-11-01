@@ -13,7 +13,7 @@ import {
 } from "../src/object-references.mjs";
 import { requestCapabilityCatalog } from "../src/request-compiler.mjs";
 import { registerCalendarTools } from "../src/tools/calendar-tools.mjs";
-import { registerCatchUpTools } from "../src/tools/catch-up-tools.mjs";
+import { registerCorrespondenceTools } from "../src/tools/correspondence-tools.mjs";
 import { registerContactTools } from "../src/tools/contact-tools.mjs";
 import { registerFileTools } from "../src/tools/file-tools.mjs";
 import { registerJournalTools } from "../src/tools/journal-tools.mjs";
@@ -33,7 +33,7 @@ function nativeRegistry() {
   registerPaymentTools(registry, null, null);
   registerJournalTools(registry, null, null);
   registerProfileFactTools(registry, null);
-  registerCatchUpTools(registry, null);
+  registerCorrespondenceTools(registry, null);
   registerFileTools(registry, {
     ledger: null, searchCoordinator: null, mediaRoot: "/tmp", maximumTextBytes: 1,
   });
@@ -139,7 +139,7 @@ test("native authoritative reads publish the same Object Description contract as
   assert.deepEqual(objectTypes(definitions.get("calendar_routine_list")), ["calendar.routine"]);
   assert.deepEqual(objectTypes(definitions.get("file_get")), ["files.file"]);
   assert.deepEqual(objectTypes(definitions.get("profile_fact_list")), ["profile.fact"]);
-  assert.deepEqual(objectTypes(definitions.get("catch_up_list")), ["catch_up.question"]);
+  assert.deepEqual(objectTypes(definitions.get("correspondence_list")), ["correspondence.item"]);
   assert.deepEqual(objectTypes(definitions.get("email_account_list")), ["email.account"]);
   assert.deepEqual(objectTypes(definitions.get("email_mailbox_list")), ["email.mailbox"]);
   assert.deepEqual(objectTypes(definitions.get("email_identity_list")), ["email.identity"]);
@@ -164,7 +164,7 @@ test("native authoritative reads publish the same Object Description contract as
   assert.ok(catalogTypes.includes("todos.personal_task:todo_list"));
   assert.ok(catalogTypes.includes("payments.invoice:payment_invoice_list"));
   assert.ok(catalogTypes.includes("files.file:file_get"));
-  assert.ok(catalogTypes.includes("catch_up.question:catch_up_list"));
+  assert.ok(catalogTypes.includes("correspondence.item:correspondence_list"));
   assert.ok(catalogTypes.includes("email.message:email_search"));
   assert.ok(catalogTypes.includes("email.blob:email_get"));
   assert.ok(catalogTypes.includes("video.script:video_script_get"));
@@ -290,9 +290,6 @@ test("native ID consumers publish bindings for singleton and batch inputs", () =
   ]);
   assert.deepEqual(bindings("profile_fact_set"), [
     { path: "/replaces_profile_fact_id", objectType: "profile.fact", value: "id", role: "subject" },
-  ]);
-  assert.deepEqual(bindings("catch_up_question_update"), [
-    { path: "/question_id", objectType: "catch_up.question", value: "id", role: "subject" },
   ]);
   assert.deepEqual(bindings("email_update"), [
     { path: "/account_id", objectType: "email.account", value: "id", role: "subject" },

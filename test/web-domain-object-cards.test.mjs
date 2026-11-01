@@ -12,7 +12,7 @@ test("every visible first-class domain owns a named card component", () => {
     "ContactCard.tsx", "TodoCard.tsx", "TodoGroupCard.tsx", "CalendarEventCard.tsx",
     "CalendarRoutineCard.tsx", "FileCard.tsx", "LibraryItemCard.tsx", "LibraryGroupCard.tsx",
     "VideoScriptCard.tsx", "JournalTrackerCard.tsx", "JournalEntryCard.tsx",
-    "JournalGroupCard.tsx", "InvoiceCard.tsx", "ProfileFactCard.tsx", "CheckInQuestionCard.tsx",
+    "JournalGroupCard.tsx", "InvoiceCard.tsx", "ProfileFactCard.tsx", "CorrespondenceCard.tsx",
     "PhysicalItemCard.tsx", "PhysicalItemGroupCard.tsx",
     "CompactObjectCard.tsx", "FullObjectCard.tsx", "ObjectCardButtons.tsx", "ObjectCardIcons.tsx",
     "ObjectCardSequence.tsx",
@@ -32,7 +32,7 @@ test("the network dispatches to domain cards instead of rendering its own object
   assert.match(dispatcher, /case "contacts\.contact": return <ContactCard/);
   for (const domainType of [
     "todos.todo_group", "payments.invoice", "journal.group", "journal.tracker", "journal.entry",
-    "calendar.event", "calendar.routine", "files.file", "profile.fact", "catch_up.question",
+    "calendar.event", "calendar.routine", "files.file", "profile.fact", "correspondence.item",
     "video.script", "video.content_group", "video.content_item",
   ]) assert.match(dispatcher, new RegExp(`case "${domainType.replaceAll(".", "\\.")}": return <`));
   assert.match(editable, /<TodoCard/);
@@ -88,10 +88,8 @@ test("calendar event cards keep notes and event details behind the shared expans
   const compact = fs.readFileSync(path.join(cardsRoot, "CompactObjectCard.tsx"), "utf8");
   const styles = fs.readFileSync(path.join(root, "web/src/styles.css"), "utf8");
   assert.match(compact, /compactDetails && <div className="compact-object-details">/);
-  assert.match(calendar, /Needs planning/);
   assert.match(calendar, /linked.*to-do/);
   assert.match(calendar, /<h4>Contacts<\/h4>/);
-  assert.match(calendar, /<h4>Planning prompt<\/h4>/);
   assert.match(calendar, /event\?: CalendarEvent/);
   assert.match(calendar, /calendarEventTiming\(event, props\.timeZone\)/);
   assert.match(calendar, /topEdge=\{timing \? <time className="calendar-event-time calendar-event-time--start"/);
@@ -173,7 +171,7 @@ test("interactive views do not retain pre-reusable or view-scoped card styling",
     "first-class-object-", "compact-object-", "contact-card", "todo-card", "todo-group-card",
     "calendar-event-card", "calendar-routine-card", "file-card", "library-item-card",
     "library-group-card", "video-script-card", "journal-tracker-card", "journal-entry-card",
-    "journal-group-card", "invoice-card", "profile-fact-card", "check-in-question-card",
+    "journal-group-card", "invoice-card", "profile-fact-card", "correspondence-card",
     "physical-item-card", "physical-item-group-card",
   ];
   for (const line of styles.split("\n")) {

@@ -92,7 +92,7 @@ test("the object network keeps exact bindings and presents real connected object
     ref: "agent-slayer://calendar-events/9", display: "Kitchen walk-through", removable: true,
   }]);
   assert.deepEqual(graph.connectableTypes,
-    ["contacts.contact", "calendar.event", "video.content_item", "things.physical_item"]);
+    ["contacts.contact", "calendar.event", "video.content_item", "things.physical_item", "correspondence.item"]);
   assert.equal("relationshipLabel" in graph.connections[1], false);
   assert.throws(() => service.graph({ ...todoIdentity, ref: "agent-slayer://todos/8" }),
     /does not match its owning source/u);

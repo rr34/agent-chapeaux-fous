@@ -677,7 +677,6 @@ function publicCalendarEvent(row) {
     isAllDay: Boolean(row.is_all_day),
     status: visibleCalendarStorageStatuses.includes(row.status) ? "active" : "archived",
     recurrenceRule: row.recurrence_rule,
-    planningPromptText: row.planning_prompt_text ?? null,
     createdAtUtc: row.created_at_utc,
     updatedAtUtc: row.updated_at_utc,
     version: row.updated_at_utc ?? row.created_at_utc,
@@ -903,7 +902,6 @@ function publicRoutine(row) {
     timeZone: row.time_zone,
     recurrenceRule: row.recurrence_rule,
     isAllDay: Boolean(row.is_all_day),
-    planningPromptText: row.planning_prompt_text ?? null,
     disabledAtUtc: row.disabled_at_utc ?? null,
     sourceEventId: row.source_event_id ?? null,
     createdAtUtc: row.created_at_utc,
@@ -2458,7 +2456,7 @@ export class OrganizerStore {
     }
 
     if (strictBounds && ordinary.length + recurring.length > 2000) {
-      throw new OrganizerInputError("Calendar exceeded 2000 occurrences; narrow the catch-up date range.");
+      throw new OrganizerInputError("Calendar exceeded 2000 occurrences; narrow the date range.");
     }
     return attachCalendarEventLinks(this.database, [...ordinary, ...recurring, ...birthdays]
       .sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc) || String(left.id).localeCompare(String(right.id)))
@@ -2573,7 +2571,6 @@ export class OrganizerStore {
       timeZone: timeZone(input?.timeZone) ?? defaultCalendarTimeZone,
       isAllDay: Boolean(booleanInteger(input?.isAllDay)),
       recurrenceRule: optionalText(input?.recurrenceRule, "recurrenceRule", 2000),
-      planningPromptText: optionalText(input?.planningPromptText, "planningPromptText", 10_000),
     };
     if (!routine.recurrenceRule) throw new OrganizerInputError("A calendar routine requires a recurrence rule.");
     if (routine.endsAtUtc && routine.endsAtUtc < routine.startsAtUtc) {
@@ -2589,12 +2586,12 @@ export class OrganizerStore {
       const inserted = this.database.prepare(`
         INSERT INTO calendar_routines (
           title, description, location_text, first_starts_at_utc, first_ends_at_utc,
-          time_zone, is_all_day, recurrence_rule, planning_prompt_text
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          time_zone, is_all_day, recurrence_rule
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         routine.title, routine.description, routine.location, routine.startsAtUtc,
         routine.endsAtUtc, routine.timeZone, routine.isAllDay ? 1 : 0,
-        routine.recurrenceRule, routine.planningPromptText,
+        routine.recurrenceRule,
       );
       const id = Number(inserted.lastInsertRowid);
       const sourceEventId = this.#activity({
@@ -2632,7 +2629,6 @@ export class OrganizerStore {
       timeZone: input.timeZone === undefined ? before.timeZone : (timeZone(input.timeZone) ?? defaultCalendarTimeZone),
       isAllDay: input.isAllDay === undefined ? before.isAllDay : Boolean(booleanInteger(input.isAllDay)),
       recurrenceRule: input.recurrenceRule === undefined ? before.recurrenceRule : optionalText(input.recurrenceRule, "recurrenceRule", 2000),
-      planningPromptText: input.planningPromptText === undefined ? before.planningPromptText : optionalText(input.planningPromptText, "planningPromptText", 10_000),
       disabledAtUtc: input.disabled === undefined ? before.disabledAtUtc : (input.disabled ? new Date().toISOString() : null),
     };
     if (!after.recurrenceRule) throw new OrganizerInputError("A calendar routine requires a recurrence rule.");
@@ -2642,7 +2638,7 @@ export class OrganizerStore {
     try { previewRoutineOccurrenceStarts(after); } catch {
       throw new OrganizerInputError("recurrenceRule must be a valid RRULE.");
     }
-    const fields = ["title", "description", "location", "startsAtUtc", "endsAtUtc", "timeZone", "isAllDay", "recurrenceRule", "planningPromptText", "disabledAtUtc"];
+    const fields = ["title", "description", "location", "startsAtUtc", "endsAtUtc", "timeZone", "isAllDay", "recurrenceRule", "disabledAtUtc"];
     const changes = changedFields(before, after, fields);
     if (Object.keys(changes).length === 0) return before;
     const updatedAt = new Date().toISOString();
@@ -2652,11 +2648,11 @@ export class OrganizerStore {
         UPDATE calendar_routines
         SET title = ?, description = ?, location_text = ?, first_starts_at_utc = ?,
             first_ends_at_utc = ?, time_zone = ?, is_all_day = ?, recurrence_rule = ?,
-            disabled_at_utc = ?, planning_prompt_text = ?, updated_at_utc = ?
+            disabled_at_utc = ?, updated_at_utc = ?
         WHERE calendar_routine_id = ? AND COALESCE(updated_at_utc, created_at_utc) = ?
       `).run(after.title, after.description, after.location, after.startsAtUtc, after.endsAtUtc,
         after.timeZone, after.isAllDay ? 1 : 0, after.recurrenceRule, after.disabledAtUtc,
-        after.planningPromptText, updatedAt, id, before.version);
+        updatedAt, id, before.version);
       if (result.changes !== 1) throw new OrganizerInputError("This calendar routine changed while you were saving it. Refresh and try again.", 409);
       this.#activity({ eventType: "calendar.routine.updated", status: "complete",
         name: "Calendar routine updated", subjectType: "calendar_routine", subjectId: id,
@@ -2711,7 +2707,6 @@ export class OrganizerStore {
           isAllDay: routine.isAllDay,
           recurrenceRule: routine.recurrenceRule,
           timeZone: routine.timeZone,
-          planningPromptText: routine.planningPromptText,
         });
       }
     }
@@ -2767,13 +2762,13 @@ export class OrganizerStore {
           const inserted = this.database.prepare(`
             INSERT INTO calendar_events (
               calendar_routine_id, routine_occurrence_key, title, description, location_text,
-              starts_at_utc, ends_at_utc, time_zone, is_all_day, status, planning_prompt_text
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)
+              starts_at_utc, ends_at_utc, time_zone, is_all_day, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed')
           `).run(
             routine.calendar_routine_id, occurrenceKey, routine.title, routine.description,
             routine.location_text, occurrenceKey,
             duration == null ? null : new Date(scheduled.getTime() + duration).toISOString(),
-            routine.time_zone, routine.is_all_day, routine.planning_prompt_text,
+            routine.time_zone, routine.is_all_day,
           );
           createdIds.push(Number(inserted.lastInsertRowid));
         }
@@ -4478,7 +4473,6 @@ export class OrganizerStore {
       isAllDay: booleanInteger(input?.isAllDay),
       status: enumValue(input?.status, calendarStatuses, "status", "active"),
       recurrenceRule: optionalText(input?.recurrenceRule, "recurrenceRule", 2000),
-      planningPromptText: optionalText(input?.planningPromptText, "planningPromptText", 10_000),
     };
     if (event.endsAtUtc && event.endsAtUtc < event.startsAtUtc) {
       throw new OrganizerInputError("endsAtUtc cannot be earlier than startsAtUtc.");
@@ -4496,12 +4490,12 @@ export class OrganizerStore {
       const result = this.database.prepare(`
         INSERT INTO calendar_events (
           title, description, location_text, starts_at_utc, ends_at_utc,
-          time_zone, is_all_day, status, recurrence_rule, planning_prompt_text
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          time_zone, is_all_day, status, recurrence_rule
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         event.title, event.description, event.location, event.startsAtUtc, event.endsAtUtc,
         event.timeZone, event.isAllDay, event.status === "active" ? "confirmed" : "cancelled",
-        event.recurrenceRule, event.planningPromptText,
+        event.recurrenceRule,
       );
       const id = Number(result.lastInsertRowid);
       const created = this.getCalendar(id);
@@ -4584,10 +4578,10 @@ export class OrganizerStore {
       } else {
         eventId = Number(this.database.prepare(`INSERT INTO calendar_events
           (ical_uid, ical_recurrence_id, title, description, location_text, starts_at_utc, ends_at_utc,
-           time_zone, is_all_day, status, planning_prompt_text, updated_at_utc)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING calendar_event_id`)
+           time_zone, is_all_day, status, updated_at_utc)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING calendar_event_id`)
           .get(uid, occurrence, title, description, master.location_text, starts, ends,
-            master.time_zone, master.is_all_day, status, master.planning_prompt_text, now).calendar_event_id);
+            master.time_zone, master.is_all_day, status, now).calendar_event_id);
         this.database.prepare(`INSERT INTO calendar_event_contacts_join (calendar_event_id, contact_id, participant_role, response_status)
           SELECT ?, contact_id, participant_role, response_status FROM calendar_event_contacts_join WHERE calendar_event_id = ?`).run(eventId, id);
       }
@@ -4989,9 +4983,6 @@ export class OrganizerStore {
       recurrenceRule: input.recurrenceRule === undefined
         ? before.recurrenceRule
         : optionalText(input.recurrenceRule, "recurrenceRule", 2000),
-      planningPromptText: input.planningPromptText === undefined
-        ? before.planningPromptText
-        : optionalText(input.planningPromptText, "planningPromptText", 10_000),
     };
     if (after.endsAtUtc && after.endsAtUtc < after.startsAtUtc) {
       throw new OrganizerInputError("endsAtUtc cannot be earlier than startsAtUtc.");
@@ -5005,7 +4996,7 @@ export class OrganizerStore {
     }
     const changes = changedFields(before, after, [
       "title", "description", "location", "startsAtUtc", "endsAtUtc", "timeZone", "isAllDay", "status",
-      "recurrenceRule", "planningPromptText",
+      "recurrenceRule",
     ]);
     if (Object.keys(changes).length === 0) return before;
     const updatedAt = new Date().toISOString();
@@ -5016,14 +5007,14 @@ export class OrganizerStore {
         UPDATE calendar_events
         SET title = ?, description = ?, location_text = ?, starts_at_utc = ?, ends_at_utc = ?,
             time_zone = ?, is_all_day = ?, status = ?, recurrence_rule = ?,
-            planning_prompt_text = ?, updated_at_utc = ?
+            updated_at_utc = ?
         WHERE calendar_event_id = ?
           AND COALESCE(updated_at_utc, created_at_utc) = ?
       `).run(
         after.title, after.description, after.location, after.startsAtUtc, after.endsAtUtc,
         after.timeZone, after.isAllDay ? 1 : 0,
         after.status === "active" ? "confirmed" : "cancelled", after.recurrenceRule,
-        after.planningPromptText, updatedAt, id, before.version,
+        updatedAt, id, before.version,
       );
       if (result.changes !== 1) {
         throw new OrganizerInputError("This calendar event changed while you were saving it. Refresh and try again.", 409);

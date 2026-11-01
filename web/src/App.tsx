@@ -7,6 +7,7 @@ import { RoutineScreen } from "./components/RoutineCalendar";
 import { ObjectMentionInput, ObjectMentionText } from "./components/ObjectMentionInput";
 import { CalendarEventEditor, ContactEditor, JournalEntryEditor, JournalTrackerEditor, LibraryContentEditor, PhysicalItemEditor, TodoEditor, TodoItem } from "./components/EditableItems";
 import { TrackerSchedule } from "./components/TrackerSchedule";
+import { AccountScreen, CorrespondenceScreen, MusicScreen, useWebMusicPlayer } from "./components/AdditionalScreens";
 import { SectionFilter } from "./components/SectionFilter";
 import { Markdown } from "./components/Markdown";
 import { ObjectSelectionProvider, objectSelectionKey } from "./components/ObjectSelectionContext";
@@ -46,8 +47,8 @@ import hatOutlineUrl from "./assets/logo-outline-hat.svg";
 
 const navigation = [
   ["agent", "Agent"], ["search", "Search"], ["hats", "Hats"], ["routine", "Routine"], ["calendar", "Calendar"],
-  ["journal", "Journal"], ["contacts", "Contacts"], ["things", "Things"], ["todos", "To do"],
-  ["files", "Files"], ["content", "Library"], ["payments", "Payments"], ["ai-usage", "AI Usage"],
+  ["journal", "Journal"], ["contacts", "Contacts"], ["correspondence", "Correspondence"], ["things", "Things"], ["todos", "To do"],
+  ["files", "Files"], ["music", "Music"], ["content", "Library"], ["payments", "Payments"], ["account", "Account"],
   ["video-scripts", "Video Scripts"],
 ] as const;
 
@@ -1362,7 +1363,7 @@ function AgentScreen({
           <p className="eyebrow">Turn brief</p><strong>{request.turnBriefApproval.objective || request.turnBriefApproval.summary}</strong><p>{request.turnBriefApproval.summary}</p>
           <div><button className="button" onClick={() => void decide(request, "continue")}>Continue</button><button className="button button--quiet" onClick={() => void decide(request, "cancel")}>Cancel</button></div>
         </div>}
-        {request.response && <div className="request-response"><span>Time v3 Agent</span><Markdown className="request-response-markdown" source={request.response} /></div>}
+        {request.response && <div className="request-response"><span>Time v3 Agent</span><Markdown className="request-response-markdown" source={request.response} />{request.smsDraft && <div className="sms-draft-actions"><button className="button button--quiet" onClick={() => void navigator.clipboard.writeText(request.smsDraft!.body)}>Copy SMS</button><a className="button" href={`sms:${encodeURIComponent(request.smsDraft.address)}?body=${encodeURIComponent(request.smsDraft.body)}`}>Open SMS app</a><small>Prepared for {request.smsDraft.contact_name}; not sent.</small></div>}</div>}
         {request.error && <p className="inline-error">{request.error}</p>}
         <RequestInteractionMetrics request={request} />
         <footer><span className={`status-dot status-${request.status}`} />{request.status.replaceAll("_", " ")}<code>{request.requestId.slice(0, 8)}</code><button className="trace-button" type="button" onClick={() => onShowTrace(request.requestId)}>Show trace</button>{["complete", "error"].includes(request.status) && <ObjectSelectionControls identity={exchangeIdentity(request)} subject={`exchange ${request.requestId.slice(0, 8)}`} />}</footer>
@@ -3000,8 +3001,7 @@ function DailyPaperRoute() {
 function Workspace() {
   const fromHash = location.hash.slice(1);
   const [view, setView] = useState(navigation.some(([id]) => id === fromHash) ? fromHash : "agent");
-  const [editingToken, setEditingToken] = useState(false);
-  const [tokenDraft, setTokenDraft] = useState(getAccessToken());
+  const musicPlayer = useWebMusicPlayer();
   const [calendarGenerationNotice, setCalendarGenerationNotice] = useState<string | null>(null);
   const [agentDraft, setAgentDraft] = useState("");
   const [agentObjectSelections, setAgentObjectSelections] = useState<SelectedObjectCandidate[]>([]);
@@ -3079,12 +3079,6 @@ function Workspace() {
     try { setRequestTrace(await api<RequestTrace>(`/api/requests/${encodeURIComponent(requestId)}/trace`)); }
     catch (caught) { setTraceError(caught); }
   };
-  const saveToken = (event: FormEvent) => {
-    event.preventDefault();
-    if (!tokenDraft.trim()) return;
-    setAccessToken(tokenDraft);
-    setEditingToken(false);
-  };
   let screen: ReactNode;
   if (view === "agent") screen = <AgentScreen
     onShowTrace={(requestId) => void showTrace(requestId)}
@@ -3105,18 +3099,14 @@ function Workspace() {
   else if (view === "routine") screen = <RoutineScreen onGenerated={(message) => { setCalendarGenerationNotice(message); go("calendar"); }} />;
   else if (view === "journal") screen = <JournalScreen />;
   else if (view === "payments") screen = <PaymentsScreen />;
-  else if (view === "ai-usage") screen = <UsageScreen />;
+  else if (view === "account") screen = <AccountScreen usage={<UsageScreen />} />;
   else if (view === "content") screen = <LibraryScreen />;
   else if (view === "video-scripts") screen = <VideoScriptsScreen />;
   else if (view === "files") screen = <FilesScreen />;
+  else if (view === "music") screen = <MusicScreen player={musicPlayer} />;
+  else if (view === "correspondence") screen = <CorrespondenceScreen />;
   else screen = <GenericScreen kind={view as keyof typeof genericScreens} />;
-  return <ObjectSelectionProvider selections={agentObjectSelections} toggleSelection={toggleObjectSelection}><div className="app-shell"><aside className="sidebar"><a className="brand" href="/app"><img src="/icon.svg" alt="" /><span>Time v3<br />Agent</span></a><nav>{navigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><NavigationIcon id={id} label={label} />{label}</button>)}</nav><div className="token-settings">
-    <button className="token-button" onClick={() => { setTokenDraft(getAccessToken()); setEditingToken((open) => !open); }}>Access token</button>
-    {editingToken && <form className="token-editor" onSubmit={saveToken}>
-      <label>Replace token<input autoFocus type="password" value={tokenDraft} onChange={(event) => setTokenDraft(event.target.value)} /></label>
-      <div><button className="button">Save</button><button type="button" className="button button--quiet" onClick={() => setEditingToken(false)}>Cancel</button></div>
-    </form>}
-  </div></aside><main className="workspace">{screen}</main><AgentComposer
+  return <ObjectSelectionProvider selections={agentObjectSelections} toggleSelection={toggleObjectSelection}><div className={`app-shell${musicPlayer.current ? " has-music-player" : ""}`}><aside className="sidebar"><a className="brand" href="/app"><img src="/icon.svg" alt="" /><span>Time v3<br />Agent</span></a><nav>{navigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><NavigationIcon id={id} label={label} />{label}</button>)}</nav></aside><main className="workspace">{screen}</main>{musicPlayer.element}<AgentComposer
     text={agentDraft}
     setText={setAgentDraft}
     selections={agentObjectSelections}

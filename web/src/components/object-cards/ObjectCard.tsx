@@ -1,7 +1,7 @@
 import { CalendarEventCard } from "./CalendarEventCard";
 import { CalendarRoutineCard } from "./CalendarRoutineCard";
-import { CheckInQuestionCard } from "./CheckInQuestionCard";
 import { ContactCard } from "./ContactCard";
+import { CorrespondenceCard } from "./CorrespondenceCard";
 import { FileCard } from "./FileCard";
 import { InvoiceCard } from "./InvoiceCard";
 import { JournalEntryCard } from "./JournalEntryCard";
@@ -21,6 +21,7 @@ import { VideoScriptCard } from "./VideoScriptCard";
 export function ObjectCard(props: ObjectCardProps) {
   switch (props.object.type) {
     case "contacts.contact": return <ContactCard {...props} />;
+    case "correspondence.item": return <CorrespondenceCard {...props} />;
     case "todos.todo_group": return <TodoGroupCard {...props} />;
     case "todos.personal_task": return <TodoCard {...props} />;
     case "payments.invoice": return <InvoiceCard {...props} />;
@@ -33,7 +34,6 @@ export function ObjectCard(props: ObjectCardProps) {
     case "profile.fact": return <ProfileFactCard {...props} />;
     case "things.physical_item": return <PhysicalItemCard {...props} />;
     case "things.physical_item_group": return <PhysicalItemGroupCard {...props} />;
-    case "catch_up.question": return <CheckInQuestionCard {...props} />;
     case "video.script": return <VideoScriptCard {...props} />;
     case "video.content_group": return <LibraryGroupCard {...props} />;
     case "video.content_item": return <LibraryItemCard {...props} />;

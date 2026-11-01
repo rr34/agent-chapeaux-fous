@@ -17,6 +17,7 @@ import { PrintableReportService } from "./printable-report.mjs";
 import { createCalendarInviteDraft } from "./calendar-invite-draft.mjs";
 import { OrganizerStore } from "./organizer-store.mjs";
 import { CorrespondenceSyncService } from "./correspondence-sync.mjs";
+import { CorrespondenceService } from "./correspondence.mjs";
 import { ObjectNetworkService } from "./object-network.mjs";
 import { PaymentService } from "./payments.mjs";
 import { normalizeSelectedObjectCandidates, registerNativeObjectContextView } from "./native-object-search.mjs";
@@ -45,8 +46,9 @@ import { registerJmapEmailTools } from "./tools/jmap-email-tools.mjs";
 import { registerEmailReceiptTools } from "./tools/email-receipts.mjs";
 import { registerCalendarTools } from "./tools/calendar-tools.mjs";
 import { registerContactTools } from "./tools/contact-tools.mjs";
-import { CatchUpService } from "./catch-up.mjs";
-import { registerCatchUpTools } from "./tools/catch-up-tools.mjs";
+import { JournalScheduleService } from "./journal-schedule.mjs";
+import { registerJournalScheduleTools } from "./tools/journal-schedule-tools.mjs";
+import { registerCorrespondenceTools } from "./tools/correspondence-tools.mjs";
 import { registerJournalTools } from "./tools/journal-tools.mjs";
 import { McpToolManager } from "./tools/mcp-tools.mjs";
 import { ProfileFacts } from "./profile-facts.mjs";
@@ -80,12 +82,12 @@ const correspondenceSync = store.status.ready
   ? new CorrespondenceSyncService({ databaseTarget: config.databaseTarget })
   : null;
 const payments = store.status.ready ? new PaymentService({ store, config, ledger }) : null;
-const catchUp = store.status.ready ? new CatchUpService(store, organizer, ledger) : null;
+const journalSchedule = store.status.ready ? new JournalScheduleService(store, ledger) : null;
 const profileFacts = new ProfileFacts({ store, ledger });
 const dailyPaperWeather = new DailyPaperWeatherService({ profileFacts });
 const dailyPaper = store.status.ready ? new DailyPaperService({
   organizer,
-  trackerSchedule: catchUp,
+  trackerSchedule: journalSchedule,
   weather: dailyPaperWeather,
   ledger,
   mediaRoot: config.mediaRoot,
@@ -148,15 +150,16 @@ const jmap = new JmapClient({
   required: config.jmapRequired,
   timeoutMs: config.jmapTimeoutMs,
 });
+const correspondence = store.status.ready ? new CorrespondenceService({ store, ledger, jmap }) : null;
 if (store.status.ready) {
-  registerCalendarTools(registry, store, organizer, ledger, searchCoordinator, catchUp);
+  registerCalendarTools(registry, store, organizer, ledger, searchCoordinator);
   registerContactTools(registry, store, organizer, ledger, searchCoordinator);
   registerDailyPaperTools(registry, dailyPaper);
   registerPrintableReportTools(registry, printableReport);
   registerTodoTools(registry, store, ledger);
   registerPaymentTools(registry, payments);
   registerJournalTools(registry, store, ledger);
-  registerCatchUpTools(registry, catchUp);
+  registerJournalScheduleTools(registry, journalSchedule);
   registerProfileFactTools(registry, profileFacts);
   registerDatabaseTools(registry, store, ledger, searchCoordinator);
   registerFileTools(registry, {
@@ -181,6 +184,7 @@ const objectNetwork = store.status.ready ? new ObjectNetworkService({
 if (objectNetwork) registerObjectNetworkTools(registry, objectNetwork);
 await mcp.initialize(registry);
 await jmap.initialize();
+if (correspondence) registerCorrespondenceTools(registry, correspondence);
 if (jmap.health().ready) {
   registerJmapEmailTools(registry, jmap);
   if (searchCoordinator) registerEmailSearchProvider(searchCoordinator, jmap);
@@ -556,6 +560,44 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, correspondenceSync.status(url.searchParams.get("deviceId")));
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/correspondence") {
+      sendJson(response, 200, correspondence.list({
+        q: url.searchParams.get("q") || "",
+        medium: url.searchParams.get("medium") || null,
+        direction: url.searchParams.get("direction") || null,
+        limit: url.searchParams.get("limit") || 100,
+        offset: url.searchParams.get("offset") || 0,
+      }));
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/correspondence/email-sync") {
+      sendJson(response, 200, await correspondence.syncEmail({ actorType: "user", actorName: "Nate", channel: "web" }));
+      return;
+    }
+    if (request.method === "PUT" && url.pathname === "/api/correspondence/todo-links") {
+      sendJson(response, 200, correspondence.setTodoLinks(await readJson(request), {
+        actorType: "user", actorName: "Nate", channel: "web",
+      }));
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/profile-facts") {
+      sendJson(response, 200, profileFacts.list({ status: url.searchParams.get("status") || "active" }));
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/profile-facts") {
+      const input = await readJson(request);
+      sendJson(response, 201, profileFacts.set({
+        factType: input.factType, text: input.text, replacesFactId: input.replacesFactId ?? null,
+      }, { actorType: "user", actorName: "Nate", channel: "web" }));
+      return;
+    }
+    const profileFactMatch = /^\/api\/profile-facts\/(\d+)$/.exec(url.pathname);
+    if (request.method === "DELETE" && profileFactMatch) {
+      sendJson(response, 200, profileFacts.archive({ factId: Number(profileFactMatch[1]) }, {
+        actorType: "user", actorName: "Nate", channel: "web",
+      }));
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/payments/stripe/status") {
       sendJson(response, 200, { stripe: await payments.stripeStatus({ refresh: true }) });
       return;
@@ -870,10 +912,10 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "GET" && url.pathname === "/api/calendar-events") {
       sendJson(response, 200, {
-        events: catchUp.withCalendarPlanningStates(organizer.listCalendar({
+        events: organizer.listCalendar({
           from: url.searchParams.get("from"),
           to: url.searchParams.get("to"),
-        })),
+        }),
       });
       return;
     }
@@ -1373,7 +1415,7 @@ const server = http.createServer(async (request, response) => {
     const trackerScheduleMatch = /^\/api\/journal-trackers\/(\d+)\/schedule$/.exec(url.pathname);
     if (request.method === "PATCH" && trackerScheduleMatch) {
       const input = await readJson(request);
-      sendJson(response, 200, catchUp.setTrackerSchedule({
+      sendJson(response, 200, journalSchedule.setTrackerSchedule({
         tracker_id: Number(trackerScheduleMatch[1]),
         starts_at_utc: input.starts_at_utc ?? null,
         recurrence: input.recurrence ?? null,

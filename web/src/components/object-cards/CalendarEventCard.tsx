@@ -4,12 +4,6 @@ import { SimpleObjectCard } from "./SimpleObjectCard";
 import type { CalendarEvent } from "../../types";
 import type { ObjectCardProps } from "./types";
 
-const planningLabels: Record<string, string> = {
-  needs_planning: "Needs planning",
-  deferred: "Planning deferred",
-  planned: "Planned",
-};
-
 function localDate(value: string, timeZone: string) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
     timeZone, year: "numeric", month: "2-digit", day: "2-digit",
@@ -75,13 +69,12 @@ export function CalendarEventCard(props: ObjectCardProps & {
 }) {
   const { event } = props;
   const timing = event ? calendarEventTiming(event, props.timeZone) : null;
-  const planningLabel = event?.planningState ? planningLabels[event.planningState] : null;
   const linkedTodos = event?.linkedTodos || [];
   const linkedContacts = event?.linkedContacts || [];
   const todoCountLabel = linkedTodos.length
     ? `${linkedTodos.length} linked ${linkedTodos.length === 1 ? "to-do" : "to-dos"}`
     : null;
-  const eventDetails = event && (event.planningPromptText || linkedContacts.length || linkedTodos.length)
+  const eventDetails = event && (linkedContacts.length || linkedTodos.length)
     ? <div className="calendar-event-expanded-details">
       {linkedContacts.length > 0 && <section>
         <h4>Contacts</h4>
@@ -98,25 +91,17 @@ export function CalendarEventCard(props: ObjectCardProps & {
           {todo.relationshipKind && <span>{todo.relationshipKind.replaceAll("_", " ")}</span>}
         </li>)}</ul>}
       </section>}
-      {event.planningPromptText && <section>
-        <h4>Planning prompt</h4>
-        <p>{event.planningPromptText}</p>
-      </section>}
     </div>
     : null;
-  const compactDetails = planningLabel || todoCountLabel
+  const compactDetails = todoCountLabel
     ? <>
-      {planningLabel && <span className={`pill calendar-planning-state ${event?.planningState || ""}`}>{planningLabel}</span>}
       {todoCountLabel && <span className="calendar-event-todo-count">{todoCountLabel}</span>}
     </>
     : null;
   const details = eventDetails || props.details ? <>{eventDetails}{props.details}</> : undefined;
   return <SimpleObjectCard
     {...props}
-    object={{
-      ...props.object,
-      badges: [...(planningLabel ? [planningLabel] : []), ...(props.object.badges || [])],
-    }}
+    object={props.object}
     className={`calendar-event-card${props.className ? ` ${props.className}` : ""}`}
     topEdge={timing ? <time className="calendar-event-time calendar-event-time--start" dateTime={event!.startsAtUtc}>
       <strong>{timing.start}</strong><span>{event!.isAllDay ? "All day" : !event!.endsAtUtc ? "Time" : "Start"}</span>

@@ -617,8 +617,8 @@ relationship set or a recursive traversal engine.
 Native discovery has one in-process search coordinator shared by agent
 `global_search`, the user-facing Search screen and `/api/global-search`, and the
 internal native-object picker. Calendar, contacts, files, conversation history,
-to-dos, things, journal, content, video scripts, profile facts, Check-in
-questions, invoices, and connected live email retain their own matching and
+to-dos, things, journal, content, video scripts, profile facts, correspondence,
+invoices, and connected live email retain their own matching and
 completeness rules behind provider adapters. The coordinator handles bounded
 cross-domain fan-out, compact normalized hits, stable references,
 deduplication, source-diverse interleaving, and literal partial-failure
@@ -654,12 +654,7 @@ controls which exact tool schemas are callable.
   `calendar_routine_generate` provide the native model-facing calendar
   path. Event records retain exact `calendar_events` column names and tool-owned
   field descriptions, while range reads identify expanded recurrence and birthday
-  instances as computed occurrences. An event stores its own optional planning
-  prompt; calendar routines copy their prompt into newly generated concrete
-  events without later rewriting those snapshots. Calendar range reads derive
-  each occurrence's planning state as needs planning, deferred, planned, or not
-  applicable from that saved prompt and its source-linked check-in record.
-  All-day scheduling is explicit and
+  instances as computed occurrences. All-day scheduling is explicit and
   recurrence is supplied as structured concepts rather than raw RRULE. The
   product-facing event states are Active and Archived; iCalendar status values
   remain an internal storage and interoperability detail. Search matches every
@@ -1218,74 +1213,37 @@ above. The current Android release build uses the repository's debug signing
 key and is suitable for personal sideloading. Configure and preserve a
 permanent release/upload key before distributing through Google Play.
 
-## Daily catch-up
-
-Open **Check-in**, choose the catch-up settings at the top, and click **Start
-catch-up**. You can also ask for the same selections in chat. This generates
-questions directly from current tasks, calendar occurrences, and journal trackers. The agent asks one question at a time and uses the existing domain tools
-to complete or move tasks, update appointments, and record observations.
-The button sends a normal agent request and preserves any draft text or attachment.
-
-Each category can be enabled independently:
-
-- **Complete logs for:** today, yesterday, or a chosen past date, including today
-  before it ends. Active trackers without asking schedules are included for that
-  day; scheduled trackers use their daily, weekly, or monthly recurrence period
-  containing the selected date. An observation in that period satisfies it.
-- **Plan ahead through:** today, tomorrow, the next selected weekday (including
-  today), or a chosen date, through the end of that local day. Only upcoming
-  events with planning prompts qualify. Planning and post-event review have
-  independent completion states for each occurrence.
-- **Review past events through:** optional follow-up for ended events, with a
-  cutoff and 0–31 days of lookback. This is disabled initially.
-
-The browser remembers these controls. Relative choices such as yesterday,
-Friday, and right now are resolved anew when Start is pressed. The owning
-`catch_up_refresh` tool records the exact selection in its existing durable
-refresh receipt; later answers and fresh chats reuse that scope until a new
-selection is supplied. Logs for a missed day retain their selected period.
-These settings add no table or schema migration.
-
-`catch_up_questions` was introduced in migration 0036. Each row has exactly
-one real foreign key to `calendar_events` or `journal2_trackers`, plus
-its occurrence/period identity, generated question, resolution, deferral, and
-optional comment. Unique source/occurrence indexes prevent duplicate questions.
-Material-source fingerprints and question versions reject stale answers. Chat
-history is not the source of pending or resolved state.
-
-`catch_up_refresh` generates and reconciles questions during normal tool
-execution; `catch_up_list` reads them, and `catch_up_question_update` records
-explicit acknowledgment, deferral, or comments. The optional `catch-up.pending`
-context view only reads already generated questions. It cannot generate or
-mutate anything before execution. There is no timer or new background worker.
-
-Scope filters apply before pagination. Questions outside the selected categories
-or dates remain stored but are not asked in that check-in. Explicit deferrals
-remain in force. Source scans are bounded; an overflow fails atomically rather
-than claiming completeness. Planning is limited to one year ahead.
-
-For compatibility, a refresh without any supplied or previously saved scope
-uses recent calendar events and the latest due period of scheduled trackers.
+## Journal scheduling
 
 Trackers remain unscheduled until `tracker_asking_schedule_set` sets a first
-period start, structured recurrence, and time zone. A journal observation in the
-period satisfies its question. Explicitly selecting a log date does not assign
-permanent schedules to unscheduled trackers. Only the selected period is
-The React Journal screen exposes the basic schedule directly on each tracker:
+period start, structured recurrence, and time zone. The React Journal screen
+exposes the basic schedule directly on each tracker:
 Not scheduled, Daily, Weekly, or Monthly, plus the first period date. Weekly
 schedules use that date's weekday and monthly schedules use its day of month;
 the browser's IANA time zone preserves local period boundaries.
-generated, so a month away does not produce a month of missing daily logs.
 Turning off the asking schedule preserves the tracker and its observations.
 
-Completing/cancelling a source through the UI also satisfies its question on
-refresh. Rescheduling changes when its question becomes eligible.
-`calendar_event_occurrence_update` materializes an
-exception and excludes the original occurrence so moving or cancelling one
-appointment preserves the remaining series and participants. Comments and
-resolution are optional, independent of the source's actual lifecycle status.
+Check-in and calendar planning prompts were retired in schema version 59.
+Journal scheduling remains ordinary calendar-period infrastructure and does not
+generate a separate queue of questions or phone notifications.
 
-Apply migration 0036 through the existing reviewed migration procedure before
-running this code against an older database. It adds one table and three nullable
-tracker columns; existing trackers retain no asking schedule. Repository work
-does not apply it to the live database or restart the application.
+## Web correspondence, music, and account
+
+The web-only **Correspondence** section consolidates synchronized email,
+messages, calls, and voicemail on one filterable and groupable screen. **Sync
+email** performs an explicit JMAP-to-correspondence synchronization; JMAP remains
+authoritative. Correspondence has no tag system: user organization uses the
+existing object relationships, including user-managed to-do links exposed by
+the selection and network controls. Phone synchronization remains mobile-only.
+
+The web-only **Music** section follows Files in navigation, reads the same
+authenticated library as mobile, groups recordings by release or work, and
+keeps playback available in a persistent mini-player while navigating the web
+application. **Account** combines Profile, AI Usage, and browser access-token
+management. Profile facts are first-class selectable objects.
+
+`sms_draft_create` prepares an unsent structured handoff for one exact contact
+and receivable phone method. Mobile opens the normal Messages app with recipient
+and body populated; web offers copy and SMS-app controls. A draft is never
+reported as sent and does not become correspondence until phone synchronization
+observes the sent message.

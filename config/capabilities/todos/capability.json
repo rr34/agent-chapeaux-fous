@@ -62,15 +62,6 @@
         "update": { "unavailable": "unsupported", "reason": "This edge has no mutable attributes; link and unlink are its complete lifecycle." },
         "unlink": { "tool": "todo_content_link_set", "batch": { "mode": "array", "input": "/links" } }
       }
-    },
-    {
-      "id": "todos.task_correspondence",
-      "kind": "relationship",
-      "title": "To-do correspondence provenance",
-      "summary": "A source-owned correspondence link retained with a personal to-do.",
-      "management": "system",
-      "reason": "Correspondence ingestion owns this provenance edge; to-do CRUD must not rewrite imported provider evidence.",
-      "storage": { "table": "todo_correspondence_join" }
     }
   ],
   "guidance": "guidance.md"

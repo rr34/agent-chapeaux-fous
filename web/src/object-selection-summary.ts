@@ -4,7 +4,7 @@ const objectTypeNames: Record<string, { singular: string; plural: string }> = {
   "agent.exchange": { singular: "exchange", plural: "exchanges" },
   "calendar.event": { singular: "calendar event", plural: "calendar events" },
   "calendar.routine": { singular: "calendar routine", plural: "calendar routines" },
-  "catch_up.question": { singular: "check-in question", plural: "check-in questions" },
+  "correspondence.item": { singular: "correspondence item", plural: "correspondence items" },
   "contacts.contact": { singular: "contact", plural: "contacts" },
   "files.file": { singular: "file", plural: "files" },
   "journal.entry": { singular: "journal entry", plural: "journal entries" },

@@ -13,7 +13,7 @@ import { useObjectSelection } from "./ObjectSelectionContext";
 const supportedTypes = new Set([
   "contacts.contact", "todos.todo_group", "todos.personal_task", "payments.invoice",
   "journal.group", "journal.tracker", "journal.entry", "calendar.event", "calendar.routine",
-  "files.file", "profile.fact", "catch_up.question", "video.script", "video.content_group",
+  "files.file", "profile.fact", "correspondence.item", "video.script", "video.content_group",
   "video.content_item",
 ]);
 const editableTypes = new Set([

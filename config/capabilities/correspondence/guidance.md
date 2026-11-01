@@ -1,0 +1,14 @@
+Use `correspondence_list` for the synchronized cross-channel record. JMAP is
+authoritative for email, and explicit phone synchronization is authoritative for
+SMS, MMS, and calls. Do not claim that a local mirror mutation changed a
+provider.
+
+Link or unlink exact correspondence and to-do pairs with one bounded
+`correspondence_todo_link_set` call. These links are user organization, not tags
+and not delivery or reply state.
+
+Use `sms_draft_create` only after resolving an exact contact. It prepares an
+unsent handoff to the device Messages app or web copy controls. If it returns
+`needs_selection`, ask the user to choose one of the returned phone methods.
+Never claim the SMS was sent and never create correspondence for a draft; a sent
+message appears only after the phone synchronization observes it.

@@ -94,8 +94,6 @@ function compactEvent(event) {
     timeZone: event.timeZone ?? null,
     isAllDay: Boolean(event.isAllDay),
     status: event.status,
-    planningState: event.planningState ?? null,
-    planningPromptText: event.planningPromptText ?? null,
     ...(event.seriesId != null ? { seriesId: event.seriesId } : {}),
     ...(event.isGeneratedOccurrence ? { isGeneratedOccurrence: true } : {}),
     ...(event.readOnly ? { readOnly: true } : {}),
@@ -229,10 +227,7 @@ export class DailyPaperService {
       from: rangeStart.startsAtUtc,
       to: rangeEnd.startsAtUtc,
     });
-    const withPlanningStates = (events) => (this.trackerSchedule?.withCalendarPlanningStates
-      ? this.trackerSchedule.withCalendarPlanningStates(events)
-      : events);
-    const rangeEvents = withPlanningStates(listedRangeEvents).map(compactEvent);
+    const rangeEvents = listedRangeEvents.map(compactEvent);
     const calendarDays = dates.map((localDate) => {
       const bounds = localDateUtcBounds({ localDate, timeZone: selected.timeZone });
       return {
@@ -251,10 +246,10 @@ export class DailyPaperService {
     const selectedDateIsVisible = selected.date >= dates[0] && selected.date <= dates.at(-1);
     const selectedEvents = selectedDateIsVisible
       ? rangeEvents
-      : withPlanningStates(this.organizer.listCalendar({
+      : this.organizer.listCalendar({
         from: todayBounds.startsAtUtc,
         to: todayBounds.endsAtUtc,
-      })).map(compactEvent);
+      }).map(compactEvent);
     const todayEvents = selectedEvents.filter((event) => eventOverlaps(event, todayBounds, selected.date))
       .sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc));
     const scheduledTrackers = this.trackerSchedule?.scheduledTrackersForDay({
@@ -359,7 +354,7 @@ export class DailyPaperService {
         storagePath,
         originalFilename: `cf-clipboard-app-${model.date}.pdf`,
         title,
-        description: `Printable daily calendar, timeline, scheduled to-dos, and tracker check-ins for ${model.heading}.`,
+        description: `Printable daily calendar, timeline, scheduled to-dos, and journal tracking periods for ${model.heading}.`,
         mediaKind: "document",
         mimeType: "application/pdf",
         sha256: createHash("sha256").update(bytes).digest("hex"),

@@ -2,7 +2,7 @@ Use `global_search` when the user asks to discover information across multiple
 application-owned domains or does not know where something was stored. Stored
 uploads are searchable by title, description, original filename, and the
 originating request text. Native calendar, contacts, history, files, to-dos,
-things, journal, content, video scripts, profile facts, Check-in questions,
+things, journal, content, video scripts, profile facts, correspondence,
 invoices, and connected live email participate through the same coordinator
 used by direct user search. Choose
 only the scopes relevant to the request. Use `terms` for ordinary discovery,

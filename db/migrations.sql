@@ -16,6 +16,49 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0059: retire-check-in-and-calendar-planning-prompts
+-- writer downtime: required because the matching application removes every
+-- Check-in read/write path and no longer reads the two calendar prompt columns.
+-- locking: two small ALTER TABLE operations and one DROP TABLE take metadata
+-- locks. Replacing the relationship view does not materialize or rewrite data.
+-- recovery: MariaDB DDL commits implicitly. Every destructive DDL statement is
+-- guarded. The view is rewritten first from its current definition, so rerunning
+-- after a partial commit is safe. Check-in data is intentionally discarded.
+
+SET @object_edges_definition := (
+  SELECT VIEW_DEFINITION FROM information_schema.VIEWS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'object_relationship_edges'
+);
+SET @object_edges_definition := REGEXP_REPLACE(
+  @object_edges_definition,
+  'union all select ''calendar[.]event'' AS `calendar[.]event`,cast[(]`question`[.]`calendar_event_id` .* where `question`[.]`calendar_event_id` is not null',
+  ''
+);
+SET @object_edges_definition := REGEXP_REPLACE(
+  @object_edges_definition,
+  'union all select ''journal[.]tracker'' AS `journal[.]tracker`,cast[(]`question`[.]`tracker_id` .* where `question`[.]`tracker_id` is not null',
+  ''
+);
+SET @object_edges_sql := CONCAT(
+  'CREATE OR REPLACE SQL SECURITY INVOKER VIEW object_relationship_edges AS ',
+  @object_edges_definition
+);
+PREPARE replace_object_edges FROM @object_edges_sql;
+EXECUTE replace_object_edges;
+DEALLOCATE PREPARE replace_object_edges;
+
+DROP TABLE IF EXISTS catch_up_questions;
+
+ALTER TABLE calendar_events
+  DROP CONSTRAINT IF EXISTS calendar_events_prompt,
+  DROP COLUMN IF EXISTS planning_prompt_text;
+
+ALTER TABLE calendar_routines
+  DROP CONSTRAINT IF EXISTS calendar_routines_prompt,
+  DROP COLUMN IF EXISTS planning_prompt_text;
+
+-- end migration 0059
+
 -- migration 0058: android-contact-source-aliases
 -- writer downtime: required while the contact importer and schema move to
 -- persistent Android identity and modification-time conflict handling together.

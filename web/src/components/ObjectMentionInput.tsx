@@ -15,7 +15,7 @@ const groupOrder = [
   ["Routines", ["calendar.routine"]],
   ["Files", ["files."]],
   ["Journal", ["journal."]],
-  ["Check-in", ["catch_up."]],
+  ["Correspondence", ["correspondence."]],
   ["Library and video", ["video."]],
   ["Profile", ["profile."]],
 ] as const;

@@ -1,0 +1,62 @@
+{
+  "$schema": "../../protocol-schemas/capability-manifest.v1.schema.json",
+  "protocol": "agent-slayer.capability",
+  "version": 1,
+  "id": "correspondence",
+  "title": "Correspondence",
+  "summary": "Read synchronized email, messages, calls, and voicemail; link correspondence to to-dos; and prepare unsent SMS handoffs.",
+  "aliases": ["correspondence", "communications", "messages", "calls", "sms draft"],
+  "readOnlyTools": ["correspondence_list", "sms_draft_create"],
+  "dependentTools": ["contact_lookup_batch", "todo_list"],
+  "resources": [
+    {
+      "id": "correspondence.item",
+      "kind": "object",
+      "management": "provider",
+      "reason": "JMAP and explicit phone synchronization own correspondence creation, updates, and deletion; the local consolidated view is readable but not independently editable."
+    },
+    {
+      "id": "correspondence.todo",
+      "kind": "relationship",
+      "title": "Correspondence to-do",
+      "summary": "A user-managed association between one correspondence item and one personal to-do.",
+      "management": "user",
+      "storage": { "table": "todo_correspondence_join" },
+      "endpoints": ["correspondence.item", "todos.personal_task"],
+      "operations": {
+        "link": { "tool": "correspondence_todo_link_set", "batch": { "mode": "array", "input": "/links" } },
+        "read": { "tool": "correspondence_list", "batch": { "mode": "collection" } },
+        "update": { "unavailable": "unsupported", "reason": "This edge has no mutable attributes; link and unlink are its complete lifecycle." },
+        "unlink": { "tool": "correspondence_todo_link_set", "batch": { "mode": "array", "input": "/links" } }
+      }
+    },
+    {
+      "id": "correspondence.calendar_event",
+      "kind": "relationship",
+      "title": "Correspondence calendar event",
+      "summary": "A source-owned correspondence association retained with a calendar event.",
+      "management": "system",
+      "reason": "Synchronization owns imported calendar correspondence provenance.",
+      "storage": { "table": "calendar_events_correspondence_join" }
+    },
+    {
+      "id": "correspondence.attachment",
+      "kind": "relationship",
+      "title": "Correspondence attachment",
+      "summary": "A provider-ingested file attached to one correspondence item.",
+      "management": "provider",
+      "reason": "Correspondence synchronization owns attachment identity and lifecycle.",
+      "storage": { "table": "correspondence_files_join" }
+    },
+    {
+      "id": "correspondence.participant",
+      "kind": "relationship",
+      "title": "Correspondence participant",
+      "summary": "A provider-ingested participant identity retained with one correspondence item.",
+      "management": "provider",
+      "reason": "Correspondence synchronization owns participant roles, addresses, and contact-method evidence.",
+      "storage": { "table": "correspondence_participants_join" }
+    }
+  ],
+  "guidance": "guidance.md"
+}

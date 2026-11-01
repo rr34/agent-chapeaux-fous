@@ -97,7 +97,7 @@ test("new requests are admitted while TLOM is disconnected", async () => {
   assert.equal(queueWakes, 1);
   assert.deepEqual(createdRequests[0].metadata.selectedObjectCandidates, selectedObjectCandidates);
 });
-test("tracker schedule route delegates to the owning catch-up service", async () => {
+test("tracker schedule route delegates to Journal scheduling", async () => {
   const calls = [];
   const responses = [];
   const recurrence = {
@@ -115,7 +115,7 @@ test("tracker schedule route delegates to the owning catch-up service", async ()
     requireAuthorization: () => true,
     store: { status: { ready: true } },
     readJson: async () => ({ starts_at_utc: "2026-10-04T04:00:00.000Z", recurrence }),
-    catchUp: {
+    journalSchedule: {
       setTrackerSchedule(input, operation) {
         calls.push({ input, operation });
         return { tracker_id: input.tracker_id };

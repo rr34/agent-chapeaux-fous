@@ -71,15 +71,6 @@
       "management": "system",
       "reason": "The activity ledger owns immutable request and result provenance attachments.",
       "storage": { "table": "activity_event_files_join" }
-    },
-    {
-      "id": "files.correspondence_attachment",
-      "kind": "relationship",
-      "title": "Correspondence file attachment",
-      "summary": "A provider-ingested attachment retained with one correspondence record.",
-      "management": "provider",
-      "reason": "Correspondence synchronization owns attachment identity and lifecycle.",
-      "storage": { "table": "correspondence_files_join" }
     }
   ],
   "guidance": "guidance.md"

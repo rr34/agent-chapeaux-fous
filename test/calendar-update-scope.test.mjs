@@ -63,7 +63,6 @@ test("routine disable treats nullable update fields as unchanged", async () => {
     time_zone: "America/New_York",
     is_all_day: 0,
     recurrence_rule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
-    planning_prompt_text: "Which workout will you do?",
     disabled_at_utc: "2026-10-26T02:35:57.409Z",
     created_at_utc: "2026-09-01T00:00:00.000Z",
     updated_at_utc: "2026-10-26T02:35:57.409Z",
@@ -92,7 +91,6 @@ test("routine disable treats nullable update fields as unchanged", async () => {
     time_zone: null,
     is_all_day: null,
     recurrence: null,
-    planning_prompt_text: null,
     disabled: true,
   });
   assert.equal(result.routine.description, "Start the day moving");
@@ -120,7 +118,6 @@ test("routine update maps empty strings to explicit clear operations", async () 
         description: "",
         location: "",
         endsAtUtc: null,
-        planningPromptText: "",
       });
       return { id };
     },
@@ -133,6 +130,5 @@ test("routine update maps empty strings to explicit clear operations", async () 
     description: "",
     location_text: "",
     ends_at_utc: "",
-    planning_prompt_text: "",
   });
 });

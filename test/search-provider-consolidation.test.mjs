@@ -15,7 +15,7 @@ function objectFor(domainType) {
     "video.content_item": ["content_item", "native:video", "agent-slayer://content-items/7", "Search notes"],
     "video.script": ["video_script", "native:video", "agent-slayer://video-scripts/7", "Search demo"],
     "profile.fact": ["profile_fact", "native:profile", "agent-slayer://profile-facts/7", "Prefers tea"],
-    "catch_up.question": ["catch_up_question", "native:catch-up", "agent-slayer://catch-up-questions/7", "How was sleep?"],
+    "correspondence.item": ["correspondence", "native:correspondence", "agent-slayer://correspondence/7", "Message from Alice"],
     "payments.invoice": ["payments.invoice", "native:payments", "agent-slayer://payment-invoices/7", "Alice — Invoice 7"],
   };
   const definition = definitions[domainType];
@@ -42,7 +42,7 @@ test("global discovery advertises every consolidated native domain while keeping
   const coordinator = createNativeSearchCoordinator({ store: {}, organizer: organizer(), ledger: {} });
   assert.deepEqual(coordinator.listProviders().map(({ id }) => id), [
     "calendar", "contacts", "files", "history", "todos", "things", "journal", "content",
-    "video", "profile", "catch_up", "payments",
+    "video", "profile", "correspondence", "payments",
   ]);
   assert.equal(coordinator.listProviders().some(({ id }) => id === "objects"), false);
   assert.equal(coordinator.listProviders({ includeInternal: true }).some(({ id }) => id === "objects"), true);

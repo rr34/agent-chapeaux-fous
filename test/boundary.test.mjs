@@ -197,10 +197,10 @@ test("the removed briefing subsystem has no UI or server execution path", () => 
   const application = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const server = fs.readFileSync(path.join(root, "src", "server.mjs"), "utf8");
-  assert.match(document, /id="interactions-view"/);
-  assert.match(document, /id="catch-up"/);
+  assert.doesNotMatch(document, /id="interactions-view"/);
+  assert.doesNotMatch(document, /id="catch-up"/);
   assert.doesNotMatch(document, /interaction-guide|interaction-step|Briefings|New briefing/);
-  assert.match(application, /elements\.interactionsView\.hidden = view !== "interactions"/);
+  assert.doesNotMatch(application, /elements\.interactionsView|view !== "interactions"/);
   assert.doesNotMatch(application, /interactionGuide|interaction_guide|briefing/i);
   assert.doesNotMatch(server, /interactionGuides|interaction_guide|structuredInteractionGeneration/);
 });
@@ -363,7 +363,7 @@ test("the standalone client restores calendar, routine, grouped to-do, grouped c
   assert.match(document, /<h2>To do<\/h2>/);
   assert.match(document, /id="agent-view-button"[^>]*>[\s\S]*?<span>Agent<\/span>[\s\S]*?<\/button>/);
   assert.doesNotMatch(document, /id="view-selector"/);
-  for (const view of ["agent", "hats", "calendar", "routine", "todos", "content", "video-scripts", "files", "contacts", "journal", "interactions", "ai-usage"]) {
+  for (const view of ["agent", "hats", "calendar", "routine", "todos", "content", "video-scripts", "files", "contacts", "journal", "ai-usage"]) {
     assert.match(document, new RegExp(`<button[^>]+data-view="${view}"`));
   }
   assert.ok(document.indexOf('id="agent-view-button"') < document.indexOf('id="settings-menu"'));

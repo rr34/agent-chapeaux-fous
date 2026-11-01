@@ -8,7 +8,7 @@ const objectMentionInput = fs.readFileSync(new URL("../web/src/components/Object
 const types = fs.readFileSync(new URL("../web/src/types.ts", import.meta.url), "utf8");
 
 test("the Agent composer stays fixed and is rendered by the workspace", () => {
-  assert.match(app, /<main className="workspace">\{screen\}<\/main><AgentComposer/);
+  assert.match(app, /<main className="workspace">\{screen\}<\/main>\{musicPlayer\.element\}<AgentComposer/);
   assert.match(app, /function AgentComposer\(/);
   assert.match(app, /new ResizeObserver\(updateComposerHeight\)/);
   assert.match(app, /--agent-composer-height/);

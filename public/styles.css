@@ -673,10 +673,6 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
   line-clamp: 2;
 }
 .agenda-item .agenda-item-details { font-size: .7rem; }
-.agenda-item .agenda-planning-state { display: inline-flex; width: fit-content; margin-top: .4rem; padding: .16rem .42rem; border-radius: 999px; font-size: .66rem; font-weight: 600; }
-.agenda-item .agenda-planning-state.needs_planning { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
-.agenda-item .agenda-planning-state.deferred { color: var(--muted); background: var(--panel-raised); }
-.agenda-item .agenda-planning-state.planned { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
 .agenda-event-todos { margin-top: -1px; padding: 0 .7rem; background: var(--panel); border: 1px solid var(--line); border-radius: 0 0 13px 13px; }
 .agenda-event-todos-summary { padding: .5rem 0; color: var(--muted); font-size: .7rem; cursor: pointer; }
 .agenda-event-todo-list { display: grid; gap: .3rem; margin: 0; padding: 0 0 .6rem; list-style: none; }
@@ -851,19 +847,6 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .field-hint { color: var(--muted); font-weight: 400; }
 #journal-tracker { width: 100%; }
 
-.check-in-catch-up { padding: 1rem; margin-bottom: 1.25rem; }
-.check-in-catch-up h3 { margin: 0; }
-.check-in-catch-up .section-heading { flex-wrap: wrap; }
-.check-in-catch-up > p { margin-bottom: 0; }
-.catch-up-settings { display: grid; gap: .9rem; margin-top: 1rem; }
-.catch-up-setting { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
-.catch-up-setting > .checkbox-row { flex: 0 0 15rem; }
-.catch-up-setting select, .catch-up-setting input[type="date"], .catch-up-setting input[type="datetime-local"] { width: auto; max-width: 100%; }
-.catch-up-lookback { display: flex; align-items: center; gap: .4rem; }
-.catch-up-lookback input { width: 4.5rem; }
-@media (max-width: 600px) {
-  .catch-up-setting > .checkbox-row { flex-basis: 100%; }
-}
 .dialog-heading { align-items: flex-start; margin-bottom: .9rem; }
 .integration-list { display: grid; gap: .55rem; margin: 1rem 0; }
 .integration-card { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .75rem; background: var(--panel); border: 1px solid var(--line); border-radius: 11px; }

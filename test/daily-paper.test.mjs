@@ -63,12 +63,6 @@ test("daily paper starts its two-week grid on Monday and selects today's timelin
   const service = new DailyPaperService({
     organizer: { listCalendar(range) { calendarRange = range; return events(); } },
     trackerSchedule: {
-      withCalendarPlanningStates(calendarEvents) {
-        return calendarEvents.map((event) => ({
-          ...event,
-          planningState: event.id === 1 ? "needs_planning" : null,
-        }));
-      },
       scheduledTrackersForDay(input) {
       trackerRequest = input;
       return [{
@@ -99,8 +93,6 @@ test("daily paper starts its two-week grid on Monday and selects today's timelin
   assert.equal(model.heading, "Sun, 4 Oct 2026");
   assert.equal(model.rangeHeading, "28 Sep - 11 Oct 2026");
   assert.deepEqual(model.todayEvents.map(({ id }) => id), [1, 2]);
-  assert.equal(model.todayEvents[0].planningState, "needs_planning");
-  assert.equal(model.todayEvents[0].planningPromptText, "What should the next experiment be?");
   assert.deepEqual(model.todayEvents[0].linkedContacts, [{
     contactId: 8, displayName: "Jane Smith", participantRole: "attendee",
   }]);

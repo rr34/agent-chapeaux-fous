@@ -77,3 +77,9 @@ export async function previewAuthenticated(url: string) {
     throw error;
   }
 }
+
+export async function authenticatedObjectUrl(url: string) {
+  const response = await fetch(url, { headers: headers(), cache: "no-store" });
+  if (!response.ok) throw new ApiError(`Media load failed (HTTP ${response.status})`, response.status);
+  return URL.createObjectURL(await response.blob());
+}

@@ -88,7 +88,7 @@ test("native object candidates come from selected authoritative tables and rank 
   assert.deepEqual(nativeObjectTypes.map(({ table }) => table), [
     "contacts", "contact_methods", "todo_groups", "todo_personal", "physical_item_groups", "physical_items", "payment_invoices", "journal1_groups", "journal2_trackers", "journal3_entries",
     "calendar_events", "calendar_routines", "files", "profile_facts",
-    "catch_up_questions", "video_scripts", "content_groups", "content_items",
+    "correspondence", "video_scripts", "content_groups", "content_items",
   ]);
   assert.equal(contacts[0].domainType, "contacts.contact");
   assert.equal(contacts[0].source, "native:contacts");

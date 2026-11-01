@@ -175,6 +175,6 @@ test("persisted group headers expose the shared editor while synthetic groups do
 test("workspace sections use the intended navigation order", () => {
   assert.match(
     appSource,
-    /\["agent", "Agent"\], \["search", "Search"\], \["hats", "Hats"\], \["routine", "Routine"\], \["calendar", "Calendar"\],\s*\["journal", "Journal"\], \["contacts", "Contacts"\], \["things", "Things"\], \["todos", "To do"\],\s*\["files", "Files"\], \["content", "Library"\], \["payments", "Payments"\], \["ai-usage", "AI Usage"\],\s*\["video-scripts", "Video Scripts"\]/,
+    /\["agent", "Agent"\], \["search", "Search"\], \["hats", "Hats"\], \["routine", "Routine"\], \["calendar", "Calendar"\],\s*\["journal", "Journal"\], \["contacts", "Contacts"\], \["correspondence", "Correspondence"\], \["things", "Things"\], \["todos", "To do"\],\s*\["files", "Files"\], \["music", "Music"\], \["content", "Library"\], \["payments", "Payments"\], \["account", "Account"\],\s*\["video-scripts", "Video Scripts"\]/,
   );
 });

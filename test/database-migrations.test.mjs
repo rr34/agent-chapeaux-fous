@@ -27,6 +27,30 @@ const block = (version, name = `migration-${version}`, sql = `SELECT ${version};
   return `-- migration ${label}: ${name}\n${sql}\n-- end migration ${label}\n`;
 };
 
+test("Check-in retirement integrity requires the table, calendar columns, and view edges to be absent", async () => {
+  const connection = ({ tables = [], columns = [], view = "select 'todo_correspondence_join'" } = {}) => ({
+    async query(sql) {
+      if (sql.includes("information_schema.TABLES")) return [tables];
+      if (sql.includes("information_schema.COLUMNS")) return [columns];
+      if (sql.includes("information_schema.VIEWS")) return [[{ VIEW_DEFINITION: view }]];
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  });
+  await assertMigrationSpecificIntegrity(connection(), { version: 59 }, "test_database");
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ tables: [{ TABLE_NAME: "catch_up_questions" }] }), { version: 59 }, "test_database"),
+    /catch_up_questions/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ columns: [{ TABLE_NAME: "calendar_events", COLUMN_NAME: "planning_prompt_text" }] }), { version: 59 }, "test_database"),
+    /calendar planning prompts/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ view: "select * from catch_up_questions" }), { version: 59 }, "test_database"),
+    /object-network edges/u,
+  );
+});
+
 test("Android contact source alias integrity requires identity, chronology, and provenance", async () => {
   const requiredColumns = [
     "contact_source_alias_id", "contact_id", "source", "external_id",
@@ -578,11 +602,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58]);
-  for (let current = 29; current <= 58; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59]);
+  for (let current = 29; current <= 59; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 58 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 59 - current }, (_, index) => current + index + 1),
     );
   }
 });

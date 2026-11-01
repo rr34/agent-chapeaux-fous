@@ -12,7 +12,7 @@ test("the Agent composer searches and groups native objects after @", () => {
   assert.match(picker, /\/api\/native-objects\/search\?q=\$\{encodeURIComponent\(query\)\}&limit=48/);
   const labels = [
     "Contacts", "Events", "To-dos", "Routines", "Files", "Journal",
-    "Check-in", "Library and video", "Profile",
+    "Correspondence", "Library and video", "Profile",
   ];
   for (let index = 1; index < labels.length; index += 1) {
     assert.ok(picker.indexOf(`\"${labels[index - 1]}\"`) < picker.indexOf(`\"${labels[index]}\"`));

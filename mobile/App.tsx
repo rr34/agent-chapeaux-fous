@@ -209,10 +209,12 @@ function ConnectionModal({
 
 function MessageDraftModal({
   visible,
+  initialRecipient,
   initialBody,
   onClose,
 }: {
   visible: boolean;
+  initialRecipient: string;
   initialBody: string;
   onClose: () => void;
 }) {
@@ -222,10 +224,11 @@ function MessageDraftModal({
 
   useEffect(() => {
     if (visible) {
+      setRecipient(initialRecipient);
       setBody(initialBody);
       setError('');
     }
-  }, [initialBody, visible]);
+  }, [initialBody, initialRecipient, visible]);
 
   const openMessages = async () => {
     if (!body.trim()) {
@@ -500,6 +503,7 @@ function sameRequestPresentation(left: AgentRequest, right: AgentRequest): boole
     && left.request === right.request
     && left.response === right.response
     && left.error === right.error
+    && JSON.stringify(left.smsDraft ?? null) === JSON.stringify(right.smsDraft ?? null)
     && left.progress?.label === right.progress?.label;
 }
 
@@ -511,7 +515,7 @@ function reconcileRequests(current: AgentRequest[], incoming: AgentRequest[]): A
   });
 }
 
-const RequestCard = memo(function RequestCard({ request, onDraft }: { request: AgentRequest; onDraft: (text: string) => void }) {
+const RequestCard = memo(function RequestCard({ request, onDraft }: { request: AgentRequest; onDraft: (recipient: string, text: string) => void }) {
   const active = request.status === 'queued' || request.status === 'processing';
   return (
     <View style={styles.exchange}>
@@ -530,9 +534,9 @@ const RequestCard = memo(function RequestCard({ request, onDraft }: { request: A
         <View style={styles.agentBlock}>
           <Text style={styles.agentLabel}>TIME V3 TECHNOLOGY AGENT</Text>
           <Text selectable style={styles.agentText}>{request.response}</Text>
-          <Pressable onPress={() => onDraft(request.response ?? '')} style={styles.draftAction}>
-            <Text style={styles.draftActionText}>USE AS MESSAGE DRAFT</Text>
-          </Pressable>
+          {request.smsDraft && <Pressable onPress={() => onDraft(request.smsDraft!.address, request.smsDraft!.body)} style={styles.draftAction}>
+            <Text style={styles.draftActionText}>OPEN IN MESSAGES · {request.smsDraft.contact_name}</Text>
+          </Pressable>}
         </View>
       )}
       {!!request.error && <Text selectable style={styles.requestError}>{request.error}</Text>}
@@ -555,6 +559,7 @@ function AgentScreen() {
   );
   const [notice, setNotice] = useState('');
   const [draftBody, setDraftBody] = useState('');
+  const [draftRecipient, setDraftRecipient] = useState('');
   const [showDraft, setShowDraft] = useState(false);
   const [showCorrespondenceSync, setShowCorrespondenceSync] = useState(false);
   const [showMusic, setShowMusic] = useState(false);
@@ -705,7 +710,8 @@ function AgentScreen() {
     }
   };
 
-  const openDraft = useCallback((body = '') => {
+  const openDraft = useCallback((recipient = '', body = '') => {
+    setDraftRecipient(recipient);
     setDraftBody(body);
     setShowDraft(true);
   }, []);
@@ -734,7 +740,7 @@ function AgentScreen() {
           setNotice(nextHealth.ready ? 'Connected.' : nextHealth.reason ?? 'Connected; server is not ready.');
         }}
       />
-      <MessageDraftModal visible={showDraft} initialBody={draftBody} onClose={() => setShowDraft(false)} />
+      <MessageDraftModal visible={showDraft} initialRecipient={draftRecipient} initialBody={draftBody} onClose={() => setShowDraft(false)} />
       {settings && (
         <CorrespondenceSyncModal
           visible={showCorrespondenceSync}
@@ -775,7 +781,7 @@ function AgentScreen() {
           >
             <Text style={styles.headerButtonText}>SYNC</Text>
           </Pressable>
-          <Pressable accessibilityLabel="Open an SMS draft" onPress={() => openDraft()} style={styles.headerButton}>
+          <Pressable accessibilityLabel="Open an SMS draft" onPress={() => openDraft('', '')} style={styles.headerButton}>
             <Text style={styles.headerButtonText}>SMS</Text>
           </Pressable>
           <Pressable accessibilityLabel="Connection settings" onPress={() => setShowSettings(true)} style={styles.headerButton}>

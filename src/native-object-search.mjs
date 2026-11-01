@@ -46,7 +46,7 @@ const exactCandidateReads = Object.freeze({
   calendar_routine: { display: "title", where: "1 = 1" },
   file: { display: "COALESCE(title, original_filename)", where: "1 = 1" },
   profile_fact: { display: "fact_text", where: "1 = 1" },
-  catch_up_question: { display: "question_text", where: "1 = 1" },
+  correspondence: { display: "COALESCE(subject, CONCAT(medium, ' ', direction))", where: "1 = 1" },
   video_script: { display: "title", where: "1 = 1" },
   content_group: { display: "name", where: "1 = 1" },
   content_item: { display: "title", where: "1 = 1" },
@@ -291,10 +291,11 @@ function readCandidates(database, tokens, selectedTypes = null, query = "") {
   read("profile_fact", "fact.profile_fact_id AS id, fact.fact_text AS title, fact.fact_type, fact.fact_status",
     "profile_facts AS fact", "fact.fact_status = 'active'", ["fact.fact_text", "fact.fact_type"], [],
     "fact.profile_fact_id DESC");
-  read("catch_up_question", `question.question_id AS id, question.question_text AS title,
-      question.due_at_utc, question.calendar_event_id, question.tracker_id`,
-    "catch_up_questions AS question", "question.resolved_at IS NULL",
-    ["question.question_text", "question.comment"], [], "question.due_at_utc DESC, question.question_id DESC");
+  read("correspondence", `item.correspondence_id AS id,
+      COALESCE(item.subject, CONCAT(item.medium, ' ', item.direction)) AS title,
+      item.body AS description, item.medium, item.direction, item.occurred_at_utc`,
+    "correspondence AS item", "1 = 1", ["item.subject", "item.body", "item.internet_message_id"], [],
+    "item.occurred_at_utc DESC, item.correspondence_id DESC");
   read("video_script", "script.video_script_id AS id, script.title, script.status",
     "video_scripts AS script", "script.status = 'draft'", ["script.title"], [],
     "script.created_at_utc DESC, script.video_script_id DESC");
@@ -362,8 +363,8 @@ function scoreCandidate({ type, row }, tokens) {
             : type === "calendar_routine" ? [row.time_zone, row.recurrence_rule].filter(Boolean).join(" · ")
               : type === "file" ? [row.media_kind, row.original_filename].filter(Boolean).join(" · ")
                 : type === "profile_fact" ? row.fact_type
-                  : type === "catch_up_question" ? row.due_at_utc
-                    : type === "payments.invoice" ? [row.status, row.currency, row.amount_minor].filter(Boolean).join(" · ")
+                  : type === "correspondence" ? [row.medium, row.direction, row.occurred_at_utc].filter(Boolean).join(" · ")
+                  : type === "payments.invoice" ? [row.status, row.currency, row.amount_minor].filter(Boolean).join(" · ")
                     : type === "content_item" ? [row.parent_title, row.content_status].filter(Boolean).join(" · ")
                       : type === "physical_item" ? [row.parent_title, row.item_condition, row.status, row.location_text].filter(Boolean).join(" · ")
                       : row.status ?? "";

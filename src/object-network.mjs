@@ -5,7 +5,7 @@ const maximumConnections = 100;
 const supportedTypes = new Set([
   "contacts.contact", "todos.todo_group", "todos.personal_task", "payments.invoice",
   "journal.group", "journal.tracker", "journal.entry", "calendar.event",
-  "calendar.routine", "files.file", "profile.fact", "catch_up.question",
+  "calendar.routine", "files.file", "profile.fact", "correspondence.item",
   "video.script", "video.content_group", "video.content_item",
   "things.physical_item_group", "things.physical_item",
 ]);
@@ -15,11 +15,12 @@ const definitions = new Map(nativeFirstClassObjectTypes
 
 const connectableTypes = Object.freeze({
   "contacts.contact": ["todos.personal_task", "calendar.event", "things.physical_item"],
-  "todos.personal_task": ["contacts.contact", "calendar.event", "video.content_item", "things.physical_item"],
+  "todos.personal_task": ["contacts.contact", "calendar.event", "video.content_item", "things.physical_item", "correspondence.item"],
   "calendar.event": ["contacts.contact", "todos.personal_task"],
   "video.content_item": ["todos.personal_task", "things.physical_item"],
   "files.file": ["things.physical_item"],
   "things.physical_item": ["contacts.contact", "todos.personal_task", "video.content_item", "files.file"],
+  "correspondence.item": ["todos.personal_task"],
 });
 
 function positiveId(value, label = "object id") {
@@ -258,13 +259,13 @@ export class ObjectNetworkService {
         attribute("Kind", row.fact_type), attribute("Status", row.fact_status),
       ] });
     }
-    if (type === "catch_up.question") {
-      row = this.database.prepare(`SELECT question_id, question_text, calendar_event_id, tracker_id,
-        due_at_utc, ask_after, resolved_at, comment FROM catch_up_questions WHERE question_id = ?`).get(id);
+    if (type === "correspondence.item") {
+      row = this.database.prepare(`SELECT correspondence_id, medium, direction, subject, body,
+        delivery_status, occurred_at_utc FROM correspondence WHERE correspondence_id = ?`).get(id);
       if (!row) return null;
-      return this.#card(definition, id, row.question_text, { body: row.comment, attributes: [
-        attribute("Kind", row.calendar_event_id ? "Event review" : "Journal"), attribute("Due", row.due_at_utc),
-        attribute("Ask after", row.ask_after), attribute("Resolved", row.resolved_at),
+      return this.#card(definition, id, row.subject || `${row.medium} ${row.direction}`, { body: row.body, attributes: [
+        attribute("Medium", row.medium), attribute("Direction", row.direction),
+        attribute("Status", row.delivery_status), attribute("When", row.occurred_at_utc),
       ] });
     }
     if (type === "video.script") {
@@ -407,6 +408,12 @@ export class ObjectNetworkService {
       const content = selected.left.type === "video.content_item" ? selected.left : selected.right;
       await this.registry.execute("todo_content_link_set", {
         links: [{ personal_task_id: todo.id, content_id: content.id, linked }],
+      }, { ...context, channel: context.channel ?? "web" });
+    } else if (selected.key === "correspondence.item|todos.personal_task") {
+      const correspondence = selected.left.type === "correspondence.item" ? selected.left : selected.right;
+      const todo = selected.left.type === "todos.personal_task" ? selected.left : selected.right;
+      await this.registry.execute("correspondence_todo_link_set", {
+        links: [{ correspondence_id: correspondence.id, todo_id: todo.id, linked }],
       }, { ...context, channel: context.channel ?? "web" });
     } else if ([
       "contacts.contact|things.physical_item",

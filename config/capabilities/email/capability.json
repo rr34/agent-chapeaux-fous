@@ -63,15 +63,6 @@
       "kind": "object",
       "management": "provider",
       "reason": "JMAP blobs are immutable provider-owned message or attachment payloads read through their owning message identity."
-    },
-    {
-      "id": "email.correspondence_participant",
-      "kind": "relationship",
-      "title": "Correspondence participant",
-      "summary": "A provider-ingested participant identity retained with one correspondence record.",
-      "management": "provider",
-      "reason": "Correspondence synchronization owns participant roles, addresses, and contact-method evidence.",
-      "storage": { "table": "correspondence_participants_join" }
     }
   ],
   "guidance": "guidance.md"

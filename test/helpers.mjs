@@ -13,8 +13,14 @@ import {
 
 const schemaSource = fs.readFileSync(baselineFilename, "utf8");
 
-export function baselineBeforeContactSourceAliases(source) {
+export function baselineBeforeRetiredCheckIn(source) {
   return source
+    .replace("Target: MariaDB 10.11, schema version 59.", "Target: MariaDB 10.11, schema version 58.")
+    .replace("VALUES (1, 59,", "VALUES (1, 58,");
+}
+
+export function baselineBeforeContactSourceAliases(source) {
+  return baselineBeforeRetiredCheckIn(source)
     .replace(/CREATE TABLE contact_source_aliases \([\s\S]*?\n\) ENGINE=InnoDB[^\n]*;\n\n/u, "")
     .replace("Target: MariaDB 10.11, schema version 58.", "Target: MariaDB 10.11, schema version 57.")
     .replace("VALUES (1, 58,", "VALUES (1, 57,");

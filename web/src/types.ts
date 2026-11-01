@@ -36,7 +36,6 @@ export interface CalendarEvent {
   contactId?: number;
   version?: string;
   recurrenceRule?: string | null;
-  planningPromptText?: string | null;
   title: string;
   description?: string | null;
   location?: string | null;
@@ -45,7 +44,6 @@ export interface CalendarEvent {
   timeZone?: string | null;
   isAllDay: boolean;
   status?: string;
-  planningState?: string | null;
   linkedTodos?: LinkedTodo[];
   linkedContacts?: Array<{
     contactId: number;
@@ -76,7 +74,6 @@ export interface CalendarRoutine extends Entity {
   timeZone?: string | null;
   isAllDay: boolean;
   recurrenceRule: string;
-  planningPromptText?: string | null;
   disabledAtUtc?: string | null;
   version?: string;
 }
@@ -89,7 +86,6 @@ export interface CalendarRoutineOccurrence {
   timeZone?: string | null;
   isAllDay: boolean;
   recurrenceRule: string;
-  planningPromptText?: string | null;
 }
 
 export interface CalendarRoutinePreview {
@@ -270,6 +266,13 @@ export interface RequestRecord {
   selectedObjectCandidates?: PersistedObjectCandidate[];
   progress?: RequestProgress | null;
   usage?: RequestUsage | null;
+  smsDraft?: {
+    contact_id: number;
+    contact_method_id: number;
+    contact_name: string;
+    address: string;
+    body: string;
+  };
   turnBriefApproval?: {
     approvalId?: string;
     objective?: string;

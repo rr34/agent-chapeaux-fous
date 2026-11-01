@@ -1,6 +1,6 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 
-export const requiredDatabaseSchemaVersion = 58;
+export const requiredDatabaseSchemaVersion = 59;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -79,12 +79,12 @@ export const requiredDatabaseShape = {
   calendar_events: [
     "calendar_event_id", "calendar_routine_id", "routine_occurrence_key", "title", "description", "location_text", "starts_at_utc",
     "ends_at_utc", "time_zone", "is_all_day", "status", "recurrence_rule",
-    "source_event_id", "created_at_utc", "updated_at_utc", "planning_prompt_text",
+    "source_event_id", "created_at_utc", "updated_at_utc",
   ],
   calendar_routines: [
     "calendar_routine_id", "title", "description", "location_text", "first_starts_at_utc",
     "first_ends_at_utc", "time_zone", "is_all_day", "recurrence_rule", "disabled_at_utc",
-    "planning_prompt_text", "source_event_id", "created_at_utc", "updated_at_utc",
+    "source_event_id", "created_at_utc", "updated_at_utc",
   ],
   calendar_events_todo_join: ["calendar_event_id", "personal_task_id", "relationship_kind", "created_at_utc"],
   calendar_event_exclusions: ["calendar_event_id", "excluded_starts_at_utc"],
@@ -118,7 +118,6 @@ export const requiredDatabaseShape = {
   ],
   journal1_groups: ["journal_group_id", "name", "archived_at_utc"],
   journal2_trackers: ["tracker_id", "journal_group_id", "name", "unit", "archived_at_utc", "asking_starts_at_utc", "asking_recurrence_rule", "asking_time_zone"],
-  catch_up_questions: ["question_id", "calendar_event_id", "tracker_id", "occurrence_key", "source_version", "question_text", "due_at_utc", "ask_after", "resolved_at", "comment", "version"],
   journal3_entries: [
     "journal_entry_id", "tracker_id", "occurred_at_utc", "content_text",
     "number_value", "source_event_id", "source", "external_id",

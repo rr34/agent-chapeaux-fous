@@ -1002,3 +1002,28 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
   .first-class-object-card.calendar-routine-card > .first-class-object-actions,
   .first-class-object-card.calendar-event-card:not(.paper-calendar-event-card) > .first-class-object-actions { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; }
 }
+.correspondence-filters { display: grid; grid-template-columns: minmax(15rem, 1fr) repeat(3, auto); gap: .6rem; }
+.correspondence-filters input, .correspondence-filters select { min-width: 0; }
+.correspondence-pages { display: flex; align-items: center; justify-content: center; gap: .75rem; margin-top: 1rem; }
+.sms-draft-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem; margin-top: .8rem; }
+.sms-draft-actions small { color: var(--muted); }
+.account-tabs { display: flex; gap: .5rem; margin-bottom: 1rem; border-bottom: 1px solid var(--line); }
+.account-tabs button { border: 0; border-bottom: 3px solid transparent; background: transparent; padding: .75rem 1rem; }
+.account-tabs button.active { border-bottom-color: var(--accent); color: var(--accent); }
+.profile-fact-form { display: grid; grid-template-columns: minmax(10rem, .35fr) minmax(18rem, 1fr) auto; align-items: end; gap: .8rem; margin-bottom: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.profile-fact-form label { display: grid; gap: .35rem; }
+.profile-fact-form textarea { min-height: 4rem; }
+.music-track-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
+.music-track-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: .5rem; align-items: center; padding: .7rem; border-top: 1px solid var(--line); }
+.music-track-list span { display: grid; min-width: 0; }
+.music-track-list small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-shell.has-music-player .workspace { padding-bottom: calc(var(--agent-composer-clearance) + 7rem); }
+.music-mini-player { position: fixed; z-index: 30; left: 232px; right: 1rem; bottom: var(--agent-composer-clearance); display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(14rem, 2fr) auto; align-items: center; gap: 1rem; padding: .75rem 1rem; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: 0 10px 35px rgb(0 0 0 / .22); }
+.music-mini-player span { display: grid; min-width: 0; }
+.music-mini-player strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.music-mini-player audio { width: 100%; }
+@media (max-width: 800px) {
+  .correspondence-filters, .profile-fact-form { grid-template-columns: 1fr; }
+  .music-mini-player { left: .75rem; right: .75rem; grid-template-columns: 1fr auto; }
+  .music-mini-player audio { grid-column: 1 / -1; }
+}

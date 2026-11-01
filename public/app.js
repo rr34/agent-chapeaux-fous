@@ -15,7 +15,6 @@ import {
   weeklyRoutinePattern,
 } from "./calendar-grid.js";
 import { createTimingEditor } from "./timing-editor.js";
-import { defaultCatchUpSettings, catchUpScopeFromSettings, catchUpRequestText } from "./catch-up-settings.js";
 import { groupUsageByRequest, usageFromTrace, llmCallCountLabel, normalizePricing,
   normalizePricingBook, pricingForTier, aiEntryCost, summarizeAiUsage } from "./ai-usage.js";
 
@@ -25,10 +24,6 @@ const elements = {
   form: document.querySelector("#request-form"),
   text: document.querySelector("#request-text"),
   send: document.querySelector("#send"),
-  catchUp: document.querySelector("#catch-up"),
-  catchUpStatus: document.querySelector("#catch-up-status"),
-  catchUpSettings: document.querySelector("#catch-up-settings"),
-  catchUpTimeZone: document.querySelector("#catch-up-time-zone"),
   respondSilently: document.querySelector("#respond-silently"),
   composerAttachFile: document.querySelector("#composer-attach-file"),
   composerFileSelection: document.querySelector("#composer-file-selection"),
@@ -147,7 +142,6 @@ const elements = {
   fileSelectionStatus: document.querySelector("#file-selection-status"),
   contactsView: document.querySelector("#contacts-view"),
   journalView: document.querySelector("#journal-view"),
-  interactionsView: document.querySelector("#interactions-view"),
   aiUsageView: document.querySelector("#ai-usage-view"),
   refreshAiUsage: document.querySelector("#refresh-ai-usage"),
   aiUsageMonthCost: document.querySelector("#ai-usage-month-cost"),
@@ -208,7 +202,6 @@ const elements = {
   eventDuration: document.querySelector("#event-duration"),
   eventLocation: document.querySelector("#event-location"),
   eventDescription: document.querySelector("#event-description"),
-  eventPlanningPrompt: document.querySelector("#event-planning-prompt"),
   eventStatus: document.querySelector("#event-status"),
   eventRepeatEnabled: document.querySelector("#event-repeat-enabled"),
   eventRepeatFields: document.querySelector("#event-repeat-fields"),
@@ -2412,7 +2405,6 @@ function calendarEventCopyText(calendarEvent) {
   if (calendarEvent.linkedContacts?.length) {
     lines.push(`Contacts: ${calendarEvent.linkedContacts.map(({ displayName }) => displayName).join(", ")}`);
   }
-  if (calendarEvent.planningPromptText) lines.push("", `Planning prompt: ${calendarEvent.planningPromptText}`);
   return lines.join("\n");
 }
 
@@ -2445,7 +2437,6 @@ function switchView(view) {
   elements.filesView.hidden = view !== "files";
   elements.contactsView.hidden = view !== "contacts";
   elements.journalView.hidden = view !== "journal";
-  elements.interactionsView.hidden = view !== "interactions";
   elements.aiUsageView.hidden = view !== "ai-usage";
   for (const button of elements.navButtons) {
     const selected = button.dataset.view === view;
@@ -2464,7 +2455,6 @@ function switchView(view) {
   if (view === "files") void loadFiles();
   if (view === "contacts") void refreshContacts();
   if (view === "journal") void refreshJournal();
-  if (view === "interactions") renderCatchUpSettings();
   if (view === "ai-usage") void loadAiUsage();
   if (view === "agent" && previousView !== "agent") {
     if (agentPresentation === "conversation") scrollChatToLatest();
@@ -2877,18 +2867,6 @@ function agendaEventItem(calendarEvent, { allDay = false } = {}) {
     const description = String(calendarEvent.description ?? "").trim();
     const details = [allDay ? "All-day event" : null, calendarEvent.location].filter(Boolean).join(" · ");
     button.append(node("strong", "", calendarEvent.title));
-    if (calendarEvent.planningState) {
-      const planningLabels = {
-        needs_planning: "Needs planning",
-        deferred: "Deferred",
-        planned: "Planned",
-      };
-      button.append(node(
-        "span",
-        `agenda-planning-state ${calendarEvent.planningState}`,
-        planningLabels[calendarEvent.planningState] ?? calendarEvent.planningState.replaceAll("_", " "),
-      ));
-    }
     if (description) button.append(node("span", "agenda-item-description", description));
     if (details) button.append(node("span", "agenda-item-details", details));
     if (calendarEvent.linkedContacts?.length) {
@@ -3090,7 +3068,6 @@ function openEventEditor(calendarEvent = null, { routine = false } = {}) {
     });
     elements.eventLocation.value = calendarEvent.location ?? "";
     elements.eventDescription.value = calendarEvent.description ?? "";
-    elements.eventPlanningPrompt.value = calendarEvent.planningPromptText ?? "";
     elements.eventStatus.value = calendarEvent.status ?? "active";
   } else {
     const start = new Date(selectedCalendarDate.getFullYear(), selectedCalendarDate.getMonth(), selectedCalendarDate.getDate(), 9);
@@ -3237,7 +3214,6 @@ async function saveEvent(event) {
     const payload = {
       title: elements.eventTitle.value,
       description: elements.eventDescription.value,
-      planningPromptText: elements.eventPlanningPrompt.value,
       location: elements.eventLocation.value,
       startsAtUtc: inputToIso(timing.start, timing.isAllDay),
       endsAtUtc: inputToIso(timing.end, timing.isAllDay),
@@ -5225,65 +5201,20 @@ async function saveJournalEntry(event) {
   }
 }
 
-const catchUpSettingsStorageKey = "agent-slayer-catch-up-settings-v1";
-function readCatchUpSettings() {
-  return Object.fromEntries([...elements.catchUpSettings.querySelectorAll("[data-setting]")]
-    .map(input => [input.dataset.setting, input.type === "checkbox" ? input.checked : input.value]));
-}
-function renderCatchUpSettings() {
-  const settings = readCatchUpSettings();
-  for (const row of elements.catchUpSettings.querySelectorAll("[data-category]")) {
-    const category = row.dataset.category;
-    for (const input of row.querySelectorAll("select, input:not([type=checkbox])")) input.disabled = !settings[`${category}Enabled`];
-    const custom = row.querySelector('input[type="date"], input[type="datetime-local"]');
-    if (custom) custom.hidden = !["date", "custom"].includes(settings[`${category}Day`] || settings[`${category}Time`]);
-  }
-  elements.catchUpTimeZone.textContent = `Dates and cutoffs use ${Intl.DateTimeFormat().resolvedOptions().timeZone}.`;
-  for (const hint of elements.catchUpSettings.querySelectorAll("[data-resolved]")) hint.textContent = "";
-  try {
-    const scope = catchUpScopeFromSettings(settings);
-    elements.catchUpSettings.querySelector('[data-resolved="logs"]').textContent = scope.logs_date ? formatDisplayDate(`${scope.logs_date}T12:00:00`) : "";
-    elements.catchUpSettings.querySelector('[data-resolved="plan"]').textContent = scope.plan_through_date ? formatDisplayDate(`${scope.plan_through_date}T12:00:00`) : "";
-  } catch { /* Show validation errors when Start is pressed. */ }
-}
-function initializeCatchUpSettings() {
-  let saved = {};
-  try { saved = JSON.parse(localStorage.getItem(catchUpSettingsStorageKey) || "{}"); } catch { /* Use defaults. */ }
-  const settings = { ...defaultCatchUpSettings, ...saved };
-  for (const input of elements.catchUpSettings.querySelectorAll("[data-setting]")) {
-    if (input.type === "checkbox") input.checked = settings[input.dataset.setting] === true;
-    else input.value = settings[input.dataset.setting];
-  }
-  renderCatchUpSettings();
-}
-elements.catchUpSettings.addEventListener("change", () => {
-  try { localStorage.setItem(catchUpSettingsStorageKey, JSON.stringify(readCatchUpSettings())); } catch { /* Keep the in-page settings. */ }
-  elements.catchUpStatus.textContent = "";
-  renderCatchUpSettings();
-});
-initializeCatchUpSettings();
-
-async function submitTextRequest({ catchUp = false } = {}) {
+async function submitTextRequest() {
   if (elements.send.disabled || recorder?.state === "recording") return;
-  const statusElement = catchUp ? elements.catchUpStatus : elements.status;
-  let text;
-  try {
-    text = catchUp ? catchUpRequestText(catchUpScopeFromSettings(readCatchUpSettings())) : elements.text.value.trim();
-  } catch (error) {
-    statusElement.textContent = error.message;
-    return;
-  }
+  const statusElement = elements.status;
+  const text = elements.text.value.trim();
   if (!text) return;
-  const referencedRequestIds = catchUp ? [] : referencedRequestIdsFromComposer(text);
+  const referencedRequestIds = referencedRequestIdsFromComposer(text);
   const respondSilently = elements.respondSilently.checked;
   prepareSpeechOutput(respondSilently);
   elements.send.disabled = true;
-  elements.catchUp.disabled = true;
   elements.respondSilently.disabled = true;
   statusElement.textContent = "Submitting…";
   try {
-    const file = catchUp ? null : elements.requestFile.files?.[0] ?? null;
-    let primaryFileId = catchUp ? null : Number(elements.requestExistingFile.value) || null;
+    const file = elements.requestFile.files?.[0] ?? null;
+    let primaryFileId = Number(elements.requestExistingFile.value) || null;
     let selectedStoredFile = storedFiles.find((entry) => entry.fileId === primaryFileId) ?? null;
     let uploadedNewFile = false;
     if (file) {
@@ -5305,29 +5236,25 @@ async function submitTextRequest({ catchUp = false } = {}) {
       body: JSON.stringify({ text, primaryFileId, referencedRequestIds, runLimits: pendingRunLimits }),
     });
     expectSpokenResponse(created.requestId, respondSilently);
-    if (!catchUp) {
-      elements.text.value = "";
-      resizeRequestText();
-      clearObjectDraft({ resetSelection: true });
-      elements.requestFile.value = "";
-      elements.requestExistingFile.value = "";
-      updateRequestFileSelection();
-    }
+    elements.text.value = "";
+    resizeRequestText();
+    clearObjectDraft({ resetSelection: true });
+    elements.requestFile.value = "";
+    elements.requestExistingFile.value = "";
+    updateRequestFileSelection();
     pendingRunLimits = null;
     updateRunLimitsSummary();
-    statusElement.textContent = catchUp ? "Catch-up queued. The agent will ask one question at a time." : uploadedNewFile
+    statusElement.textContent = uploadedNewFile
       ? `Uploaded ${selectedStoredFile.originalFilename} as file #${primaryFileId}. Request queued.`
       : selectedStoredFile
         ? `Queued with file #${primaryFileId} — ${selectedStoredFile.title || selectedStoredFile.originalFilename}.`
       : "Queued.";
-    if (catchUp) elements.status.textContent = statusElement.textContent;
     switchView("agent");
     await Promise.all([loadRequests({ force: true, followLatest: true }), loadFiles()]);
   } catch (error) {
     statusElement.textContent = error.message;
   } finally {
     elements.send.disabled = false;
-    elements.catchUp.disabled = false;
     elements.respondSilently.disabled = false;
   }
 }
@@ -5336,7 +5263,6 @@ elements.form.addEventListener("submit", (event) => {
   event.preventDefault();
   void submitTextRequest();
 });
-elements.catchUp.addEventListener("click", () => { void submitTextRequest({ catchUp: true }); });
 
 elements.text.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;

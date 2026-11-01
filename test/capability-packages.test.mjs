@@ -17,7 +17,7 @@ import { ToolRegistry } from "../src/tools/registry.mjs";
 import { registerWebPageTools } from "../src/tools/web-page-tools.mjs";
 
 const ids = [
-  "calendar", "catch-up", "contacts", "daily-paper", "database", "database-write",
+  "calendar", "contacts", "correspondence", "daily-paper", "database", "database-write",
   "email", "files", "history", "journal", "payments", "printable-report", "profile", "relationships", "search",
   "self", "things", "todos", "video", "web",
 ];
@@ -108,9 +108,6 @@ test("registered native tools must use declared capabilities and agree with read
   assert.throws(() => validateRegisteredCapabilities(manifests, [{
     name: "web_page_read", source: "local", capabilityId: "web", annotations: { readOnlyHint: false },
   }]), /web\.readOnlyTools conflicts with web_page_read annotations/);
-  assert.throws(() => validateRegisteredCapabilities(manifests, [{
-    name: "calendar_event_update", source: "local", capabilityId: "catch-up",
-  }]), /catch-up\.dependentTools names same-capability tool calendar_event_update/);
 });
 
 test("package guidance and filenames never leak into model-visible tool definitions", () => {

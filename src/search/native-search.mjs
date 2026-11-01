@@ -14,7 +14,7 @@ export const nativeObjectSearchDomains = Object.freeze([
   ["content", "Native content-library groups and items.", ["video.content_group", "video.content_item"]],
   ["video", "Native source-grounded video scripts.", ["video.script"]],
   ["profile", "Native durable profile facts and preferences.", ["profile.fact"]],
-  ["catch_up", "Native unresolved Check-in questions.", ["catch_up.question"]],
+  ["correspondence", "Synchronized correspondence items.", ["correspondence.item"]],
   ["payments", "Native prepared and sent payment invoices.", ["payments.invoice"]],
 ]);
 

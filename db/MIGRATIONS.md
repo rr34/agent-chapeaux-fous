@@ -11,6 +11,18 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 59: Retire Check-in and calendar planning prompts
+
+Drops `catch_up_questions` and its data, removes calendar-event and
+calendar-routine planning prompt columns, and removes Check-in edges from the
+object-network projection. Journal tracker schedules remain in
+`journal2_trackers` and are now owned directly by Journal scheduling.
+
+Apply with writers stopped because the matching application no longer reads the
+retired table or columns. The migration intentionally discards Check-in data.
+Its guarded destructive DDL and derived-view replacement can be replayed after
+a partial MariaDB DDL commit.
+
 ## Version 58: Android contact source aliases
 
 Adds the authoritative mapping from every synchronized Android contact identity

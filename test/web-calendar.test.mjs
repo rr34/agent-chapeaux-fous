@@ -182,7 +182,7 @@ test("journal trackers expose basic daily, weekly, and monthly RRULE controls", 
   assert.match(trackerScheduleSource, /method: "PATCH"/);
   assert.match(trackerScheduleSource, /weekdays: frequency === "weekly"/);
   assert.match(serverSource, /journal-trackers\\\/\(\\d\+\)\\\/schedule/);
-  assert.match(serverSource, /catchUp\.setTrackerSchedule/);
+  assert.match(serverSource, /journalSchedule\.setTrackerSchedule/);
   assert.match(organizerSource, /askingRecurrenceRule: row\.asking_recurrence_rule/);
   assert.match(styles, /\.tracker-schedule \{/);
 });
