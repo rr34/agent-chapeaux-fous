@@ -27,6 +27,31 @@ const block = (version, name = `migration-${version}`, sql = `SELECT ${version};
   return `-- migration ${label}: ${name}\n${sql}\n-- end migration ${label}\n`;
 };
 
+test("resumable JMAP baseline integrity requires both sync work tables and their ownership key", async () => {
+  const tables = ["jmap_email_sync_work", "jmap_email_sync_work_items"]
+    .map((TABLE_NAME) => ({ TABLE_NAME, TABLE_TYPE: "BASE TABLE" }));
+  const columns = [
+    ...["source_account_key", "target_email_state", "query_state", "next_position", "total", "synchronized_count", "query_changed", "started_at_utc", "updated_at_utc"]
+      .map((COLUMN_NAME) => ({ TABLE_NAME: "jmap_email_sync_work", COLUMN_NAME })),
+    ...["source_account_key", "email_id", "internet_message_id", "in_reply_to_message_id", "observed_at_utc"]
+      .map((COLUMN_NAME) => ({ TABLE_NAME: "jmap_email_sync_work_items", COLUMN_NAME })),
+  ];
+  const keys = [{
+    CONSTRAINT_NAME: "jmap_email_sync_work_items_owner", COLUMN_NAME: "source_account_key",
+    REFERENCED_TABLE_NAME: "jmap_email_sync_work", ORDINAL_POSITION: 1,
+  }];
+  const connection = ({ selectedTables = tables, selectedColumns = columns, selectedKeys = keys } = {}) => ({ async query(sql) {
+    if (sql.includes("information_schema.TABLES")) return [selectedTables];
+    if (sql.includes("information_schema.COLUMNS")) return [selectedColumns];
+    if (sql.includes("information_schema.KEY_COLUMN_USAGE")) return [selectedKeys];
+    throw new Error(`Unexpected SQL: ${sql}`);
+  } });
+  await assertMigrationSpecificIntegrity(connection(), { version: 61 }, "test_database");
+  await assert.rejects(assertMigrationSpecificIntegrity(connection({ selectedTables: tables.slice(1) }), { version: 61 }, "test_database"), /both resumable JMAP sync work tables/u);
+  await assert.rejects(assertMigrationSpecificIntegrity(connection({ selectedColumns: columns.slice(1) }), { version: 61 }, "test_database"), /source_account_key/u);
+  await assert.rejects(assertMigrationSpecificIntegrity(connection({ selectedKeys: [] }), { version: 61 }, "test_database"), /item-to-owner foreign key/u);
+});
+
 test("JMAP mailbox mirror integrity requires metadata, membership, keywords, and relationship discovery", async () => {
   const tables = ["jmap_email_mailboxes", "correspondence_email_mailboxes_join"]
     .map((TABLE_NAME) => ({ TABLE_NAME, TABLE_TYPE: "BASE TABLE" }));
@@ -662,11 +687,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60]);
-  for (let current = 29; current <= 60; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61]);
+  for (let current = 29; current <= 61; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 60 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 61 - current }, (_, index) => current + index + 1),
     );
   }
 });

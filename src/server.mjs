@@ -572,7 +572,9 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/correspondence/email-sync") {
-      sendJson(response, 200, await correspondence.syncEmail({ actorType: "user", actorName: "Nate", channel: "web" }));
+      if (correspondence.emailSyncStatus().status === "running") throw Object.assign(new Error("Email synchronization is already running"), { statusCode: 409 });
+      void correspondence.syncEmail({ actorType: "user", actorName: "Nate", channel: "web" }).catch(() => {});
+      sendJson(response, 202, correspondence.emailSyncStatus());
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/correspondence/email-sync/status") {

@@ -89,6 +89,7 @@ test("email synchronization preserves provider HTML and records the Email state"
     exec(sql) { executions.push(sql); },
     prepare(sql) {
       if (sql.startsWith("SELECT email_state")) return { get: () => undefined };
+      if (sql.startsWith("SELECT * FROM jmap_email_sync_work")) return { get: () => undefined };
       if (sql.startsWith("SELECT correspondence_id, external_id")) return { all: () => [
         { correspondence_id: 41, external_id: "email-parent", internet_message_id: "message-parent@example.test" },
         { correspondence_id: 42, external_id: "email-child", internet_message_id: "message-child@example.test" },
@@ -150,25 +151,27 @@ test("email synchronization preserves provider HTML and records the Email state"
     [42, "jmap:account-1", "inbox-1"], [42, "jmap:account-1", "project-1"],
     [41, "jmap:account-1", "inbox-1"],
   ]);
-  const replyWrites = calls.filter(({ sql }) => sql.startsWith("UPDATE correspondence SET in_reply_to_id"));
-  assert.deepEqual(replyWrites.map(({ args }) => args), [[41, 42], [null, 41]]);
+  assert.ok(calls.some(({ sql }) => sql.startsWith("UPDATE correspondence AS child")));
   const stateWrite = calls.find(({ sql }) => sql.includes("INSERT INTO jmap_email_sync_state"));
   assert.equal(stateWrite.args[1], "email-state");
-  assert.deepEqual(executions, ["START TRANSACTION", "COMMIT"]);
+  assert.equal(executions.filter((value) => value === "START TRANSACTION").length,
+    executions.filter((value) => value === "COMMIT").length);
+  assert.equal(executions.includes("ROLLBACK"), false);
   assert.equal(ledgerEvents[0].type, "correspondence.email_synchronized");
 });
 
-test("email synchronization continues past a full 500-id query page", async () => {
+test("email synchronization commits bounded pages and continues past the first 100 ids", async () => {
   const queryPositions = [];
   const database = {
     exec() {},
     prepare(sql) {
       if (sql.startsWith("SELECT email_state")) return { get: () => undefined };
+      if (sql.startsWith("SELECT * FROM jmap_email_sync_work")) return { get: () => undefined };
       if (sql.startsWith("SELECT correspondence_id, external_id")) return { all: () => [] };
       return { run() {} };
     },
   };
-  const firstPage = Array.from({ length: 500 }, (_, index) => `email-${index}`);
+  const firstPage = Array.from({ length: 100 }, (_, index) => `email-${index}`);
   const jmap = {
     resolveAccountId: () => "account-1",
     publicSession: () => ({ username: "me@example.test" }),
@@ -177,8 +180,8 @@ test("email synchronization continues past a full 500-id query page", async () =
       if (method === "Email/query") {
         queryPositions.push(input.position);
         return input.position === 0
-          ? { ids: firstPage, total: 501 }
-          : { ids: ["email-500"] };
+          ? { ids: firstPage, total: 101 }
+          : { ids: ["email-100"] };
       }
       if (method === "Email/get") return { state: "email-state", list: [] };
       throw new Error(`Unexpected JMAP method: ${method}`);
@@ -188,8 +191,42 @@ test("email synchronization continues past a full 500-id query page", async () =
     store: { requireReady: () => database }, ledger: { append() {} }, jmap,
   });
   const result = await service.syncEmail();
-  assert.deepEqual(queryPositions, [0, 500]);
-  assert.equal(result.total, 501);
+  assert.deepEqual(queryPositions, [0, 100]);
+  assert.equal(result.total, 101);
+});
+
+test("an interrupted full email baseline resumes from its durable position", async () => {
+  const queryPositions = [];
+  const database = {
+    exec() {},
+    prepare(sql) {
+      if (sql.startsWith("SELECT email_state")) return { get: () => undefined };
+      if (sql.startsWith("SELECT * FROM jmap_email_sync_work")) return { get: () => ({
+        source_account_key: "jmap:account-1", target_email_state: "baseline-state", query_state: "query-state",
+        next_position: 2_900, total: 100_001, synchronized_count: 2_900, query_changed: 0,
+      }) };
+      return { run: () => ({ changes: 0 }) };
+    },
+  };
+  const jmap = {
+    resolveAccountId: () => "account-1",
+    publicSession: () => ({ username: "me@example.test" }),
+    async call(method, input) {
+      if (method === "Mailbox/get") return { list: [] };
+      if (method === "Email/query") {
+        queryPositions.push(input.position);
+        return { ids: [], queryState: "query-state" };
+      }
+      throw new Error(`Unexpected JMAP method: ${method}`);
+    },
+  };
+  const service = new CorrespondenceService({
+    store: { requireReady: () => database }, ledger: { append() {} }, jmap,
+  });
+  const result = await service.syncEmail();
+  assert.deepEqual(queryPositions, [2_900]);
+  assert.equal(result.synchronized, 2_900);
+  assert.equal(result.resumed, true);
 });
 
 test("later email synchronization consumes JMAP changes without repeating the full query", async () => {
@@ -199,7 +236,9 @@ test("later email synchronization consumes JMAP changes without repeating the fu
     exec() {},
     prepare(sql) {
       if (sql.startsWith("SELECT email_state")) return { get: () => ({ email_state: "state-1" }) };
-      if (sql.startsWith("SELECT correspondence_id FROM correspondence")) return { get: () => ({ correspondence_id: 51 }) };
+      if (sql.startsWith("SELECT * FROM jmap_email_sync_work")) return { get: () => undefined };
+      if (sql.startsWith("SELECT correspondence_id FROM correspondence") && sql.includes("external_id = ?")) return { get: () => ({ correspondence_id: 51 }) };
+      if (sql.startsWith("SELECT correspondence_id FROM correspondence") && sql.includes("internet_message_id = ?")) return { all: () => [] };
       if (sql.startsWith("SELECT correspondence_id, external_id")) return { all: () => [{
         correspondence_id: 51, external_id: "changed-1", internet_message_id: "changed@example.test",
       }] };
@@ -257,6 +296,7 @@ test("an expired JMAP changes cursor restarts a full baseline", async () => {
       if (sql.startsWith("SELECT email_state")) return { get: () => (
         cursorRead++ === 0 ? { email_state: "expired-state" } : undefined
       ) };
+      if (sql.startsWith("SELECT * FROM jmap_email_sync_work")) return { get: () => undefined };
       if (sql.startsWith("SELECT correspondence_id, external_id")) return { all: () => [] };
       return { run: (...args) => writes.push({ sql, args }) };
     },

@@ -70,20 +70,24 @@ export function CorrespondenceScreen() {
   }, [data?.items, groupBy]);
   const sync = async () => {
     setSyncing(true); setNotice("");
-    let polling = true;
-    const poll = window.setInterval(() => { void api<{
-      status: string; phase: string | null; processed: number; total: number | null;
-    }>("/api/correspondence/email-sync/status").then((status) => {
-      if (!polling || status.status !== "running") return;
-      const amount = status.total == null ? `${status.processed}` : `${status.processed} of ${status.total}`;
-      setNotice(`${status.phase || "Synchronizing email"}: ${amount}`);
-    }).catch(() => {}); }, 750);
     try {
-      const result = await api<{ synchronized: number; deleted: number; mode: "full" | "incremental" }>("/api/correspondence/email-sync", { method: "POST" });
+      await api("/api/correspondence/email-sync", { method: "POST" });
+      let result: { synchronized: number; deleted: number; mode: "full" | "incremental" } | null = null;
+      while (!result) {
+        await new Promise((resolve) => window.setTimeout(resolve, 750));
+        const status = await api<{
+          status: string; phase: string | null; processed: number; total: number | null;
+          error?: string; result?: { synchronized: number; deleted: number; mode: "full" | "incremental" };
+        }>("/api/correspondence/email-sync/status");
+        const amount = status.total == null ? `${status.processed}` : `${status.processed} of ${status.total}`;
+        setNotice(`${status.phase || "Synchronizing email"}: ${amount}`);
+        if (status.status === "error") throw new Error(status.error || "Email synchronization failed");
+        if (status.status === "complete" && status.result) result = status.result;
+      }
       setNotice(`${result.mode === "full" ? "Full" : "Incremental"} sync complete: ${result.synchronized} email${result.synchronized === 1 ? "" : "s"} updated${result.deleted ? ` and ${result.deleted} deleted` : ""}.`);
       await reload();
     } catch (caught) { setNotice(caught instanceof Error ? caught.message : String(caught)); }
-    finally { polling = false; window.clearInterval(poll); setSyncing(false); }
+    finally { setSyncing(false); }
   };
   return <>
     <header className="page-heading"><div><p className="eyebrow">Every channel, one record</p><h1>Correspondence</h1><p>Email, messages, calls, and voicemail consolidated without replacing their authoritative apps.</p></div><button className="button" disabled={syncing} onClick={() => void sync()}>{syncing ? "Syncing…" : "Sync email"}</button></header>

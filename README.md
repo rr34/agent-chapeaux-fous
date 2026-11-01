@@ -1241,11 +1241,17 @@ than reducing an email to one folder, preserves provider mailbox names, roles,
 and hierarchy, and retains the complete active keyword set so unread state is
 not inferred from folder placement. A complete email synchronization replaces
 those provider-owned memberships atomically with the corresponding message.
-The first synchronization reads every bounded query page and reports literal
-discovery, download, save, and finalization progress. Only a completed baseline
-records its Email state; later synchronization consumes paginated
-`Email/changes`, and an expired provider cursor falls back to a new full
-baseline instead of silently treating the mirror as current.
+The first synchronization imports and commits bounded 100-message batches and
+reports literal progress without retaining the account's message bodies in
+process memory. Temporary `jmap_email_sync_work` and
+`jmap_email_sync_work_items` rows hold only operational checkpoint and ID data;
+both tables are empty after a successful baseline. They allow another explicit
+sync to resume after a process restart. The initiating HTTP request
+returns immediately while the browser polls status, so proxy timeouts do not
+own the job lifetime. Only a completed baseline records its Email state; later
+synchronization consumes paginated `Email/changes`, and an expired provider
+cursor falls back to a new full baseline instead of silently treating the
+mirror as current.
 Correspondence has no tag system: user organization uses the
 existing object relationships, including user-managed to-do links exposed by
 the selection and network controls. Phone synchronization remains mobile-only.

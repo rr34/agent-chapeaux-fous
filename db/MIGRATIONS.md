@@ -11,6 +11,21 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 61: Resumable bounded JMAP email baselines
+
+Adds the clearly operational `jmap_email_sync_work` checkpoint table and
+`jmap_email_sync_work_items` ID-only staging table. Full email imports now
+commit every 100-message batch, retain only that batch's bodies in process
+memory, and record the next JMAP query position in the same transaction. A
+process restart therefore resumes the incomplete baseline instead of discarding
+its work. The staging rows support final reply-link repair and safe stale-row
+reconciliation without a giant `NOT IN` list.
+
+Apply with writers stopped because the matching application reads both new
+tables whenever it starts or resumes a full email baseline. The tables begin
+empty, no correspondence is rewritten by the migration, and both guarded
+creates can be replayed after a partial MariaDB DDL commit.
+
 ## Version 60: Persist JMAP mailbox membership
 
 Adds the provider-owned JMAP mailbox snapshot and the many-to-many membership

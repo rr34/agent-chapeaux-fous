@@ -69,15 +69,15 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 60", () => {
+test("the authoritative MariaDB baseline is complete at schema version 61", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
-  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 46);
+  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 48);
   assert.equal(statements.filter((statement) => /^CREATE (?:SQL SECURITY INVOKER )?VIEW\b/iu.test(statement)).length, 8);
   assert.equal(statements.filter((statement) => /^CREATE TRIGGER\b/iu.test(statement)).length, 7);
   assert.equal(source.match(/\bENUM\(/gu)?.length, 36);
-  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 68);
-  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 91);
+  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 69);
+  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 94);
   assert.doesNotMatch(source, /\b(?:[A-Za-z_][A-Za-z0-9_]*_at_utc|ask_after|resolved_at|routine_occurrence_key)\s+VARCHAR\(/u);
   assert.equal(
     Object.values(requiredEnumColumns).reduce((count, fields) => count + Object.keys(fields).length, 0),
@@ -111,6 +111,11 @@ test("the authoritative MariaDB baseline is complete at schema version 60", () =
   assert.match(mailboxTable, /PRIMARY KEY \(source_account_key, mailbox_id\)/u);
   assert.match(mailboxJoin, /PRIMARY KEY \(correspondence_id, source_account_key, mailbox_id\)/u);
   assert.match(mailboxJoin, /REFERENCES jmap_email_mailboxes\(source_account_key, mailbox_id\) ON DELETE CASCADE/u);
+  const syncWork = statements.find((statement) => statement.startsWith("CREATE TABLE jmap_email_sync_work "));
+  const syncWorkItems = statements.find((statement) => statement.startsWith("CREATE TABLE jmap_email_sync_work_items "));
+  assert.match(syncWork, /PRIMARY KEY \(source_account_key\)/u);
+  assert.match(syncWorkItems, /PRIMARY KEY \(source_account_key, email_id\)/u);
+  assert.match(syncWorkItems, /REFERENCES jmap_email_sync_work\(source_account_key\) ON DELETE CASCADE/u);
   const todoTable = statements.find((statement) => statement.startsWith("CREATE TABLE todo_personal "));
   assert.ok(todoTable);
   const todoGroupTable = statements.find((statement) => statement.startsWith("CREATE TABLE todo_groups "));
@@ -188,7 +193,7 @@ test("the authoritative MariaDB baseline is complete at schema version 60", () =
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 60, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 61, 'Chapeaux Fous MariaDB database'\)$/);
   assert.equal(
     requiredDatabaseSchemaVersion,
     readMigrationLedger(path.join(root, "db", "migrations.sql")).at(-1).version,

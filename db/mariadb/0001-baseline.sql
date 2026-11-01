@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 60.
+-- Target: MariaDB 10.11, schema version 61.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -1128,6 +1128,30 @@ CREATE TABLE jmap_email_sync_state (
     PRIMARY KEY (source_account_key)
 ) ENGINE=InnoDB COMMENT='Stores one durable incremental JMAP Email cursor per configured account. Advance the cursor only after all corresponding correspondence, participant, and file writes succeed. An absent row means the account has not completed its initial synchronization. Sensitivity: Contains opaque provider state and account identifiers but no credentials.';
 
+CREATE TABLE jmap_email_sync_work (
+    source_account_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Stable local key identifying the JMAP account whose full baseline is in progress.',
+    target_email_state TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL COMMENT 'Opaque JMAP Email state captured before this baseline began. It becomes the incremental cursor only after the baseline is complete.',
+    query_state TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin COMMENT 'Opaque Email/query state from the first page, used only to detect whether the result set changed while it was paged.',
+    next_position BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Next zero-based Email/query position to request. Advanced in the same transaction that stores each bounded message batch.',
+    total BIGINT UNSIGNED COMMENT 'Provider-reported approximate total from the first query page, when supplied.',
+    synchronized_count BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Number of provider ids durably processed during this baseline, including ids that disappeared before Email/get.',
+    query_changed TINYINT NOT NULL DEFAULT 0 COMMENT 'Whether Email/query returned a different queryState while paging. 0: stable. 1: changed, so destructive stale-row reconciliation is skipped.',
+    started_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this resumable baseline began.',
+    updated_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when the most recent baseline batch committed.',
+    PRIMARY KEY (source_account_key),
+    CONSTRAINT jmap_email_sync_work_query_changed CHECK (query_changed IN (0, 1))
+) ENGINE=InnoDB COMMENT='Durable checkpoint for one resumable, bounded-memory JMAP full email baseline per account. The row is deleted only after the incremental cursor and all baseline data are committed. Sensitivity: Contains opaque provider state and account identifiers but no credentials.';
+
+CREATE TABLE jmap_email_sync_work_items (
+    source_account_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Owning resumable baseline account.',
+    email_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Provider-assigned JMAP Email id observed during this baseline.',
+    internet_message_id TEXT COMMENT 'First RFC Message-ID reported for this email, retained temporarily to repair reply links without retaining message bodies.',
+    in_reply_to_message_id TEXT COMMENT 'First referenced RFC Message-ID, retained temporarily to repair reply links after all bounded batches have arrived.',
+    observed_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this provider id was durably staged.',
+    PRIMARY KEY (source_account_key, email_id),
+    CONSTRAINT jmap_email_sync_work_items_owner FOREIGN KEY (source_account_key) REFERENCES jmap_email_sync_work(source_account_key) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='ID-only staging rows for an in-progress full JMAP email baseline. They support safe stale-row reconciliation and reply repair without retaining email bodies in process memory. Rows are cascade-deleted when the baseline completes. Sensitivity: Contains provider email ids and RFC Message-IDs but no message bodies.';
+
 CREATE TABLE todo_correspondence_join (
     personal_task_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing task associated with the message.',
     correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing local correspondence record associated with the task.',
@@ -1859,4 +1883,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 60, 'Chapeaux Fous MariaDB database');
+VALUES (1, 61, 'Chapeaux Fous MariaDB database');

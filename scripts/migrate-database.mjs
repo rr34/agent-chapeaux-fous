@@ -360,6 +360,36 @@ async function assertVersion32Integrity(connection, databaseName) {
 export async function assertMigrationSpecificIntegrity(
   connection, migration, databaseName, schemaVersion = migration.version,
 ) {
+  if (migration.version === 61) {
+    const requiredTables = ["jmap_email_sync_work", "jmap_email_sync_work_items"];
+    const [tables] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (${requiredTables.map(() => "?").join(", ")})`,
+    [databaseName, ...requiredTables]);
+    if (requiredTables.some((name) => !tables.some((row) => row.TABLE_NAME === name && row.TABLE_TYPE === "BASE TABLE"))) {
+      throw new Error("Migration 0061 did not establish both resumable JMAP sync work tables");
+    }
+    const [columns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (${requiredTables.map(() => "?").join(", ")})`,
+    [databaseName, ...requiredTables]);
+    const requiredColumns = [
+      ...["source_account_key", "target_email_state", "query_state", "next_position", "total", "synchronized_count", "query_changed", "started_at_utc", "updated_at_utc"]
+        .map((name) => `jmap_email_sync_work.${name}`),
+      ...["source_account_key", "email_id", "internet_message_id", "in_reply_to_message_id", "observed_at_utc"]
+        .map((name) => `jmap_email_sync_work_items.${name}`),
+    ];
+    const names = new Set(columns.map((row) => `${row.TABLE_NAME}.${row.COLUMN_NAME}`));
+    const missing = requiredColumns.filter((name) => !names.has(name));
+    if (missing.length) throw new Error(`Migration 0061 is missing baseline columns: ${missing.join(", ")}`);
+    const [keys] = await connection.query(`SELECT CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, ORDINAL_POSITION
+      FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_SCHEMA = ?
+        AND TABLE_NAME = 'jmap_email_sync_work_items'`, [databaseName]);
+    const foreignKey = keys.filter((row) => row.CONSTRAINT_NAME === "jmap_email_sync_work_items_owner")
+      .toSorted((left, right) => Number(left.ORDINAL_POSITION) - Number(right.ORDINAL_POSITION));
+    if (foreignKey.length !== 1 || foreignKey[0].COLUMN_NAME !== "source_account_key"
+        || foreignKey[0].REFERENCED_TABLE_NAME !== "jmap_email_sync_work") {
+      throw new Error("Migration 0061 did not establish the sync work item-to-owner foreign key");
+    }
+  }
   if (migration.version === 60) {
     const requiredTables = ["jmap_email_mailboxes", "correspondence_email_mailboxes_join"];
     const [tables] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES

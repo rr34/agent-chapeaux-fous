@@ -1,6 +1,6 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 
-export const requiredDatabaseSchemaVersion = 60;
+export const requiredDatabaseSchemaVersion = 61;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -40,6 +40,13 @@ export const requiredDatabaseShape = {
     "source_event_id", "first_observed_at_utc", "last_observed_at_utc",
   ],
   jmap_email_sync_state: ["source_account_key", "email_state", "synchronized_at_utc"],
+  jmap_email_sync_work: [
+    "source_account_key", "target_email_state", "query_state", "next_position", "total",
+    "synchronized_count", "query_changed", "started_at_utc", "updated_at_utc",
+  ],
+  jmap_email_sync_work_items: [
+    "source_account_key", "email_id", "internet_message_id", "in_reply_to_message_id", "observed_at_utc",
+  ],
   correspondence_files_join: ["correspondence_id", "file_id", "attachment_role"],
   correspondence_participants_join: [
     "correspondence_id", "participant_role", "contact_id", "contact_method_id",

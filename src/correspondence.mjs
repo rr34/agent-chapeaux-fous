@@ -108,6 +108,8 @@ function participantRows(message) {
   }));
 }
 
+const emailSyncBatchSize = 100;
+
 export class CorrespondenceService {
   constructor({ store, ledger, jmap }) {
     this.store = store;
@@ -118,7 +120,22 @@ export class CorrespondenceService {
 
   get database() { return this.store.requireReady(); }
 
-  emailSyncStatus() { return structuredClone(this.emailSyncProgress); }
+  emailSyncStatus() {
+    if (this.emailSyncProgress.status !== "idle") return structuredClone(this.emailSyncProgress);
+    try {
+      const sourceAccountKey = `jmap:${this.jmap.resolveAccountId()}`;
+      const baseline = this.database.prepare(`SELECT next_position, total, synchronized_count, started_at_utc,
+        updated_at_utc FROM jmap_email_sync_work WHERE source_account_key = ?`).get(sourceAccountKey);
+      if (baseline) return {
+        status: "paused", phase: "Full email baseline ready to resume",
+        processed: Number(baseline.synchronized_count || 0),
+        total: baseline.total == null ? null : Number(baseline.total),
+        started_at_utc: baseline.started_at_utc,
+        updated_at_utc: baseline.updated_at_utc,
+      };
+    } catch { /* The normal request path reports configuration or database failures. */ }
+    return structuredClone(this.emailSyncProgress);
+  }
 
   async syncEmail(context = {}) {
     if (this.emailSyncProgress.status === "running") throw new Error("Email synchronization is already running");
@@ -292,24 +309,130 @@ export class CorrespondenceService {
     };
   }
 
+  saveMailboxSnapshot(db, sourceAccountKey, mailboxRows) {
+    db.exec("START TRANSACTION");
+    try {
+      const upsert = db.prepare(`INSERT INTO jmap_email_mailboxes
+        (source_account_key, mailbox_id, name, role, parent_mailbox_id, sort_order, is_subscribed, updated_at_utc)
+        VALUES (?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(3))
+        ON DUPLICATE KEY UPDATE name = VALUES(name), role = VALUES(role),
+          parent_mailbox_id = VALUES(parent_mailbox_id), sort_order = VALUES(sort_order),
+          is_subscribed = VALUES(is_subscribed), updated_at_utc = VALUES(updated_at_utc)`);
+      for (const mailbox of mailboxRows) upsert.run(sourceAccountKey, mailbox.mailboxId, mailbox.name,
+        mailbox.role, mailbox.parentMailboxId, mailbox.sortOrder, mailbox.isSubscribed);
+      if (mailboxRows.length) {
+        const placeholders = mailboxRows.map(() => "?").join(", ");
+        db.prepare(`DELETE FROM jmap_email_mailboxes WHERE source_account_key = ?
+          AND mailbox_id NOT IN (${placeholders})`).run(sourceAccountKey, ...mailboxRows.map(({ mailboxId }) => mailboxId));
+      } else db.prepare("DELETE FROM jmap_email_mailboxes WHERE source_account_key = ?").run(sourceAccountKey);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  saveEmailMessages(db, { sourceAccountKey, messages, mailboxIds, selfAddress }) {
+    const references = [];
+    for (const message of messages) {
+      const participants = participantRows(message);
+      const outbound = participants.some(({ role, address }) => ["from", "sender"].includes(role)
+        && emailAddress(address) === selfAddress);
+      const sentAt = emailInstant(message.sentAt, `Email ${message.id} sentAt`);
+      const receivedAt = emailInstant(message.receivedAt, `Email ${message.id} receivedAt`);
+      const occurredAt = sentAt || receivedAt || new Date().toISOString();
+      const keywords = emailKeywords(message.keywords);
+      db.prepare(`INSERT INTO correspondence
+        (medium, direction, source_account_key, thread_key, external_id, internet_message_id,
+         in_reply_to_id, subject, body, delivery_status, email_keywords_json,
+         occurred_at_utc, sent_at_utc, received_at_utc)
+        VALUES ('email', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE thread_key = VALUES(thread_key), internet_message_id = VALUES(internet_message_id),
+          subject = VALUES(subject), body = VALUES(body), delivery_status = VALUES(delivery_status),
+          email_keywords_json = VALUES(email_keywords_json), occurred_at_utc = VALUES(occurred_at_utc),
+          sent_at_utc = VALUES(sent_at_utc), received_at_utc = VALUES(received_at_utc)`).run(
+        outbound ? "outbound" : "inbound", sourceAccountKey, message.threadId || null, message.id,
+        message.messageId?.[0] || null, null, message.subject || null, partBody(message),
+        outbound ? "sent" : "delivered", JSON.stringify(keywords), occurredAt, sentAt, receivedAt,
+      );
+      const item = db.prepare(`SELECT correspondence_id FROM correspondence
+        WHERE medium = 'email' AND source_account_key = ? AND external_id = ?`).get(sourceAccountKey, message.id);
+      db.prepare("DELETE FROM correspondence_participants_join WHERE correspondence_id = ?").run(item.correspondence_id);
+      for (const participant of participants) {
+        const method = db.prepare(`SELECT method.contact_method_id, method.contact_id FROM contact_methods AS method
+          JOIN contacts AS contact USING (contact_id) WHERE method.method_kind = 'email'
+            AND LOWER(method.normalized_value) = ? AND contact.status <> 'inactive'
+          ORDER BY method.is_primary DESC, method.contact_method_id LIMIT 1`).get(emailAddress(participant.address));
+        db.prepare(`INSERT INTO correspondence_participants_join
+          (correspondence_id, participant_role, contact_id, contact_method_id, address_value, display_name)
+          VALUES (?, ?, ?, ?, ?, ?)`).run(item.correspondence_id, participant.role, method?.contact_id || null,
+          method?.contact_method_id || null, participant.address, participant.displayName);
+      }
+      db.prepare("DELETE FROM correspondence_email_mailboxes_join WHERE correspondence_id = ?").run(item.correspondence_id);
+      for (const mailboxId of Object.entries(message.mailboxIds || {})
+        .filter(([, member]) => member === true).map(([id]) => id)) {
+        if (!mailboxIds.has(mailboxId)) throw new Error(`Email ${message.id} references unknown JMAP mailbox ${mailboxId}`);
+        db.prepare(`INSERT INTO correspondence_email_mailboxes_join
+          (correspondence_id, source_account_key, mailbox_id) VALUES (?, ?, ?)`)
+          .run(item.correspondence_id, sourceAccountKey, mailboxId);
+      }
+      references.push({ id: message.id, inReplyTo: message.inReplyTo?.[0] || null });
+    }
+    return references;
+  }
+
+  repairReplyLinks(db, sourceAccountKey, references) {
+    const findChild = db.prepare(`SELECT correspondence_id FROM correspondence
+      WHERE medium = 'email' AND source_account_key = ? AND external_id = ?`);
+    const findParent = db.prepare(`SELECT correspondence_id FROM correspondence
+      WHERE medium = 'email' AND source_account_key = ? AND internet_message_id = ?
+      ORDER BY correspondence_id LIMIT 2`);
+    const update = db.prepare("UPDATE correspondence SET in_reply_to_id = ? WHERE correspondence_id = ?");
+    for (const reference of references) {
+      const child = findChild.get(sourceAccountKey, reference.id);
+      if (!child) continue;
+      const parents = reference.inReplyTo ? findParent.all(sourceAccountKey, reference.inReplyTo) : [];
+      const parentId = parents.length === 1 && Number(parents[0].correspondence_id) !== Number(child.correspondence_id)
+        ? parents[0].correspondence_id
+        : null;
+      update.run(parentId, child.correspondence_id);
+    }
+  }
+
+  repairBaselineReplyLinks(db, sourceAccountKey) {
+    db.prepare(`UPDATE correspondence AS child
+      JOIN jmap_email_sync_work_items AS staged
+        ON staged.source_account_key = child.source_account_key AND staged.email_id = child.external_id
+      LEFT JOIN (
+        SELECT internet_message_id, MIN(correspondence_id) AS parent_id, COUNT(*) AS match_count
+        FROM correspondence WHERE medium = 'email' AND source_account_key = ?
+          AND internet_message_id IS NOT NULL GROUP BY internet_message_id
+      ) AS parent_match ON parent_match.internet_message_id = staged.in_reply_to_message_id
+      SET child.in_reply_to_id = CASE
+        WHEN parent_match.match_count = 1 AND parent_match.parent_id <> child.correspondence_id
+          THEN parent_match.parent_id ELSE NULL END
+      WHERE child.medium = 'email' AND child.source_account_key = ?
+        AND staged.source_account_key = ?`).run(sourceAccountKey, sourceAccountKey, sourceAccountKey);
+  }
+
   async performEmailSync(context = {}) {
     const accountId = this.jmap.resolveAccountId();
     const sourceAccountKey = `jmap:${accountId}`;
     const db = this.database;
     const previousSync = db.prepare("SELECT email_state FROM jmap_email_sync_state WHERE source_account_key = ?")
       .get(sourceAccountKey);
-    const mailboxResult = await this.jmap.call("Mailbox/get", { accountId, ids: null });
-    const mailboxRows = (mailboxResult.list || []).map(mailboxSnapshot);
+    let baseline = db.prepare("SELECT * FROM jmap_email_sync_work WHERE source_account_key = ?")
+      .get(sourceAccountKey);
+    const mailboxRows = ((await this.jmap.call("Mailbox/get", { accountId, ids: null })).list || []).map(mailboxSnapshot);
     const mailboxIds = new Set(mailboxRows.map(({ mailboxId }) => mailboxId));
-    const ids = [];
-    const destroyedIds = [];
-    const mode = previousSync?.email_state ? "incremental" : "full";
-    let targetEmailState = previousSync?.email_state || null;
-    let total = null;
-    if (mode === "incremental") {
+    this.saveMailboxSnapshot(db, sourceAccountKey, mailboxRows);
+    const properties = ["id", "threadId", "mailboxIds", "keywords", "receivedAt", "messageId", "inReplyTo", "from", "to", "cc", "bcc", "replyTo", "sender", "subject", "sentAt", "preview", "textBody", "htmlBody", "bodyValues"];
+    const selfAddress = emailAddress(this.jmap.publicSession().username);
+    if (previousSync?.email_state && !baseline) {
       this.emailSyncProgress = { ...this.emailSyncProgress, phase: "Reading email changes" };
       const changed = new Set();
       const destroyed = new Set();
+      let targetEmailState = previousSync.email_state;
       while (true) {
         let changes;
         try {
@@ -319,9 +442,7 @@ export class CorrespondenceService {
         } catch (error) {
           if (!/cannotCalculateChanges/iu.test(error instanceof Error ? error.message : String(error))) throw error;
           db.prepare("DELETE FROM jmap_email_sync_state WHERE source_account_key = ?").run(sourceAccountKey);
-          this.emailSyncProgress = {
-            ...this.emailSyncProgress, phase: "Restarting full email baseline", processed: 0, total: null,
-          };
+          this.emailSyncProgress = { ...this.emailSyncProgress, phase: "Restarting full email baseline", processed: 0, total: null };
           return this.performEmailSync(context);
         }
         for (const id of [...(changes.created || []), ...(changes.updated || [])]) {
@@ -335,157 +456,123 @@ export class CorrespondenceService {
         targetEmailState = changes.newState;
         if (!changes.hasMoreChanges) break;
       }
-      ids.push(...changed);
-      destroyedIds.push(...destroyed);
-      total = ids.length + destroyedIds.length;
-    } else {
-      this.emailSyncProgress = { ...this.emailSyncProgress, phase: "Discovering emails" };
-      targetEmailState = (await this.jmap.call("Email/get", { accountId, ids: [], properties: ["id"] })).state;
-      let position = 0;
-      while (true) {
-        const page = await this.jmap.call("Email/query", {
-          accountId, position, limit: 500, calculateTotal: position === 0,
-          sort: [{ property: "receivedAt", isAscending: false }],
-        });
-        if (position === 0 && Number.isSafeInteger(Number(page.total))) total = Number(page.total);
-        ids.push(...page.ids);
-        position += page.ids.length;
-        this.emailSyncProgress = {
-          ...this.emailSyncProgress, processed: position, total: total ?? null,
-        };
-        if (!page.ids.length || page.ids.length < 500 || (total != null && position >= total)) break;
-      }
-    }
-    const messages = [];
-    this.emailSyncProgress = {
-      ...this.emailSyncProgress, phase: "Downloading emails", processed: 0, total: ids.length,
-    };
-    const properties = ["id", "threadId", "mailboxIds", "keywords", "receivedAt", "messageId", "inReplyTo", "from", "to", "cc", "bcc", "replyTo", "sender", "subject", "sentAt", "preview", "textBody", "htmlBody", "bodyValues"];
-    for (let index = 0; index < ids.length; index += 100) {
-      const result = await this.jmap.call("Email/get", { accountId, ids: ids.slice(index, index + 100), properties, fetchTextBodyValues: true, fetchHTMLBodyValues: true, maxBodyValueBytes: 1_000_000 });
-      messages.push(...result.list);
-      this.emailSyncProgress = {
-        ...this.emailSyncProgress, processed: Math.min(index + 100, ids.length), total: ids.length,
-      };
-    }
-    const selfAddress = emailAddress(this.jmap.publicSession().username);
-    db.exec("START TRANSACTION");
-    try {
-      this.emailSyncProgress = {
-        ...this.emailSyncProgress, phase: "Saving emails", processed: 0, total: messages.length,
-      };
-      const upsertMailbox = db.prepare(`INSERT INTO jmap_email_mailboxes
-        (source_account_key, mailbox_id, name, role, parent_mailbox_id, sort_order, is_subscribed, updated_at_utc)
-        VALUES (?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(3))
-        ON DUPLICATE KEY UPDATE name = VALUES(name), role = VALUES(role),
-          parent_mailbox_id = VALUES(parent_mailbox_id), sort_order = VALUES(sort_order),
-          is_subscribed = VALUES(is_subscribed), updated_at_utc = VALUES(updated_at_utc)`);
-      for (const mailbox of mailboxRows) upsertMailbox.run(
-        sourceAccountKey, mailbox.mailboxId, mailbox.name, mailbox.role,
-        mailbox.parentMailboxId, mailbox.sortOrder, mailbox.isSubscribed,
-      );
-      if (destroyedIds.length) {
-        const placeholders = destroyedIds.map(() => "?").join(", ");
-        db.prepare(`DELETE FROM correspondence WHERE medium = 'email' AND source_account_key = ?
-          AND external_id IN (${placeholders})`).run(sourceAccountKey, ...destroyedIds);
-      }
-      for (const [messageIndex, message] of messages.entries()) {
-        const participants = participantRows(message);
-        const outbound = participants.some(({ role, address }) => ["from", "sender"].includes(role) && emailAddress(address) === selfAddress);
-        const sentAt = emailInstant(message.sentAt, `Email ${message.id} sentAt`);
-        const receivedAt = emailInstant(message.receivedAt, `Email ${message.id} receivedAt`);
-        const occurredAt = sentAt || receivedAt || new Date().toISOString();
-        const keywords = emailKeywords(message.keywords);
-        db.prepare(`INSERT INTO correspondence
-          (medium, direction, source_account_key, thread_key, external_id, internet_message_id,
-           in_reply_to_id, subject, body, delivery_status, email_keywords_json,
-           occurred_at_utc, sent_at_utc, received_at_utc)
-          VALUES ('email', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE thread_key = VALUES(thread_key), internet_message_id = VALUES(internet_message_id),
-            in_reply_to_id = VALUES(in_reply_to_id), subject = VALUES(subject), body = VALUES(body),
-            delivery_status = VALUES(delivery_status), email_keywords_json = VALUES(email_keywords_json),
-            occurred_at_utc = VALUES(occurred_at_utc),
-            sent_at_utc = VALUES(sent_at_utc), received_at_utc = VALUES(received_at_utc)`).run(
-          outbound ? "outbound" : "inbound", sourceAccountKey, message.threadId || null, message.id,
-          message.messageId?.[0] || null, null, message.subject || null,
-          partBody(message), outbound ? "sent" : "delivered", JSON.stringify(keywords), occurredAt, sentAt, receivedAt,
-        );
-        const item = db.prepare("SELECT correspondence_id FROM correspondence WHERE medium = 'email' AND source_account_key = ? AND external_id = ?").get(sourceAccountKey, message.id);
-        db.prepare("DELETE FROM correspondence_participants_join WHERE correspondence_id = ?").run(item.correspondence_id);
-        for (const participant of participants) {
-          const normalized = emailAddress(participant.address);
-          const method = db.prepare(`SELECT method.contact_method_id, method.contact_id FROM contact_methods AS method
-            JOIN contacts AS contact USING (contact_id) WHERE method.method_kind = 'email'
-              AND LOWER(method.normalized_value) = ? AND contact.status <> 'inactive'
-            ORDER BY method.is_primary DESC, method.contact_method_id LIMIT 1`).get(normalized);
-          db.prepare(`INSERT INTO correspondence_participants_join
-            (correspondence_id, participant_role, contact_id, contact_method_id, address_value, display_name)
-            VALUES (?, ?, ?, ?, ?, ?)`).run(item.correspondence_id, participant.role, method?.contact_id || null,
-            method?.contact_method_id || null, participant.address, participant.displayName);
+      const ids = [...changed];
+      const references = [];
+      let synchronized = 0;
+      this.emailSyncProgress = { ...this.emailSyncProgress, phase: "Updating emails", processed: 0, total: ids.length + destroyed.size };
+      for (let index = 0; index < ids.length; index += emailSyncBatchSize) {
+        const batchIds = ids.slice(index, index + emailSyncBatchSize);
+        const result = await this.jmap.call("Email/get", { accountId, ids: batchIds, properties,
+          fetchTextBodyValues: true, fetchHTMLBodyValues: true, maxBodyValueBytes: 1_000_000 });
+        db.exec("START TRANSACTION");
+        try {
+          references.push(...this.saveEmailMessages(db, { sourceAccountKey, messages: result.list || [], mailboxIds, selfAddress }));
+          db.exec("COMMIT");
+        } catch (error) {
+          db.exec("ROLLBACK");
+          throw error;
         }
-        db.prepare("DELETE FROM correspondence_email_mailboxes_join WHERE correspondence_id = ?")
-          .run(item.correspondence_id);
-        for (const mailboxId of Object.entries(message.mailboxIds || {})
-          .filter(([, member]) => member === true).map(([id]) => id)) {
-          if (!mailboxIds.has(mailboxId)) throw new Error(`Email ${message.id} references unknown JMAP mailbox ${mailboxId}`);
-          db.prepare(`INSERT INTO correspondence_email_mailboxes_join
-            (correspondence_id, source_account_key, mailbox_id) VALUES (?, ?, ?)`)
-            .run(item.correspondence_id, sourceAccountKey, mailboxId);
+        synchronized += (result.list || []).length;
+        this.emailSyncProgress = { ...this.emailSyncProgress, processed: Math.min(index + batchIds.length, ids.length), total: ids.length + destroyed.size };
+      }
+      db.exec("START TRANSACTION");
+      try {
+        if (destroyed.size) {
+          const placeholders = [...destroyed].map(() => "?").join(", ");
+          db.prepare(`DELETE FROM correspondence WHERE medium = 'email' AND source_account_key = ?
+            AND external_id IN (${placeholders})`).run(sourceAccountKey, ...destroyed);
         }
-        this.emailSyncProgress = {
-          ...this.emailSyncProgress, processed: messageIndex + 1, total: messages.length,
-        };
+        this.repairReplyLinks(db, sourceAccountKey, references);
+        db.prepare(`INSERT INTO jmap_email_sync_state (source_account_key, email_state, synchronized_at_utc)
+          VALUES (?, ?, UTC_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE email_state = VALUES(email_state),
+          synchronized_at_utc = VALUES(synchronized_at_utc)`).run(sourceAccountKey, targetEmailState);
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
       }
-      if (mode === "full" && ids.length) {
-        const placeholders = ids.map(() => "?").join(", ");
-        db.prepare(`DELETE FROM correspondence WHERE medium = 'email' AND source_account_key = ?
-          AND external_id NOT IN (${placeholders})`).run(sourceAccountKey, ...ids);
-      } else if (mode === "full") {
-        db.prepare("DELETE FROM correspondence WHERE medium = 'email' AND source_account_key = ?").run(sourceAccountKey);
-      }
-      if (mailboxRows.length) {
-        const placeholders = mailboxRows.map(() => "?").join(", ");
-        db.prepare(`DELETE FROM jmap_email_mailboxes WHERE source_account_key = ?
-          AND mailbox_id NOT IN (${placeholders})`).run(sourceAccountKey, ...mailboxRows.map(({ mailboxId }) => mailboxId));
-      } else db.prepare("DELETE FROM jmap_email_mailboxes WHERE source_account_key = ?").run(sourceAccountKey);
-      const importedRows = db.prepare(`SELECT correspondence_id, external_id, internet_message_id
-        FROM correspondence WHERE medium = 'email' AND source_account_key = ?`).all(sourceAccountKey);
-      const idsByExternalId = new Map();
-      const idsByMessageId = new Map();
-      for (const row of importedRows) {
-        const correspondenceId = positiveId(row.correspondence_id, "correspondence_id");
-        idsByExternalId.set(row.external_id, correspondenceId);
-        if (!row.internet_message_id) continue;
-        const matchingIds = idsByMessageId.get(row.internet_message_id) || [];
-        matchingIds.push(correspondenceId);
-        idsByMessageId.set(row.internet_message_id, matchingIds);
-      }
-      const updateReply = db.prepare("UPDATE correspondence SET in_reply_to_id = ? WHERE correspondence_id = ?");
-      for (const message of messages) {
-        const correspondenceId = idsByExternalId.get(message.id);
-        const matchingIds = idsByMessageId.get(message.inReplyTo?.[0]) || [];
-        const inReplyToId = matchingIds.length === 1 && matchingIds[0] !== correspondenceId
-          ? matchingIds[0]
-          : null;
-        updateReply.run(inReplyToId, correspondenceId);
-      }
-      db.prepare(`INSERT INTO jmap_email_sync_state (source_account_key, email_state, synchronized_at_utc)
-        VALUES (?, ?, UTC_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE email_state = VALUES(email_state),
-        synchronized_at_utc = VALUES(synchronized_at_utc)`).run(sourceAccountKey, targetEmailState);
-      const result = {
-        account_id: accountId, mode, synchronized: messages.length, deleted: destroyedIds.length,
-        total: total ?? ids.length, mailboxes: mailboxRows.length, email_state: targetEmailState,
-      };
-      this.emailSyncProgress = {
-        ...this.emailSyncProgress, phase: "Finalizing", processed: messages.length, total: messages.length,
-      };
+      const result = { account_id: accountId, mode: "incremental", synchronized, deleted: destroyed.size,
+        total: ids.length + destroyed.size, mailboxes: mailboxRows.length, email_state: targetEmailState };
       this.ledger.append({ type: "correspondence.email_synchronized", status: "complete", actorType: context.actorType || "user",
         actorName: context.actorName || "Nate", name: "Email synchronized into correspondence", payload: result });
-      db.exec("COMMIT");
       return result;
+    }
+
+    if (!baseline) {
+      const targetEmailState = (await this.jmap.call("Email/get", { accountId, ids: [], properties: ["id"] })).state;
+      db.prepare(`INSERT INTO jmap_email_sync_work
+        (source_account_key, target_email_state, next_position, synchronized_count)
+        VALUES (?, ?, 0, 0)`).run(sourceAccountKey, targetEmailState);
+      baseline = { source_account_key: sourceAccountKey, target_email_state: targetEmailState,
+        query_state: null, next_position: 0, total: null, synchronized_count: 0, query_changed: 0 };
+    }
+    let position = Number(baseline.next_position || 0);
+    let synchronized = Number(baseline.synchronized_count || 0);
+    let total = baseline.total == null ? null : Number(baseline.total);
+    let queryState = baseline.query_state || null;
+    let queryChanged = Boolean(baseline.query_changed);
+    this.emailSyncProgress = { ...this.emailSyncProgress, phase: position ? "Resuming full email baseline" : "Importing full email baseline",
+      processed: synchronized, total };
+    while (true) {
+      const page = await this.jmap.call("Email/query", {
+        accountId, position, limit: emailSyncBatchSize, calculateTotal: position === 0,
+        sort: [{ property: "receivedAt", isAscending: false }],
+      });
+      const ids = page.ids || [];
+      if (position === 0 && Number.isSafeInteger(Number(page.total))) total = Number(page.total);
+      if (!queryState && page.queryState) queryState = page.queryState;
+      else if (queryState && page.queryState && queryState !== page.queryState) queryChanged = true;
+      if (!ids.length) break;
+      const fetched = await this.jmap.call("Email/get", { accountId, ids, properties,
+        fetchTextBodyValues: true, fetchHTMLBodyValues: true, maxBodyValueBytes: 1_000_000 });
+      db.exec("START TRANSACTION");
+      try {
+        const messages = fetched.list || [];
+        this.saveEmailMessages(db, { sourceAccountKey, messages, mailboxIds, selfAddress });
+        const messageById = new Map(messages.map((message) => [message.id, message]));
+        const stage = db.prepare(`INSERT INTO jmap_email_sync_work_items
+          (source_account_key, email_id, internet_message_id, in_reply_to_message_id)
+          VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE internet_message_id = VALUES(internet_message_id),
+          in_reply_to_message_id = VALUES(in_reply_to_message_id), observed_at_utc = UTC_TIMESTAMP(3)`);
+        for (const id of ids) {
+          const message = messageById.get(id);
+          stage.run(sourceAccountKey, id, message?.messageId?.[0] || null, message?.inReplyTo?.[0] || null);
+        }
+        position += ids.length;
+        synchronized += ids.length;
+        db.prepare(`UPDATE jmap_email_sync_work SET query_state = ?, next_position = ?, total = ?,
+          synchronized_count = ?, query_changed = ?, updated_at_utc = UTC_TIMESTAMP(3)
+          WHERE source_account_key = ?`).run(queryState, position, total, synchronized, queryChanged ? 1 : 0, sourceAccountKey);
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+      this.emailSyncProgress = { ...this.emailSyncProgress, phase: "Importing full email baseline", processed: synchronized, total };
+      if (ids.length < emailSyncBatchSize) break;
+    }
+    this.emailSyncProgress = { ...this.emailSyncProgress, phase: "Finalizing full email baseline", processed: synchronized, total };
+    db.exec("START TRANSACTION");
+    let deleted = 0;
+    try {
+      this.repairBaselineReplyLinks(db, sourceAccountKey);
+      if (!queryChanged) deleted = Number(db.prepare(`DELETE FROM correspondence WHERE medium = 'email'
+        AND source_account_key = ? AND NOT EXISTS (SELECT 1 FROM jmap_email_sync_work_items AS staged
+          WHERE staged.source_account_key = ? AND staged.email_id = correspondence.external_id)`)
+        .run(sourceAccountKey, sourceAccountKey)?.changes || 0);
+      db.prepare(`INSERT INTO jmap_email_sync_state (source_account_key, email_state, synchronized_at_utc)
+        VALUES (?, ?, UTC_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE email_state = VALUES(email_state),
+        synchronized_at_utc = VALUES(synchronized_at_utc)`).run(sourceAccountKey, baseline.target_email_state);
+      db.prepare("DELETE FROM jmap_email_sync_work WHERE source_account_key = ?").run(sourceAccountKey);
+      db.exec("COMMIT");
     } catch (error) {
       db.exec("ROLLBACK");
       throw error;
     }
+    const result = { account_id: accountId, mode: "full", synchronized, deleted, total: total ?? synchronized,
+      mailboxes: mailboxRows.length, email_state: baseline.target_email_state, resumed: Number(baseline.next_position || 0) > 0 };
+    this.ledger.append({ type: "correspondence.email_synchronized", status: "complete", actorType: context.actorType || "user",
+      actorName: context.actorName || "Nate", name: "Email synchronized into correspondence", payload: result });
+    return result;
   }
 }
