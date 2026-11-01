@@ -83,6 +83,16 @@ test("full and expanded cards show their complete provided information", () => {
   assert.doesNotMatch(sharedBodyRule, /overflow: hidden/);
 });
 
+test("collapsed contact cards render the contact name as their identity", () => {
+  const contact = fs.readFileSync(path.join(cardsRoot, "ContactCard.tsx"), "utf8");
+  const compact = fs.readFileSync(path.join(cardsRoot, "CompactObjectCard.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "web/src/styles.css"), "utf8");
+
+  assert.match(contact, /className=\{`contact-card/);
+  assert.match(compact, /<strong>\{object\.display\}<\/strong>/);
+  assert.match(styles, /\.compact-object-card\.has-leading \{[^}]*grid-template-columns: auto minmax\(0, 1fr\) auto;/s);
+});
+
 test("calendar event cards keep notes and event details behind the shared expansion", () => {
   const calendar = fs.readFileSync(path.join(cardsRoot, "CalendarEventCard.tsx"), "utf8");
   const compact = fs.readFileSync(path.join(cardsRoot, "CompactObjectCard.tsx"), "utf8");
@@ -142,6 +152,8 @@ test("correspondence cards own compact channel, direction, and content presentat
   assert.match(correspondence, /compactDetails=\{compactDetails\}/);
   assert.match(screen, /\{ label: "Medium", value: item\.medium \}/);
   assert.match(screen, /\{ label: "Call disposition", value: item\.call_disposition \}/);
+  assert.match(screen, /medium === "sms" \|\| medium === "mms" \? "sms \/ mms" : medium/);
+  assert.match(screen, /groupBy === "medium" \? correspondenceMediumGroup\(item\.medium\)/);
   assert.match(service, /call_disposition: row\.call_disposition \?\? null/);
   assert.match(network, /attribute\("Call disposition", row\.call_disposition\)/);
   assert.match(styles, /\.correspondence-card \.first-class-object-label,[\s\S]*\.correspondence-card \.compact-object-identity > span:first-child \{ display: none; \}/);

@@ -34,6 +34,10 @@ function correspondencePreview(value: string | null) {
   return document.body.textContent?.trim() || null;
 }
 
+function correspondenceMediumGroup(medium: string) {
+  return medium === "sms" || medium === "mms" ? "sms / mms" : medium;
+}
+
 export function CorrespondenceScreen() {
   const [query, setQuery] = useState("");
   const [medium, setMedium] = useState("");
@@ -51,7 +55,7 @@ export function CorrespondenceScreen() {
   const groups = useMemo(() => {
     const grouped = new Map<string, CorrespondenceItem[]>();
     for (const item of data?.items || []) {
-      const key = groupBy === "medium" ? item.medium
+      const key = groupBy === "medium" ? correspondenceMediumGroup(item.medium)
         : groupBy === "direction" ? item.direction
           : groupBy === "contact" ? item.participants.find((participant) => participant.contact_id)?.display_name || "Unmatched participants"
             : item.occurred_at_utc?.slice(0, 10) || "Unknown date";

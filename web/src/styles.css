@@ -127,9 +127,9 @@ a { color: inherit; }
 .object-card-controls { display: inline-flex; align-items: center; gap: 6px; }
 .correspondence-card .first-class-object-label,
 .correspondence-card .compact-object-identity > span:first-child { display: none; }
-.correspondence-card-indicators, .correspondence-card-leading { display: flex; align-items: center; gap: 5px; }
-.correspondence-card-indicator { width: 28px; height: 28px; display: inline-grid; place-items: center; border: 1px solid #c8cec1; border-radius: 8px; color: var(--olive-dark); background: var(--olive-soft); }
-.correspondence-card-indicator svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.correspondence-card-indicators, .correspondence-card-leading { display: flex; align-items: center; gap: 4px; }
+.correspondence-card-indicator { width: 34px; height: 34px; display: inline-grid; place-items: center; color: var(--olive-dark); }
+.correspondence-card-indicator svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .correspondence-card-indicator circle[r="1"] { fill: currentColor; stroke: none; }
 .compact-object-card.correspondence-card { align-items: start; }
 .compact-object-card.correspondence-card > .compact-object-leading { padding-top: 1px; }

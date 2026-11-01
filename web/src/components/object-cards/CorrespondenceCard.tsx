@@ -30,7 +30,7 @@ function MediumIcon({ medium }: { medium: string }) {
 }
 
 function DirectionIcon({ direction, missed }: { direction: string; missed: boolean }) {
-  if (missed) return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 8 7 8 7-8" /></svg>;
+  if (missed) return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 7 8 9 8-9M4 7v6M4 7h6" /></svg>;
   if (direction === "outbound") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19 19 5M10 5h9v9" /></svg>;
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5 5 19M14 19H5v-9" /></svg>;
 }
