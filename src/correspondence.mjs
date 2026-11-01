@@ -31,6 +31,7 @@ function publicItem(row, participants = [], todos = []) {
     subject: row.subject ?? null,
     body: row.body ?? null,
     delivery_status: row.delivery_status ?? null,
+    call_disposition: row.call_disposition ?? null,
     occurred_at_utc: row.occurred_at_utc,
     sent_at_utc: row.sent_at_utc ?? null,
     received_at_utc: row.received_at_utc ?? null,

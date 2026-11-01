@@ -10,7 +10,8 @@ import { formatDisplayDate } from "../date-format";
 type Participant = { role: string; address: string; display_name: string | null; contact_id: number | null };
 type CorrespondenceItem = {
   correspondence_id: number; ref: string; display: string; medium: string; direction: string;
-  subject: string | null; body: string | null; delivery_status: string | null; occurred_at_utc: string;
+  subject: string | null; body: string | null; delivery_status: string | null; call_disposition: string | null;
+  occurred_at_utc: string;
   participants: Participant[]; linked_todos: Array<{ todo_id: number; text: string; status: string }>;
 };
 
@@ -80,7 +81,12 @@ export function CorrespondenceScreen() {
     {!loading && !error && !groups.length && <Empty>No correspondence matches these filters.</Empty>}
     <div className="library-groups">{groups.map(([name, items]) => <section className="library-group" key={name}><header className="library-group-heading"><h2>{name}</h2><span>{items.length} items</span></header><ul className="library-list">{items.map((item) => <ObjectCard as="li" mode="compact" key={item.correspondence_id} object={{
       id: item.correspondence_id, type: "correspondence.item", label: "Correspondence", display: item.display,
-      body: correspondencePreview(item.body), attributes: [{ label: "When", value: formatDisplayDate(item.occurred_at_utc) }, { label: "Participants", value: item.participants.map((participant) => participant.display_name || participant.address).join(", ") || "None" }],
+      body: correspondencePreview(item.body), attributes: [
+        { label: "Medium", value: item.medium }, { label: "Direction", value: item.direction },
+        ...(item.call_disposition ? [{ label: "Call disposition", value: item.call_disposition }] : []),
+        { label: "When", value: formatDisplayDate(item.occurred_at_utc) },
+        { label: "Participants", value: item.participants.map((participant) => participant.display_name || participant.address).join(", ") || "None" },
+      ],
       badges: [item.medium, item.direction, ...(item.linked_todos.length ? [`${item.linked_todos.length} linked to-do${item.linked_todos.length === 1 ? "" : "s"}`] : [])],
     }} controls={<ObjectSelectionControls identity={correspondenceIdentity(item)} subject={`correspondence ${item.display}`} />} details={item.linked_todos.length ? <section><h4>Linked to-dos</h4><ul>{item.linked_todos.map((todo) => <li key={todo.todo_id}>{todo.text}</li>)}</ul></section> : undefined} />)}</ul></section>)}</div>
     {!loading && !error && (page > 0 || (data?.items.length || 0) === 200) && <nav className="correspondence-pages" aria-label="Correspondence pages"><button className="button button--quiet" disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>Previous</button><span>Page {page + 1}</span><button className="button button--quiet" disabled={(data?.items.length || 0) < 200} onClick={() => setPage((value) => value + 1)}>Next</button></nav>}

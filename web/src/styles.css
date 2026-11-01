@@ -125,6 +125,19 @@ a { color: inherit; }
 .first-class-object-card:has(.object-selection-checkbox:checked),
 .compact-object-card:has(.object-selection-checkbox:checked) { border-color: var(--olive-dark); box-shadow: 0 0 0 3px rgba(104, 116, 90, .12); }
 .object-card-controls { display: inline-flex; align-items: center; gap: 6px; }
+.correspondence-card .first-class-object-label,
+.correspondence-card .compact-object-identity > span:first-child { display: none; }
+.correspondence-card-indicators, .correspondence-card-leading { display: flex; align-items: center; gap: 5px; }
+.correspondence-card-indicator { width: 28px; height: 28px; display: inline-grid; place-items: center; border: 1px solid #c8cec1; border-radius: 8px; color: var(--olive-dark); background: var(--olive-soft); }
+.correspondence-card-indicator svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.correspondence-card-indicator circle[r="1"] { fill: currentColor; stroke: none; }
+.compact-object-card.correspondence-card { align-items: start; }
+.compact-object-card.correspondence-card > .compact-object-leading { padding-top: 1px; }
+.correspondence-card.has-generic-display .compact-object-identity > strong,
+.first-class-object-card.correspondence-card.has-generic-display .first-class-object-title { display: none; }
+.correspondence-card .compact-object-details { display: block; margin-top: 2px; }
+.correspondence-card-compact-details { min-width: 0; display: grid; gap: 5px; }
+.correspondence-card-preview { display: -webkit-box; overflow: hidden; color: var(--muted); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; white-space: pre-wrap; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .calendar-event-card,
 .calendar-routine-card { border-color: #000; }
 .calendar-event-card > .first-class-object-content > .first-class-object-label,

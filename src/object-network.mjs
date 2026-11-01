@@ -261,10 +261,12 @@ export class ObjectNetworkService {
     }
     if (type === "correspondence.item") {
       row = this.database.prepare(`SELECT correspondence_id, medium, direction, subject, body,
-        delivery_status, occurred_at_utc FROM correspondence WHERE correspondence_id = ?`).get(id);
+        delivery_status, call_disposition, occurred_at_utc
+        FROM correspondence WHERE correspondence_id = ?`).get(id);
       if (!row) return null;
       return this.#card(definition, id, row.subject || `${row.medium} ${row.direction}`, { body: row.body, attributes: [
         attribute("Medium", row.medium), attribute("Direction", row.direction),
+        attribute("Call disposition", row.call_disposition),
         attribute("Status", row.delivery_status), attribute("When", row.occurred_at_utc),
       ] });
     }

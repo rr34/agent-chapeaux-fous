@@ -128,6 +128,26 @@ test("calendar routine cards own event-style timing and omit the redundant type 
   assert.match(styles, /\.calendar-routine-card > \.first-class-object-content > \.first-class-object-body \{[^}]*display: block;[^}]*overflow: visible;[^}]*-webkit-line-clamp: unset;/s);
 });
 
+test("correspondence cards own compact channel, direction, and content presentation", () => {
+  const correspondence = fs.readFileSync(path.join(cardsRoot, "CorrespondenceCard.tsx"), "utf8");
+  const screen = fs.readFileSync(path.join(root, "web/src/components/AdditionalScreens.tsx"), "utf8");
+  const service = fs.readFileSync(path.join(root, "src/correspondence.mjs"), "utf8");
+  const network = fs.readFileSync(path.join(root, "src/object-network.mjs"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "web/src/styles.css"), "utf8");
+
+  assert.match(correspondence, /function MediumIcon/);
+  assert.match(correspondence, /function DirectionIcon/);
+  assert.match(correspondence, /callDisposition === "missed"/);
+  assert.match(correspondence, /className="correspondence-card-preview"/);
+  assert.match(correspondence, /compactDetails=\{compactDetails\}/);
+  assert.match(screen, /\{ label: "Medium", value: item\.medium \}/);
+  assert.match(screen, /\{ label: "Call disposition", value: item\.call_disposition \}/);
+  assert.match(service, /call_disposition: row\.call_disposition \?\? null/);
+  assert.match(network, /attribute\("Call disposition", row\.call_disposition\)/);
+  assert.match(styles, /\.correspondence-card \.first-class-object-label,[\s\S]*\.correspondence-card \.compact-object-identity > span:first-child \{ display: none; \}/);
+  assert.match(styles, /\.correspondence-card-preview \{[^}]*-webkit-line-clamp: 2;[^}]*line-clamp: 2;/s);
+});
+
 test("journal tracker cards own their stock-style value history and default to one year", () => {
   const tracker = fs.readFileSync(path.join(cardsRoot, "JournalTrackerCard.tsx"), "utf8");
   const app = fs.readFileSync(path.join(root, "web/src/App.tsx"), "utf8");
