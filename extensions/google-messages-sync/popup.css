@@ -7,6 +7,8 @@ input[type="url"], input[type="password"], input[type="text"] {
   box-sizing: border-box; display: block; width: 100%; margin-top: 4px; padding: 7px 8px;
 }
 .check { display: flex; gap: 7px; align-items: center; margin-top: 14px; }
+.connection { color: GrayText; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.connection code { color: CanvasText; }
 .actions { display: flex; gap: 8px; margin-top: 12px; }
 button { padding: 7px 11px; cursor: pointer; }
 button.primary { font-weight: 650; }

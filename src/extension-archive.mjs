@@ -73,7 +73,7 @@ function centralHeader({ name, body, checksum, offset }) {
   return Buffer.concat([header, nameBytes]);
 }
 
-export async function createExtensionArchive({ extensionRoot, archiveRoot }) {
+export async function createExtensionArchive({ extensionRoot, archiveRoot, virtualFiles = {} }) {
   const filenames = await extensionFiles(extensionRoot);
   if (!filenames.length || filenames.length > maximumArchiveFiles) {
     throw new Error(`The extension package must contain 1 through ${maximumArchiveFiles} files.`);
@@ -85,7 +85,9 @@ export async function createExtensionArchive({ extensionRoot, archiveRoot }) {
     if (!relative || relative.startsWith("../") || relative.includes("/../")) {
       throw new Error("The extension package contains an invalid path.");
     }
-    const body = await fs.readFile(filename);
+    const body = Object.hasOwn(virtualFiles, relative)
+      ? Buffer.from(String(virtualFiles[relative]), "utf8")
+      : await fs.readFile(filename);
     totalBytes += body.length;
     if (totalBytes > maximumArchiveBytes) throw new Error("The extension package exceeds 5 MiB.");
     entries.push({ name: `${archiveRoot}/${relative}`, body, checksum: crc32(body) });
@@ -113,9 +115,13 @@ export async function createExtensionArchive({ extensionRoot, archiveRoot }) {
   return Buffer.concat([...localParts, central, end]);
 }
 
-export function createGoogleMessagesExtensionArchive(repositoryRoot) {
+export function createGoogleMessagesExtensionArchive(repositoryRoot, { serverUrl = "http://127.0.0.1:8787" } = {}) {
+  const origin = new URL(serverUrl).origin;
   return createExtensionArchive({
     extensionRoot: path.join(repositoryRoot, "extensions", "google-messages-sync"),
     archiveRoot: "time-v3-google-messages-sync",
+    virtualFiles: {
+      "connection.json": `${JSON.stringify({ serverUrl: origin, accountKey: "default" }, null, 2)}\n`,
+    },
   });
 }

@@ -9,7 +9,7 @@ This unpacked Manifest V3 extension performs an explicit foreground synchronizat
 3. Open `brave://extensions` and enable **Developer mode**.
 4. Select **Load unpacked** and choose the extracted `time-v3-google-messages-sync` folder.
 5. Open and pair `https://messages.google.com/web/`.
-6. Open the extension, enter the Time V3 server URL and access token, and save them.
+6. Open the extension, enter the Time V3 access token, and save it. The downloaded package already contains the server origin and fixed `default` account key.
 7. Select **Rescan all available history** for the initial import, then select **Synchronize**.
 
 During repository development, the source `extensions/google-messages-sync`
@@ -22,9 +22,8 @@ started from Time V3's **Correspondence** page with **Sync Google Messages**.
 The extension checks for that command at least every 30 seconds and reports its
 progress back to the page. Keep Brave and the paired Google Messages tab open.
 The popup's **Check server now** button performs an immediate command check and
-shows the exact server origin, account key, connection result, or HTTP error.
-The saved server URL is normalized to its origin, so an accidentally copied
-`/app` path cannot silently direct polling to the wrong endpoint.
+shows the exact packaged server origin, account key, connection result, or HTTP
+error. The origin and account key are not editable in the extension.
 
 ## Data and limitations
 

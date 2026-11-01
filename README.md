@@ -209,8 +209,9 @@ directory directly:
 ```
 
 Pair and open `https://messages.google.com/web/`, then use the extension popup
-to save the Time V3 server URL, access token, and a stable account key. Leave
-that tab open while synchronization runs. Use **Rescan all available history**
+to save the Time V3 access token once. The downloaded package already contains
+this server's canonical origin and the fixed `default` account key. Leave that
+tab open while synchronization runs. Use **Rescan all available history**
 on the first run; incremental runs retain a two-day overlap. The access token is
 stored in the local Brave profile so it does not need to be reentered.
 

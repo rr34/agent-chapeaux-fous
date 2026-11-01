@@ -649,7 +649,9 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/extensions/google-messages-sync/download") {
-      const archive = await createGoogleMessagesExtensionArchive(config.repositoryRoot);
+      const archive = await createGoogleMessagesExtensionArchive(config.repositoryRoot, {
+        serverUrl: config.publicUrl,
+      });
       response.writeHead(200, {
         "Content-Type": "application/zip",
         "Content-Length": archive.length,

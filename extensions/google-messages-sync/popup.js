@@ -1,7 +1,6 @@
 const fields = {
   serverUrl: document.querySelector("#server-url"),
   accessToken: document.querySelector("#access-token"),
-  accountKey: document.querySelector("#account-key"),
   fullHistory: document.querySelector("#full-history"),
   save: document.querySelector("#save"),
   check: document.querySelector("#check"),
@@ -55,11 +54,10 @@ function jobText(job, config, commandStatus) {
 
 async function refresh() {
   const { config, job, commandStatus } = await runtimeMessage({ type: "GET_STATE" });
-  if (document.activeElement !== fields.serverUrl) fields.serverUrl.value = config.serverUrl || "";
+  fields.serverUrl.textContent = config.serverUrl || "Packaged server unavailable";
   fields.accessToken.placeholder = config.hasAccessToken
     ? "Saved — leave blank to keep it"
     : "Required";
-  if (document.activeElement !== fields.accountKey) fields.accountKey.value = config.accountKey || "default";
   if (!config.lastSuccessfulSyncMs) fields.fullHistory.checked = true;
   const running = job?.status === "running";
   fields.sync.disabled = running;
@@ -69,19 +67,16 @@ async function refresh() {
 
 fields.save.addEventListener("click", async () => {
   try {
-    const serverUrl = fields.serverUrl.value.trim().replace(/\/+$/u, "");
-    const origin = new URL(serverUrl).origin;
-    const allowed = await chrome.permissions.request({ origins: [`${origin}/*`] });
-    if (!allowed) throw new Error("Brave did not grant access to the Time V3 server.");
-    await runtimeMessage({
+    const saved = await runtimeMessage({
       type: "SAVE_CONFIG",
       config: {
-        serverUrl,
         accessToken: fields.accessToken.value,
-        accountKey: fields.accountKey.value,
       },
     });
     fields.accessToken.value = "";
+    const origin = new URL(saved.config.serverUrl).origin;
+    const allowed = await chrome.permissions.request({ origins: [`${origin}/*`] });
+    if (!allowed) throw new Error("Connection saved, but Brave did not grant access to the Time V3 server.");
     await runtimeMessage({ type: "CHECK_COMMANDS" });
     await refresh();
   } catch (error) {

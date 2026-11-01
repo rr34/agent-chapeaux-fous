@@ -3,6 +3,7 @@ const JOB_KEY = "timeV3GoogleMessagesJob";
 const COMMAND_STATUS_KEY = "timeV3GoogleMessagesCommandStatus";
 const COMMAND_ALARM = "timeV3GoogleMessagesCommands";
 let commandPollRunning = false;
+let packagedConnectionPromise = null;
 
 function storageGet(keys) {
   return chrome.storage.local.get(keys);
@@ -10,6 +11,26 @@ function storageGet(keys) {
 
 function storageSet(value) {
   return chrome.storage.local.set(value);
+}
+
+function packagedConnection() {
+  packagedConnectionPromise ||= fetch(chrome.runtime.getURL("connection.json"))
+    .then((response) => {
+      if (!response.ok) throw new Error("The packaged Time V3 connection is missing.");
+      return response.json();
+    })
+    .then((value) => {
+      const serverUrl = new URL(String(value.serverUrl || "")).origin;
+      const accountKey = String(value.accountKey || "default");
+      if (!/^[A-Za-z0-9._-]+$/u.test(accountKey)) throw new Error("The packaged account key is invalid.");
+      return { serverUrl, accountKey };
+    });
+  return packagedConnectionPromise;
+}
+
+async function configuredConnection(storedConfig = null) {
+  const stored = storedConfig ?? (await storageGet(CONFIG_KEY))[CONFIG_KEY] ?? {};
+  return { ...stored, ...await packagedConnection() };
 }
 
 function publicConfig(config = {}) {
@@ -24,7 +45,7 @@ function publicConfig(config = {}) {
 async function state() {
   const stored = await storageGet([CONFIG_KEY, JOB_KEY, COMMAND_STATUS_KEY]);
   return {
-    config: publicConfig(stored[CONFIG_KEY]),
+    config: publicConfig(await configuredConnection(stored[CONFIG_KEY])),
     job: stored[JOB_KEY] || null,
     commandStatus: stored[COMMAND_STATUS_KEY] || null,
   };
@@ -52,9 +73,8 @@ async function updateJob(patch) {
 }
 
 async function serverRequest(path, { method = "GET", body = null, allowNoContent = false } = {}) {
-  const stored = await storageGet(CONFIG_KEY);
-  const config = stored[CONFIG_KEY] || {};
-  if (!config.serverUrl || !config.accessToken) throw new Error("Save the Time V3 server URL and access token first.");
+  const config = await configuredConnection();
+  if (!config.accessToken) throw new Error("Save the Time V3 access token first.");
   const response = await fetch(`${config.serverUrl}${path}`, {
     method,
     headers: {
@@ -113,10 +133,9 @@ async function pollServerCommands({ surfaceErrors = false } = {}) {
   commandPollRunning = true;
   let config = {};
   try {
-    const stored = await storageGet(CONFIG_KEY);
-    config = stored[CONFIG_KEY] || {};
-    if (!config.serverUrl || !config.accessToken) {
-      return await commandStatus("configuration_required", "Save the server URL and access token.", config);
+    config = await configuredConnection();
+    if (!config.accessToken) {
+      return await commandStatus("configuration_required", "Save the Time V3 access token.", config);
     }
     await commandStatus("checking", "Checking Time V3 for a pending synchronization request…", config);
     const command = await serverRequest(
@@ -171,20 +190,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
       if (message?.type === "SAVE_CONFIG") {
-        const suppliedServerUrl = String(message.config?.serverUrl || "").trim();
-        let parsedServerUrl;
-        try { parsedServerUrl = new URL(suppliedServerUrl); } catch { throw new Error("Server URL is invalid."); }
-        const serverUrl = parsedServerUrl.origin;
         const suppliedAccessToken = String(message.config?.accessToken || "").trim();
-        const accountKey = String(message.config?.accountKey || "default").trim();
-        if (!["http:", "https:"].includes(parsedServerUrl.protocol)) throw new Error("Server URL must begin with http:// or https://.");
-        if (!/^[A-Za-z0-9._-]+$/u.test(accountKey)) throw new Error("Account key contains unsupported characters.");
         const previous = (await storageGet(CONFIG_KEY))[CONFIG_KEY] || {};
         const accessToken = suppliedAccessToken || previous.accessToken || "";
         if (!accessToken) throw new Error("Access token is required.");
-        const config = { ...previous, serverUrl, accessToken, accountKey };
+        const config = { ...previous, accessToken };
         await storageSet({ [CONFIG_KEY]: config });
-        sendResponse({ ok: true, config: publicConfig(config) });
+        sendResponse({ ok: true, config: publicConfig(await configuredConnection(config)) });
         void pollServerCommands();
         return;
       }
