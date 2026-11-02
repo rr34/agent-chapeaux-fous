@@ -661,7 +661,8 @@ Agent Slayer uses a structured loop derived from the military OODA loop:
 1. **Orient** — understand the exact request as ordinary conversation and emit
    a compact common-sense core containing its end state, batch-shaped actions,
    application-assigned stable request-local action identities, compact
-   first-class outcome objects with application-assigned identities,
+   request-established first-class outcome objects with application-assigned
+   identities when the request already determines those roles,
    relevant supplied object and set references, exact directed relationship
    sets, unresolved target slots, explicit constraints, genuine questions,
    context needs, and capability families. Do not select exact tools or audits.
@@ -689,14 +690,30 @@ Outcome objects are continuity, not another planning layer. Their cardinality
 describes first-class objects in the requested result, not tool-call count,
 database-row count, or an ordered execution recipe. A job containing six
 details can therefore remain one outcome object, while six independently
-requested first-class objects can be represented as six. Only cardinality
-grounded directly in the exact request or an exact selected set is a
-deterministic restriction; inferred structure remains model context for
-exceptional semantic review. Before executing sibling calls, the structure may
-reject a mechanically provable singleton-create fan-out that would exceed an
-explicit accepted maximum. It then reconciles distinct canonical object
-bindings in successful mutation receipts with those same outcome identities.
-Provider schemas and arguments remain unchanged.
+requested first-class objects can be represented as six. Tags, relationships,
+field values, lifecycle effects, receipts, and possible tool result shapes are
+not invented as outcome objects. A list of unresolved names, addresses, or
+search keys does not by itself establish how many distinct objects owning reads
+will resolve. Only cardinality grounded directly in the exact request or an
+exact selected set independently of execution is a deterministic restriction;
+inferred structure remains model context for exceptional semantic review and
+does not compete for automatic receipt correlation. Before executing sibling
+calls, the structure may reject a mechanically provable singleton-create
+fan-out that would exceed an explicit accepted maximum. It then reconciles
+distinct canonical object bindings exposed by successful mutation results with
+those request-established outcome identities. Provider schemas and arguments
+remain unchanged.
+
+Mechanical correlation is not the whole receipt. An exact bound mutation call,
+its arguments, literal result, per-item or aggregate effects, and owning tool
+contract remain authoritative evidence even when the result does not repeat an
+unchanged input object's binding. Fewer or more automatically correlated result
+bindings than an accepted outcome names is an exceptional evidence question,
+not proof of failed or excess work. Semantic audit compares the complete
+receipts with the ordinary-language objective and may resolve that question as
+complete without repair. Hard pre-execution rejection remains limited to a
+mechanically provable conflict such as singleton-create fan-out beyond an exact
+request-established maximum.
 
 An action that pauses for a material user-controlled choice is
 `needs_information`, even when all required read and mutation tools are

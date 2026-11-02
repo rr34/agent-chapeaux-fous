@@ -7,6 +7,7 @@ import { registerContactTools } from "../src/tools/contact-tools.mjs";
 import { registerJournalTools } from "../src/tools/journal-tools.mjs";
 import { registerTodoTools } from "../src/tools/todo-tools.mjs";
 import { registerProfileFactTools } from "../src/tools/profile-fact-tools.mjs";
+import { objectReferenceGroupsFromToolResult } from "../src/object-references.mjs";
 
 test("owning tool contracts explain inputs and results without a database or schema catalog", () => {
   const registry = registerNativeCapabilities(new ToolRegistry());
@@ -84,4 +85,68 @@ test("profile tool returns its owning function's result without schema metadata 
   const schema = registry.toolDefinitions()[0].outputSchema;
   assert.match(schema.properties.facts.items.properties.fact_text.description, /Self-contained/);
   assert.equal(schemaProblem(result, schema), null);
+});
+
+test("contact tag relationship mutations return literal per-contact evidence", async () => {
+  const registry = registerNativeCapabilities(new ToolRegistry());
+  const contact = {
+    contact_id: 399,
+    display_name: "Emily Wu",
+    status: "active",
+    updated_at_utc: "2026-11-01T23:07:05.051Z",
+  };
+  registerContactTools(registry, {}, {
+    addTagToContacts() {
+      return {
+        tag: "St. Mary School",
+        selectedContactCount: 1,
+        taggedContactCount: 1,
+        alreadyTaggedContactCount: 0,
+        results: [{ status: "tagged", contact }],
+      };
+    },
+    removeTagFromContacts() {
+      return {
+        tag: "St. Mary School",
+        selectedContactCount: 1,
+        unlinkedContactCount: 0,
+        alreadyUnlinkedContactCount: 1,
+        results: [{ status: "already_unlinked", contact }],
+      };
+    },
+  }, {});
+  const definitions = new Map(registry.toolDefinitions().map((definition) => [
+    definition.name, definition,
+  ]));
+  const added = await registry.execute("contact_tag_add_batch", {
+    tag: "St. Mary School", contact_ids: [399],
+  });
+  assert.equal(schemaProblem(added, definitions.get("contact_tag_add_batch").outputSchema), null);
+  assert.deepEqual(added.results, [{
+    status: "tagged",
+    contact: { ...contact, ref: "agent-slayer://contacts/399" },
+  }]);
+  const groups = objectReferenceGroupsFromToolResult({
+    toolDefinition: definitions.get("contact_tag_add_batch"),
+    toolDefinitions: [...definitions.values()],
+    result: added,
+    sourceEventSeq: 42,
+  });
+  assert.deepEqual(groups, [{
+    mention: "Contact returned by contact_tag_add_batch",
+    role: "subject",
+    type: "contacts.contact",
+    source: "native:contacts",
+    objects: [{ id: 399, ref: "agent-slayer://contacts/399", display: "Emily Wu" }],
+    sourceEventSeqs: [42],
+  }]);
+
+  const unlinked = await registry.execute("contact_tag_unlink_batch", {
+    tag: "St. Mary School", contact_ids: [399],
+  });
+  assert.equal(
+    schemaProblem(unlinked, definitions.get("contact_tag_unlink_batch").outputSchema),
+    null,
+  );
+  assert.equal(unlinked.results[0].status, "already_unlinked");
 });

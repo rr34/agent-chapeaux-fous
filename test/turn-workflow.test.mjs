@@ -275,6 +275,54 @@ test("the normal mutation path is one common-sense call plus execution and skips
   assert.equal(ledger.events.find(({ name }) => name === "Audit skipped").payload.skipped, true);
 });
 
+test("mutation identity evidence is derived before a large result is paged", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  calendarUpdateTool(registry, async ({ calendar_event_id: calendarEventId }) => ({
+    updated: true,
+    event: { calendar_event_id: calendarEventId, title: `Admin ${"x".repeat(40_000)}` },
+  }));
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) return completed(JSON.stringify(core({
+        objective: "Rename one calendar event.",
+        actions: [{
+          instruction: "Rename calendar event 3165 to Admin.",
+          targetRefs: [],
+          outcomeObjects: [{
+            description: "The renamed calendar event.",
+            objectType: "calendar.event",
+            targetRefs: [],
+            cardinality: { minimum: 1, maximum: 1, basis: "request" },
+          }],
+        }],
+      })));
+      assert.equal(index, 1);
+      const result = await payload.onToolCall({
+        callId: "rename-large-result",
+        tool: "calendar_event_update",
+        arguments: { calendar_event_id: 3165, title: "Admin", status: null },
+      });
+      assert.equal(result.ok, true);
+      assert.deepEqual(result.objectReferences?.[0].objects.map(({ id }) => id), [3165]);
+      return completed("Renamed the event to Admin.");
+    },
+  });
+
+  assert.equal(await runtime.run({
+    requestId: "request-large-mutation-result",
+    requestEventId: "event-current",
+    text: "Rename event 3165 to Admin.",
+  }), "Renamed the event to Admin.");
+  assert.equal(requests.length, 2);
+  assert.equal(ledger.events.find(({ name }) => name === "Audit skipped").payload.skipped, true);
+});
+
 test("sequenced to-do creation responses include the group-local sequence from the receipt", async () => {
   const requests = [];
   const ledger = fakeLedger();
@@ -1255,6 +1303,174 @@ test("a declared reversible delete lifecycle satisfies ordinary delete language"
     requestId: "request-delete", requestEventId: "event-current", text: "Delete calendar routine 14.",
   }), "Disabled Morning Exercise, so it will not generate new events. Its already-generated events remain connected to the retained routine history.");
   assert.equal(requests.length, 3);
+});
+
+test("semantic audit can resolve incomplete mechanical outcome correlation without repair", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  calendarUpdateTool(registry, async () => ({ updated: true }));
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) return completed(JSON.stringify(core({
+        objective: "Rename calendar event 3165 to Admin.",
+        conversationSummary: "The user wants one calendar event renamed.",
+        actions: [{
+          instruction: "Rename calendar event 3165 to Admin.",
+          targetRefs: [],
+          outcomeObjects: [{
+            description: "Calendar event 3165 in its renamed final state.",
+            objectType: "calendar.event",
+            targetRefs: [],
+            cardinality: { minimum: 1, maximum: 1, basis: "request" },
+          }],
+        }],
+      })));
+      if (index === 1) {
+        const result = await payload.onToolCall({
+          callId: "rename-event-with-compact-receipt",
+          tool: "calendar_event_update",
+          arguments: { calendar_event_id: 3165, title: "Admin", status: null },
+        });
+        assert.equal(result.ok, true);
+        return completed("Renamed the event to Admin.");
+      }
+      assert.equal(index, 2);
+      assert.match(payload.developerInstructions, /INTENT_OUTCOME_EVIDENCE_INCOMPLETE/u);
+      assert.match(payload.developerInstructions, /not proof that the requested work failed/i);
+      return completed(JSON.stringify({
+        version: 1,
+        outcome: "complete",
+        requiresUserInput: false,
+        missingInformation: [],
+        summary: "The exact bound update receipt proves event 3165 was renamed.",
+        satisfied: ["calendar_event_update succeeded for event 3165 with title Admin."],
+        remaining: [],
+        repairInstructions: [],
+      }));
+    },
+  });
+
+  assert.equal(await runtime.run({
+    requestId: "request-audit-resolves-correlation",
+    requestEventId: "event-current",
+    text: "Rename event 3165 to Admin.",
+  }), "Renamed the event to Admin.");
+  assert.equal(requests.length, 3, "a complete audit must not start a repair interaction");
+  const resolution = ledger.events.find(({ type }) => type === "completion.evidence.resolved");
+  assert.ok(resolution);
+  assert.deepEqual(resolution.payload.findingCodes, ["INTENT_OUTCOME_EVIDENCE_INCOMPLETE"]);
+  assert.equal(ledger.events.some(({ payload }) => payload?.workflowStep === "repair"), false);
+});
+
+test("contact tagging regression connects one existing and thirteen created contacts despite an inferred same-type role", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  const contacts = registry.withCapability("contacts", {}, {
+    contact_tag_add_batch: { allowUnboundInputs: true },
+    contact_import: { allowUnboundInputs: true },
+  });
+  contacts.register({
+    name: "contact_tag_add_batch",
+    description: "Tag exact contacts and return literal per-contact evidence.",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: {
+        tag: { type: "string" },
+        contact_ids: { type: "array", items: { type: "integer" } },
+      },
+      required: ["tag", "contact_ids"],
+    },
+    async execute() {
+      return {
+        results: [{
+          status: "tagged",
+          contact: {
+            contact_id: 399, ref: "agent-slayer://contacts/399",
+            display_name: "Emily Wu", status: "active",
+          },
+        }],
+      };
+    },
+  });
+  contacts.register({
+    name: "contact_import",
+    description: "Create a bounded batch of contacts.",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: { entries: { type: "array", items: { type: "object" } } },
+      required: ["entries"],
+    },
+    async execute() {
+      return {
+        items: Array.from({ length: 13 }, (_, index) => ({
+          status: "imported",
+          contact: {
+            contact_id: 1613 + index,
+            ref: `agent-slayer://contacts/${1613 + index}`,
+            display_name: `service-${index + 1}@example.test`,
+            status: "active",
+          },
+        })),
+      };
+    },
+  });
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) return completed(JSON.stringify(core({
+        objective: "Ensure the fourteen supplied addresses have tagged contacts.",
+        conversationSummary: "Tag existing matches and create contacts for unmatched addresses.",
+        actions: [{
+          instruction: "Apply the tag to existing matches and create tagged contacts for unmatched addresses.",
+          targetRefs: [],
+          outcomeObjects: [{
+            description: "A predicted tag representation.",
+            objectType: "contacts.contact",
+            targetRefs: [],
+            cardinality: { minimum: 1, maximum: 1, basis: "inferred" },
+          }, {
+            description: "Contacts corresponding to the supplied addresses.",
+            objectType: "contacts.contact",
+            targetRefs: [],
+            cardinality: { minimum: 14, maximum: 14, basis: "request" },
+          }],
+        }],
+        capabilities: ["contacts"],
+      })));
+      assert.equal(index, 1);
+      await payload.onToolCall({
+        callId: "tag-existing", tool: "contact_tag_add_batch",
+        arguments: { tag: "St. Mary School", contact_ids: [399] },
+      });
+      await payload.onToolCall({
+        callId: "create-unmatched", tool: "contact_import",
+        arguments: { entries: Array.from({ length: 13 }, () => ({})) },
+      });
+      return completed("Tagged all fourteen contacts.");
+    },
+  });
+
+  assert.equal(await runtime.run({
+    requestId: "request-contact-tag-regression",
+    requestEventId: "event-current",
+    text: "Tag these email contacts and create any missing contacts.",
+  }), "Tagged all fourteen contacts.");
+  assert.equal(requests.length, 2);
+  assert.equal(ledger.events.find(({ name }) => name === "Audit skipped").payload.skipped, true);
+  const connected = ledger.events.filter(({ type }) => type === "intent.outcomes.observed");
+  assert.equal(connected.length, 2);
+  assert.ok(connected.every(({ content }) => content === "action_1.outcome_2"));
 });
 
 test("a material user choice ends audit as needs information instead of starting repair", async () => {

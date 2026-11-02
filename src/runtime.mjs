@@ -1521,13 +1521,14 @@ export class SlayerRuntime {
     }
 
     const executionFindings = [...receiptFindings];
+    const auditOnlyIntentFindings = intentFindings.filter(({ auditOnly }) => auditOnly);
     const auditReasons = exceptionalAuditReasons({
       core,
       receipts: execution.receipts,
       registry: this.registry,
       findings: [
         ...executionFindings,
-        ...intentFindings.filter(({ auditOnly }) => auditOnly),
+        ...auditOnlyIntentFindings,
       ],
       requestText: args.text,
     });
@@ -1574,7 +1575,22 @@ export class SlayerRuntime {
     });
     if (audit.value.outcome === "needs_information") return execution.text;
     if (audit.value.outcome === "blocked") return blockedAuditResponse(audit.value);
-    if (audit.value.outcome !== "repair_needed" && executionFindings.length === 0) return execution.text;
+    if (audit.value.outcome !== "repair_needed" && executionFindings.length === 0) {
+      if (auditOnlyIntentFindings.length) {
+        this.ledger.append({
+          type: "completion.evidence.resolved", phase: "end", status: "complete",
+          actorType: "service", actorName: "Completion audit", channel,
+          turnId: args.requestId, name: "Outcome evidence resolved",
+          content: audit.value.summary,
+          payload: {
+            findingCodes: auditOnlyIntentFindings.map(({ code }) => code),
+            outcome: audit.value.outcome,
+            summary: audit.value.summary,
+          },
+        });
+      }
+      return execution.text;
+    }
 
     const remainingToolCalls = configuredMaxToolCalls === null
       ? null
@@ -1608,11 +1624,12 @@ export class SlayerRuntime {
       receipts: repair.receipts,
       confirmedActionReferences,
     });
-    finalFindings.push(...intentOutcomeFindings({
+    const repairIntentFindings = intentOutcomeFindings({
       core,
       receipts: repair.receipts,
       registry: this.registry,
-    }).filter(({ auditOnly }) => !auditOnly));
+    });
+    finalFindings.push(...repairIntentFindings.filter(({ auditOnly }) => !auditOnly));
     if (finalFindings.length) {
       const response = incompleteReceiptResponse(finalFindings);
       this.ledger.append({
@@ -1637,11 +1654,16 @@ export class SlayerRuntime {
         core,
         receipts: repair.receipts,
         executorResponse: repair.text,
-        deterministicFindings: [],
-        reasons: [{
-          code: "post_repair_verification",
-          message: "A prior exceptional audit required repair; independently verify the repaired receipts before accepting completion.",
-        }],
+        deterministicFindings: repairIntentFindings.filter(({ auditOnly }) => auditOnly),
+        reasons: [
+          {
+            code: "post_repair_verification",
+            message: "A prior exceptional audit required repair; independently verify the repaired receipts before accepting completion.",
+          },
+          ...repairIntentFindings
+            .filter(({ auditOnly }) => auditOnly)
+            .map(({ code, message }) => ({ code, message })),
+        ],
         callableTools: repair.callableToolCatalog,
         selectedObjectCandidates,
       }),
@@ -2558,7 +2580,12 @@ export class SlayerRuntime {
               const newObjectReferences = objectReferenceGroupsFromToolResult({
                 toolDefinition: registeredTool ?? callableToolDefinitions.get(name),
                 toolDefinitions: this.registry.toolDefinitions(),
-                result: inline.deliveredResult,
+                // Read filtering defines what may enter model context, so read
+                // bindings come only from the delivered projection. Mutation
+                // results are already authorized receipts; derive their
+                // bounded canonical identities before inline paging can hide
+                // per-item evidence needed for deterministic continuity.
+                result: readOnly ? inline.deliveredResult : toolResult,
                 sourceEventSeq: receiptEventSeq,
               });
               const intentOutcomeRefs = intentCore

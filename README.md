@@ -733,11 +733,16 @@ historical bindings. It emits a strict common-sense core: the end goal, a
 batch-shaped action list, stable target references, relevant constraints,
 genuine questions, bounded context requests, and capability families. Every
 action receives one application-assigned request-local identity and contains
-compact first-class outcome objects whose identities are assigned the same way.
-Those outcomes describe the intended final object roles and explicit
-cardinality without prescribing rows, exact tools, or call order; one container
-with several details remains one outcome object unless the user actually wants
-the details represented as independent first-class objects.
+only the compact first-class outcome objects already established by the request
+or an exact selected set; their identities are assigned the same way. Those
+outcomes describe known final object roles and request-established cardinality
+without prescribing rows, exact tools, or call order. A tag, relationship,
+field value, lifecycle effect, or possible tool representation remains in the
+ordinary-language action instead of being invented as an object. When owning
+reads and tools must reveal the concrete object representation, the outcome
+list stays empty or explicitly advisory. A list of unresolved names, email
+addresses, or search keys does not establish a distinct-object count because
+several keys may resolve to one object or one key to several.
 
 Application code then verifies explicit selections, reads the requested bounded
 context views, and hydrates exact object bindings without another model call.
@@ -752,13 +757,18 @@ Execution evidence remains structurally connected to the accepted outcome
 identities. Before any member of one sibling mutation set runs, the runtime
 checks explicit request-established outcome cardinality against mechanically
 declared singleton create effects and rejects an obvious fan-out as one set.
-Inferred outcome structure remains advisory. Successful mutation receipts are
-then connected to compatible outcome identities through canonical first-class
-object bindings, and deterministic completion compares the distinct evidenced
-objects with explicit final cardinality before audit may be skipped. These
-checks constrain the accepted final state, not the model's implementation
-method, and never rewrite provider tool schemas or inject application fields
-into their arguments.
+Inferred outcome structure remains advisory and does not compete for automatic
+receipt correlation. Successful mutation results are connected to compatible
+request-established outcome identities through canonical first-class object
+bindings when those results expose them. Exact bound mutation arguments,
+literal results, and owning contracts remain completion evidence even when a
+tool does not repeat every unchanged input object in its result. A cardinality
+shortfall or excess in mechanically correlated result bindings is therefore an
+exceptional evidence question, not proof that the operation failed. Semantic
+audit compares the complete receipts and may accept the evidenced final state
+without repair. These checks constrain the accepted final state, not the
+model's implementation method, and never rewrite provider tool schemas or
+inject application fields into their arguments.
 
 The selected tool list is enforcement, not a hint: a model call outside the
 current interaction's callable set is rejected before the application function

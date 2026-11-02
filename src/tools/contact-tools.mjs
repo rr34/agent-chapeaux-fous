@@ -152,6 +152,55 @@ const contactRecordSchema = {
   },
 };
 
+function contactTagBatchOutputSchema({ changedCount, unchangedCount, statuses }) {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      tag: { type: "string", minLength: 1 },
+      selected_contact_count: { type: "integer", minimum: 1, maximum: 10000 },
+      [changedCount]: { type: "integer", minimum: 0, maximum: 10000 },
+      [unchangedCount]: { type: "integer", minimum: 0, maximum: 10000 },
+      results: {
+        type: "array", minItems: 1, maxItems: 10000,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            status: { type: "string", enum: statuses },
+            contact: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                contact_id: { type: "integer", minimum: 1 },
+                ref: { type: "string", pattern: "^agent-slayer://contacts/[1-9][0-9]*$" },
+                display_name: { type: "string", minLength: 1 },
+                status: { type: "string", enum: ["active", "blocked", "deceased"] },
+                updated_at_utc: { type: "string", minLength: 1 },
+              },
+              required: ["contact_id", "ref", "display_name", "status", "updated_at_utc"],
+            },
+          },
+          required: ["status", "contact"],
+        },
+      },
+    },
+    required: ["tag", "selected_contact_count", changedCount, unchangedCount, "results"],
+  };
+}
+
+const contactTagAddBatchOutputSchema = contactTagBatchOutputSchema({
+  changedCount: "tagged_contact_count",
+  unchangedCount: "already_tagged_contact_count",
+  statuses: ["tagged", "already_tagged"],
+});
+
+const contactTagUnlinkBatchOutputSchema = contactTagBatchOutputSchema({
+  changedCount: "unlinked_contact_count",
+  unchangedCount: "already_unlinked_contact_count",
+  statuses: ["unlinked", "already_unlinked"],
+});
+
 const nullableString = { type: ["string", "null"] };
 const contactKinds = new Set(["person", "organization", "service"]);
 const contactStatuses = new Set(["active", "inactive", "blocked", "deceased"]);
@@ -1277,7 +1326,8 @@ export function registerContactTools(
 
   registry.register({
     name: "contact_tag_add_batch",
-    description: "Atomically add one tag to 1 through 10,000 existing visible contacts by ID in a single tool call. Inactive contacts are logically deleted and cannot be tagged. The operation validates every contact before writing, preserves all existing tags, is safe to replay, and reports newly tagged versus already-tagged counts. Use this after one contact_lookup_batch call; never insert contacts_tags_join one row at a time.",
+    description: "Atomically add one tag to 1 through 10,000 existing visible contacts by ID in a single tool call. Inactive contacts are logically deleted and cannot be tagged. The operation validates every contact before writing, preserves all existing tags, is safe to replay, and returns each exact contact with tagged or already_tagged status plus aggregate counts. Use this after one contact_lookup_batch call; never insert contacts_tags_join one row at a time.",
+    outputSchema: contactTagAddBatchOutputSchema,
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1300,13 +1350,21 @@ export function registerContactTools(
         selected_contact_count: tagged.selectedContactCount,
         tagged_contact_count: tagged.taggedContactCount,
         already_tagged_contact_count: tagged.alreadyTaggedContactCount,
+        results: tagged.results.map((result) => ({
+          status: result.status,
+          contact: {
+            ...result.contact,
+            ref: `agent-slayer://contacts/${result.contact.contact_id}`,
+          },
+        })),
       };
     },
   });
 
   registry.register({
     name: "contact_tag_unlink_batch",
-    description: "Atomically remove one exact tag from 1 through 10,000 existing visible contacts by ID in a single tool call. The operation validates every contact before writing, preserves every other tag, is safe to replay, and reports newly unlinked versus already-unlinked counts. Use this after one contact_lookup_batch call; never reconstruct or replace each contact's complete tag set.",
+    description: "Atomically remove one exact tag from 1 through 10,000 existing visible contacts by ID in a single tool call. The operation validates every contact before writing, preserves every other tag, is safe to replay, and returns each exact contact with unlinked or already_unlinked status plus aggregate counts. Use this after one contact_lookup_batch call; never reconstruct or replace each contact's complete tag set.",
+    outputSchema: contactTagUnlinkBatchOutputSchema,
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1329,6 +1387,13 @@ export function registerContactTools(
         selected_contact_count: unlinked.selectedContactCount,
         unlinked_contact_count: unlinked.unlinkedContactCount,
         already_unlinked_contact_count: unlinked.alreadyUnlinkedContactCount,
+        results: unlinked.results.map((result) => ({
+          status: result.status,
+          contact: {
+            ...result.contact,
+            ref: `agent-slayer://contacts/${result.contact.contact_id}`,
+          },
+        })),
       };
     },
   });

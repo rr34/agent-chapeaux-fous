@@ -193,6 +193,40 @@ test("orientation contains families and selections but no exact tool catalog", (
   assert.doesNotMatch(context, /todo_complete_batch/);
   assert.match(commonSenseInstructions, /common-sense orientation/i);
   assert.match(commonSenseInstructions, /not proof that every member is a current target/i);
+  assert.match(commonSenseInstructions, /Do not predict the concrete representation/i);
+  assert.match(commonSenseInstructions, /tag, relationship, field value/i);
+  assert.match(commonSenseInstructions, /list of unresolved names, email addresses, search keys/i);
+  assert.match(auditInstructions, /missing or partial mechanical outcome-reference correlation/i);
+});
+
+test("orientation distinguishes first-class objects from relationship effects", () => {
+  const contacts = nativeCapabilityManifest("contacts");
+  const catalogResource = (resource) => ({
+    ...resource,
+    operations: Object.fromEntries(
+      Object.keys(resource.operations).map((operation) => [operation, { available: true }]),
+    ),
+  });
+  const context = commonSenseContext({
+    requestId: "request-contact-tags",
+    requestEventSeq: 9,
+    requestText: "Tag these contacts as St. Mary School.",
+    recentConversation: [],
+    capabilityCatalog: [{
+      capability: contacts.id,
+      title: contacts.title,
+      summary: contacts.summary,
+      objectTypes: contacts.resources.filter(({ kind }) => kind === "object").map(catalogResource),
+      relationships: contacts.resources
+        .filter(({ kind }) => kind === "relationship")
+        .map(catalogResource),
+      contextViews: [],
+    }],
+  });
+  assert.match(context, /object:contacts\.contact \[CREATE\/READ\/UPDATE\/DELETE\]/u);
+  assert.match(context, /relationship:contacts\.contact_tag \[LINK\/READ\/UPDATE\/UNLINK\]/u);
+  assert.match(context, /relationships describe edges and must never be recast as objects/i);
+  assert.match(context, /tag assignment.*do not invent an outcome object/is);
 });
 
 test("orientation receives the compact journal object and batch semantics for tracker values", () => {

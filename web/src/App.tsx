@@ -574,6 +574,7 @@ function traceLabel(event: TraceEvent, index: number) {
     "model.usage": "Model usage",
     "tool.call": "Tool call",
     "tool.result": "Tool result",
+    "completion.evidence.resolved": "Completion evidence resolved",
     "assistant.response": "Final response",
   };
   const type = String(event.type || "event");

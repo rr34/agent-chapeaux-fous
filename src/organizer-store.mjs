@@ -1966,7 +1966,7 @@ export class OrganizerStore {
     this.database.exec("START TRANSACTION");
     try {
       const find = this.database.prepare(`
-        SELECT contact_id, created_at_utc, updated_at_utc
+        SELECT contact_id, display_name, status, created_at_utc, updated_at_utc
         FROM contacts WHERE contact_id = ? AND status <> 'inactive'
       `);
       const contacts = contactIds.map((contactId) => {
@@ -1982,15 +1982,28 @@ export class OrganizerStore {
       const update = this.database.prepare("UPDATE contacts SET updated_at_utc = ? WHERE contact_id = ?");
       const candidateVersion = new Date().toISOString();
       let taggedContactCount = 0;
+      const results = [];
       for (const contact of contacts) {
         const result = assign.run(storedTag.tag_id, String(contact.contact_id));
-        if (result.changes !== 1) continue;
-        taggedContactCount += 1;
-        const version = contact.updated_at_utc ?? contact.created_at_utc;
-        const nextVersion = candidateVersion > version
-          ? candidateVersion
-          : new Date(new Date(version).getTime() + 1).toISOString();
-        update.run(nextVersion, contact.contact_id);
+        let nextVersion = contact.updated_at_utc ?? contact.created_at_utc;
+        let assignmentStatus = "already_tagged";
+        if (result.changes === 1) {
+          taggedContactCount += 1;
+          assignmentStatus = "tagged";
+          nextVersion = candidateVersion > nextVersion
+            ? candidateVersion
+            : new Date(new Date(nextVersion).getTime() + 1).toISOString();
+          update.run(nextVersion, contact.contact_id);
+        }
+        results.push({
+          status: assignmentStatus,
+          contact: {
+            contact_id: Number(contact.contact_id),
+            display_name: contact.display_name,
+            status: contact.status,
+            updated_at_utc: nextVersion,
+          },
+        });
       }
       this.#activity({
         eventType: "contacts.tag_added_batch",
@@ -2014,6 +2027,7 @@ export class OrganizerStore {
         selectedContactCount: contacts.length,
         taggedContactCount,
         alreadyTaggedContactCount: contacts.length - taggedContactCount,
+        results,
       };
     } catch (error) {
       this.database.exec("ROLLBACK");
@@ -2027,7 +2041,7 @@ export class OrganizerStore {
     this.database.exec("START TRANSACTION");
     try {
       const find = this.database.prepare(`
-        SELECT contact_id, created_at_utc, updated_at_utc
+        SELECT contact_id, display_name, status, created_at_utc, updated_at_utc
         FROM contacts WHERE contact_id = ? AND status <> 'inactive'
       `);
       const contacts = contactIds.map((contactId) => {
@@ -2044,16 +2058,30 @@ export class OrganizerStore {
       const update = this.database.prepare("UPDATE contacts SET updated_at_utc = ? WHERE contact_id = ?");
       const candidateVersion = new Date().toISOString();
       let unlinkedContactCount = 0;
+      const results = [];
       for (const contact of contacts) {
-        if (!storedTag) continue;
-        const result = remove.run(storedTag.tag_id, String(contact.contact_id));
-        if (result.changes !== 1) continue;
-        unlinkedContactCount += 1;
-        const version = contact.updated_at_utc ?? contact.created_at_utc;
-        const nextVersion = candidateVersion > version
-          ? candidateVersion
-          : new Date(new Date(version).getTime() + 1).toISOString();
-        update.run(nextVersion, contact.contact_id);
+        const result = storedTag
+          ? remove.run(storedTag.tag_id, String(contact.contact_id))
+          : { changes: 0 };
+        let nextVersion = contact.updated_at_utc ?? contact.created_at_utc;
+        let assignmentStatus = "already_unlinked";
+        if (result.changes === 1) {
+          unlinkedContactCount += 1;
+          assignmentStatus = "unlinked";
+          nextVersion = candidateVersion > nextVersion
+            ? candidateVersion
+            : new Date(new Date(nextVersion).getTime() + 1).toISOString();
+          update.run(nextVersion, contact.contact_id);
+        }
+        results.push({
+          status: assignmentStatus,
+          contact: {
+            contact_id: Number(contact.contact_id),
+            display_name: contact.display_name,
+            status: contact.status,
+            updated_at_utc: nextVersion,
+          },
+        });
       }
       if (storedTag) {
         const remainingAssignments = Number(this.database.prepare(
@@ -2085,6 +2113,7 @@ export class OrganizerStore {
         selectedContactCount: contacts.length,
         unlinkedContactCount,
         alreadyUnlinkedContactCount: contacts.length - unlinkedContactCount,
+        results,
       };
     } catch (error) {
       this.database.exec("ROLLBACK");

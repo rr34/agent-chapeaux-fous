@@ -110,7 +110,7 @@ export function commonSenseCoreSchema({
       actions: {
         type: "array",
         maxItems: 30,
-        description: "The requested work. One action may target many objects; do not split a batch into one action per object. The application assigns each accepted action a stable identity for execution and completion; orientation names only the first-class outcome objects whose final state it intends.",
+        description: "The requested work. One action may target many objects; do not split a batch into one action per object. The application assigns each accepted action a stable identity. Orientation names first-class outcome objects only when the request itself already establishes their semantic role and bound independently of later tool selection.",
         items: {
           type: "object",
           additionalProperties: false,
@@ -132,12 +132,12 @@ export function commonSenseCoreSchema({
               type: "array",
               maxItems: 20,
               items: unresolvedTarget,
-              description: "Target roles described by the user whose exact objects have not yet been supplied. Execution may resolve these through an owning read.",
+              description: "First-class object target roles described by the user whose exact objects have not yet been supplied. Execution may resolve these through an owning read. Do not invent an unresolved object for a tag label, relationship, field value, or other qualifier.",
             },
             outcomeObjects: {
               type: "array",
               maxItems: 20,
-              description: "Compact first-class objects in the intended final state. Describe one container once even when it contains many details. Cardinality constrains the final requested object set, never the number or order of tool calls. Use an empty array when the action has no first-class object outcome.",
+              description: "Compact first-class objects whose final-state role is already established by the request or an exact selected set. Describe one container once even when it contains many details. Never invent an object to represent a tag, relationship, field value, tool effect, or possible implementation. Use an empty array when the action has no first-class object outcome or when reads and owning tools must first reveal the concrete representation.",
               items: {
                 type: "object",
                 additionalProperties: false,
@@ -163,7 +163,7 @@ export function commonSenseCoreSchema({
                       basis: {
                         type: "string",
                         enum: ["request", "inferred"],
-                        description: "request means the exact request or exact selected set establishes this bound; inferred means it is useful common-sense structure but not a deterministic execution restriction.",
+                        description: "request means the exact request or exact selected set establishes this bound independently of execution. inferred is advisory semantic context only: it never restricts calls, competes for automatic receipt correlation, or proves completion failure.",
                       },
                     },
                     required: ["minimum", "maximum", "basis"],
@@ -343,11 +343,13 @@ function compactCapabilityCatalog(catalog) {
       .join("/");
     const resources = [
       ...(entry.objectTypes ?? []).map((resource) => ({
-        id: resource.id, operations: resource.operations,
+        ...resource, catalogKind: "object",
       })),
-      ...(entry.relationships ?? []).filter(({ management }) => management === "user"),
+      ...(entry.relationships ?? [])
+        .filter(({ management }) => management === "user")
+        .map((resource) => ({ ...resource, catalogKind: "relationship" })),
     ].filter(({ operations }) => operations).map((resource) => (
-      `  resource:${resource.id} [${operationNames(resource.operations)}]`
+      `  ${resource.catalogKind}:${resource.id} [${operationNames(resource.operations)}]`
     ));
     return [
       `- ${entry.capability}${entry.title ? ` (${entry.title})` : ""}: ${entry.summary}`,
@@ -439,7 +441,7 @@ export function commonSenseContext({
     ] : []),
     "## Connected capability families",
     compactCapabilityCatalog(capabilityCatalog),
-    "Select capability families, not tools. You may point directly to supplied objects and supplied sets. You may also define a request-local object set or relationship set from supplied object refs, then select that set from an action. For every relationship set, declare the actual fromType and toType and preserve that direction in every edge. Describe not-yet-supplied targets in unresolvedTargets so execution can resolve them through an owning read.",
+    "Select capability families, not tools. Catalog objects are eligible first-class outcome types; catalog relationships describe edges and must never be recast as objects. You may point directly to supplied objects and supplied sets. You may also define a request-local object set or relationship set from supplied object refs, then select that set from an action. For every relationship set, declare the actual fromType and toType and preserve that direction in every edge. Describe not-yet-supplied targets in unresolvedTargets so execution can resolve them through an owning read. Keep a requested relationship, tag assignment, field change, or other non-object final state in the ordinary-language action and constraints; do not invent an outcome object for it.",
   ].join("\n");
 }
 
@@ -482,7 +484,7 @@ export function auditContext({
   const selectedOccurrences = selectedCalendarOccurrenceScopes(selectedObjectCandidates);
   return [
     "# Exceptional completion audit",
-    "This request triggered a semantic audit because deterministic receipt checks were insufficient. Compare the accepted common-sense objective with literal receipts and the proposed response. The requested outcome and exact bound scope remain authoritative, while receipts are authoritative for current facts. An explicitly reconciled factual premise is not an omitted target; never demand nonexistent current records unless the request identifies an exact bound set or historical snapshot. Do not treat cancellation, archival, deletion, creation, or update as interchangeable unless the owning tool contract or receipt explicitly establishes that meaning.",
+    "This request triggered a semantic audit because deterministic receipt checks were insufficient. Compare the accepted common-sense objective with literal receipts and the proposed response. The requested outcome and exact bound scope remain authoritative, while receipts are authoritative for current facts. Mechanically correlated object references are one evidence channel: fewer correlated references than an orientation outcome names is an evidence gap, not proof that fewer objects were affected. Inspect exact bound mutation arguments, literal per-item or aggregate results, owning contracts, and successful reads together. An explicitly reconciled factual premise is not an omitted target; never demand nonexistent current records unless the request identifies an exact bound set or historical snapshot. Do not treat cancellation, archival, deletion, creation, or update as interchangeable unless the owning tool contract or receipt explicitly establishes that meaning.",
     "",
     "## Audit reasons",
     JSON.stringify(reasons, null, 2),
@@ -514,7 +516,10 @@ export const commonSenseInstructions = [
   "Prioritize the exact current request and any explicit composer selections. Use older conversation only to resolve genuine references or continuations.",
   "Describe the end state in ordinary language. Do not select tools, write audit policy, copy tool protocols, manufacture prohibitions, or turn preservation of unrelated state into verbose constraints.",
   "When the user plainly rejects an object the agent just created by mistake, include removal of that mistaken object in the requested end state; do not reduce the correction to emptying or ignoring it.",
-  "Preserve the user's intended first-class final state in outcomeObjects. The application assigns stable action and outcome identities after orientation; do not manufacture correlation IDs. Each outcome is a semantic object role, not a planned row or tool call: one requested job containing six listed details is one job outcome, while six independently requested first-class objects may be six outcomes or one outcome with cardinality six. Use basis=request only when the exact request or an exact selected set establishes the bound; otherwise use basis=inferred.",
+  "Use outcomeObjects only for first-class object roles whose identity-independent type and cardinality are already established by the exact request or an exact selected set. The application assigns stable action and outcome identities after orientation; do not manufacture correlation IDs. Each outcome is a semantic object role, not a planned row or tool call: one requested job containing six listed details is one job outcome, while six independently requested first-class objects may be six outcomes or one outcome with cardinality six.",
+  "Do not predict the concrete representation that execution will discover. A tag, relationship, field value, lifecycle effect, receipt, or tool result is not an outcome object merely because it is part of the requested final state. Preserve it in the action instruction or an exact relationship set. Use an empty outcomeObjects array when the owning reads and tools must reveal whether, how many, or which first-class objects represent the result.",
+  "Use cardinality basis=request only when the exact request or an exact selected set establishes the bound independently of execution. Use basis=inferred sparingly for genuinely useful semantic structure; inferred outcomes are advisory and never restrict tool calls, compete for automatic receipt correlation, or prove that completion failed.",
+  "A list of unresolved names, email addresses, search keys, or other lookup values does not by itself establish the number of distinct first-class objects: several keys may resolve to one object, one key may resolve to several, or current evidence may change whether creation is needed. Do not turn the input-list length into basis=request outcome cardinality unless the request independently requires that many distinct objects.",
   "For a batch, write one action and directly select exact object refs or an exact object set. A binding is identity evidence, not proof that every member is a current target. Use separate actions only for genuinely different requested operations.",
   "When the request specifies pairings, preserve them as one typed directed relationship set with one exact fromRef/toRef edge per pairing and the actual fromType/toType contract. Never represent pairings as two independent lists, because that loses correspondence.",
   "You may define request-local sets only from object refs supplied in this orientation interaction. Put targets that still require search or resolution in unresolvedTargets instead of inventing refs.",
@@ -527,6 +532,7 @@ export const commonSenseInstructions = [
 export const auditInstructions = [
   "You are the exceptional completion-audit phase of Time v3 Agent. Produce only the schema-constrained audit result.",
   "Judge the ordinary-language end state from tool receipts and tool contracts, not from confidence in the proposed response.",
+  "Treat missing or partial mechanical outcome-reference correlation as an evidence question, never as proof that zero or fewer objects were affected. Exact bound mutation arguments and literal successful results may prove the requested effect even when a tool does not repeat every unchanged object binding in its output.",
   "Distinguish the requested outcome and exact bound scope from factual premises about current data. When authoritative receipts contradict a premise and the proposed response explicitly reconciles the discrepancy while covering the evidenced current scope, do not demand nonexistent records; preserve exact bound sets and explicitly requested historical snapshots.",
   "Interpret ordinary delete, remove, and archive language through the owning resourceLifecycle supplied with callable tools. When that lifecycle declares delete as archival, disabling, cancellation, or another inactive retained state, a successful receipt proving that state satisfies an ordinary delete request. Require the response to state the literal retained-state effect; never claim permanent erasure. Demand physical erasure only when the user explicitly distinguishes it from the published lifecycle or that lifecycle itself declares permanent deletion.",
   "Apply the ordinary meaning of qualitative filters such as morning when every evidenced candidate is clearly inside or outside the term; do not invent a missing numeric boundary. If a genuinely borderline candidate would materially change the action, use needs_information for that user-controlled boundary, never repair_needed for another pass over the same evidence.",

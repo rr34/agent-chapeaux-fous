@@ -101,6 +101,8 @@ test("mutation evidence stays connected to outcome identities and exact final ca
   });
   assert.equal(findings.length, 1);
   assert.equal(findings[0].observed, 6);
+  assert.equal(findings[0].code, "INTENT_OUTCOME_EVIDENCE_EXCESS");
+  assert.equal(findings[0].auditOnly, true);
   assert.deepEqual(findings[0].outcomeRefs, ["create_watch_job.watch_job"]);
 });
 
@@ -159,4 +161,89 @@ test("multiple unbound outcomes of one type defer correspondence to semantic aud
   assert.equal(findings.length, 1);
   assert.equal(findings[0].auditOnly, true);
   assert.equal(findings[0].code, "INTENT_OUTCOME_EVIDENCE_AMBIGUOUS");
+});
+
+test("inferred same-type outcomes never compete with request-established receipt correlation", () => {
+  const outcomeRef = "tag_contacts.tagged_contacts";
+  const core = {
+    actions: [{
+      actionId: "tag_contacts",
+      outcomeObjects: [{
+        outcomeId: "predicted_tag",
+        description: "A predicted tag representation that is not a first-class object.",
+        objectType: "contacts.contact",
+        targetRefs: [],
+        cardinality: { minimum: 1, maximum: 1, basis: "inferred" },
+      }, {
+        outcomeId: "tagged_contacts",
+        description: "The fourteen contacts named by the supplied email addresses.",
+        objectType: "contacts.contact",
+        targetRefs: [],
+        cardinality: { minimum: 14, maximum: 14, basis: "request" },
+      }],
+    }],
+  };
+  const existing = [{
+    type: "contacts.contact", source: "native:contacts",
+    objects: [{ id: 399, ref: "agent-slayer://contacts/399", display: "Emily Wu" }],
+  }];
+  const imported = [{
+    type: "contacts.contact", source: "native:contacts",
+    objects: Array.from({ length: 13 }, (_, index) => ({
+      id: 1613 + index,
+      ref: `agent-slayer://contacts/${1613 + index}`,
+      display: `Service ${index + 1}`,
+    })),
+  }];
+  assert.deepEqual(matchingIntentOutcomeRefs(core, existing), [outcomeRef]);
+  assert.deepEqual(matchingIntentOutcomeRefs(core, imported), [outcomeRef]);
+  assert.deepEqual(intentOutcomeFindings({
+    core,
+    receipts: [{
+      ok: true, tool: "contact_tag_add_batch", objectReferences: existing,
+      intentOutcomeRefs: [outcomeRef],
+    }, {
+      ok: true, tool: "contact_import", objectReferences: imported,
+      intentOutcomeRefs: [outcomeRef],
+    }],
+    registry: { get: () => ({ annotations: { readOnlyHint: false } }) },
+  }), []);
+});
+
+test("missing mechanical outcome correlation is an audit question, not proof of failure", () => {
+  const core = {
+    actions: [{
+      actionId: "tag_contacts",
+      outcomeObjects: [{
+        outcomeId: "tagged_contacts",
+        description: "Fourteen tagged contacts.",
+        objectType: "contacts.contact",
+        targetRefs: [],
+        cardinality: { minimum: 14, maximum: 14, basis: "request" },
+      }],
+    }],
+  };
+  const imported = [{
+    type: "contacts.contact", source: "native:contacts",
+    objects: Array.from({ length: 13 }, (_, index) => ({
+      id: 1613 + index,
+      ref: `agent-slayer://contacts/${1613 + index}`,
+      display: `Service ${index + 1}`,
+    })),
+  }];
+  const findings = intentOutcomeFindings({
+    core,
+    receipts: [{
+      ok: true, tool: "contact_tag_add_batch", objectReferences: [],
+    }, {
+      ok: true, tool: "contact_import", objectReferences: imported,
+      intentOutcomeRefs: ["tag_contacts.tagged_contacts"],
+    }],
+    registry: { get: () => ({ annotations: { readOnlyHint: false } }) },
+  });
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].code, "INTENT_OUTCOME_EVIDENCE_INCOMPLETE");
+  assert.equal(findings[0].auditOnly, true);
+  assert.equal(findings[0].observed, 13);
+  assert.match(findings[0].message, /not proof that the requested work failed/i);
 });

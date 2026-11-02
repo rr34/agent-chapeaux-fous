@@ -686,6 +686,17 @@ test("batch contact lookup and tagging handle 1000 contacts in bounded tool call
     [tagged.selected_contact_count, tagged.tagged_contact_count, tagged.already_tagged_contact_count],
     [1000, 1000, 0],
   );
+  assert.equal(tagged.results.length, 1000);
+  assert.deepEqual(tagged.results[0], {
+    status: "tagged",
+    contact: {
+      contact_id: ids[0],
+      display_name: "Batch Person 1",
+      status: "active",
+      updated_at_utc: tagged.results[0].contact.updated_at_utc,
+      ref: `agent-slayer://contacts/${ids[0]}`,
+    },
+  });
   const replay = await registry.execute("contact_tag_add_batch", {
     tag: "Big Batch",
     contact_ids: ids,
@@ -694,6 +705,7 @@ test("batch contact lookup and tagging handle 1000 contacts in bounded tool call
     [replay.selected_contact_count, replay.tagged_contact_count, replay.already_tagged_contact_count],
     [1000, 0, 1000],
   );
+  assert.ok(replay.results.every(({ status }) => status === "already_tagged"));
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM contacts_tags_join").get().count, 1000);
   assert.equal(database.prepare(`
     SELECT COUNT(*) AS count FROM activity_events
@@ -709,6 +721,7 @@ test("batch contact lookup and tagging handle 1000 contacts in bounded tool call
     [unlinked.selected_contact_count, unlinked.unlinked_contact_count, unlinked.already_unlinked_contact_count],
     [2, 2, 0],
   );
+  assert.deepEqual(unlinked.results.map(({ status }) => status), ["unlinked", "unlinked"]);
   const unlinkReplay = await registry.execute("contact_tag_unlink_batch", {
     tag: "Big Batch",
     contact_ids: [ids[0], ids[999]],
@@ -716,6 +729,13 @@ test("batch contact lookup and tagging handle 1000 contacts in bounded tool call
   assert.deepEqual(
     [unlinkReplay.selected_contact_count, unlinkReplay.unlinked_contact_count, unlinkReplay.already_unlinked_contact_count],
     [2, 0, 2],
+  );
+  assert.deepEqual(
+    unlinkReplay.results.map(({ contact, status }) => [contact.ref, status]),
+    [
+      [`agent-slayer://contacts/${ids[0]}`, "already_unlinked"],
+      [`agent-slayer://contacts/${ids[999]}`, "already_unlinked"],
+    ],
   );
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM contacts_tags_join").get().count, 998);
   assert.equal(database.prepare(`

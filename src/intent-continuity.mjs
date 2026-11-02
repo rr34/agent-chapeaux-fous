@@ -26,7 +26,13 @@ function groupsByType(groups) {
 
 export function matchingIntentOutcomeRefs(core, objectReferenceGroups) {
   const observedByType = groupsByType(objectReferenceGroups);
-  const outcomes = intentOutcomes(core);
+  // Only request-established object roles participate in mechanical receipt
+  // correlation. Inferred roles are useful semantic context for execution and
+  // audit, but they are predictions made before the owning tools and their
+  // result shapes are known. Letting one inferred same-type role compete with
+  // an explicit role can make otherwise exact evidence unassignable.
+  const outcomes = intentOutcomes(core)
+    .filter(({ cardinality }) => cardinality?.basis === "request");
   const unboundCounts = new Map();
   for (const outcome of outcomes) {
     if (outcome.targetRefs.length === 0) {
@@ -166,15 +172,17 @@ export function intentOutcomeFindings({ core, receipts, registry }) {
     const expected = maximum === minimum
       ? String(minimum)
       : `${minimum}..${maximum ?? "many"}`;
+    const direction = below ? "fewer" : "more";
     findings.push({
-      code: "INTENT_OUTCOME_CARDINALITY_MISMATCH",
-      auditOnly: false,
+      code: below
+        ? "INTENT_OUTCOME_EVIDENCE_INCOMPLETE"
+        : "INTENT_OUTCOME_EVIDENCE_EXCESS",
+      auditOnly: true,
       objectType: outcome.objectType,
       outcomeRefs: [outcome.ref],
       expected,
       observed,
-      message: `The accepted final state expects ${expected} ${outcome.objectType} object${expected === "1" ? "" : "s"} for ${outcome.ref}, but connected successful mutation receipts identify ${observed}.`,
-      repairInstruction: "Satisfy the same accepted outcome identities without creating unrelated replacement objects or discarding requested composition.",
+      message: `The accepted final state names ${expected} ${outcome.objectType} object${expected === "1" ? "" : "s"} for ${outcome.ref}, while mechanically connected successful mutation results expose ${observed}. This is ${direction} correlated object evidence, not proof that the requested work failed; semantic audit must compare the exact bound calls, arguments, results, and owning contracts.`,
     });
   }
   return findings;
