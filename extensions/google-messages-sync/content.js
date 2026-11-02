@@ -501,6 +501,22 @@
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === "RESUME_SYNC") {
+      void (async () => {
+        try {
+          const { job, senderTabId } = await currentState();
+          if (job?.status !== "running" || job.tabId !== senderTabId) {
+            sendResponse({ ok: false, error: "There is no running synchronization for this tab." });
+            return;
+          }
+          sendResponse({ ok: true });
+          void runSync(job);
+        } catch (error) {
+          sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+        }
+      })();
+      return true;
+    }
     if (message?.type !== "START_SYNC") return false;
     void (async () => {
       try {

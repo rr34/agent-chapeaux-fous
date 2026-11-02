@@ -136,6 +136,26 @@ async function restorePreviousTab(job) {
   await chrome.tabs.update(tab.id, { active: true }).catch(() => {});
 }
 
+async function resumeRunningJob(tabId = null) {
+  const stored = await storageGet(JOB_KEY);
+  const job = stored[JOB_KEY] || null;
+  if (job?.status !== "running" || !job.tabId || (tabId != null && job.tabId !== tabId)) return false;
+  const tab = await chrome.tabs.get(job.tabId).catch(() => null);
+  if (!tab?.id || !tab.url?.startsWith("https://messages.google.com/web/")) return false;
+  const response = await chrome.tabs.sendMessage(tab.id, { type: "RESUME_SYNC" }).catch(() => null);
+  return response?.ok === true;
+}
+
+async function reloadRunningJobAfterExtensionUpdate() {
+  const stored = await storageGet(JOB_KEY);
+  const job = stored[JOB_KEY] || null;
+  if (job?.status !== "running" || !job.tabId) return;
+  const tab = await chrome.tabs.get(job.tabId).catch(() => null);
+  if (tab?.url?.startsWith("https://messages.google.com/web/")) {
+    await chrome.tabs.reload(tab.id).catch(() => {});
+  }
+}
+
 async function pollServerCommands({ surfaceErrors = false } = {}) {
   if (commandPollRunning) return (await storageGet(COMMAND_STATUS_KEY))[COMMAND_STATUS_KEY] || null;
   commandPollRunning = true;
@@ -318,8 +338,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 chrome.alarms.create(COMMAND_ALARM, { periodInMinutes: 0.5 });
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === COMMAND_ALARM) void pollServerCommands();
+  if (alarm.name === COMMAND_ALARM) {
+    void pollServerCommands();
+    void resumeRunningJob();
+  }
 });
-chrome.runtime.onStartup.addListener(() => void pollServerCommands());
-chrome.runtime.onInstalled.addListener(() => void pollServerCommands());
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === "complete") void resumeRunningJob(tabId);
+});
+chrome.runtime.onStartup.addListener(() => {
+  void pollServerCommands();
+  void resumeRunningJob();
+});
+chrome.runtime.onInstalled.addListener(() => {
+  void pollServerCommands();
+  void reloadRunningJobAfterExtensionUpdate();
+});
 void pollServerCommands();
+void resumeRunningJob();

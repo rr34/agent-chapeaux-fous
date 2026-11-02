@@ -222,8 +222,11 @@ server request, displays the extension's multiline progress, and refreshes the
 correspondence list after completion. The extension checks for a pending request
 at least every 30 seconds. If Brave, the extension, or the paired Messages tab
 is unavailable, the progress text identifies exactly what must be opened or
-reloaded. The popup remains available for an explicit complete-history rescan
-or cancellation.
+reloaded. Active runs retain their checkpoint across Google Messages page
+navigation and explicitly resume when the new page finishes loading. Updating
+the extension during a run reloads the paired tab once and resumes that same
+checkpoint. The popup remains available for an explicit complete-history
+rescan or cancellation.
 
 ### Android native-shell and wireless installation contract
 
