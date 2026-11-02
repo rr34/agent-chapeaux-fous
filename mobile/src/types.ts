@@ -43,6 +43,30 @@ export type Health = {
   };
 };
 
+export type AgentContactMethod = {
+  id: number;
+  kind: 'email' | 'phone' | 'postal_address' | 'handle' | 'url' | 'other' | string;
+  label: string | null;
+  value: string;
+  isPrimary: boolean;
+  canReceive: boolean;
+};
+
+export type AgentContact = {
+  id: number;
+  kind: 'person' | 'organization' | 'service' | string;
+  displayName: string;
+  givenName: string | null;
+  familyName: string | null;
+  organizationName: string | null;
+  status: string;
+  birthDate: string | null;
+  notes: string | null;
+  methods: AgentContactMethod[];
+  tags: string[];
+  androidContactExternalId?: string | null;
+};
+
 export type MusicSequence = {
   type: 'movement' | 'act' | 'part' | 'section' | 'item' | 'scene' | 'number' | 'segment' | 'sequence';
   number: number | string | null;

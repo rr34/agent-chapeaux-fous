@@ -39,6 +39,21 @@ export type AndroidContact = {
   }>;
 };
 
+export type PhoneContactInput = {
+  displayName: string;
+  givenName: string | null;
+  familyName: string | null;
+  organizationName: string | null;
+  birthDate: string | null;
+  notes: string | null;
+  methods: Array<{
+    kind: string;
+    label: string | null;
+    value: string;
+    isPrimary: boolean;
+  }>;
+};
+
 export type AndroidCorrespondence = {
   medium: 'sms' | 'mms' | 'call';
   direction: 'inbound' | 'outbound';
@@ -79,6 +94,10 @@ declare class TimeV3NativeModule extends NativeModule {
   readonly nativeShellVersion: number;
   readonly nativeCapabilities: string[];
   composeText(recipient: string, body: string): Promise<void>;
+  getContactDeviceId(): Promise<string>;
+  savePhoneContact(contact: PhoneContactInput): Promise<void>;
+  openPhoneContact(externalIdHash: string): Promise<void>;
+  requestContactPermission(): Promise<unknown>;
   getCorrespondencePermissions(): Promise<CorrespondencePermissions>;
   requestCorrespondencePermissions(): Promise<unknown>;
   countCorrespondenceRemaining(cursor: CorrespondenceCursor): Promise<CorrespondenceProgressCounts>;

@@ -1020,6 +1020,16 @@ const server = http.createServer(async (request, response) => {
       });
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/mobile/contacts") {
+      sendJson(response, 200, {
+        contacts: organizer.listMobileContacts({
+          deviceId: url.searchParams.get("deviceId"),
+          limit: url.searchParams.get("limit") || 500,
+          query: url.searchParams.get("q"),
+        }),
+      });
+      return;
+    }
     if (request.method === "POST" && url.pathname === "/api/contacts") {
       sendJson(response, 201, { contact: organizer.createContact(await readJson(request)) });
       return;

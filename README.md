@@ -36,6 +36,87 @@ the common-sense core and checked with deterministic Gregorian calendar code bef
 execution. Native to-do and calendar scheduling also validate proposed UTC timestamps
 against those accepted local-date targets before beginning their transactions.
 
+## Android phone commands
+
+These are the ordinary commands for building and running the app on a physical
+Pixel over Wi-Fi. They use the native Linux Android SDK and do not require USB,
+manual APK transfer, an Expo tunnel, or a QR code.
+
+### Connect over Wi-Fi
+
+Put the phone and workstation on the same Wi-Fi network, then open **Settings →
+System → Developer options → Wireless debugging**.
+
+Pair once, using **Pair device with pairing code** and the address shown in that
+dialog:
+
+```bash
+/home/nate/Android/Sdk/platform-tools/adb pair PHONE_IP:PAIRING_PORT
+```
+
+For each debugging session, return to the main **Wireless debugging** screen and
+use its current **IP address & port**. The debugging port is not the pairing
+port.
+
+```bash
+/home/nate/Android/Sdk/platform-tools/adb connect PHONE_IP:DEBUG_PORT
+/home/nate/Android/Sdk/platform-tools/adb devices -l
+```
+
+### Build and run the debug app
+
+Regenerate the Android project after changing native code, native dependencies,
+or `app.json`:
+
+```bash
+cd /home/nate/code/agent-chapeaux-fous/mobile
+npm install
+npx expo prebuild --clean --platform android
+```
+
+Build and install the debug APK:
+
+```bash
+cd /home/nate/code/agent-chapeaux-fous/mobile
+npm run android:build:debug
+/home/nate/Android/Sdk/platform-tools/adb install -r -g android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Start Metro and keep this terminal open:
+
+```bash
+cd /home/nate/code/agent-chapeaux-fous/mobile
+/home/nate/Android/Sdk/platform-tools/adb reverse tcp:8081 tcp:8081
+npm start -- --localhost --clear
+```
+
+Launch the development client from a second terminal:
+
+```bash
+/home/nate/Android/Sdk/platform-tools/adb shell am start -a android.intent.action.VIEW -d 'exp+time-v3-technology-agent://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081' com.timev3.technologyagent
+```
+
+Fast Refresh handles TypeScript and other bundled-code changes. Rebuild and
+reinstall only after a native or `app.json` change. If the phone's debugging
+port changes, reconnect with the commands above.
+
+### Build and install the release app
+
+The release APK embeds the JavaScript bundle, so it runs without Metro:
+
+```bash
+cd /home/nate/code/agent-chapeaux-fous/mobile
+npm install
+npx expo prebuild --clean --platform android
+npm run android:build:release
+/home/nate/Android/Sdk/platform-tools/adb install -r -g android/app/build/outputs/apk/release/app-release.apk
+/home/nate/Android/Sdk/platform-tools/adb shell am start -n com.timev3.technologyagent/.MainActivity
+```
+
+This local release currently uses the repository's generated debug signing
+configuration, so it is suitable for direct installation on the phone but is
+not a store-ready signed artifact.
+
 ## Repository development contracts
 
 This README is the canonical home for product-specific architecture and
@@ -160,6 +241,18 @@ those require separate source integrations. The initial MMS path preserves
 text and participants but does not upload binary attachments. Provider
 deletions are not inferred from absence in an incremental batch.
 
+The mobile Agent address book reads active canonical contacts from the server
+and marks only aliases belonging to the current Android device as linked.
+Publishing an Agent contact to Android is always user-confirmed: **Save to
+phone** opens the operating system's contact-creation screen with the Agent's
+name, organization, birthday, notes, phone numbers, email addresses, postal
+addresses, and URLs prefilled. It does not request broad contact-write
+permission or silently choose an Android account. After the user saves and runs
+foreground phone sync, the resulting Android provider identity is attached to
+the canonical Agent contact. Linked contacts offer **Open in Contacts** instead
+of another insertion. Agent-only contacts are never bulk-published implicitly,
+and the existing phone-to-Agent sync remains the only automatic data flow.
+
 ### Google Messages for Web synchronization contract
 
 The unpacked Brave extension under `extensions/google-messages-sync` performs
@@ -233,7 +326,7 @@ An active run may not wait indefinitely on a frozen Google Messages page. At
 retries the same conversation once. If that checkpoint stalls again, the run
 fails visibly without skipping the conversation or claiming a complete import.
 
-### Android native-shell and wireless installation contract
+### Android native-shell compatibility contract
 
 Expo/Metro updates TypeScript and other bundled application code without
 replacing the installed Android package. Changes to an Android manifest,
@@ -243,50 +336,9 @@ increasing `nativeShellVersion` and explicit capability names; JavaScript that
 requires a newer shell must report that mismatch literally and must not present
 missing native access as an ordinary permission denial.
 
-Use this one physical-phone development path. It uses the native Linux Android
-SDK `adb`, installs the debug APK through Wireless Debugging, and does not use
-USB, manual file transfer, Expo tunnels, or QR codes.
-
-1. Put the Pixel and workstation on the same Wi-Fi network. On the phone, open
-   **Settings → System → Developer options → Wireless debugging**.
-2. The first time only, select **Pair device with pairing code** and run the
-   following command with the pairing address shown in that dialog:
-
-   ```bash
-   /home/nate/Android/Sdk/platform-tools/adb pair PHONE_IP:PAIRING_PORT
-   ```
-
-3. Return to the main **Wireless debugging** screen. Use its current **IP
-   address & port** to connect; this is not the pairing port:
-
-   ```bash
-   /home/nate/Android/Sdk/platform-tools/adb connect PHONE_IP:DEBUG_PORT
-   /home/nate/Android/Sdk/platform-tools/adb devices -l
-   ```
-
-4. Build and install the debug APK, then connect the phone to Metro:
-
-   ```bash
-   cd /home/nate/code/agent-chapeaux-fous/mobile
-   npm install
-   npx expo prebuild --clean --platform android
-   npm run android:build:debug
-   /home/nate/Android/Sdk/platform-tools/adb install -r -g /home/nate/code/agent-chapeaux-fous/mobile/android/app/build/outputs/apk/debug/app-debug.apk
-   /home/nate/Android/Sdk/platform-tools/adb reverse tcp:8081 tcp:8081
-   npm start -- --localhost --clear
-   ```
-
-5. Leave Metro running. In a second terminal, launch the installed development
-   client:
-
-   ```bash
-   /home/nate/Android/Sdk/platform-tools/adb shell am start -a android.intent.action.VIEW -d 'exp+time-v3-technology-agent://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081' com.timev3.technologyagent
-   ```
-
-The `adb install -r -g` step replaces the native shell, retains app data, and
-allows the declared phone permissions needed for synchronization. Fast Refresh
-handles bundled-code changes; repeat this complete list after native or
-`app.json` changes. If the debugging port changes, repeat from step 3.
+The corresponding Wi-Fi, debug, and release command lists are kept in
+**Android phone commands** near the top of this README; they are an operator
+runbook, not part of this implementation contract.
 
 ### Music upload and playback contract
 

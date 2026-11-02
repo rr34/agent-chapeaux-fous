@@ -1,5 +1,5 @@
 import type { CorrespondenceBatch } from '../modules/time-v3-native/src/TimeV3NativeModule';
-import type { AgentRequest, ConnectionSettings, Health, MusicFile, MusicNarration, PreparedConcert } from './types';
+import type { AgentContact, AgentRequest, ConnectionSettings, Health, MusicFile, MusicNarration, PreparedConcert } from './types';
 
 export type CorrespondenceSyncResult = {
   protocol: 'timev3.android-correspondence-sync';
@@ -106,6 +106,17 @@ export async function fetchRequests(settings: ConnectionSettings, limit = 40): P
     `/api/requests?limit=${Math.min(100, Math.max(1, limit))}`,
   );
   return result.requests;
+}
+
+export async function fetchContacts(
+  settings: ConnectionSettings,
+  deviceId: string | null,
+): Promise<AgentContact[]> {
+  const path = deviceId
+    ? `/api/mobile/contacts?deviceId=${encodeURIComponent(deviceId)}&limit=10000`
+    : '/api/contacts?scope=active&limit=10000';
+  const result = await requestJson<{ contacts: AgentContact[] }>(settings, path);
+  return result.contacts;
 }
 
 export async function fetchMusic(settings: ConnectionSettings): Promise<MusicFile[]> {

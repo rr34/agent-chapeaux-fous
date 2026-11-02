@@ -51,6 +51,7 @@ import {
 } from './src/storage';
 import { colors } from './src/theme';
 import type { AgentRequest, ConnectionSettings, Health } from './src/types';
+import { ContactsModal } from './src/ContactsModal';
 import { MusicPlayerModal } from './src/MusicPlayerModal';
 
 const voiceRecordingOptions = {
@@ -745,6 +746,7 @@ function AgentScreen() {
   const [draftRecipient, setDraftRecipient] = useState('');
   const [showDraft, setShowDraft] = useState(false);
   const [showCorrespondenceSync, setShowCorrespondenceSync] = useState(false);
+  const [showContacts, setShowContacts] = useState(false);
   const [showMusic, setShowMusic] = useState(false);
   const list = useRef<FlatList<AgentRequest>>(null);
   const listPositioned = useRef(false);
@@ -924,6 +926,15 @@ function AgentScreen() {
         }}
       />
       <MessageDraftModal visible={showDraft} initialRecipient={draftRecipient} initialBody={draftBody} onClose={() => setShowDraft(false)} />
+      {settings && <ContactsModal
+        visible={showContacts}
+        settings={settings}
+        onClose={() => setShowContacts(false)}
+        onSync={() => {
+          setShowContacts(false);
+          setShowCorrespondenceSync(true);
+        }}
+      />}
       {settings && (
         <CorrespondenceSyncModal
           visible={showCorrespondenceSync}
@@ -948,6 +959,14 @@ function AgentScreen() {
           </View>
         </View>
         <View style={styles.headerActions}>
+          <Pressable
+            accessibilityLabel="Open Agent contacts"
+            disabled={!settings}
+            onPress={() => setShowContacts(true)}
+            style={[styles.headerButton, !settings && styles.disabled]}
+          >
+            <Text style={styles.headerButtonText}>CONTACTS</Text>
+          </Pressable>
           <Pressable
             accessibilityLabel="Open music player"
             disabled={!settings}
@@ -1121,7 +1140,7 @@ const styles = StyleSheet.create({
   connectionDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.dim },
   connectionDotOn: { backgroundColor: colors.success },
   connectionText: { color: colors.muted, fontSize: 9, fontWeight: '700', letterSpacing: 1.2 },
-  headerActions: { flexDirection: 'row', gap: 8 },
+  headerActions: { maxWidth: 250, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6 },
   headerButton: { minWidth: 42, height: 36, paddingHorizontal: 8, borderWidth: 1, borderColor: colors.border, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
   headerButtonText: { color: colors.muted, fontSize: 10, fontWeight: '800', letterSpacing: 1 },
   list: { padding: 16, paddingBottom: 24 },

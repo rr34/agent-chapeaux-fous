@@ -1,6 +1,7 @@
 package expo.modules.timev3native
 
 import android.Manifest
+import android.content.ContentValues
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
@@ -34,6 +35,23 @@ class CorrespondenceCursor : Record {
   @Field var mmsId: Double = 0.0
 }
 
+class PhoneContactMethodInput : Record {
+  @Field var kind: String = "other"
+  @Field var label: String? = null
+  @Field var value: String = ""
+  @Field var isPrimary: Boolean = false
+}
+
+class PhoneContactInput : Record {
+  @Field var displayName: String = ""
+  @Field var givenName: String? = null
+  @Field var familyName: String? = null
+  @Field var organizationName: String? = null
+  @Field var birthDate: String? = null
+  @Field var notes: String? = null
+  @Field var methods: List<PhoneContactMethodInput> = emptyList()
+}
+
 private data class CursorPoint(var timestamp: Long, var id: Long)
 
 private data class ReadResult(
@@ -52,12 +70,16 @@ class TimeV3NativeModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("TimeV3Native")
 
-    Constant("nativeShellVersion") { 4 }
+    Constant("nativeShellVersion") { 5 }
     Constant("nativeCapabilities") {
       listOf(
         "compose_text_v1",
         "contacts_read_v1",
         "contact_change_time_v1",
+        "contact_insert_intent_v1",
+        "contact_open_v1",
+        "contact_permission_v1",
+        "contact_source_identity_v1",
         "call_log_read_v1",
         "sms_mms_read_v1",
         "correspondence_remaining_count_v1",
@@ -75,6 +97,51 @@ class TimeV3NativeModule : Module() {
         throw IllegalStateException("No messaging app can handle this draft")
       }
       context.startActivity(intent)
+    }
+
+    AsyncFunction("getContactDeviceId") {
+      deviceId(requireContext())
+    }
+
+    AsyncFunction("savePhoneContact") { contact: PhoneContactInput ->
+      val context = requireContext()
+      val data = phoneContactData(contact)
+      val intent = Intent(Intent.ACTION_INSERT).apply {
+        type = ContactsContract.Contacts.CONTENT_TYPE
+        putParcelableArrayListExtra(ContactsContract.Intents.Insert.DATA, data)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+      if (intent.resolveActivity(context.packageManager) == null) {
+        throw IllegalStateException("No contacts app can create this contact")
+      }
+      context.startActivity(intent)
+    }
+
+    AsyncFunction("openPhoneContact") { externalIdHash: String ->
+      val context = requireContext()
+      if (!granted(context, Manifest.permission.READ_CONTACTS)) {
+        throw IllegalStateException("Contacts permission is required to open this phone contact")
+      }
+      if (!externalIdHash.matches(Regex("^[0-9a-f]{64}$"))) {
+        throw IllegalArgumentException("The phone contact identity is invalid")
+      }
+      val contactUri = phoneContactUri(context, externalIdHash)
+        ?: throw IllegalStateException("This linked contact is no longer present on the phone")
+      val intent = Intent(Intent.ACTION_VIEW, contactUri).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+      if (intent.resolveActivity(context.packageManager) == null) {
+        throw IllegalStateException("No contacts app can open this contact")
+      }
+      context.startActivity(intent)
+    }
+
+    AsyncFunction("requestContactPermission") { promise: Promise ->
+      Permissions.askForPermissionsWithPermissionsManager(
+        appContext.permissions,
+        promise,
+        Manifest.permission.READ_CONTACTS,
+      )
     }
 
     AsyncFunction("getCorrespondencePermissions") {
@@ -114,11 +181,105 @@ class TimeV3NativeModule : Module() {
     "messages" to granted(context, Manifest.permission.READ_SMS),
   )
 
+  private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
+    .digest(value.toByteArray(Charsets.UTF_8))
+    .joinToString("") { "%02x".format(it) }
+
   private fun deviceId(context: Context): String {
     val source = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
       ?: "unknown-android-device"
-    return MessageDigest.getInstance("SHA-256").digest(source.toByteArray())
-      .take(16).joinToString("") { "%02x".format(it) }
+    return sha256(source).take(32)
+  }
+
+  private fun phoneContactData(contact: PhoneContactInput): ArrayList<ContentValues> {
+    if (contact.displayName.isBlank()) throw IllegalArgumentException("Contact name is required")
+    val data = arrayListOf<ContentValues>()
+    data += ContentValues().apply {
+      put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE)
+      put(ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME, contact.displayName.trim())
+      contact.givenName?.trim()?.takeIf { it.isNotEmpty() }?.let {
+        put(ContactsContract.CommonDataKinds.StructuredName.GIVEN_NAME, it)
+      }
+      contact.familyName?.trim()?.takeIf { it.isNotEmpty() }?.let {
+        put(ContactsContract.CommonDataKinds.StructuredName.FAMILY_NAME, it)
+      }
+    }
+    contact.organizationName?.trim()?.takeIf { it.isNotEmpty() }?.let { organization ->
+      data += ContentValues().apply {
+        put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Organization.CONTENT_ITEM_TYPE)
+        put(ContactsContract.CommonDataKinds.Organization.COMPANY, organization)
+      }
+    }
+    val noteLines = mutableListOf<String>()
+    contact.notes?.trim()?.takeIf { it.isNotEmpty() }?.let(noteLines::add)
+    for (method in contact.methods.filter { it.value.isNotBlank() }) {
+      val label = method.label?.trim()?.takeIf { it.isNotEmpty() }
+      val value = method.value.trim()
+      when (method.kind) {
+        "phone" -> data += ContentValues().apply {
+          put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE)
+          put(ContactsContract.CommonDataKinds.Phone.NUMBER, value)
+          put(ContactsContract.CommonDataKinds.Phone.TYPE, ContactsContract.CommonDataKinds.Phone.TYPE_CUSTOM)
+          put(ContactsContract.CommonDataKinds.Phone.LABEL, label ?: "Phone")
+          put(ContactsContract.CommonDataKinds.Phone.IS_PRIMARY, if (method.isPrimary) 1 else 0)
+        }
+        "email" -> data += ContentValues().apply {
+          put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE)
+          put(ContactsContract.CommonDataKinds.Email.ADDRESS, value)
+          put(ContactsContract.CommonDataKinds.Email.TYPE, ContactsContract.CommonDataKinds.Email.TYPE_CUSTOM)
+          put(ContactsContract.CommonDataKinds.Email.LABEL, label ?: "Email")
+          put(ContactsContract.CommonDataKinds.Email.IS_PRIMARY, if (method.isPrimary) 1 else 0)
+        }
+        "postal_address" -> data += ContentValues().apply {
+          put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.StructuredPostal.CONTENT_ITEM_TYPE)
+          put(ContactsContract.CommonDataKinds.StructuredPostal.FORMATTED_ADDRESS, value)
+          put(ContactsContract.CommonDataKinds.StructuredPostal.TYPE, ContactsContract.CommonDataKinds.StructuredPostal.TYPE_CUSTOM)
+          put(ContactsContract.CommonDataKinds.StructuredPostal.LABEL, label ?: "Address")
+        }
+        "url" -> data += ContentValues().apply {
+          put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Website.CONTENT_ITEM_TYPE)
+          put(ContactsContract.CommonDataKinds.Website.URL, value)
+          put(ContactsContract.CommonDataKinds.Website.TYPE, ContactsContract.CommonDataKinds.Website.TYPE_CUSTOM)
+          put(ContactsContract.CommonDataKinds.Website.LABEL, label ?: "Website")
+        }
+        else -> noteLines += "${label ?: method.kind}: $value"
+      }
+    }
+    contact.birthDate?.trim()?.takeIf { it.isNotEmpty() }?.let { birthDate ->
+      data += ContentValues().apply {
+        put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Event.CONTENT_ITEM_TYPE)
+        put(ContactsContract.CommonDataKinds.Event.START_DATE, birthDate)
+        put(ContactsContract.CommonDataKinds.Event.TYPE, ContactsContract.CommonDataKinds.Event.TYPE_BIRTHDAY)
+      }
+    }
+    if (noteLines.isNotEmpty()) {
+      data += ContentValues().apply {
+        put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Note.CONTENT_ITEM_TYPE)
+        put(ContactsContract.CommonDataKinds.Note.NOTE, noteLines.joinToString("\n"))
+      }
+    }
+    return data
+  }
+
+  private fun phoneContactUri(context: Context, externalIdHash: String): Uri? {
+    val projection = arrayOf(ContactsContract.Contacts._ID, ContactsContract.Contacts.LOOKUP_KEY)
+    context.contentResolver.query(
+      ContactsContract.Contacts.CONTENT_URI,
+      projection,
+      null,
+      null,
+      null,
+    )?.use { result ->
+      while (result.moveToNext()) {
+        val lookupKey = result.string(ContactsContract.Contacts.LOOKUP_KEY) ?: continue
+        if (sha256(lookupKey) != externalIdHash) continue
+        return ContactsContract.Contacts.getLookupUri(
+          result.long(ContactsContract.Contacts._ID),
+          lookupKey,
+        )
+      }
+    }
+    return null
   }
 
   private fun countRows(

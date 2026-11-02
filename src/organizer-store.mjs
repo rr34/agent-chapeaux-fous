@@ -219,6 +219,14 @@ function identifier(value, label) {
   return result;
 }
 
+function androidDeviceId(value) {
+  const result = requiredText(value, "deviceId", 32).toLowerCase();
+  if (!/^[0-9a-f]{32}$/.test(result)) {
+    throw new OrganizerInputError("deviceId must be the Android device identifier.");
+  }
+  return result;
+}
+
 function reviewedContactSelections(value) {
   if (!Array.isArray(value) || value.length < 1 || value.length > 10_000) {
     throw new OrganizerInputError("contacts must contain 1 through 10000 reviewed contacts.");
@@ -1289,6 +1297,29 @@ export class OrganizerStore {
       methodsByContact.get(row.contact_id) ?? [],
       tagsByContact.get(String(row.contact_id)) ?? [],
     ));
+  }
+
+  listMobileContacts({ deviceId, limit = 500, query = null } = {}) {
+    const source = `android:${androidDeviceId(deviceId)}`;
+    const contacts = this.listContacts({ scope: "active", limit, query });
+    if (contacts.length === 0) return [];
+    const placeholders = contacts.map(() => "?").join(", ");
+    const aliases = this.database.prepare(`
+      SELECT contact_id, external_id
+      FROM contact_source_aliases
+      WHERE source = ? AND contact_id IN (${placeholders})
+      ORDER BY provider_updated_at_utc DESC, contact_source_alias_id DESC
+    `).all(source, ...contacts.map(({ id }) => id));
+    const externalIdByContact = new Map();
+    for (const alias of aliases) {
+      if (!externalIdByContact.has(alias.contact_id)) {
+        externalIdByContact.set(alias.contact_id, alias.external_id);
+      }
+    }
+    return contacts.map((contact) => ({
+      ...contact,
+      androidContactExternalId: externalIdByContact.get(contact.id) ?? null,
+    }));
   }
 
   searchContacts({ queries, includeInactive = false, limit = 50 } = {}) {

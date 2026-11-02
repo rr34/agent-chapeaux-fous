@@ -222,6 +222,45 @@ test("contacts support searchable-page data, multiple methods, and safe edits", 
   }
 });
 
+test("mobile contacts identify the canonical contacts linked to one Android device", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.target);
+  try {
+    const linked = organizer.createContact({
+      displayName: "Phone Person",
+      methods: [{ kind: "phone", value: "+1 555 010 0200" }],
+    });
+    const agentOnly = organizer.createContact({ displayName: "Agent Only" });
+    organizer.database.prepare(`
+      INSERT INTO contact_source_aliases (
+        contact_id, source, external_id, observed_display_name,
+        first_observed_at_utc, last_observed_at_utc
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      linked.id,
+      "android:0123456789abcdef0123456789abcdef",
+      "a".repeat(64),
+      linked.displayName,
+      "2026-11-02T12:00:00.000Z",
+      "2026-11-02T12:00:00.000Z",
+    );
+
+    const contacts = organizer.listMobileContacts({
+      deviceId: "0123456789ABCDEF0123456789ABCDEF",
+      limit: 100,
+    });
+    assert.equal(contacts.find(({ id }) => id === linked.id).androidContactExternalId, "a".repeat(64));
+    assert.equal(contacts.find(({ id }) => id === agentOnly.id).androidContactExternalId, null);
+    assert.throws(
+      () => organizer.listMobileContacts({ deviceId: "not-a-device" }),
+      /deviceId must be the Android device identifier/u,
+    );
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("bulk contact tagging and deletion are version-checked and atomic", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.target);
