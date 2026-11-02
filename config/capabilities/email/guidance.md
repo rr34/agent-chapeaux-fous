@@ -7,8 +7,13 @@ actions. When the user identifies a
 recipient by contact name rather than an address, resolve that name with
 `contact_lookup_batch` before creating the draft. Preserve and use JMAP
 state tokens for follow-up change reads and optimistic writes. For Inbox triage,
-prefer one compact `email_search` over full metadata and never repeat an
-identical search merely to reconfirm its IDs. Parse copied visible email headers
+prefer one `email_search` over full metadata and never repeat an identical
+search merely to reconfirm its IDs. Use one `query_filter` with multi-value
+predicates when several senders, recipients, phrases, or keywords are alternatives;
+do not issue one search per value. Prefer the lean `list` result format for message
+lists, and request `compact` only when previews are useful. Follow the returned
+continuation until `page.complete` is true when the user requests every match.
+Parse copied visible email headers
 into the structured sender, recipient, subject, date, and mailbox filters rather
 than submitting the entire header block as provider text. Use `message_id` when
 a copied raw header supplies Message-ID; its resolution status reports whether

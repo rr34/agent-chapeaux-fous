@@ -978,6 +978,12 @@ controls which exact tool schemas are callable.
   `email_submission_get`, and `email_attachment_get` provide a native JMAP mail
   path. Compact searches keep Inbox triage bounded. Structured searches can
   resolve unique mailbox names and query Message-ID or other bounded headers;
+  one bounded AND/OR/NOT filter group accepts multi-value predicates so address,
+  phrase, and keyword alternatives remain one user-level read instead of one
+  model tool call per value. Searches internally page up to 500 results, expose
+  literal completion and continuation state, and offer a lean list projection
+  when previews and mailbox metadata are unnecessary. Continuations can pin the
+  prior JMAP query state and fail visibly if the live result set changed.
   Message-ID candidates are verified against the exact parsed header and report
   ambiguity instead of silently selecting one message. Cleanup previews retain an
   exact candidate set for 30 minutes; applying one uses its Email state token to

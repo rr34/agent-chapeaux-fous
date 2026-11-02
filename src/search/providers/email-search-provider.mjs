@@ -32,6 +32,8 @@ export class EmailSearchProvider {
       has_attachment: null,
       has_keyword: null,
       not_keyword: null,
+      query_filter: null,
+      expected_query_state: null,
       collapse_threads: false,
       sort_property: "receivedAt",
       sort_ascending: false,

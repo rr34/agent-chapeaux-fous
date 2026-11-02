@@ -89,6 +89,8 @@ test("email_search sends RFC 8621 filter names and returns both query and Email 
     has_attachment: false,
     has_keyword: "$seen",
     not_keyword: "$draft",
+    query_filter: null,
+    expected_query_state: null,
     collapse_threads: true,
     sort_property: "receivedAt",
     sort_ascending: false,
@@ -116,6 +118,205 @@ test("email_search sends RFC 8621 filter names and returns both query and Email 
   }, { id: "email1", ref: "agent-slayer://emails/email1", display: "Reality" });
 });
 
+test("email_search compiles multi-value boolean predicates into one JMAP query", async () => {
+  const { client, registry } = harness();
+  const addresses = ["first@example.test", "second@example.test"];
+  const result = await registry.execute("email_search", {
+    account_id: null,
+    in_mailbox: "inbox1",
+    in_mailbox_role: null,
+    in_mailbox_name: null,
+    message_id: null,
+    header_filters: [],
+    text: null,
+    from: null,
+    to: null,
+    cc: null,
+    bcc: null,
+    subject: null,
+    body: null,
+    after_utc: null,
+    before_utc: null,
+    has_attachment: null,
+    has_keyword: null,
+    not_keyword: null,
+    query_filter: {
+      operator: "OR",
+      conditions: [
+        { field: "from", values: addresses },
+        { field: "to", values: addresses },
+      ],
+    },
+    expected_query_state: null,
+    collapse_threads: false,
+    sort_property: "receivedAt",
+    sort_ascending: false,
+    position: 0,
+    limit: 100,
+    result_format: "list",
+  });
+  const query = client.calls.find(({ method }) => method === "Email/query");
+  assert.deepEqual(query.argumentsObject.filter, {
+    operator: "AND",
+    conditions: [
+      { inMailbox: "inbox1" },
+      {
+        operator: "OR",
+        conditions: [
+          { operator: "OR", conditions: addresses.map((from) => ({ from })) },
+          { operator: "OR", conditions: addresses.map((to) => ({ to })) },
+        ],
+      },
+    ],
+  });
+  const get = client.calls.find(({ method }) => method === "Email/get");
+  assert.equal(get.argumentsObject.properties.includes("to"), true);
+  assert.equal(get.argumentsObject.properties.includes("preview"), false);
+  assert.deepEqual(result.page, {
+    position: 0,
+    requestedLimit: 100,
+    returnedCount: 1,
+    total: 1,
+    complete: true,
+    hasMore: false,
+    nextPosition: null,
+    queryState: "query-1",
+  });
+  assert.equal(result.continuation, null);
+});
+
+test("email_search pages internally and returns a state-pinned continuation", async () => {
+  class PagingClient extends FakeJmapClient {
+    publicSession() {
+      return {
+        selectedAccountId: "account1",
+        accounts: { account1: { name: "Personal" } },
+        capabilities: { "urn:ietf:params:jmap:core": { maxObjectsInGet: 100 } },
+      };
+    }
+    async call(method, argumentsObject, options = {}) {
+      this.calls.push({ method, argumentsObject, options });
+      if (method === "Email/query") {
+        const total = 230;
+        const count = Math.min(argumentsObject.limit, Math.max(0, total - argumentsObject.position));
+        return {
+          accountId: "account1",
+          queryState: "query-stable",
+          canCalculateChanges: true,
+          position: argumentsObject.position,
+          ids: Array.from({ length: count }, (_, index) => `email-${argumentsObject.position + index}`),
+          total,
+        };
+      }
+      if (method === "Email/get") {
+        return {
+          accountId: "account1", state: "email-stable", notFound: [],
+          list: argumentsObject.ids.map((id) => ({ id, subject: id })),
+        };
+      }
+      throw new Error(`Unexpected method ${method}`);
+    }
+  }
+  const client = new PagingClient();
+  const registry = new ToolRegistry();
+  registerJmapEmailTools(registry, client);
+  const input = {
+    account_id: null,
+    in_mailbox: null,
+    in_mailbox_role: null,
+    in_mailbox_name: null,
+    message_id: null,
+    header_filters: [],
+    text: "school",
+    from: null,
+    to: null,
+    cc: null,
+    bcc: null,
+    subject: null,
+    body: null,
+    after_utc: null,
+    before_utc: null,
+    has_attachment: null,
+    has_keyword: null,
+    not_keyword: null,
+    query_filter: null,
+    expected_query_state: null,
+    collapse_threads: false,
+    sort_property: "receivedAt",
+    sort_ascending: false,
+    position: 0,
+    limit: 220,
+    result_format: "list",
+  };
+  const result = await registry.execute("email_search", input);
+  assert.equal(client.calls.filter(({ method }) => method === "Email/query").length, 3);
+  assert.equal(client.calls.filter(({ method }) => method === "Email/get").length, 3);
+  assert.equal(result.messages.length, 220);
+  assert.equal(result.page.complete, false);
+  assert.deepEqual(result.continuation, {
+    position: 220,
+    expected_query_state: "query-stable",
+  });
+
+  client.calls.length = 0;
+  const finalPage = await registry.execute("email_search", {
+    ...input,
+    position: result.continuation.position,
+    expected_query_state: result.continuation.expected_query_state,
+    limit: 500,
+  });
+  assert.equal(finalPage.messages.length, 10);
+  assert.equal(finalPage.page.complete, true);
+  assert.equal(finalPage.continuation, null);
+});
+
+test("email_search rejects invalid predicate values and stale continuations", async () => {
+  const { registry } = harness();
+  const base = {
+    account_id: null,
+    in_mailbox: null,
+    in_mailbox_role: null,
+    in_mailbox_name: null,
+    message_id: null,
+    header_filters: [],
+    text: null,
+    from: null,
+    to: null,
+    cc: null,
+    bcc: null,
+    subject: null,
+    body: null,
+    after_utc: null,
+    before_utc: null,
+    has_attachment: null,
+    has_keyword: null,
+    not_keyword: null,
+    query_filter: {
+      operator: "OR",
+      conditions: [{ field: "from", values: [true] }],
+    },
+    expected_query_state: null,
+    collapse_threads: false,
+    sort_property: "receivedAt",
+    sort_ascending: false,
+    position: 0,
+    limit: 25,
+    result_format: "list",
+  };
+  await assert.rejects(
+    registry.execute("email_search", base),
+    /must contain strings for from/u,
+  );
+  await assert.rejects(
+    registry.execute("email_search", {
+      ...base,
+      query_filter: null,
+      expected_query_state: "query-old",
+    }),
+    /changed since the requested query state/u,
+  );
+});
+
 test("email_search enforces its visible result limit before calling JMAP", async () => {
   const { client, registry } = harness();
   await assert.rejects(
@@ -138,14 +339,16 @@ test("email_search enforces its visible result limit before calling JMAP", async
       has_attachment: null,
       has_keyword: null,
       not_keyword: null,
+      query_filter: null,
+      expected_query_state: null,
       collapse_threads: false,
       sort_property: "receivedAt",
       sort_ascending: false,
       position: 0,
-      limit: 160,
+      limit: 501,
       result_format: "compact",
     }),
-    /limit must be at most 100/,
+    /limit must be at most 500/,
   );
   assert.equal(client.calls.length, 0);
 });
@@ -188,6 +391,8 @@ test("email_search resolves a mailbox name and verifies Message-ID after bounded
     has_attachment: null,
     has_keyword: null,
     not_keyword: null,
+    query_filter: null,
+    expected_query_state: null,
     collapse_threads: false,
     sort_property: "receivedAt",
     sort_ascending: false,
@@ -284,6 +489,8 @@ test("email_search reports ambiguous exact Message-ID matches and rejects ambigu
     has_attachment: null,
     has_keyword: null,
     not_keyword: null,
+    query_filter: null,
+    expected_query_state: null,
     collapse_threads: false,
     sort_property: "receivedAt",
     sort_ascending: false,
@@ -344,6 +551,8 @@ test("email_search excludes provider header candidates that fail exact Message-I
     has_attachment: null,
     has_keyword: null,
     not_keyword: null,
+    query_filter: null,
+    expected_query_state: null,
     collapse_threads: false,
     sort_property: "receivedAt",
     sort_ascending: false,

@@ -206,10 +206,51 @@ const compactSummaryProperties = [
   "id", "threadId", "mailboxIds", "keywords", "size", "receivedAt", "from",
   "subject", "sentAt", "hasAttachment", "preview",
 ];
+const listSummaryProperties = [
+  "id", "threadId", "receivedAt", "from", "to", "cc", "bcc", "subject",
+  "sentAt", "hasAttachment",
+];
 const completeProperties = [
   ...summaryProperties, "bodyStructure", "bodyValues", "textBody", "htmlBody", "attachments",
 ];
 const mailboxRoles = ["inbox", "archive", "drafts", "sent", "trash", "spam"];
+const searchPredicateFields = Object.freeze({
+  text: "text",
+  from: "from",
+  to: "to",
+  cc: "cc",
+  bcc: "bcc",
+  subject: "subject",
+  body: "body",
+  after_utc: "after",
+  before_utc: "before",
+  has_attachment: "hasAttachment",
+  has_keyword: "hasKeyword",
+  not_keyword: "notKeyword",
+});
+const emailSearchPredicate = {
+  type: "object",
+  additionalProperties: false,
+  description: "One JMAP search field matched against one or more alternative values. Values within this predicate are OR-matched.",
+  properties: {
+    field: { type: "string", enum: Object.keys(searchPredicateFields) },
+    values: {
+      type: "array", minItems: 1, maxItems: 100, uniqueItems: true,
+      items: { type: ["string", "boolean"] },
+    },
+  },
+  required: ["field", "values"],
+};
+const emailSearchFilter = {
+  type: ["object", "null"],
+  additionalProperties: false,
+  description: "Optional bounded boolean filter group. Each predicate can hold up to 100 alternative values, and the predicates are combined with AND, OR, or NOT. This group is AND-combined with the ordinary scalar filters and mailbox selector.",
+  properties: {
+    operator: { type: "string", enum: ["AND", "OR", "NOT"] },
+    conditions: { type: "array", minItems: 1, maxItems: 20, items: emailSearchPredicate },
+  },
+  required: ["operator", "conditions"],
+};
 const cleanupCriterion = {
   type: "object",
   additionalProperties: false,
@@ -402,15 +443,100 @@ function normalizeMessageId(value) {
   return normalized;
 }
 
-function queryFilter(baseCondition, headerFilters) {
+function queryFilter(baseCondition, headerFilters, additionalFilter = null) {
   const conditions = [];
   if (Object.keys(baseCondition).length) conditions.push(baseCondition);
   for (const { name, value } of headerFilters) {
     conditions.push({ header: value == null ? [name] : [name, value] });
   }
+  if (additionalFilter) conditions.push(additionalFilter);
   if (!conditions.length) return {};
   if (conditions.length === 1) return conditions[0];
   return { operator: "AND", conditions };
+}
+
+function searchPredicateFilter({ field, values }, index) {
+  const jmapField = searchPredicateFields[field];
+  if (!jmapField) throw new Error(`query_filter.conditions[${index}].field is unsupported`);
+  const expectsBoolean = field === "has_attachment";
+  for (const value of values) {
+    if (expectsBoolean ? typeof value !== "boolean" : typeof value !== "string") {
+      throw new Error(
+        `query_filter.conditions[${index}].values must contain ${expectsBoolean ? "booleans" : "strings"} for ${field}`,
+      );
+    }
+    if (typeof value === "string" && !value.trim()) {
+      throw new Error(`query_filter.conditions[${index}].values must not contain blank strings`);
+    }
+  }
+  const alternatives = values.map((value) => ({ [jmapField]: value }));
+  return alternatives.length === 1
+    ? alternatives[0]
+    : { operator: "OR", conditions: alternatives };
+}
+
+function structuredSearchFilter(value) {
+  if (value == null) return null;
+  return {
+    operator: value.operator,
+    conditions: value.conditions.map(searchPredicateFilter),
+  };
+}
+
+async function querySearchIds(client, {
+  accountId, filter, sort, collapseThreads, position, limit, expectedQueryState,
+}) {
+  const ids = [];
+  let firstPage = null;
+  let queryState = null;
+  while (ids.length < limit) {
+    const pageLimit = Math.min(100, limit - ids.length);
+    const page = await client.call("Email/query", {
+      accountId,
+      filter,
+      sort,
+      collapseThreads,
+      position: position + ids.length,
+      limit: pageLimit,
+      calculateTotal: ids.length === 0,
+    });
+    firstPage ??= page;
+    if (expectedQueryState != null && page.queryState !== expectedQueryState) {
+      throw new Error("Email search results changed since the requested query state; restart at position 0");
+    }
+    if (queryState != null && page.queryState !== queryState) {
+      throw new Error("Email search results changed while paging; retry the search");
+    }
+    queryState = page.queryState;
+    ids.push(...page.ids);
+    const total = Number(firstPage.total ?? position + ids.length);
+    if (page.ids.length < pageLimit || position + ids.length >= total) break;
+  }
+  return { ...firstPage, position, ids, queryState };
+}
+
+async function searchMessages(client, accountId, ids, properties) {
+  const advertisedLimit = Number(client.publicSession?.()?.capabilities?.[CORE]?.maxObjectsInGet);
+  const batchSize = Number.isSafeInteger(advertisedLimit) && advertisedLimit > 0 ? advertisedLimit : 100;
+  const list = [];
+  const notFound = [];
+  const states = [];
+  for (let offset = 0; offset < ids.length; offset += batchSize) {
+    const result = await client.call("Email/get", getArguments(
+      accountId, ids.slice(offset, offset + batchSize), "none", 100_000, properties,
+    ));
+    if (result.state != null && !states.includes(result.state)) states.push(result.state);
+    list.push(...result.list);
+    notFound.push(...result.notFound);
+  }
+  return {
+    accountId,
+    state: states.at(-1) ?? null,
+    states,
+    stateChangedWhileReading: states.length > 1,
+    list,
+    notFound,
+  };
 }
 
 function criterionFilter(criterion, inMailbox) {
@@ -586,10 +712,12 @@ const nativeToolContracts = Object.freeze({
 export async function searchJmapEmail(client, input) {
   const accountId = account(client, input.account_id);
   const requestedMessageId = input.message_id == null ? null : normalizeMessageId(input.message_id);
+  const position = boundedInteger(input.position, 0, 0, Number.MAX_SAFE_INTEGER, "position");
+  const limit = boundedInteger(input.limit, 25, 1, 500, "limit");
   if (requestedMessageId != null && input.collapse_threads) {
     throw new Error("collapse_threads must be false when resolving message_id");
   }
-  if (requestedMessageId != null && input.position !== 0) {
+  if (requestedMessageId != null && position !== 0) {
     throw new Error("position must be 0 when resolving message_id");
   }
   const resolvedMailbox = await resolveMailboxSelector(client, accountId, {
@@ -615,37 +743,34 @@ export async function searchJmapEmail(client, input) {
     hasAttachment: input.has_attachment,
     hasKeyword: input.has_keyword,
     notKeyword: input.not_keyword,
-  }), headers);
-  const query = await client.call("Email/query", {
+  }), headers, structuredSearchFilter(input.query_filter));
+  const query = await querySearchIds(client, {
     accountId,
     filter,
     sort: [{ property: input.sort_property, isAscending: input.sort_ascending }],
     collapseThreads: input.collapse_threads,
-    position: boundedInteger(input.position, 0, 0, Number.MAX_SAFE_INTEGER, "position"),
-    limit: boundedInteger(input.limit, 25, 1, 100, "limit"),
-    calculateTotal: true,
+    position,
+    limit,
+    expectedQueryState: input.expected_query_state,
   });
   const selectedProperties = input.result_format === "ids"
     ? ["id"]
-    : input.result_format === "compact" ? [...compactSummaryProperties] : [...summaryProperties];
+    : input.result_format === "list" ? [...listSummaryProperties]
+      : input.result_format === "compact" ? [...compactSummaryProperties] : [...summaryProperties];
   if (requestedMessageId != null && !selectedProperties.includes("messageId")) {
     selectedProperties.push("messageId");
   }
   const messages = query.ids.length
-    ? await client.call("Email/get", getArguments(
-      accountId,
-      query.ids,
-      "none",
-      100_000,
-      selectedProperties,
-    ))
-    : { accountId, state: null, list: [], notFound: [] };
+    ? await searchMessages(client, accountId, query.ids, selectedProperties)
+    : {
+        accountId, state: null, states: [], stateChangedWhileReading: false, list: [], notFound: [],
+      };
   const returnedMessages = requestedMessageId == null
     ? messages.list
     : messages.list.filter((message) => (
       (message.messageId ?? []).some((value) => normalizeMessageId(value) === requestedMessageId)
     ));
-  const pagePosition = Number(query.position ?? input.position ?? 0);
+  const pagePosition = Number(query.position ?? position);
   const pageComplete = pagePosition + query.ids.length >= query.total;
   const inspectionComplete = pageComplete && (messages.notFound ?? []).length === 0;
   const exactMatchCount = returnedMessages.length;
@@ -666,6 +791,22 @@ export async function searchJmapEmail(client, input) {
     resolvedMailboxRole: resolvedMailbox.role,
     resultFormat: input.result_format,
     emailState: messages.state,
+    emailStates: messages.states,
+    emailStateChangedWhileReading: messages.stateChangedWhileReading,
+    page: {
+      position: pagePosition,
+      requestedLimit: limit,
+      returnedCount: query.ids.length,
+      total: query.total,
+      complete: pageComplete,
+      hasMore: !pageComplete,
+      nextPosition: pageComplete ? null : pagePosition + query.ids.length,
+      queryState: query.queryState,
+    },
+    continuation: pageComplete ? null : {
+      position: pagePosition + query.ids.length,
+      expected_query_state: query.queryState,
+    },
     messageIdResolution,
     messages: returnedMessages.map(identifiedEmail),
     notFound: messages.notFound,
@@ -729,7 +870,7 @@ export function registerJmapEmailTools(registry, client) {
 
   registry.register({
     name: "email_search",
-    description: "Search the live JMAP mail store with structured message, mailbox, address, date, content, keyword, Message-ID, and bounded header filters. Return bounded ids, compact summaries, or full metadata plus exact query and Email state tokens. All non-null filters are combined. Message-ID search starts at position 0 without thread collapsing, verifies exact parsed-header matches, and reports whether resolution is unique, ambiguous, absent, or partial. Prefer compact for inbox triage and full only when complete headers are needed. A unique mailbox name or standard mailbox role can be resolved without a separate mailbox-list call.",
+    description: "Search the live JMAP mail store with structured message, mailbox, address, date, content, keyword, Message-ID, and bounded header filters. Use query_filter for one bounded AND/OR/NOT group; each predicate accepts up to 100 alternative values, so multi-address or multi-keyword requests belong in one search rather than one call per value. Ordinary non-null scalar filters, headers, and query_filter are AND-combined. The tool internally pages up to 500 results, returns explicit completeness and continuation state, and rejects a continuation when the provider query state changed. Use list for lean sender/recipient/date/subject results, compact when previews are useful, ids for identity only, and full for complete summary headers. Message-ID search starts at position 0 without thread collapsing, verifies exact parsed-header matches, and reports whether resolution is unique, ambiguous, absent, or partial. A unique mailbox name or standard mailbox role can be resolved without a separate mailbox-list call.",
     parameters: {
       type: "object", additionalProperties: false,
       properties: {
@@ -751,17 +892,20 @@ export function registerJmapEmailTools(registry, client) {
         has_attachment: nullableBoolean,
         has_keyword: nullableString,
         not_keyword: nullableString,
+        query_filter: emailSearchFilter,
+        expected_query_state: nullableString,
         collapse_threads: { type: "boolean" },
         sort_property: { type: "string", enum: ["receivedAt", "sentAt", "size", "from", "to", "subject"] },
         sort_ascending: { type: "boolean" },
         position: { type: "integer", minimum: 0 },
-        limit: { type: "integer", minimum: 1, maximum: 100 },
-        result_format: { type: "string", enum: ["ids", "compact", "full"] },
+        limit: { type: "integer", minimum: 1, maximum: 500 },
+        result_format: { type: "string", enum: ["ids", "list", "compact", "full"] },
       },
       required: [
         "account_id", "in_mailbox", "in_mailbox_role", "in_mailbox_name", "message_id", "header_filters",
         "text", "from", "to", "cc", "bcc", "subject", "body",
         "after_utc", "before_utc", "has_attachment", "has_keyword", "not_keyword",
+        "query_filter", "expected_query_state",
         "collapse_threads", "sort_property", "sort_ascending", "position", "limit", "result_format",
       ],
     },
