@@ -50,6 +50,8 @@ export function CorrespondenceScreen() {
   const [page, setPage] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [syncingMessages, setSyncingMessages] = useState(false);
+  const [choosingMessageHistory, setChoosingMessageHistory] = useState(false);
+  const [messageHistoryMode, setMessageHistoryMode] = useState("incremental");
   const [downloadingExtension, setDownloadingExtension] = useState(false);
   const [notice, setNotice] = useState("");
   const parameters = new URLSearchParams({ limit: "200", offset: String(page * 200) });
@@ -103,11 +105,12 @@ export function CorrespondenceScreen() {
     finally { setDownloadingExtension(false); }
   };
   const syncMessages = async () => {
+    setChoosingMessageHistory(false);
     setSyncingMessages(true); setNotice("");
     try {
       const requested = await api<{ requestId: string }>(
         "/api/correspondence/google-messages-sync/request",
-        { method: "POST", body: JSON.stringify({ accountKey: "default" }) },
+        { method: "POST", body: JSON.stringify({ accountKey: "default", historyMode: messageHistoryMode }) },
       );
       let complete = false;
       while (!complete) {
@@ -140,7 +143,8 @@ export function CorrespondenceScreen() {
     finally { setSyncingMessages(false); }
   };
   return <>
-    <header className="page-heading"><div><p className="eyebrow">Every channel, one record</p><h1>Correspondence</h1><p>Email, messages, calls, and voicemail consolidated without replacing their authoritative apps.</p></div><div className="heading-actions"><button className="button button--quiet" disabled={downloadingExtension} onClick={() => void downloadExtension()}>{downloadingExtension ? "Downloading…" : "Download Messages extension"}</button><button className="button" disabled={syncing} onClick={() => void sync()}>{syncing ? "Syncing…" : "Sync email"}</button><button className="button" disabled={syncingMessages} onClick={() => void syncMessages()}>{syncingMessages ? "Syncing…" : "Sync Google Messages"}</button></div></header>
+    <header className="page-heading"><div><p className="eyebrow">Every channel, one record</p><h1>Correspondence</h1><p>Email, messages, calls, and voicemail consolidated without replacing their authoritative apps.</p></div><div className="heading-actions"><button className="button button--quiet" disabled={downloadingExtension} onClick={() => void downloadExtension()}>{downloadingExtension ? "Downloading…" : "Download Messages extension"}</button><button className="button" disabled={syncing} onClick={() => void sync()}>{syncing ? "Syncing…" : "Sync email"}</button><button className="button" disabled={syncingMessages} onClick={() => setChoosingMessageHistory(true)}>{syncingMessages ? "Syncing…" : "Sync Google Messages"}</button></div></header>
+    {choosingMessageHistory && <div className="object-editor-backdrop"><section className="object-editor message-history-dialog" role="dialog" aria-modal="true" aria-labelledby="message-history-heading"><form onSubmit={(event) => { event.preventDefault(); void syncMessages(); }}><header className="object-editor-heading"><div><p className="eyebrow">Google Messages</p><h2 id="message-history-heading">Choose history range</h2></div></header><label>Messages to synchronize<select autoFocus value={messageHistoryMode} onChange={(event) => setMessageHistoryMode(event.target.value)}><option value="incremental">Since last sync</option><option value="days_30">Last 30 days</option><option value="days_90">Last 90 days</option><option value="days_365">Last year</option><option value="all">All available history</option></select></label><p className="object-editor-note">On the first run, “Since last sync” imports one year. Later runs overlap the previous successful sync by two days.</p><footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={() => setChoosingMessageHistory(false)}>Cancel</button><button className="button" type="submit">Start sync</button></footer></form></section></div>}
     <div className="section-filter correspondence-filters">
       <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search subject or body" />
       <select value={medium} onChange={(event) => setMedium(event.target.value)}><option value="">All media</option>{["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "other"].map((value) => <option key={value}>{value}</option>)}</select>

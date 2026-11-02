@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 const accountPattern = /^[A-Za-z0-9._-]+$/u;
 const terminalStatuses = new Set(["complete", "error", "cancelled"]);
 const allowedStatuses = new Set(["pending", "running", ...terminalStatuses]);
+const historyModes = new Set(["incremental", "days_30", "days_90", "days_365", "all"]);
 const countFields = [
   "conversationIndex", "conversationCount", "messagesRead", "messagesAccepted",
   "messagesCreated", "messagesUpdated", "messagesDeduplicated", "messagesAmbiguous",
@@ -25,6 +26,12 @@ function requestId(value) {
 
 function publicRequest(request) {
   return structuredClone(request);
+}
+
+function historyMode(input) {
+  const value = input.fullHistory === true ? "all" : String(input.historyMode || "incremental");
+  if (!historyModes.has(value)) throw Object.assign(new Error("historyMode is invalid"), { statusCode: 400 });
+  return value;
 }
 
 export class MessagesWebSyncRequests {
@@ -57,7 +64,7 @@ export class MessagesWebSyncRequests {
     const request = {
       requestId: randomUUID(),
       accountKey: key,
-      fullHistory: input.fullHistory === true,
+      historyMode: historyMode(input),
       status: "pending",
       phase: "Waiting for the Brave extension",
       error: null,
@@ -95,7 +102,8 @@ export class MessagesWebSyncRequests {
     return request ? {
       requestId: request.requestId,
       accountKey: request.accountKey,
-      fullHistory: request.fullHistory,
+      historyMode: request.historyMode,
+      fullHistory: request.historyMode === "all",
     } : null;
   }
 

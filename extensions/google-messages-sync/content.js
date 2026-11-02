@@ -308,7 +308,9 @@
         ? [{ address: null, displayName: senderName, role: "sender" }]
         : header.participants.map((participant) => ({ ...participant, role: "recipient" }));
       const rawId = wrapper.getAttribute("msg-id") || "";
-      const fallbackIdentity = `${conversationId}\u0000${direction}\u0000${meta.date.toISOString()}\u0000${senderName}\u0000${content.text || ""}\u0000${index}`;
+      const wrapperAttributes = wrapper.getAttributeNames().toSorted()
+        .map((name) => `${name}=${wrapper.getAttribute(name) || ""}`).join("\u0000");
+      const fallbackIdentity = `${conversationId}\u0000${direction}\u0000${meta.date.toISOString()}\u0000${senderName}\u0000${content.text || ""}\u0000${meta.labels.join("\u0000")}\u0000${wrapperAttributes}`;
       const externalId = /^[\x20-\x7E]{1,255}$/u.test(rawId)
         ? rawId
         : `sha256:${await sha256Ascii(fallbackIdentity)}`;
@@ -346,6 +348,11 @@
 
   async function loadThread(conversation, cutoffMs, progress) {
     const wrappers = () => conversation.querySelectorAll("mws-message-wrapper");
+    const historySignature = () => {
+      const loaded = [...wrappers()];
+      const first = loaded[0];
+      return `${loaded.length}\u0000${first?.getAttribute("msg-id") || ""}\u0000${first?.getAttribute("aria-label") || first?.textContent || ""}`;
+    };
     const button = () => conversation.querySelector("mws-messages-list button.load-more");
     const cutoff = cutoffMs == null ? null : new Date(cutoffMs);
     const alreadyOldEnough = () => {
@@ -358,12 +365,14 @@
       const control = button();
       if (!control) return;
       const before = wrappers().length;
+      const beforeSignature = historySignature();
+      await progress(before, oldestLoaded(conversation), false);
       control.click();
       const deadline = Date.now() + 12_000;
-      while (Date.now() < deadline && wrappers().length <= before) await sleep(250);
+      while (Date.now() < deadline && historySignature() === beforeSignature) await sleep(250);
       const after = wrappers().length;
-      if (after <= before) return;
-      await progress(after, oldestLoaded(conversation));
+      if (historySignature() === beforeSignature) return;
+      await progress(after, oldestLoaded(conversation), true);
       if (alreadyOldEnough()) return;
     }
     throw new Error("Stopped after 500 history loads in one conversation; the requested history is larger than the safety limit.");
@@ -441,22 +450,43 @@
         if (!await navigateToConversation(target)) return;
         const conversation = conversationContainer();
         if (!conversation) throw new Error(`Google Messages did not render the message list for ${target.title}.`);
-        job = await updateJob({ phase: `Loading history for ${target.title}` });
-        await loadThread(conversation, job.sinceMs, async (loaded, oldest) => {
+        const observedIds = new Set();
+        const captureNewMessages = async (phase) => {
+          const extracted = await extractMessages(target.id);
+          const selected = [];
+          const selectedIds = new Set();
+          for (const message of extracted.messages) {
+            if (job.sinceMs != null && message.occurredAtMs < job.sinceMs) continue;
+            if (observedIds.has(message.externalId) || selectedIds.has(message.externalId)) continue;
+            selectedIds.add(message.externalId);
+            selected.push(message);
+          }
+          if (!selected.length) {
+            job = await updateJob({ phase });
+            return extracted;
+          }
           job = await updateJob({
-            phase: `Loading ${target.title}: ${loaded.toLocaleString()} messages${oldest ? `, back to ${oldest.toLocaleDateString()}` : ""}`,
+            phase: `${phase}\nSaving ${selected.length.toLocaleString()} newly loaded messages`,
+            messagesRead: Number(job.messagesRead || 0) + selected.length,
           });
+          job = await uploadMessages(job, selected);
+          for (const message of selected) observedIds.add(message.externalId);
+          job = await updateJob({
+            phase: `Saved ${observedIds.size.toLocaleString()} messages from ${target.title}`,
+          });
+          return extracted;
+        };
+        await captureNewMessages(`Saving currently loaded messages from ${target.title}`);
+        await loadThread(conversation, job.sinceMs, async (loaded, oldest, changed) => {
+          const phase = `${changed ? "Loaded" : "Requesting older"} ${target.title}: ${loaded.toLocaleString()} messages${oldest ? `, back to ${oldest.toLocaleDateString()}` : ""}`;
+          if (changed) await captureNewMessages(phase);
+          else job = await updateJob({ phase });
         });
-        const extracted = await extractMessages(target.id);
-        const selected = job.sinceMs == null
-          ? extracted.messages
-          : extracted.messages.filter((message) => message.occurredAtMs >= job.sinceMs);
+        const finalExtraction = await captureNewMessages(`Finishing ${target.title}`);
         job = await updateJob({
-          phase: `Read ${selected.length.toLocaleString()} messages from ${target.title}`,
-          messagesRead: Number(job.messagesRead || 0) + selected.length,
-          undatedSkipped: Number(job.undatedSkipped || 0) + extracted.undated,
+          phase: `Accepted ${observedIds.size.toLocaleString()} messages from ${target.title}`,
+          undatedSkipped: Number(job.undatedSkipped || 0) + finalExtraction.undated,
         });
-        job = await uploadMessages(job, selected);
         job = await updateJob({ conversationIndex: index + 1, phase: `Accepted ${target.title}` });
       }
       await runtimeMessage({ type: "COMPLETE_JOB", patch: { conversationIndex: job.conversations.length } });
@@ -476,7 +506,7 @@
       try {
         const started = await runtimeMessage({
           type: "START_SYNC",
-          fullHistory: message.fullHistory === true,
+          historyMode: message.historyMode || (message.fullHistory === true ? "all" : "incremental"),
           requestId: message.requestId || null,
         });
         sendResponse({ ok: true });

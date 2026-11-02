@@ -128,6 +128,14 @@ async function reportPending(requestId, phase, error = null) {
   });
 }
 
+async function restorePreviousTab(job) {
+  if (!job?.returnTabId || job.returnTabId === job.tabId) return;
+  const tab = await chrome.tabs.get(job.returnTabId).catch(() => null);
+  if (!tab?.id) return;
+  if (tab.windowId != null) await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+  await chrome.tabs.update(tab.id, { active: true }).catch(() => {});
+}
+
 async function pollServerCommands({ surfaceErrors = false } = {}) {
   if (commandPollRunning) return (await storageGet(COMMAND_STATUS_KEY))[COMMAND_STATUS_KEY] || null;
   commandPollRunning = true;
@@ -162,7 +170,7 @@ async function pollServerCommands({ surfaceErrors = false } = {}) {
     try {
       const response = await chrome.tabs.sendMessage(tab.id, {
         type: "START_SYNC",
-        fullHistory: command.fullHistory === true,
+        historyMode: command.historyMode || (command.fullHistory === true ? "all" : "incremental"),
         requestId: command.requestId,
       });
       if (!response?.ok) throw new Error(response?.error || "The Google Messages tab did not start synchronization.");
@@ -209,16 +217,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (!current.config.serverUrl || !current.config.hasAccessToken) throw new Error("Save connection settings first.");
         if (!sender.tab?.id) throw new Error("Open Google Messages for Web before starting synchronization.");
         if (current.job?.status === "running") throw new Error("Google Messages synchronization is already running.");
-        const fullHistory = message.fullHistory === true || !current.config.lastSuccessfulSyncMs;
+        const [previousTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        if (sender.tab.windowId != null) {
+          await chrome.windows.update(sender.tab.windowId, { focused: true }).catch(() => {});
+        }
+        await chrome.tabs.update(sender.tab.id, { active: true });
+        const requestedHistoryMode = message.fullHistory === true ? "all" : String(message.historyMode || "incremental");
+        const historyMode = ["incremental", "days_30", "days_90", "days_365", "all"].includes(requestedHistoryMode)
+          ? requestedHistoryMode
+          : "incremental";
         const overlapMs = 2 * 24 * 60 * 60 * 1000;
-        const sinceMs = fullHistory ? null : Math.max(0, current.config.lastSuccessfulSyncMs - overlapMs);
+        const historyDays = { days_30: 30, days_90: 90, days_365: 365 }[historyMode] || null;
+        const sinceMs = historyMode === "all"
+          ? null
+          : historyDays
+            ? Date.now() - historyDays * 24 * 60 * 60 * 1000
+            : current.config.lastSuccessfulSyncMs
+              ? Math.max(0, current.config.lastSuccessfulSyncMs - overlapMs)
+              : Date.now() - 365 * 24 * 60 * 60 * 1000;
         const job = {
           syncId: crypto.randomUUID(),
           requestId: message.requestId || null,
           status: "running",
           phase: "Discovering conversations",
           tabId: sender.tab.id,
-          fullHistory,
+          returnTabId: previousTab?.id && previousTab.id !== sender.tab.id ? previousTab.id : null,
+          historyMode,
+          fullHistory: historyMode === "all",
           sinceMs,
           conversations: [],
           conversationIndex: 0,
@@ -259,23 +284,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const config = { ...(stored[CONFIG_KEY] || {}), lastSuccessfulSyncMs: completedAtMs };
         await storageSet({ [CONFIG_KEY]: config });
         sendResponse({ ok: true, job });
+        void restorePreviousTab(job);
         return;
       }
       if (message?.type === "FAIL_JOB") {
-        sendResponse({ ok: true, job: await updateJob({
+        const job = await updateJob({
           status: "error",
           phase: "Failed",
           error: String(message.error || "Unknown synchronization failure"),
           completedAtMs: Date.now(),
-        }) });
+        });
+        sendResponse({ ok: true, job });
+        void restorePreviousTab(job);
         return;
       }
       if (message?.type === "CANCEL_JOB") {
-        sendResponse({ ok: true, job: await updateJob({
+        const job = await updateJob({
           status: "cancelled",
           phase: "Cancelled",
           completedAtMs: Date.now(),
-        }) });
+        });
+        sendResponse({ ok: true, job });
+        void restorePreviousTab(job);
         return;
       }
       sendResponse({ ok: false, error: "Unknown extension message." });

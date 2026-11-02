@@ -38,7 +38,7 @@ test("the downloadable Google Messages extension is a self-contained unpacked-ex
   const manifest = JSON.parse(entries.get(`${prefix}manifest.json`).toString("utf8"));
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.name, "Time V3 Google Messages Sync");
-  assert.equal(manifest.version, "0.3.2");
+  assert.equal(manifest.version, "0.5.0");
   assert.deepEqual(JSON.parse(entries.get(`${prefix}connection.json`).toString("utf8")), {
     serverUrl: "https://time-v3.example.test",
     accountKey: "default",
@@ -64,6 +64,10 @@ test("Correspondence can request a sync that the extension polls and reports", (
   const popup = fs.readFileSync(path.join(repositoryRoot, "extensions/google-messages-sync/popup.js"), "utf8");
   const manifest = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "extensions/google-messages-sync/manifest.json"), "utf8"));
   assert.match(screen, /Sync Google Messages/u);
+  assert.match(screen, /setChoosingMessageHistory\(true\)/u);
+  assert.match(screen, /Choose history range/u);
+  assert.match(screen, />Start sync</u);
+  assert.doesNotMatch(screen, /className="message-history-range"/u);
   assert.match(screen, /google-messages-sync\/request/u);
   assert.match(server, /MessagesWebSyncRequests/u);
   assert.match(server, /google-messages-sync\/next/u);
@@ -73,11 +77,16 @@ test("Correspondence can request a sync that the extension polls and reports", (
   assert.match(background, /reportJob/u);
   assert.match(background, /CHECK_COMMANDS/u);
   assert.match(background, /non-JSON response/u);
+  assert.match(background, /chrome[.]tabs[.]update\(sender[.]tab[.]id, \{ active: true \}\)/u);
+  assert.match(background, /restorePreviousTab/u);
   assert.match(content, /mw-conversation-container, mws-conversation-container/u);
   assert.match(content, /if \(alreadyAtTarget\)/u);
   assert.match(content, /message list did not render/u);
   assert.match(content, /\^\[A-Za-z0-9_-\]\{6,\}\$/u);
   assert.doesNotMatch(content, /target[.]listScrollTop/u);
+  assert.match(content, /captureNewMessages/u);
+  assert.match(content, /Saving currently loaded messages/u);
+  assert.match(popup, /history-mode/u);
   assert.ok(popup.indexOf('type: "SAVE_CONFIG"') < popup.indexOf("chrome.permissions.request"));
   assert.ok(manifest.permissions.includes("alarms"));
 });

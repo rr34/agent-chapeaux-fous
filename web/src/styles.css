@@ -1022,6 +1022,7 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .correspondence-filters input, .correspondence-filters select { min-width: 0; }
 .correspondence-pages { display: flex; align-items: center; justify-content: center; gap: .75rem; margin-top: 1rem; }
 .correspondence-sync-status { white-space: pre-line; }
+.message-history-dialog { width: min(460px, 100%); }
 .sms-draft-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem; margin-top: .8rem; }
 .sms-draft-actions small { color: var(--muted); }
 .account-tabs { display: flex; gap: .5rem; margin-bottom: 1rem; border-bottom: 1px solid var(--line); }

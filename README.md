@@ -211,8 +211,9 @@ directory directly:
 Pair and open `https://messages.google.com/web/`, then use the extension popup
 to save the Time V3 access token once. The downloaded package already contains
 this server's canonical origin and the fixed `default` account key. Leave that
-tab open while synchronization runs. Use **Rescan all available history**
-on the first run; incremental runs retain a two-day overlap. The access token is
+tab open while synchronization runs. Choose **Since last sync**, 30 days,
+90 days, one year, or all history. **Since last sync** defaults to one year on
+the first run and retains a two-day overlap afterward. The access token is
 stored in the local Brave profile so it does not need to be reentered.
 
 After that one-time setup, the Correspondence page's **Sync Google Messages**

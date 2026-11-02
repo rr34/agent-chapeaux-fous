@@ -10,12 +10,15 @@ This unpacked Manifest V3 extension performs an explicit foreground synchronizat
 4. Select **Load unpacked** and choose the extracted `time-v3-google-messages-sync` folder.
 5. Open and pair `https://messages.google.com/web/`.
 6. Open the extension, enter the Time V3 access token, and save it. The downloaded package already contains the server origin and fixed `default` account key.
-7. Select **Rescan all available history** for the initial import, then select **Synchronize**.
+7. Choose a history range, then select **Synchronize**. **Since last sync** uses one year on the first run.
 
 During repository development, the source `extensions/google-messages-sync`
 directory can be selected directly instead of downloading and extracting it.
 
-Later runs overlap the prior successful run by two days and replay stable Google message identities safely. A complete-history run can take a long time because Google Messages initially renders only a small recent window and loads older messages in batches.
+**Since last sync** overlaps the prior successful run by two days and replays stable Google message identities safely. The selectable alternatives are 30 days, 90 days, one year, and all available history. A complete-history run can take a long time because Google Messages initially renders only a small recent window and loads older messages in batches.
+During that history walk, each newly rendered group is uploaded immediately;
+the extension does not wait for an entire multi-year conversation to finish
+loading before committing its messages.
 
 After connection settings are saved once, ordinary synchronization can be
 started from Time V3's **Correspondence** page with **Sync Google Messages**.

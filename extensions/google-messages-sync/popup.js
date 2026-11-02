@@ -1,7 +1,7 @@
 const fields = {
   serverUrl: document.querySelector("#server-url"),
   accessToken: document.querySelector("#access-token"),
-  fullHistory: document.querySelector("#full-history"),
+  historyMode: document.querySelector("#history-mode"),
   save: document.querySelector("#save"),
   check: document.querySelector("#check"),
   sync: document.querySelector("#sync"),
@@ -58,7 +58,6 @@ async function refresh() {
   fields.accessToken.placeholder = config.hasAccessToken
     ? "Saved — leave blank to keep it"
     : "Required";
-  if (!config.lastSuccessfulSyncMs) fields.fullHistory.checked = true;
   const running = job?.status === "running";
   fields.sync.disabled = running;
   fields.cancel.disabled = !running;
@@ -102,7 +101,7 @@ fields.sync.addEventListener("click", async () => {
     if (!tab?.id) throw new Error("Open and pair Google Messages for Web first.");
     const response = await chrome.tabs.sendMessage(tab.id, {
       type: "START_SYNC",
-      fullHistory: fields.fullHistory.checked,
+      historyMode: fields.historyMode.value,
     });
     if (!response?.ok) throw new Error(response?.error || "Google Messages did not start synchronization.");
     await refresh();

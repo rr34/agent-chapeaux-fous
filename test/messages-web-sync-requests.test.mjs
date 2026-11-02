@@ -11,6 +11,7 @@ test("Google Messages web requests move from the UI to extension progress and co
   assert.deepEqual(requests.next("default"), {
     requestId: created.requestId,
     accountKey: "default",
+    historyMode: "incremental",
     fullHistory: false,
   });
 
@@ -47,6 +48,7 @@ test("Google Messages web requests move from the UI to extension progress and co
 test("Google Messages web requests reject invalid identities and progress counts", () => {
   const requests = new MessagesWebSyncRequests();
   assert.throws(() => requests.create({ accountKey: "contains spaces" }), /accountKey is invalid/u);
+  assert.throws(() => requests.create({ accountKey: "default", historyMode: "forever" }), /historyMode is invalid/u);
   const created = requests.create({ accountKey: "default" });
   assert.throws(
     () => requests.update(created.requestId, { messagesRead: -1 }),
