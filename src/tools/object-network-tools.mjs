@@ -29,7 +29,7 @@ export function registerObjectNetworkTools(registry, objectNetwork) {
   capabilityRegistry.register({
     name: "object_connection_set",
     title: "Set direct object connections",
-    description: "Connect or disconnect 1 through 50 exact first-class-object pairs. Supported simple relationship types cover existing to-do/calendar/contact/content connections plus physical items connected to to-dos, content, files, or contacts. Each edge is delegated to the mutation owned by its domain; specialized meanings are not overwritten. Supply only the endpoint IDs required by each declared relationship type, using IDs from explicit selections or authoritative owning reads. Agent Slayer verifies those IDs against retained first-class-object bindings and hydrates stable references and display names deterministically. Duplicate pairs are rejected. The result reports changed versus already-satisfied edges and their complete exact endpoints.",
+    description: "Connect or disconnect 1 through 50 exact first-class-object pairs. Supported simple relationship types cover existing to-do/calendar/contact/content/correspondence connections plus physical items connected to to-dos, content, files, or contacts. Each edge is delegated to the mutation owned by its domain; specialized meanings are not overwritten. Supply only the endpoint IDs required by each declared relationship type, using IDs from explicit selections or authoritative owning reads. Agent Slayer verifies those IDs against retained first-class-object bindings and hydrates stable references and display names deterministically. Duplicate pairs are rejected. The result reports changed versus already-satisfied edges and their complete exact endpoints.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -44,11 +44,12 @@ export function registerObjectNetworkTools(registry, objectNetwork) {
             properties: {
               relationship_type: {
                 type: "string",
-                enum: ["todo_contact", "calendar_todo_context", "calendar_contact_other", "todo_content", "physical_item_todo", "physical_item_content", "physical_item_file", "physical_item_contact"],
+                enum: ["todo_contact", "calendar_todo_context", "calendar_contact_other", "calendar_correspondence", "todo_content", "physical_item_todo", "physical_item_content", "physical_item_file", "physical_item_contact"],
               },
               personal_task_id: { type: "integer", minimum: 1 },
               contact_id: { type: "integer", minimum: 1 },
               calendar_event_id: { type: "integer", minimum: 1 },
+              correspondence_id: { type: "integer", minimum: 1 },
               content_id: { type: "integer", minimum: 1 },
               physical_item_id: { type: "integer", minimum: 1 },
               file_id: { type: "integer", minimum: 1 },
@@ -105,6 +106,10 @@ export function registerObjectNetworkTools(registry, objectNetwork) {
             ["calendar.event", "calendar_event_id"],
             ["contacts.contact", "contact_id"],
           ],
+          calendar_correspondence: [
+            ["calendar.event", "calendar_event_id"],
+            ["correspondence.item", "correspondence_id"],
+          ],
           todo_content: [
             ["todos.personal_task", "personal_task_id"],
             ["video.content_item", "content_id"],
@@ -129,7 +134,7 @@ export function registerObjectNetworkTools(registry, objectNetwork) {
         const specification = specifications[connection.relationship_type];
         const requiredFields = new Set(specification.map(([, field]) => field));
         const suppliedFields = [
-          "personal_task_id", "contact_id", "calendar_event_id", "content_id", "physical_item_id", "file_id",
+          "personal_task_id", "contact_id", "calendar_event_id", "correspondence_id", "content_id", "physical_item_id", "file_id",
         ].filter((field) => Object.hasOwn(connection, field));
         const missing = [...requiredFields].filter((field) => !suppliedFields.includes(field));
         const unrelated = suppliedFields.filter((field) => !requiredFields.has(field));

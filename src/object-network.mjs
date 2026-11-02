@@ -16,11 +16,11 @@ const definitions = new Map(nativeFirstClassObjectTypes
 const connectableTypes = Object.freeze({
   "contacts.contact": ["todos.personal_task", "calendar.event", "things.physical_item"],
   "todos.personal_task": ["contacts.contact", "calendar.event", "video.content_item", "things.physical_item", "correspondence.item"],
-  "calendar.event": ["contacts.contact", "todos.personal_task"],
+  "calendar.event": ["contacts.contact", "todos.personal_task", "correspondence.item"],
   "video.content_item": ["todos.personal_task", "things.physical_item"],
   "files.file": ["things.physical_item"],
   "things.physical_item": ["contacts.contact", "todos.personal_task", "video.content_item", "files.file"],
-  "correspondence.item": ["todos.personal_task"],
+  "correspondence.item": ["todos.personal_task", "calendar.event"],
 });
 
 function positiveId(value, label = "object id") {
@@ -310,7 +310,7 @@ export class ObjectNetworkService {
         to_id AS id,
         MIN(relationship_type) AS kind,
         MIN(CASE
-          WHEN relationship_type IN ('todo-contact', 'todo-content') THEN 1
+          WHEN relationship_type IN ('todo-contact', 'todo-content', 'event-correspondence') THEN 1
           WHEN relationship_type IN ('thing-todo', 'thing-content', 'thing-contact')
             AND relationship_qualifier = 'related' THEN 1
           WHEN relationship_type = 'thing-file' AND relationship_qualifier = 'attachment' THEN 1
@@ -416,6 +416,12 @@ export class ObjectNetworkService {
       const todo = selected.left.type === "todos.personal_task" ? selected.left : selected.right;
       await this.registry.execute("correspondence_todo_link_set", {
         links: [{ correspondence_id: correspondence.id, todo_id: todo.id, linked }],
+      }, { ...context, channel: context.channel ?? "web" });
+    } else if (selected.key === "calendar.event|correspondence.item") {
+      const event = selected.left.type === "calendar.event" ? selected.left : selected.right;
+      const correspondence = selected.left.type === "correspondence.item" ? selected.left : selected.right;
+      await this.registry.execute("correspondence_calendar_event_link_set", {
+        links: [{ correspondence_id: correspondence.id, calendar_event_id: event.id, linked }],
       }, { ...context, channel: context.channel ?? "web" });
     } else if ([
       "contacts.contact|things.physical_item",

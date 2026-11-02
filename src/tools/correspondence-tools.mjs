@@ -1,12 +1,17 @@
 const toolDescriptions = Object.freeze({
   correspondence_list: {
     protocol: "agent-slayer.tool-description", version: 1,
-    summary: "Read synchronized correspondence with participants and linked to-dos.",
+    summary: "Read synchronized correspondence with participants and linked to-dos or calendar events.",
     actionClasses: ["READ"], effectClassifications: ["READ-ONLY"],
   },
   correspondence_todo_link_set: {
     protocol: "agent-slayer.tool-description", version: 1,
     summary: "Atomically link or unlink exact correspondence and to-do pairs.",
+    actionClasses: ["CREATE", "DELETE"], effectClassifications: ["MUTATING"],
+  },
+  correspondence_calendar_event_link_set: {
+    protocol: "agent-slayer.tool-description", version: 1,
+    summary: "Link or unlink exact synchronized correspondence and saved calendar-event pairs without changing either endpoint.",
     actionClasses: ["CREATE", "DELETE"], effectClassifications: ["MUTATING"],
   },
   sms_draft_create: {
@@ -27,7 +32,7 @@ export function registerCorrespondenceTools(rootRegistry, service) {
   const registry = rootRegistry.withCapability("correspondence", toolDescriptions, nativeToolContracts);
   registry.register({
     name: "correspondence_list",
-    description: "List the local synchronized correspondence mirror with participants, email mailboxes, unread state, and linked to-dos. Filter by search text, medium, direction, or one exact provider mailbox id. JMAP remains authoritative for email; phone synchronization remains authoritative for mobile messages and calls.",
+    description: "List the local synchronized correspondence mirror with participants, email mailboxes, unread state, linked to-dos, and linked calendar events. Filter by search text, medium, direction, or one exact provider mailbox id. JMAP remains authoritative for email; phone synchronization remains authoritative for mobile messages and calls.",
     parameters: { type: "object", additionalProperties: false, properties: {
       q: { type: "string", maxLength: 500 },
       medium: { type: ["string", "null"], enum: ["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "other", null] },
@@ -53,6 +58,32 @@ export function registerCorrespondenceTools(rootRegistry, service) {
     }, required: ["links"] },
     outputSchema: { type: "object", properties: { updated: { type: "integer" }, links: { type: "array", items: { type: "object" } } } },
     execute: (input, context) => service.setTodoLinks(input, context),
+  });
+  registry.register({
+    name: "correspondence_calendar_event_link_set",
+    description: "Atomically link or unlink 1 through 500 exact existing synchronized-correspondence and saved-calendar-event pairs. Each item changes only the named association; it does not alter, send, delete, or mark correspondence read, and it does not modify the calendar event. The complete batch is validated before any association changes.",
+    annotations: {
+      readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false,
+    },
+    parameters: { type: "object", additionalProperties: false, properties: {
+      links: { type: "array", minItems: 1, maxItems: 500, items: {
+        type: "object", additionalProperties: false, properties: {
+          correspondence_id: { type: "integer", minimum: 1, description: "Existing synchronized correspondence ID." },
+          calendar_event_id: { type: "integer", minimum: 1, description: "Existing saved calendar event or recurring-series ID." },
+          linked: { type: "boolean", description: "True creates this exact association; false removes only this exact association." },
+        }, required: ["correspondence_id", "calendar_event_id", "linked"],
+      } },
+    }, required: ["links"] },
+    outputSchema: { type: "object", additionalProperties: false, properties: {
+      selected_count: { type: "integer", minimum: 1 },
+      changed_count: { type: "integer", minimum: 0 },
+      unchanged_count: { type: "integer", minimum: 0 },
+      results: { type: "array", items: { type: "object", additionalProperties: false, properties: {
+        correspondence_id: { type: "integer" }, calendar_event_id: { type: "integer" },
+        linked: { type: "boolean" }, changed: { type: "boolean" },
+      }, required: ["correspondence_id", "calendar_event_id", "linked", "changed"] } },
+    }, required: ["selected_count", "changed_count", "unchanged_count", "results"] },
+    execute: (input, context) => service.setCalendarEventLinks(input, context),
   });
   registry.register({
     name: "sms_draft_create",

@@ -10,12 +10,17 @@ import { formatDisplayDate } from "../date-format";
 
 type Participant = { role: string; address: string; display_name: string | null; contact_id: number | null };
 type CorrespondenceMailbox = { mailbox_id: string; name: string; role: string | null; parent_mailbox_id: string | null };
+type CorrespondenceCalendarEvent = {
+  calendar_event_id: number; title: string; starts_at_utc: string; ends_at_utc: string | null;
+  time_zone: string | null; is_all_day: boolean; status: string;
+};
 type CorrespondenceItem = {
   correspondence_id: number; ref: string; display: string; medium: string; direction: string;
   subject: string | null; body: string | null; delivery_status: string | null; call_disposition: string | null;
   occurred_at_utc: string;
   email_keywords: string[]; is_read: boolean | null; mailboxes: CorrespondenceMailbox[];
   participants: Participant[]; linked_todos: Array<{ todo_id: number; text: string; status: string }>;
+  linked_calendar_events: CorrespondenceCalendarEvent[];
 };
 type MessageSyncProgress = {
   status: "pending" | "running" | "complete" | "error" | "cancelled";
@@ -204,8 +209,12 @@ export function CorrespondenceScreen() {
       ],
       badges: [item.medium, item.direction, ...(item.is_read === false ? ["unread"] : []),
         ...item.mailboxes.map((value) => value.name),
-        ...(item.linked_todos.length ? [`${item.linked_todos.length} linked to-do${item.linked_todos.length === 1 ? "" : "s"}`] : [])],
-    }} controls={<ObjectSelectionControls identity={correspondenceIdentity(item)} subject={`correspondence ${item.display}`} />} details={item.linked_todos.length ? <section><h4>Linked to-dos</h4><ul>{item.linked_todos.map((todo) => <li key={todo.todo_id}>{todo.text}</li>)}</ul></section> : undefined} />)}</ul></section>)}</div>
+        ...(item.linked_todos.length ? [`${item.linked_todos.length} linked to-do${item.linked_todos.length === 1 ? "" : "s"}`] : []),
+        ...(item.linked_calendar_events.length ? [`${item.linked_calendar_events.length} linked event${item.linked_calendar_events.length === 1 ? "" : "s"}`] : [])],
+    }} controls={<ObjectSelectionControls identity={correspondenceIdentity(item)} subject={`correspondence ${item.display}`} />} details={item.linked_todos.length || item.linked_calendar_events.length ? <>
+      {item.linked_todos.length > 0 && <section><h4>Linked to-dos</h4><ul>{item.linked_todos.map((todo) => <li key={todo.todo_id}>{todo.text}</li>)}</ul></section>}
+      {item.linked_calendar_events.length > 0 && <section><h4>Linked calendar events</h4><ul>{item.linked_calendar_events.map((event) => <li key={event.calendar_event_id}>{event.title} · {formatDisplayDate(event.starts_at_utc, { timeZone: event.time_zone || undefined })}</li>)}</ul></section>}
+    </> : undefined} />)}</ul></section>)}</div>
     {!loading && !error && (page > 0 || (data?.items.length || 0) === 200) && <nav className="correspondence-pages" aria-label="Correspondence pages"><button className="button button--quiet" disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>Previous</button><span>Page {page + 1}</span><button className="button button--quiet" disabled={(data?.items.length || 0) < 200} onClick={() => setPage((value) => value + 1)}>Next</button></nav>}
   </>;
 }

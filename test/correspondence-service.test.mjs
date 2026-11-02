@@ -60,6 +60,11 @@ test("correspondence reads expose and filter provider mailbox membership and unr
     } };
     if (sql.includes("FROM correspondence_participants_join")) return { all: () => [] };
     if (sql.includes("FROM todo_correspondence_join")) return { all: () => [] };
+    if (sql.includes("FROM calendar_events_correspondence_join")) return { all: () => [{
+      correspondence_id: 9, calendar_event_id: 17, title: "Project review",
+      starts_at_utc: "2026-11-03T15:00:00.000Z", ends_at_utc: null,
+      time_zone: "America/New_York", is_all_day: 0, status: "confirmed",
+    }] };
     if (sql.includes("FROM correspondence_email_mailboxes_join")) return { all: () => [{
       correspondence_id: 9, mailbox_id: "inbox-1", name: "Inbox", role: "inbox",
       parent_mailbox_id: null, sort_order: 1,
@@ -80,7 +85,58 @@ test("correspondence reads expose and filter provider mailbox membership and unr
     mailbox_id: "inbox-1", name: "Inbox", role: "inbox", parent_mailbox_id: null,
   }]);
   assert.deepEqual(result.items[0].source_observations, []);
+  assert.deepEqual(result.items[0].linked_calendar_events, [{
+    calendar_event_id: 17, title: "Project review",
+    starts_at_utc: "2026-11-03T15:00:00.000Z", ends_at_utc: null,
+    time_zone: "America/New_York", is_all_day: false, status: "confirmed",
+  }]);
   assert.equal(result.mailboxes[0].name, "Inbox");
+});
+
+test("correspondence calendar-event links validate the full batch and return literal idempotent receipts", () => {
+  const links = new Set();
+  const executions = [];
+  const ledgerEvents = [];
+  const database = {
+    exec(sql) { executions.push(sql); },
+    prepare(sql) {
+      if (sql.startsWith("SELECT 1 FROM correspondence")) return { get: (id) => id === 9 ? { 1: 1 } : undefined };
+      if (sql.startsWith("SELECT 1 FROM calendar_events")) return { get: (id) => id === 17 ? { 1: 1 } : undefined };
+      if (sql.startsWith("INSERT INTO calendar_events_correspondence_join")) return { run: (eventId, correspondenceId) => {
+        const key = `${eventId}:${correspondenceId}`;
+        const changed = links.has(key) ? 0 : 1;
+        links.add(key);
+        return { changes: changed };
+      } };
+      if (sql.startsWith("DELETE FROM calendar_events_correspondence_join")) return { run: (eventId, correspondenceId) => ({
+        changes: links.delete(`${eventId}:${correspondenceId}`) ? 1 : 0,
+      }) };
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  };
+  const service = new CorrespondenceService({
+    store: { requireReady: () => database }, ledger: { append: (event) => ledgerEvents.push(event) }, jmap: {},
+  });
+  const added = service.setCalendarEventLinks({
+    links: [{ correspondence_id: 9, calendar_event_id: 17, linked: true }],
+  }, { requestId: "request-1", callId: "call-1" });
+  assert.deepEqual(added, {
+    selected_count: 1, changed_count: 1, unchanged_count: 0,
+    results: [{ correspondence_id: 9, calendar_event_id: 17, linked: true, changed: true }],
+  });
+  const replayed = service.setCalendarEventLinks({
+    links: [{ correspondence_id: 9, calendar_event_id: 17, linked: true }],
+  });
+  assert.equal(replayed.changed_count, 0);
+  assert.equal(replayed.unchanged_count, 1);
+  assert.equal(ledgerEvents[0].type, "correspondence.calendar_event_links_updated");
+  assert.equal(ledgerEvents[0].operationId, "call-1");
+  assert.equal(executions.filter((sql) => sql === "START TRANSACTION").length, 2);
+  assert.equal(executions.filter((sql) => sql === "COMMIT").length, 2);
+  assert.throws(() => service.setCalendarEventLinks({ links: [
+    { correspondence_id: 9, calendar_event_id: 17, linked: true },
+    { correspondence_id: 9, calendar_event_id: 17, linked: false },
+  ] }), /cannot contain the same correspondence and calendar event pair/u);
 });
 
 test("email synchronization preserves provider HTML and records the Email state", async () => {

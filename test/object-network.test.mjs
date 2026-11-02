@@ -10,6 +10,10 @@ const eventIdentity = {
   type: "calendar.event", source: "native:calendar", id: 9,
   ref: "agent-slayer://calendar-events/9",
 };
+const correspondenceIdentity = {
+  type: "correspondence.item", source: "native:correspondence", id: 15,
+  ref: "agent-slayer://correspondence/15",
+};
 const contactIdentity = {
   type: "contacts.contact", source: "native:contacts", id: 12,
   ref: "agent-slayer://contacts/12",
@@ -103,6 +107,50 @@ test("a one-click task/event connection uses the calendar domain's context relat
   const graph = await service.setConnection({ from: todoIdentity, to: eventIdentity, linked: true });
   assert.deepEqual(calls, [{ placements: [{ todoId: 7, eventId: 9, relationshipKind: "context" }] }]);
   assert.equal(graph.connections.find(({ object }) => object.ref === eventIdentity.ref)?.removable, true);
+});
+
+test("a one-click correspondence/event connection uses the correspondence domain relationship", async () => {
+  let linked = false;
+  const calls = [];
+  const database = { prepare(sql) {
+    return {
+      get() {
+        if (/SELECT calendar_event_id, title/u.test(sql)) return {
+          calendar_event_id: 9, title: "Kitchen walk-through", description: null,
+          location_text: "Home", starts_at_utc: "2026-10-06 13:00:00.000",
+          ends_at_utc: null, time_zone: "America/New_York", is_all_day: 0,
+          status: "confirmed", recurrence_rule: null,
+        };
+        if (/FROM correspondence WHERE correspondence_id/u.test(sql)) return {
+          correspondence_id: 15, medium: "email", direction: "inbound", subject: "Walk-through notes",
+          body: null, delivery_status: "delivered", call_disposition: null,
+          occurred_at_utc: "2026-10-05 12:00:00.000",
+        };
+        throw new Error(`Unexpected get: ${sql}`);
+      },
+      all() {
+        if (/FROM object_relationship_edges/u.test(sql)) return linked
+          ? [{ type: "correspondence.item", id: "15", kind: "event-correspondence", removable: 1 }]
+          : [];
+        throw new Error(`Unexpected all: ${sql}`);
+      },
+    };
+  } };
+  const registry = { async execute(name, input, context) {
+    calls.push({ name, input, context });
+    linked = input.links[0].linked;
+  } };
+  const service = new ObjectNetworkService({ database, organizer: {}, registry });
+  const graph = await service.setConnection({
+    from: eventIdentity, to: correspondenceIdentity, linked: true,
+  }, { channel: "web" });
+  assert.deepEqual(calls.map(({ name, input }) => ({ name, input })), [{
+    name: "correspondence_calendar_event_link_set",
+    input: { links: [{ correspondence_id: 15, calendar_event_id: 9, linked: true }] },
+  }]);
+  assert.deepEqual(graph.connectableTypes, ["contacts.contact", "todos.personal_task", "correspondence.item"]);
+  assert.equal(graph.connections[0].object.ref, correspondenceIdentity.ref);
+  assert.equal(graph.connections[0].removable, true);
 });
 
 test("a batch-shaped connection receipt reports changed and already-satisfied edges", async () => {

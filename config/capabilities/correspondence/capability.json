@@ -4,10 +4,10 @@
   "version": 1,
   "id": "correspondence",
   "title": "Correspondence",
-  "summary": "Read synchronized email, messages, calls, and voicemail; link correspondence to to-dos; and prepare unsent SMS handoffs.",
+  "summary": "Read synchronized email, messages, calls, and voicemail; link correspondence to to-dos or calendar events; and prepare unsent SMS handoffs.",
   "aliases": ["correspondence", "communications", "messages", "calls", "sms draft"],
   "readOnlyTools": ["correspondence_list", "sms_draft_create"],
-  "dependentTools": ["contact_lookup_batch", "email_mailbox_list", "todo_list"],
+  "dependentTools": ["calendar_event_search", "contact_lookup_batch", "email_mailbox_list", "todo_list"],
   "resources": [
     {
       "id": "correspondence.item",
@@ -34,10 +34,16 @@
       "id": "correspondence.calendar_event",
       "kind": "relationship",
       "title": "Correspondence calendar event",
-      "summary": "A source-owned correspondence association retained with a calendar event.",
-      "management": "system",
-      "reason": "Synchronization owns imported calendar correspondence provenance.",
-      "storage": { "table": "calendar_events_correspondence_join" }
+      "summary": "A user-managed association between one correspondence item and one saved calendar event or recurring series.",
+      "management": "user",
+      "storage": { "table": "calendar_events_correspondence_join" },
+      "endpoints": ["correspondence.item", "calendar.event"],
+      "operations": {
+        "link": { "tool": "correspondence_calendar_event_link_set", "batch": { "mode": "array", "input": "/links" } },
+        "read": { "tool": "correspondence_list", "batch": { "mode": "collection" } },
+        "update": { "unavailable": "unsupported", "reason": "This edge has no mutable attributes; link and unlink are its complete lifecycle." },
+        "unlink": { "tool": "correspondence_calendar_event_link_set", "batch": { "mode": "array", "input": "/links" } }
+      }
     },
     {
       "id": "correspondence.attachment",

@@ -35,6 +35,7 @@ test("the object connection tool publishes exact binding-shaped endpoints and a 
       { path: "/connections/*/personal_task_id", objectType: "todos.personal_task", allowUnbound: undefined },
       { path: "/connections/*/contact_id", objectType: "contacts.contact", allowUnbound: undefined },
       { path: "/connections/*/calendar_event_id", objectType: "calendar.event", allowUnbound: undefined },
+      { path: "/connections/*/correspondence_id", objectType: "correspondence.item", allowUnbound: undefined },
       { path: "/connections/*/content_id", objectType: "video.content_item", allowUnbound: undefined },
       { path: "/connections/*/physical_item_id", objectType: "things.physical_item", allowUnbound: undefined },
       { path: "/connections/*/file_id", objectType: "files.file", allowUnbound: undefined },

@@ -1488,8 +1488,10 @@ synchronization consumes paginated `Email/changes`, and an expired provider
 cursor falls back to a new full baseline instead of silently treating the
 mirror as current.
 Correspondence has no tag system: user organization uses the
-existing object relationships, including user-managed to-do links exposed by
-the selection and network controls. Phone synchronization remains mobile-only.
+existing object relationships, including user-managed to-do and calendar-event
+links exposed by the selection and network controls. These links organize the
+local objects without modifying provider correspondence or the linked endpoint.
+Phone synchronization remains mobile-only.
 
 The web-only **Music** section follows Files in navigation, reads the same
 authenticated library as mobile, groups recordings by release or work, and

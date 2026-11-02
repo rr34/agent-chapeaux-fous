@@ -80,7 +80,7 @@ function canonicalHtml(value) {
     .replace(/\r\n?|\n/gu, "<br>") : null;
 }
 
-function publicItem(row, participants = [], todos = [], mailboxes = [], sourceObservations = []) {
+function publicItem(row, participants = [], todos = [], calendarEvents = [], mailboxes = [], sourceObservations = []) {
   const correspondenceId = Number(row.correspondence_id);
   const keywords = emailKeywords(row.email_keywords_json);
   return {
@@ -103,6 +103,7 @@ function publicItem(row, participants = [], todos = [], mailboxes = [], sourceOb
     mailboxes,
     participants,
     linked_todos: todos,
+    linked_calendar_events: calendarEvents,
   };
 }
 
@@ -209,6 +210,7 @@ export class CorrespondenceService {
     const ids = rows.map((row) => Number(row.correspondence_id));
     const participants = new Map();
     const todos = new Map();
+    const calendarEvents = new Map();
     const mailboxes = new Map();
     const sourceObservations = new Map();
     if (ids.length) {
@@ -237,6 +239,25 @@ export class CorrespondenceService {
         const valuesForItem = todos.get(id) || [];
         valuesForItem.push({ todo_id: Number(row.personal_task_id), text: row.text, status: row.status });
         todos.set(id, valuesForItem);
+      }
+      for (const row of this.database.prepare(`SELECT link.correspondence_id, event.calendar_event_id,
+          event.title, event.starts_at_utc, event.ends_at_utc, event.time_zone, event.is_all_day, event.status
+        FROM calendar_events_correspondence_join AS link
+        JOIN calendar_events AS event USING (calendar_event_id)
+        WHERE link.correspondence_id IN (${placeholders})
+        ORDER BY link.correspondence_id, event.starts_at_utc, event.calendar_event_id`).all(...ids)) {
+        const id = Number(row.correspondence_id);
+        const valuesForItem = calendarEvents.get(id) || [];
+        valuesForItem.push({
+          calendar_event_id: Number(row.calendar_event_id),
+          title: row.title,
+          starts_at_utc: row.starts_at_utc,
+          ends_at_utc: row.ends_at_utc ?? null,
+          time_zone: row.time_zone ?? null,
+          is_all_day: Boolean(row.is_all_day),
+          status: row.status,
+        });
+        calendarEvents.set(id, valuesForItem);
       }
       for (const row of this.database.prepare(`SELECT link.correspondence_id, mailbox.mailbox_id,
           mailbox.name, mailbox.role, mailbox.parent_mailbox_id, mailbox.sort_order
@@ -276,7 +297,8 @@ export class CorrespondenceService {
     }
     return {
       items: rows.map((row) => publicItem(row, participants.get(Number(row.correspondence_id)) || [],
-        todos.get(Number(row.correspondence_id)) || [], mailboxes.get(Number(row.correspondence_id)) || [],
+        todos.get(Number(row.correspondence_id)) || [], calendarEvents.get(Number(row.correspondence_id)) || [],
+        mailboxes.get(Number(row.correspondence_id)) || [],
         sourceObservations.get(Number(row.correspondence_id)) || [])),
       mailboxes: this.database.prepare(`SELECT mailbox_id, name, role, parent_mailbox_id
         FROM jmap_email_mailboxes ORDER BY sort_order, name, mailbox_id`).all(),
@@ -311,6 +333,70 @@ export class CorrespondenceService {
         type: "correspondence.todo_links_updated", status: "complete", actorType: context.actorType || "tool",
         actorName: context.actorName || "correspondence_todo_link_set", turnId: context.requestId,
         operationId: context.callId, name: "Correspondence to-do links updated", payload: result,
+      });
+      db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  setCalendarEventLinks({ links }, context = {}) {
+    if (!Array.isArray(links) || !links.length || links.length > 500) {
+      throw new Error("links must contain 1 through 500 items");
+    }
+    const normalized = links.map((link) => {
+      if (typeof link.linked !== "boolean") throw new Error("linked must be a boolean");
+      return {
+        correspondenceId: positiveId(link.correspondence_id, "correspondence_id"),
+        calendarEventId: positiveId(link.calendar_event_id, "calendar_event_id"),
+        linked: link.linked,
+      };
+    });
+    const keys = normalized.map((link) => `${link.correspondenceId}:${link.calendarEventId}`);
+    if (new Set(keys).size !== keys.length) {
+      throw new Error("links cannot contain the same correspondence and calendar event pair more than once");
+    }
+
+    const db = this.database;
+    db.exec("START TRANSACTION");
+    try {
+      for (const link of normalized) {
+        if (!db.prepare("SELECT 1 FROM correspondence WHERE correspondence_id = ?").get(link.correspondenceId)) {
+          throw new Error(`Correspondence ${link.correspondenceId} not found`);
+        }
+        if (!db.prepare("SELECT 1 FROM calendar_events WHERE calendar_event_id = ?").get(link.calendarEventId)) {
+          throw new Error(`Calendar event ${link.calendarEventId} not found`);
+        }
+      }
+      const results = normalized.map((link) => {
+        const write = link.linked
+          ? db.prepare(`INSERT INTO calendar_events_correspondence_join (calendar_event_id, correspondence_id)
+              VALUES (?, ?) ON DUPLICATE KEY UPDATE created_at_utc = created_at_utc`)
+            .run(link.calendarEventId, link.correspondenceId)
+          : db.prepare(`DELETE FROM calendar_events_correspondence_join
+              WHERE calendar_event_id = ? AND correspondence_id = ?`)
+            .run(link.calendarEventId, link.correspondenceId);
+        return {
+          correspondence_id: link.correspondenceId,
+          calendar_event_id: link.calendarEventId,
+          linked: link.linked,
+          changed: Number(write?.changes || 0) > 0,
+        };
+      });
+      const result = {
+        selected_count: results.length,
+        changed_count: results.filter(({ changed }) => changed).length,
+        unchanged_count: results.filter(({ changed }) => !changed).length,
+        results,
+      };
+      this.ledger.append({
+        type: "correspondence.calendar_event_links_updated", status: "complete",
+        actorType: context.actorType || "tool",
+        actorName: context.actorName || "correspondence_calendar_event_link_set",
+        turnId: context.requestId, operationId: context.callId,
+        name: "Correspondence calendar-event links updated", payload: result,
       });
       db.exec("COMMIT");
       return result;

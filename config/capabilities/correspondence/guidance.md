@@ -6,8 +6,11 @@ may contain source observations from both paths. Do not claim that a local mirro
 mutation changed a provider.
 
 Link or unlink exact correspondence and to-do pairs with one bounded
-`correspondence_todo_link_set` call. These links are user organization, not tags
-and not delivery or reply state.
+`correspondence_todo_link_set` call. Link or unlink exact correspondence and
+saved calendar-event pairs with one bounded
+`correspondence_calendar_event_link_set` call. These links are user
+organization, not tags and not delivery or reply state; they do not modify the
+correspondence provider or either linked endpoint.
 
 Use `sms_draft_create` only after resolving an exact contact. It prepares an
 unsent handoff to the device Messages app or web copy controls. If it returns
