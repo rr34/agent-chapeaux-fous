@@ -65,6 +65,10 @@ const calendarMonthOptions = Array.from({ length: 12 }, (_, index) => ({
 type NavigationItem = typeof navigation[number];
 
 const navigationSvgIcons: Partial<Record<NavigationItem[0], ReactNode>> = {
+  search: <>
+    <circle cx="11" cy="11" r="7" />
+    <path d="m16 16 5 5" />
+  </>,
   routine: <>
     <rect x="3" y="3" width="14" height="14" rx="2" />
     <rect x="7" y="7" width="14" height="14" rx="2" />
