@@ -376,6 +376,7 @@ export function requestCapabilityCatalog(tools) {
         capability,
         title: manifest?.title ?? capability,
         summary: capabilitySummary(capability, entries),
+        aliases: manifest?.aliases ?? [],
         tools: entries.map(toolCatalogEntry),
         objectTypes: entries.flatMap((tool) => (
           tool.metadata?.[objectDescriptionMetadataKey]?.types?.map((type) => (

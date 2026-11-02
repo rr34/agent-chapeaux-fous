@@ -47,8 +47,7 @@ function enumArray(values, maximumItems = values.length) {
 
 export function commonSenseCoreSchema({
   capabilities = [], contextViewIds = [], actionReferenceIds = [], objectRefs = [],
-  objectSetRefs = [], relationshipSetRefs = [], objectTypes = [], resourceTypes = [],
-  requestId = "request",
+  objectSetRefs = [], relationshipSetRefs = [], objectTypes = [], requestId = "request",
 } = {}) {
   const allowedCapabilities = [...new Set(capabilities)].sort();
   const allowedContextViews = [...new Set(contextViewIds)].sort();
@@ -63,10 +62,6 @@ export function commonSenseCoreSchema({
     : text(200);
   const allowedObjectSetRefs = [...new Set(objectSetRefs)].sort();
   const allowedRelationshipSetRefs = [...new Set(relationshipSetRefs)].sort();
-  const allowedResourceTypes = [...new Set(resourceTypes)].sort();
-  const resourceTypeValue = allowedResourceTypes.length
-    ? { type: "string", enum: allowedResourceTypes }
-    : text(200);
   const localObjectSetPattern = `^agent-slayer://requests/${encodeURIComponent(requestId).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/object-sets/[A-Za-z0-9._~-]+$`;
   const localRelationshipSetPattern = `^agent-slayer://requests/${encodeURIComponent(requestId).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/relationship-sets/[A-Za-z0-9._~-]+$`;
   const selectableSetRefs = (availableRefs, localPattern) => ({
@@ -83,11 +78,14 @@ export function commonSenseCoreSchema({
     properties: {
       slot: { type: "string", pattern: "^[a-z][a-z0-9_]{0,79}$" },
       description: text(1_000),
-      objectType: text(200),
+      semanticType: {
+        ...text(200),
+        description: "Ordinary-language kind of target to resolve, not a capability resource type or storage representation.",
+      },
       role: text(200),
       cardinality: { type: "string", enum: ["one", "many"] },
     },
-    required: ["slot", "description", "objectType", "role", "cardinality"],
+    required: ["slot", "description", "semanticType", "role", "cardinality"],
   };
   return {
     type: "object",
@@ -110,7 +108,7 @@ export function commonSenseCoreSchema({
       actions: {
         type: "array",
         maxItems: 30,
-        description: "The requested work. One action may target many objects; do not split a batch into one action per object. The application assigns each accepted action a stable identity. Orientation names first-class outcome objects only when the request itself already establishes their semantic role and bound independently of later tool selection.",
+        description: "The requested work. One action may target many objects; do not split a batch into one action per object. The application assigns each accepted action a stable identity. Orientation names semantic outcome roles only when the request itself already establishes their meaning and bound independently of later resource and tool selection.",
         items: {
           type: "object",
           additionalProperties: false,
@@ -132,27 +130,23 @@ export function commonSenseCoreSchema({
               type: "array",
               maxItems: 20,
               items: unresolvedTarget,
-              description: "First-class object target roles described by the user whose exact objects have not yet been supplied. Execution may resolve these through an owning read. Do not invent an unresolved object for a tag label, relationship, field value, or other qualifier.",
+              description: "Target roles described by the user whose exact objects have not yet been supplied. Describe their ordinary-language semantic kind without choosing a capability resource type; execution may resolve them through an owning read. Do not invent an unresolved target for a tag label, relationship, field value, or other qualifier.",
             },
-            outcomeObjects: {
+            outcomes: {
               type: "array",
               maxItems: 20,
-              description: "Compact first-class objects whose final-state role is already established by the request or an exact selected set. Describe one container once even when it contains many details. Never invent an object to represent a tag, relationship, field value, tool effect, or possible implementation. Use an empty array when the action has no first-class object outcome or when reads and owning tools must first reveal the concrete representation.",
+              description: "Compact semantic outcome roles whose final-state meaning and cardinality are already established by the request or an exact selected set. Describe one requested result once even when it contains many details. Do not choose a capability resource type, row shape, tool result type, or other concrete representation; execution binds authoritative resource types from owning tool contracts and receipts. Never invent an outcome for a tag, relationship, field value, lifecycle effect, receipt, or possible implementation.",
               items: {
                 type: "object",
                 additionalProperties: false,
                 properties: {
                   description: {
                     ...text(1_000),
-                    description: "The requested final-state role and composition of this object in ordinary language, without prescribing tools or storage mechanics.",
-                  },
-                  objectType: {
-                    ...resourceTypeValue,
-                    description: "Connected first-class resource type that can represent this outcome object.",
+                    description: "The requested final-state role and composition of this semantic result in ordinary language, without prescribing resource types, tools, or storage mechanics.",
                   },
                   targetRefs: {
                     ...enumArray(allowedObjectRefs, 500),
-                    description: "Exact existing objects that fill this outcome role. Keep empty for objects that do not exist yet. This connects a final-state role to supplied identity without copying a binding.",
+                    description: "Exact supplied existing objects that fill this semantic outcome role. Keep empty for results that do not exist yet or whose identities owning reads must resolve. The application derives their resource types from verified bindings.",
                   },
                   cardinality: {
                     type: "object",
@@ -169,13 +163,13 @@ export function commonSenseCoreSchema({
                     required: ["minimum", "maximum", "basis"],
                   },
                 },
-                required: ["description", "objectType", "targetRefs", "cardinality"],
+                required: ["description", "targetRefs", "cardinality"],
               },
             },
           },
           required: [
             "instruction", "targetRefs", "targetSetRefs", "relationshipSetRefs",
-            "unresolvedTargets", "outcomeObjects",
+            "unresolvedTargets", "outcomes",
           ],
         },
       },
@@ -330,9 +324,19 @@ function sourceEntry(entry) {
   };
 }
 
-function compactCapabilityCatalog(catalog) {
+function matchedCapabilityAliases(entry, requestText) {
+  const text = String(requestText ?? "").normalize("NFKC").replaceAll(/[_-]+/g, " ");
+  return (entry.aliases ?? []).filter((alias) => {
+    const normalized = String(alias).normalize("NFKC").replaceAll(/[_-]+/g, " ");
+    const escaped = normalized.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`\\b${escaped}\\b`, "iu").test(text);
+  });
+}
+
+function compactCapabilityCatalog(catalog, requestText) {
   if (!catalog.length) return "No connected capability families are currently available.";
   return catalog.map((entry) => {
+    const matchedAliases = matchedCapabilityAliases(entry, requestText);
     const views = (entry.contextViews ?? []).map((view) => (
       `  context:${view.id} — ${view.description ?? view.title ?? view.id}`
     ));
@@ -353,6 +357,9 @@ function compactCapabilityCatalog(catalog) {
     ));
     return [
       `- ${entry.capability}${entry.title ? ` (${entry.title})` : ""}: ${entry.summary}`,
+      ...(matchedAliases.length
+        ? [`  matched request vocabulary: ${matchedAliases.map((alias) => JSON.stringify(alias)).join(", ")} (declared capability alias)`]
+        : []),
       ...resources,
       ...views,
     ].join("\n");
@@ -440,8 +447,8 @@ export function commonSenseContext({
       "",
     ] : []),
     "## Connected capability families",
-    compactCapabilityCatalog(capabilityCatalog),
-    "Select capability families, not tools. Catalog objects are eligible first-class outcome types; catalog relationships describe edges and must never be recast as objects. You may point directly to supplied objects and supplied sets. You may also define a request-local object set or relationship set from supplied object refs, then select that set from an action. For every relationship set, declare the actual fromType and toType and preserve that direction in every edge. Describe not-yet-supplied targets in unresolvedTargets so execution can resolve them through an owning read. Keep a requested relationship, tag assignment, field change, or other non-object final state in the ordinary-language action and constraints; do not invent an outcome object for it.",
+    compactCapabilityCatalog(capabilityCatalog, requestText),
+    "Select capability families, not tools. Exact matched request vocabulary is strong routing evidence for the relevant part of the request when a generic noun could otherwise fit another family; prefer the declared alias unless the request explicitly names a different owner. Catalog resources explain family scope, but orientation must not choose a resource type or tool representation for a semantic outcome; execution binds representation from owning contracts and receipts. Catalog relationships describe edges and must never be recast as outcomes. You may point directly to supplied objects and supplied sets. You may also define a request-local object set or relationship set from supplied object refs, then select that set from an action. For every relationship set, declare the actual fromType and toType and preserve that direction in every edge. Describe not-yet-supplied targets in unresolvedTargets so execution can resolve them through an owning read. Keep a requested relationship, tag assignment, field change, or other non-object final state in the ordinary-language action and constraints; do not invent an outcome object for it.",
   ].join("\n");
 }
 
@@ -516,13 +523,13 @@ export const commonSenseInstructions = [
   "Prioritize the exact current request and any explicit composer selections. Use older conversation only to resolve genuine references or continuations.",
   "Describe the end state in ordinary language. Do not select tools, write audit policy, copy tool protocols, manufacture prohibitions, or turn preservation of unrelated state into verbose constraints.",
   "When the user plainly rejects an object the agent just created by mistake, include removal of that mistaken object in the requested end state; do not reduce the correction to emptying or ignoring it.",
-  "Use outcomeObjects only for first-class object roles whose identity-independent type and cardinality are already established by the exact request or an exact selected set. The application assigns stable action and outcome identities after orientation; do not manufacture correlation IDs. Each outcome is a semantic object role, not a planned row or tool call: one requested job containing six listed details is one job outcome, while six independently requested first-class objects may be six outcomes or one outcome with cardinality six.",
-  "Do not predict the concrete representation that execution will discover. A tag, relationship, field value, lifecycle effect, receipt, or tool result is not an outcome object merely because it is part of the requested final state. Preserve it in the action instruction or an exact relationship set. Use an empty outcomeObjects array when the owning reads and tools must reveal whether, how many, or which first-class objects represent the result.",
+  "Use outcomes only for semantic result roles whose meaning and cardinality are already established by the exact request or an exact selected set. The application assigns stable action and outcome identities after orientation; do not manufacture correlation IDs. One requested result containing six listed details is one outcome, while six independently requested results may be six outcomes or one outcome with cardinality six.",
+  "Never choose or emit a capability resource type for an outcome. Do not predict the row, provider object, tool, or result shape that execution will discover; owning tool contracts and successful receipts bind that representation later. A tag, relationship, field value, lifecycle effect, receipt, or tool result is not an outcome object merely because it is part of the requested final state. Preserve it in the action instruction or an exact relationship set.",
   "Use cardinality basis=request only when the exact request or an exact selected set establishes the bound independently of execution. Use basis=inferred sparingly for genuinely useful semantic structure; inferred outcomes are advisory and never restrict tool calls, compete for automatic receipt correlation, or prove that completion failed.",
   "A list of unresolved names, email addresses, search keys, or other lookup values does not by itself establish the number of distinct first-class objects: several keys may resolve to one object, one key may resolve to several, or current evidence may change whether creation is needed. Do not turn the input-list length into basis=request outcome cardinality unless the request independently requires that many distinct objects.",
   "For a batch, write one action and directly select exact object refs or an exact object set. A binding is identity evidence, not proof that every member is a current target. Use separate actions only for genuinely different requested operations.",
   "When the request specifies pairings, preserve them as one typed directed relationship set with one exact fromRef/toRef edge per pairing and the actual fromType/toType contract. Never represent pairings as two independent lists, because that loses correspondence.",
-  "You may define request-local sets only from object refs supplied in this orientation interaction. Put targets that still require search or resolution in unresolvedTargets instead of inventing refs.",
+  "You may define request-local sets only from object refs supplied in this orientation interaction. Put targets that still require search or resolution in unresolvedTargets instead of inventing refs; describe only their ordinary-language semantic kind, never a capability resource type.",
   "Select the smallest plausible capability-family set. A capability family says where execution belongs; exact tool selection happens later from exact schemas.",
   "Use contextRequests only for advertised read-only context that execution genuinely needs. Explicit composer selections are verified automatically.",
   "When the request names a weekday or relative calendar date that governs execution, record the literal, source event, IANA time zone, weekday, resolved local date, role, and affected field in temporalResolutions.",
@@ -554,7 +561,7 @@ export function intentContinuityProblem(core) {
     if (actionIds.has(action.actionId)) return `duplicate actionId ${action.actionId}`;
     actionIds.add(action.actionId);
     const outcomeIds = new Set();
-    for (const outcome of action.outcomeObjects ?? []) {
+    for (const outcome of action.outcomes ?? action.outcomeObjects ?? []) {
       if (outcomeIds.has(outcome.outcomeId)) {
         return `duplicate outcomeId ${outcome.outcomeId} in action ${action.actionId}`;
       }
@@ -571,14 +578,17 @@ export function intentContinuityProblem(core) {
 export function connectCoreIntent(core) {
   return {
     ...core,
-    actions: (core.actions ?? []).map((action, actionIndex) => ({
-      ...action,
-      actionId: `action_${actionIndex + 1}`,
-      outcomeObjects: (action.outcomeObjects ?? []).map((outcome, outcomeIndex) => ({
-        ...outcome,
-        outcomeId: `outcome_${outcomeIndex + 1}`,
-      })),
-    })),
+    actions: (core.actions ?? []).map((action, actionIndex) => {
+      const { outcomeObjects: legacyOutcomes, ...semanticAction } = action;
+      return {
+        ...semanticAction,
+        actionId: `action_${actionIndex + 1}`,
+        outcomes: (action.outcomes ?? legacyOutcomes ?? []).map((outcome, outcomeIndex) => ({
+          ...outcome,
+          outcomeId: `outcome_${outcomeIndex + 1}`,
+        })),
+      };
+    }),
   };
 }
 

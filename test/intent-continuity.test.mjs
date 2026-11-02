@@ -3,133 +3,166 @@ import test from "node:test";
 import {
   intentOutcomeFindings,
   intentPreflightProblems,
+  matchIntentOutcomes,
   matchingIntentOutcomeRefs,
 } from "../src/intent-continuity.mjs";
 
-function watchJobCore({ basis = "request" } = {}) {
+function semanticCore({ basis = "request", targetRefs = [] } = {}) {
   return {
     actions: [{
-      actionId: "create_watch_job",
-      outcomeObjects: [{
-        outcomeId: "watch_job",
-        description: "One watch job containing all six listed watches and their service notes.",
-        objectType: "todos.personal_task",
-        targetRefs: [],
+      actionId: "create_requested_result",
+      outcomes: [{
+        outcomeId: "requested_result",
+        description: "One requested result containing all six supplied details.",
+        targetRefs,
         cardinality: { minimum: 1, maximum: 1, basis },
       }],
     }],
   };
 }
 
-function todoAddDefinition() {
+function createDefinition(name, objectType, batch = "singleton") {
   return {
-    name: "todo_add",
+    name,
     capability: {
       resources: [{
-        id: "todos.personal_task",
+        id: objectType,
         kind: "object",
         operations: {
-          create: { available: true, tool: "todo_add", batch: "singleton" },
+          create: { available: true, tool: name, batch },
         },
       }],
     },
   };
 }
 
-function taskReferences(...ids) {
+function references(type, prefix, ...ids) {
   return [{
-    type: "todos.personal_task",
-    source: "native:todos",
-    objects: ids.map((id) => ({ id, ref: `agent-slayer://todos/${id}`, display: `Task ${id}` })),
+    type,
+    source: `native:${prefix}`,
+    objects: ids.map((id) => ({ id, ref: `agent-slayer://${prefix}/${id}`, display: `Object ${id}` })),
   }];
 }
 
-test("explicit one-object outcomes reject sibling singleton fan-out before execution", () => {
+const todoDefinition = () => createDefinition("todo_add", "todos.personal_task");
+const taskReferences = (...ids) => references("todos.personal_task", "todos", ...ids);
+
+test("semantic one-result intent rejects homogeneous singleton-create fan-out", () => {
   const calls = Array.from({ length: 6 }, (_, index) => ({
     callId: `call-${index + 1}`,
     tool: "todo_add",
-    arguments: { text: `Watch ${index + 1}`, todo_group_id: 10 },
+    arguments: { text: `Detail ${index + 1}`, todo_group_id: 10 },
   }));
   const problems = intentPreflightProblems({
-    core: watchJobCore(),
+    core: semanticCore(),
     calls,
-    toolDefinitions: new Map([["todo_add", todoAddDefinition()]]),
+    toolDefinitions: new Map([["todo_add", todoDefinition()]]),
   });
   assert.equal(problems.length, 6);
   assert.deepEqual(new Set(problems.map(({ code }) => code)), new Set([
     "INTENT_OUTCOME_CREATE_OVERSHOOT",
   ]));
-  assert.match(problems[0].message, /allows at most 1 todos\.personal_task/u);
+  assert.match(problems[0].message, /semantic outcomes allow at most 1 created object/i);
+  assert.match(problems[0].message, /todos\.personal_task create count/u);
 });
 
 test("inferred outcome structure remains advisory and does not reject calls", () => {
   const problems = intentPreflightProblems({
-    core: watchJobCore({ basis: "inferred" }),
+    core: semanticCore({ basis: "inferred" }),
     calls: [{ callId: "call-1", tool: "todo_add", arguments: {} }, {
       callId: "call-2", tool: "todo_add", arguments: {},
     }],
-    toolDefinitions: new Map([["todo_add", todoAddDefinition()]]),
+    toolDefinitions: new Map([["todo_add", todoDefinition()]]),
   });
   assert.deepEqual(problems, []);
 });
 
-test("mutation evidence stays connected to outcome identities and exact final cardinality", () => {
-  const core = watchJobCore();
-  assert.deepEqual(
-    matchingIntentOutcomeRefs(core, taskReferences(463)),
-    ["create_watch_job.watch_job"],
-  );
-  const registry = {
-    get: () => ({ annotations: { readOnlyHint: false } }),
-  };
-  assert.deepEqual(intentOutcomeFindings({
-    core,
-    receipts: [{
-      ok: true, tool: "todo_add", objectReferences: taskReferences(463),
-      intentOutcomeRefs: ["create_watch_job.watch_job"],
+test("mixed execution representations are not rejected from untyped orientation intent", () => {
+  const contactDefinition = createDefinition("contact_import", "contacts.contact", "array");
+  const problems = intentPreflightProblems({
+    core: semanticCore(),
+    calls: [
+      { callId: "task", tool: "todo_add", arguments: {} },
+      { callId: "contact", tool: "contact_import", arguments: {} },
+    ],
+    toolDefinitions: new Map([
+      ["todo_add", todoDefinition()],
+      ["contact_import", contactDefinition],
+    ]),
+  });
+  assert.deepEqual(problems, []);
+});
+
+test("owning create contract and receipt bind representation after orientation", () => {
+  const core = semanticCore();
+  const match = matchIntentOutcomes(core, taskReferences(463), todoDefinition());
+  assert.deepEqual(match, {
+    outcomeRefs: ["create_requested_result.requested_result"],
+    bindings: [{
+      outcomeRef: "create_requested_result.requested_result",
+      objectType: "todos.personal_task",
     }],
-    registry,
-  }), []);
-  const findings = intentOutcomeFindings({
+  });
+  assert.deepEqual(
+    matchingIntentOutcomeRefs(core, taskReferences(463), todoDefinition()),
+    ["create_requested_result.requested_result"],
+  );
+
+  const registry = { get: () => ({ annotations: { readOnlyHint: false } }) };
+  const receipt = {
+    ok: true,
+    tool: "todo_add",
+    objectReferences: taskReferences(463),
+    intentOutcomeRefs: match.outcomeRefs,
+    intentOutcomeBindings: match.bindings,
+  };
+  assert.deepEqual(intentOutcomeFindings({ core, receipts: [receipt], registry }), []);
+
+  const excessive = intentOutcomeFindings({
     core,
     receipts: [{
-      ok: true, tool: "todo_add",
+      ...receipt,
       objectReferences: taskReferences(463, 464, 465, 466, 467, 468),
-      intentOutcomeRefs: ["create_watch_job.watch_job"],
     }],
     registry,
   });
-  assert.equal(findings.length, 1);
-  assert.equal(findings[0].observed, 6);
-  assert.equal(findings[0].code, "INTENT_OUTCOME_EVIDENCE_EXCESS");
-  assert.equal(findings[0].auditOnly, true);
-  assert.deepEqual(findings[0].outcomeRefs, ["create_watch_job.watch_job"]);
+  assert.equal(excessive.length, 1);
+  assert.equal(excessive[0].observed, 6);
+  assert.equal(excessive[0].objectType, "todos.personal_task");
+  assert.equal(excessive[0].code, "INTENT_OUTCOME_EVIDENCE_EXCESS");
 });
 
-test("one homogeneous batch outcome accepts its exact distinct object count without audit", () => {
+test("exact supplied targets bind by verified reference without an orientation resource type", () => {
+  const ref = "agent-slayer://todos/463";
+  const core = semanticCore({ targetRefs: [ref] });
+  assert.deepEqual(matchIntentOutcomes(core, taskReferences(463), null), {
+    outcomeRefs: ["create_requested_result.requested_result"],
+    bindings: [{
+      outcomeRef: "create_requested_result.requested_result",
+      objectType: "todos.personal_task",
+    }],
+  });
+});
+
+test("one homogeneous batch outcome accepts its exact distinct object count", () => {
   const core = {
     actions: [{
-      actionId: "record_exercise",
-      outcomeObjects: [{
-        outcomeId: "exercise_entries",
-        description: "The batch of separate entries for the requested tracker values.",
-        objectType: "journal.entry",
+      actionId: "record_measurements",
+      outcomes: [{
+        outcomeId: "entries",
+        description: "The separate requested measurements.",
         targetRefs: [],
         cardinality: { minimum: 2, maximum: 2, basis: "request" },
       }],
     }],
   };
-  const entryReferences = (id) => [{
-    type: "journal.entry",
-    source: "native:journal",
-    objects: [{ id, ref: `agent-slayer://journal-entries/${id}`, display: `Entry ${id}` }],
-  }];
-  const outcomeRef = "record_exercise.exercise_entries";
+  const outcomeRef = "record_measurements.entries";
   const receipts = [236, 237].map((id) => ({
     ok: true,
     tool: "journal_add",
-    objectReferences: entryReferences(id),
+    objectReferences: references("journal.entry", "journal-entries", id),
     intentOutcomeRefs: [outcomeRef],
+    intentOutcomeBindings: [{ outcomeRef, objectType: "journal.entry" }],
   }));
   assert.deepEqual(intentOutcomeFindings({
     core,
@@ -138,112 +171,69 @@ test("one homogeneous batch outcome accepts its exact distinct object count with
   }), []);
 });
 
-test("multiple unbound outcomes of one type defer correspondence to semantic audit", () => {
+test("multiple unbound semantic outcomes defer correspondence to audit", () => {
   const core = {
     actions: ["first", "second"].map((name) => ({
       actionId: `create_${name}`,
-      outcomeObjects: [{
-        outcomeId: "task",
-        description: `The ${name} independently requested task.`,
-        objectType: "todos.personal_task",
+      outcomes: [{
+        outcomeId: "result",
+        description: `The ${name} independently requested result.`,
         targetRefs: [],
         cardinality: { minimum: 1, maximum: 1, basis: "request" },
       }],
     })),
   };
   const objectReferences = taskReferences(463, 464);
-  assert.deepEqual(matchingIntentOutcomeRefs(core, objectReferences), []);
+  assert.deepEqual(matchIntentOutcomes(core, objectReferences, todoDefinition()), {
+    outcomeRefs: [], bindings: [],
+  });
   const findings = intentOutcomeFindings({
     core,
     receipts: [{ ok: true, tool: "todo_add", objectReferences }],
     registry: { get: () => ({ annotations: { readOnlyHint: false } }) },
   });
   assert.equal(findings.length, 1);
-  assert.equal(findings[0].auditOnly, true);
   assert.equal(findings[0].code, "INTENT_OUTCOME_EVIDENCE_AMBIGUOUS");
 });
 
-test("inferred same-type outcomes never compete with request-established receipt correlation", () => {
-  const outcomeRef = "tag_contacts.tagged_contacts";
+test("inferred outcomes never compete with request-established execution binding", () => {
   const core = {
     actions: [{
-      actionId: "tag_contacts",
-      outcomeObjects: [{
-        outcomeId: "predicted_tag",
-        description: "A predicted tag representation that is not a first-class object.",
-        objectType: "contacts.contact",
+      actionId: "resolve_people",
+      outcomes: [{
+        outcomeId: "prediction",
+        description: "An advisory possible result.",
         targetRefs: [],
         cardinality: { minimum: 1, maximum: 1, basis: "inferred" },
       }, {
-        outcomeId: "tagged_contacts",
-        description: "The fourteen contacts named by the supplied email addresses.",
-        objectType: "contacts.contact",
+        outcomeId: "people",
+        description: "The fourteen requested people.",
         targetRefs: [],
         cardinality: { minimum: 14, maximum: 14, basis: "request" },
       }],
     }],
   };
-  const existing = [{
-    type: "contacts.contact", source: "native:contacts",
-    objects: [{ id: 399, ref: "agent-slayer://contacts/399", display: "Emily Wu" }],
-  }];
-  const imported = [{
-    type: "contacts.contact", source: "native:contacts",
-    objects: Array.from({ length: 13 }, (_, index) => ({
-      id: 1613 + index,
-      ref: `agent-slayer://contacts/${1613 + index}`,
-      display: `Service ${index + 1}`,
-    })),
-  }];
-  assert.deepEqual(matchingIntentOutcomeRefs(core, existing), [outcomeRef]);
-  assert.deepEqual(matchingIntentOutcomeRefs(core, imported), [outcomeRef]);
-  assert.deepEqual(intentOutcomeFindings({
-    core,
-    receipts: [{
-      ok: true, tool: "contact_tag_add_batch", objectReferences: existing,
-      intentOutcomeRefs: [outcomeRef],
-    }, {
-      ok: true, tool: "contact_import", objectReferences: imported,
-      intentOutcomeRefs: [outcomeRef],
-    }],
-    registry: { get: () => ({ annotations: { readOnlyHint: false } }) },
-  }), []);
+  const definition = createDefinition("contact_import", "contacts.contact", "array");
+  const imported = references(
+    "contacts.contact",
+    "contacts",
+    ...Array.from({ length: 14 }, (_, index) => 1600 + index),
+  );
+  assert.deepEqual(matchIntentOutcomes(core, imported, definition), {
+    outcomeRefs: ["resolve_people.people"],
+    bindings: [{ outcomeRef: "resolve_people.people", objectType: "contacts.contact" }],
+  });
 });
 
-test("missing mechanical outcome correlation is an audit question, not proof of failure", () => {
-  const core = {
-    actions: [{
-      actionId: "tag_contacts",
-      outcomeObjects: [{
-        outcomeId: "tagged_contacts",
-        description: "Fourteen tagged contacts.",
-        objectType: "contacts.contact",
-        targetRefs: [],
-        cardinality: { minimum: 14, maximum: 14, basis: "request" },
-      }],
-    }],
-  };
-  const imported = [{
-    type: "contacts.contact", source: "native:contacts",
-    objects: Array.from({ length: 13 }, (_, index) => ({
-      id: 1613 + index,
-      ref: `agent-slayer://contacts/${1613 + index}`,
-      display: `Service ${index + 1}`,
-    })),
-  }];
+test("missing mechanical correlation remains an audit question", () => {
+  const core = semanticCore();
   const findings = intentOutcomeFindings({
     core,
-    receipts: [{
-      ok: true, tool: "contact_tag_add_batch", objectReferences: [],
-    }, {
-      ok: true, tool: "contact_import", objectReferences: imported,
-      intentOutcomeRefs: ["tag_contacts.tagged_contacts"],
-    }],
+    receipts: [{ ok: true, tool: "todo_add", objectReferences: [] }],
     registry: { get: () => ({ annotations: { readOnlyHint: false } }) },
   });
   assert.equal(findings.length, 1);
   assert.equal(findings[0].code, "INTENT_OUTCOME_EVIDENCE_INCOMPLETE");
-  assert.equal(findings[0].auditOnly, true);
-  assert.equal(findings[0].observed, 13);
+  assert.equal(findings[0].observed, 0);
   assert.match(findings[0].message, /not proof that the requested work failed/i);
 });

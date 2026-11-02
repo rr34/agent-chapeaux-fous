@@ -661,18 +661,21 @@ Agent Slayer uses a structured loop derived from the military OODA loop:
 1. **Orient** — understand the exact request as ordinary conversation and emit
    a compact common-sense core containing its end state, batch-shaped actions,
    application-assigned stable request-local action identities, compact
-   request-established first-class outcome objects with application-assigned
-   identities when the request already determines those roles,
+   request-established semantic outcome roles with application-assigned
+   identities when the request already determines their meaning and count,
    relevant supplied object and set references, exact directed relationship
    sets, unresolved target slots, explicit constraints, genuine questions,
-   context needs, and capability families. Do not select exact tools or audits.
+   context needs, and capability families. Do not select capability resource
+   types, exact tools, result shapes, or audits.
 2. **Prepare** — deterministically verify explicit selections, read the core's
    bounded context requests, and hydrate exact bindings without another model
    interpretation.
 3. **Execute** — receive the accepted core, prepared context, and verified
    bindings; expose exact schemas for the selected capability families; invoke
-   tools; connect canonical result bindings back to compatible accepted outcome
-   identities; and return every result to the same model exchange.
+   tools; bind unambiguous semantic outcomes to concrete resource types from
+   owning lifecycle declarations and canonical result bindings; connect those
+   results back to accepted outcome identities; and return every result to the
+   same model exchange.
 4. **Audit when exceptional** — compare the ordinary-language outcome with
    exact contracts and receipts only when deterministic completion is
    insufficient.
@@ -686,23 +689,29 @@ conflicting or failed receipts that may have been recovered, unknown tool
 effects, or an action lacking successful mutation evidence. Unknown effects are
 treated conservatively.
 
-Outcome objects are continuity, not another planning layer. Their cardinality
-describes first-class objects in the requested result, not tool-call count,
-database-row count, or an ordered execution recipe. A job containing six
-details can therefore remain one outcome object, while six independently
-requested first-class objects can be represented as six. Tags, relationships,
-field values, lifecycle effects, receipts, and possible tool result shapes are
-not invented as outcome objects. A list of unresolved names, addresses, or
-search keys does not by itself establish how many distinct objects owning reads
-will resolve. Only cardinality grounded directly in the exact request or an
-exact selected set independently of execution is a deterministic restriction;
+Outcome roles are continuity, not another planning layer. Their cardinality
+describes semantic results requested by the user, not tool-call count,
+database-row count, capability resource type, or an ordered execution recipe.
+One requested result containing six details can therefore remain one outcome,
+while six independently requested results can be represented as six.
+Orientation never assigns a concrete resource type to a new or unresolved
+outcome. Verified supplied targets retain their independently established
+types; an unresolved target carries only an ordinary-language semantic kind
+until an owning read resolves it. Otherwise owning lifecycle declarations and
+successful canonical result bindings establish representation during
+execution. Tags, relationships, field values, lifecycle effects, receipts, and
+possible tool result shapes are not invented as outcomes. A list of unresolved
+names, addresses, or search keys does not by itself establish how many distinct
+objects owning reads will resolve. Only cardinality grounded directly in the
+exact request or an exact selected set independently of execution is a
+deterministic restriction;
 inferred structure remains model context for exceptional semantic review and
-does not compete for automatic receipt correlation. Before executing sibling
-calls, the structure may reject a mechanically provable singleton-create
-fan-out that would exceed an explicit accepted maximum. It then reconciles
-distinct canonical object bindings exposed by successful mutation results with
-those request-established outcome identities. Provider schemas and arguments
-remain unchanged.
+does not compete for automatic receipt correlation. Before executing a
+homogeneous sibling create set, the structure may reject a mechanically
+provable fan-out that would exceed an explicit accepted maximum. Mixed or
+ambiguous resource representations proceed to owning tools and receipts rather
+than being rejected from an orientation hypothesis. Provider schemas and
+arguments remain unchanged.
 
 Mechanical correlation is not the whole receipt. An exact bound mutation call,
 its arguments, literal result, per-item or aggregate effects, and owning tool

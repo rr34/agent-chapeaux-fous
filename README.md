@@ -738,16 +738,19 @@ historical bindings. It emits a strict common-sense core: the end goal, a
 batch-shaped action list, stable target references, relevant constraints,
 genuine questions, bounded context requests, and capability families. Every
 action receives one application-assigned request-local identity and contains
-only the compact first-class outcome objects already established by the request
-or an exact selected set; their identities are assigned the same way. Those
-outcomes describe known final object roles and request-established cardinality
-without prescribing rows, exact tools, or call order. A tag, relationship,
-field value, lifecycle effect, or possible tool representation remains in the
-ordinary-language action instead of being invented as an object. When owning
-reads and tools must reveal the concrete object representation, the outcome
-list stays empty or explicitly advisory. A list of unresolved names, email
-addresses, or search keys does not establish a distinct-object count because
-several keys may resolve to one object or one key to several.
+only the compact semantic outcome roles already established by the request or
+an exact selected set; their identities are assigned the same way. Those
+outcomes describe the requested meaning and request-established cardinality
+without naming a capability resource type, row, exact tool, result shape, or
+call order. Verified target references retain their independently known types,
+but orientation does not choose a type for a new or unresolved result. An
+unresolved target slot carries only an ordinary-language semantic kind until an
+owning read resolves it. A tag,
+relationship, field value, lifecycle effect, or possible tool representation
+remains in the ordinary-language action instead of being invented as an
+outcome. A list of unresolved names, email addresses, or search keys does not
+establish a distinct-object count because several keys may resolve to one
+object or one key to several.
 
 Application code then verifies explicit selections, reads the requested bounded
 context views, and hydrates exact object bindings without another model call.
@@ -759,21 +762,23 @@ opaque receipts can be recovered through the execution-only receipt reader
 without adding them to orientation.
 
 Execution evidence remains structurally connected to the accepted outcome
-identities. Before any member of one sibling mutation set runs, the runtime
-checks explicit request-established outcome cardinality against mechanically
-declared singleton create effects and rejects an obvious fan-out as one set.
-Inferred outcome structure remains advisory and does not compete for automatic
-receipt correlation. Successful mutation results are connected to compatible
-request-established outcome identities through canonical first-class object
-bindings when those results expose them. Exact bound mutation arguments,
-literal results, and owning contracts remain completion evidence even when a
-tool does not repeat every unchanged input object in its result. A cardinality
-shortfall or excess in mechanically correlated result bindings is therefore an
-exceptional evidence question, not proof that the operation failed. Semantic
-audit compares the complete receipts and may accept the evidenced final state
-without repair. These checks constrain the accepted final state, not the
-model's implementation method, and never rewrite provider tool schemas or
-inject application fields into their arguments.
+identities. Owning resource lifecycle declarations and successful result
+bindings, not orientation, bind each unambiguous semantic outcome to its
+concrete resource type. Before any member of one homogeneous sibling mutation
+set runs, the runtime may compare explicit request-established outcome
+cardinality with mechanically declared singleton create effects and reject an
+obvious fan-out as one set; mixed or ambiguous representations are never
+rejected from an orientation guess. Inferred outcome structure remains advisory
+and does not compete for automatic receipt correlation. Exact bound mutation
+arguments, literal results, and owning contracts remain completion evidence
+even when a tool does not repeat every unchanged input object in its result. A
+cardinality shortfall, excess, or ambiguous representation in mechanically
+correlated result bindings is therefore an exceptional evidence question, not
+proof that the operation failed. Semantic audit compares the complete receipts
+and may accept the evidenced final state without repair. These checks constrain
+the accepted final state, not the model's implementation method, and never
+rewrite provider tool schemas or inject application fields into their
+arguments.
 
 The selected tool list is enforcement, not a hint: a model call outside the
 current interaction's callable set is rejected before the application function

@@ -42,7 +42,7 @@ import {
   intentCreateEffects,
   intentOutcomeFindings,
   intentPreflightProblems,
-  matchingIntentOutcomeRefs,
+  matchIntentOutcomes,
 } from "./intent-continuity.mjs";
 import {
   temporalConsistencyFindings,
@@ -581,6 +581,9 @@ function continuationReceipt(receipt) {
     ...(receipt.toolFailure ? { toolFailure: receipt.toolFailure } : {}),
     ...(receipt.deferredActionReference ? { deferredActionReference: receipt.deferredActionReference } : {}),
     ...(receipt.intentOutcomeRefs?.length ? { intentOutcomeRefs: receipt.intentOutcomeRefs } : {}),
+    ...(receipt.intentOutcomeBindings?.length
+      ? { intentOutcomeBindings: receipt.intentOutcomeBindings }
+      : {}),
   };
   return compact;
 }
@@ -1063,7 +1066,6 @@ export class SlayerRuntime {
       relationshipSetRefs: availableReferenceSets
         .filter(({ kind }) => kind === "relationship_set").map(({ ref }) => ref),
       objectTypes: flatObjectReferences(orientationObjectReferences).map(({ type }) => type),
-      resourceTypes: catalog.flatMap(({ objectTypes = [] }) => objectTypes.map(({ id }) => id)),
       requestId: args.requestId,
     });
     const priorConversationSummary = JSON.stringify({
@@ -2588,9 +2590,14 @@ export class SlayerRuntime {
                 result: readOnly ? inline.deliveredResult : toolResult,
                 sourceEventSeq: receiptEventSeq,
               });
-              const intentOutcomeRefs = intentCore
-                ? matchingIntentOutcomeRefs(intentCore, newObjectReferences)
-                : [];
+              const intentMatch = intentCore && !readOnly
+                ? matchIntentOutcomes(
+                    intentCore,
+                    newObjectReferences,
+                    callableToolDefinitions.get(name),
+                  )
+                : { outcomeRefs: [], bindings: [] };
+              const intentOutcomeRefs = intentMatch.outcomeRefs;
               const createEffects = !readOnly
                 ? intentCreateEffects(callableToolDefinitions.get(name))
                 : [];
@@ -2622,6 +2629,7 @@ export class SlayerRuntime {
                     tool: name,
                     sourceReceiptEventSeq: receiptEventSeq,
                     intentOutcomeRefs,
+                    intentOutcomeBindings: intentMatch.bindings,
                   },
                 });
               }
@@ -2634,6 +2642,9 @@ export class SlayerRuntime {
                 receiptEventSeq,
                 ...(newObjectReferences.length ? { objectReferences: newObjectReferences } : {}),
                 ...(intentOutcomeRefs.length ? { intentOutcomeRefs } : {}),
+                ...(intentMatch.bindings.length
+                  ? { intentOutcomeBindings: intentMatch.bindings }
+                  : {}),
                 ...(createEffects.length ? { intentCreateEffects: createEffects } : {}),
                 ...(recordedSets.length ? { referenceSets: recordedSets } : {}),
                 ...(sourcedActionReference ? { deferredActionReference: sourcedActionReference } : {}),

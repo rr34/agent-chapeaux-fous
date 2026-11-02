@@ -53,7 +53,7 @@ function core(overrides = {}) {
       targetSetRefs: [],
       relationshipSetRefs: [],
       unresolvedTargets: [],
-      outcomeObjects: [],
+      outcomes: [],
       ...action,
     })),
     objectSets: value.objectSets ?? [],
@@ -294,9 +294,8 @@ test("mutation identity evidence is derived before a large result is paged", asy
         actions: [{
           instruction: "Rename calendar event 3165 to Admin.",
           targetRefs: [],
-          outcomeObjects: [{
+          outcomes: [{
             description: "The renamed calendar event.",
-            objectType: "calendar.event",
             targetRefs: [],
             cardinality: { minimum: 1, maximum: 1, basis: "request" },
           }],
@@ -441,9 +440,8 @@ test("explicit one-object intent rejects sibling create fan-out before any mutat
         actions: [{
           instruction: "Create one watch job containing all six watch details.",
           targetRefs: [],
-          outcomeObjects: [{
+          outcomes: [{
             description: "One watch job containing all six listed watches.",
-            objectType: "todos.personal_task",
             targetRefs: [],
             cardinality: { minimum: 1, maximum: 1, basis: "request" },
           }],
@@ -951,7 +949,7 @@ test("an explicit selection does not hide prior exact relationship evidence for 
             unresolvedTargets: [{
               slot: "watch_job",
               description: "Watch Job 6 in the exact named to-do group",
-              objectType: "todos.personal_task",
+              semanticType: "numbered Watch Job",
               role: "relationship source",
               cardinality: "one",
             }],
@@ -1322,9 +1320,8 @@ test("semantic audit can resolve incomplete mechanical outcome correlation witho
         actions: [{
           instruction: "Rename calendar event 3165 to Admin.",
           targetRefs: [],
-          outcomeObjects: [{
+          outcomes: [{
             description: "Calendar event 3165 in its renamed final state.",
-            objectType: "calendar.event",
             targetRefs: [],
             cardinality: { minimum: 1, maximum: 1, basis: "request" },
           }],
@@ -1434,14 +1431,12 @@ test("contact tagging regression connects one existing and thirteen created cont
         actions: [{
           instruction: "Apply the tag to existing matches and create tagged contacts for unmatched addresses.",
           targetRefs: [],
-          outcomeObjects: [{
+          outcomes: [{
             description: "A predicted tag representation.",
-            objectType: "contacts.contact",
             targetRefs: [],
             cardinality: { minimum: 1, maximum: 1, basis: "inferred" },
           }, {
             description: "Contacts corresponding to the supplied addresses.",
-            objectType: "contacts.contact",
             targetRefs: [],
             cardinality: { minimum: 14, maximum: 14, basis: "request" },
           }],

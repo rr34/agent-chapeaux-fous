@@ -4,7 +4,7 @@ function outcomeRef(action, outcome) {
 
 export function intentOutcomes(core) {
   return (core?.actions ?? []).flatMap((action) => (
-    (action.outcomeObjects ?? []).map((outcome) => ({
+    (action.outcomes ?? action.outcomeObjects ?? []).map((outcome) => ({
       ...outcome,
       actionId: action.actionId,
       ref: outcomeRef(action, outcome),
@@ -24,146 +24,177 @@ function groupsByType(groups) {
   return byType;
 }
 
-export function matchingIntentOutcomeRefs(core, objectReferenceGroups) {
-  const observedByType = groupsByType(objectReferenceGroups);
-  // Only request-established object roles participate in mechanical receipt
-  // correlation. Inferred roles are useful semantic context for execution and
-  // audit, but they are predictions made before the owning tools and their
-  // result shapes are known. Letting one inferred same-type role compete with
-  // an explicit role can make otherwise exact evidence unassignable.
-  const outcomes = intentOutcomes(core)
-    .filter(({ cardinality }) => cardinality?.basis === "request");
-  const unboundCounts = new Map();
-  for (const outcome of outcomes) {
-    if (outcome.targetRefs.length === 0) {
-      unboundCounts.set(outcome.objectType, (unboundCounts.get(outcome.objectType) ?? 0) + 1);
-    }
-  }
-  return outcomes.flatMap((outcome) => {
-    const observed = observedByType.get(outcome.objectType) ?? new Set();
-    if (outcome.targetRefs.length > 0) {
-      return outcome.targetRefs.some((ref) => observed.has(ref)) ? [outcome.ref] : [];
-    }
-    return unboundCounts.get(outcome.objectType) === 1 && observed.size > 0 ? [outcome.ref] : [];
-  });
-}
-
-function explicitBoundsByType(core) {
-  const bounds = new Map();
-  for (const outcome of intentOutcomes(core)) {
-    if (outcome.cardinality?.basis !== "request") continue;
-    const current = bounds.get(outcome.objectType) ?? {
-      objectType: outcome.objectType,
-      minimum: 0,
-      maximum: 0,
-      outcomeRefs: [],
-    };
-    current.minimum += outcome.cardinality.minimum;
-    current.maximum = current.maximum === null || outcome.cardinality.maximum === null
-      ? null
-      : current.maximum + outcome.cardinality.maximum;
-    current.outcomeRefs.push(outcome.ref);
-    bounds.set(outcome.objectType, current);
-  }
-  return bounds;
-}
-
-function toolCreateEffects(toolDefinition) {
+function createResources(toolDefinition, { singletonOnly = false } = {}) {
   if (!toolDefinition) return [];
   return (toolDefinition.capability?.resources ?? []).flatMap((resource) => {
     const operation = resource.operations?.create;
     if (resource.kind !== "object" || operation?.available !== true
-      || operation.tool !== toolDefinition.name || operation.batch !== "singleton") return [];
-    return [{ objectType: resource.id, count: 1 }];
+      || operation.tool !== toolDefinition.name
+      || (singletonOnly && operation.batch !== "singleton")) return [];
+    return [{ objectType: resource.id, count: 1, batch: operation.batch }];
   });
 }
 
+function mutationResourceTypes(toolDefinition) {
+  if (!toolDefinition) return new Set();
+  return new Set((toolDefinition.capability?.resources ?? []).flatMap((resource) => (
+    Object.entries(resource.operations ?? {}).some(([operation, contract]) => (
+      operation !== "read" && contract?.available === true && contract.tool === toolDefinition.name
+    )) ? [resource.id] : []
+  )));
+}
+
+function requestOutcomes(core) {
+  return intentOutcomes(core)
+    .filter(({ cardinality }) => cardinality?.basis === "request");
+}
+
+export function matchIntentOutcomes(core, objectReferenceGroups, toolDefinition = null) {
+  const observedByType = groupsByType(objectReferenceGroups);
+  const outcomes = requestOutcomes(core);
+  const bindings = [];
+
+  for (const outcome of outcomes.filter(({ targetRefs }) => targetRefs.length > 0)) {
+    for (const [objectType, observed] of observedByType) {
+      if (outcome.targetRefs.some((ref) => observed.has(ref))) {
+        bindings.push({ outcomeRef: outcome.ref, objectType });
+      }
+    }
+  }
+
+  const unbound = outcomes.filter(({ targetRefs }) => targetRefs.length === 0);
+  if (unbound.length === 1) {
+    const observedTypes = [...observedByType.keys()];
+    const declaredMutationTypes = mutationResourceTypes(toolDefinition);
+    const contractMatches = observedTypes.filter((objectType) => declaredMutationTypes.has(objectType));
+    const authoritativeTypes = contractMatches.length === 1
+      ? contractMatches
+      : observedTypes.length === 1 ? observedTypes : [];
+    if (authoritativeTypes.length === 1) {
+      bindings.push({ outcomeRef: unbound[0].ref, objectType: authoritativeTypes[0] });
+    }
+  }
+
+  const uniqueBindings = [...new Map(bindings.map((binding) => (
+    [`${binding.outcomeRef}\n${binding.objectType}`, binding]
+  ))).values()];
+  return {
+    outcomeRefs: [...new Set(uniqueBindings.map(({ outcomeRef: ref }) => ref))],
+    bindings: uniqueBindings,
+  };
+}
+
+export function matchingIntentOutcomeRefs(core, objectReferenceGroups, toolDefinition = null) {
+  return matchIntentOutcomes(core, objectReferenceGroups, toolDefinition).outcomeRefs;
+}
+
 export function intentCreateEffects(toolDefinition) {
-  return toolCreateEffects(toolDefinition);
+  return createResources(toolDefinition, { singletonOnly: true });
+}
+
+function receiptOutcomeBindings(receipt) {
+  if (receipt.intentOutcomeBindings?.length) return receipt.intentOutcomeBindings;
+  const types = [...groupsByType(receipt.objectReferences).keys()];
+  if (types.length !== 1) return [];
+  return (receipt.intentOutcomeRefs ?? []).map((ref) => ({
+    outcomeRef: ref,
+    objectType: types[0],
+  }));
 }
 
 export function intentPreflightProblems({ core, calls, toolDefinitions, receipts = [] }) {
-  const bounds = explicitBoundsByType(core);
-  if (bounds.size === 0) return [];
-  const consumed = new Map();
-  for (const receipt of receipts) {
-    if (receipt?.ok !== true) continue;
-    for (const effect of receipt.intentCreateEffects ?? []) {
-      consumed.set(effect.objectType, (consumed.get(effect.objectType) ?? 0) + effect.count);
-    }
+  const outcomes = requestOutcomes(core)
+    .filter(({ targetRefs }) => targetRefs.length === 0);
+  if (outcomes.length === 0 || outcomes.some(({ cardinality }) => cardinality.maximum === null)) {
+    return [];
   }
-  const proposed = new Map();
+
   const effectsByCall = new Map();
+  const proposedByType = new Map();
   for (const call of calls ?? []) {
-    const effects = toolCreateEffects(toolDefinitions.get(call.tool));
+    const effects = createResources(toolDefinitions.get(call.tool), { singletonOnly: true });
     effectsByCall.set(call.callId, effects);
     for (const effect of effects) {
-      proposed.set(effect.objectType, (proposed.get(effect.objectType) ?? 0) + effect.count);
+      proposedByType.set(effect.objectType, (proposedByType.get(effect.objectType) ?? 0) + effect.count);
     }
   }
-  const exceeded = new Map();
-  for (const [objectType, count] of proposed) {
-    const bound = bounds.get(objectType);
-    if (!bound || bound.maximum === null) continue;
-    const total = (consumed.get(objectType) ?? 0) + count;
-    if (total > bound.maximum) exceeded.set(objectType, { ...bound, proposed: total });
+  if (proposedByType.size !== 1) return [];
+
+  const [[objectType, proposed]] = proposedByType;
+  const outcomeRefs = new Set(outcomes.map(({ ref }) => ref));
+  const maximum = outcomes.reduce((sum, outcome) => sum + outcome.cardinality.maximum, 0);
+  let consumed = 0;
+  for (const receipt of receipts) {
+    if (receipt?.ok !== true) continue;
+    const bindings = receiptOutcomeBindings(receipt)
+      .filter((binding) => binding.objectType === objectType && outcomeRefs.has(binding.outcomeRef));
+    if (bindings.length === 0) continue;
+    consumed += (receipt.intentCreateEffects ?? [])
+      .filter((effect) => effect.objectType === objectType)
+      .reduce((sum, effect) => sum + effect.count, 0);
   }
-  if (exceeded.size === 0) return [];
+  const total = consumed + proposed;
+  if (total <= maximum) return [];
+
   return (calls ?? []).flatMap((call) => {
-    const conflict = (effectsByCall.get(call.callId) ?? [])
-      .map(({ objectType }) => exceeded.get(objectType))
-      .find(Boolean);
-    if (!conflict) return [];
+    if (!(effectsByCall.get(call.callId) ?? []).some((effect) => effect.objectType === objectType)) {
+      return [];
+    }
     return [{
       callId: call.callId,
       code: "INTENT_OUTCOME_CREATE_OVERSHOOT",
-      outcomeRefs: conflict.outcomeRefs,
-      message: `The accepted final state allows at most ${conflict.maximum} ${conflict.objectType} outcome object${conflict.maximum === 1 ? "" : "s"}, but this sibling call set would create ${conflict.proposed}. Re-express the same accepted action without creating extra first-class objects.`,
+      outcomeRefs: [...outcomeRefs],
+      message: `The accepted semantic outcomes allow at most ${maximum} created object${maximum === 1 ? "" : "s"}, but this sibling call set would bring the ${objectType} create count to ${total}. Re-express the same accepted action without creating extra results.`,
     }];
   });
 }
 
 export function intentOutcomeFindings({ core, receipts, registry }) {
-  const outcomes = intentOutcomes(core)
-    .filter(({ cardinality }) => cardinality?.basis === "request");
+  const outcomes = requestOutcomes(core);
   if (outcomes.length === 0) return [];
   const outcomeByRef = new Map(outcomes.map((outcome) => [outcome.ref, outcome]));
   const observedByOutcome = new Map(outcomes.map(({ ref }) => [ref, new Set()]));
-  const unboundCounts = new Map();
-  for (const outcome of outcomes) {
-    if (outcome.targetRefs.length === 0) {
-      unboundCounts.set(outcome.objectType, (unboundCounts.get(outcome.objectType) ?? 0) + 1);
-    }
-  }
-  const unconnectedTypes = new Set();
+  const typesByOutcome = new Map(outcomes.map(({ ref }) => [ref, new Set()]));
+  let unboundMutationEvidence = false;
+
   for (const receipt of receipts ?? []) {
     if (receipt?.ok !== true) continue;
     if (registry.get(receipt.tool)?.annotations?.readOnlyHint === true) continue;
     const grouped = groupsByType(receipt.objectReferences);
-    const connectedRefs = (receipt.intentOutcomeRefs ?? [])
-      .filter((ref) => outcomeByRef.has(ref));
-    for (const ref of connectedRefs) {
-      const outcome = outcomeByRef.get(ref);
+    const bindings = receiptOutcomeBindings(receipt)
+      .filter(({ outcomeRef: ref }) => outcomeByRef.has(ref));
+    if (bindings.length === 0 && grouped.size > 0) unboundMutationEvidence = true;
+    for (const { outcomeRef: ref, objectType } of bindings) {
+      typesByOutcome.get(ref).add(objectType);
       const observed = observedByOutcome.get(ref);
-      for (const objectRef of grouped.get(outcome.objectType) ?? []) observed.add(objectRef);
-    }
-    for (const type of grouped.keys()) {
-      if (unboundCounts.get(type) > 1
-        && !connectedRefs.some((ref) => outcomeByRef.get(ref).objectType === type)) {
-        unconnectedTypes.add(type);
-      }
+      for (const objectRef of grouped.get(objectType) ?? []) observed.add(objectRef);
     }
   }
-  const findings = [...unconnectedTypes].map((objectType) => ({
-    code: "INTENT_OUTCOME_EVIDENCE_AMBIGUOUS",
-    auditOnly: true,
-    objectType,
-    outcomeRefs: outcomes.filter((outcome) => outcome.objectType === objectType)
-      .map(({ ref }) => ref),
-    message: `Successful mutation evidence contains ${objectType} objects, but several accepted outcome roles share that type and no exact target identity distinguishes them. Semantic audit must verify the final-state correspondence.`,
-  }));
+
+  const unboundOutcomes = outcomes.filter(({ targetRefs }) => targetRefs.length === 0);
+  const findings = [];
+  if (unboundOutcomes.length > 1 && unboundMutationEvidence) {
+    findings.push({
+      code: "INTENT_OUTCOME_EVIDENCE_AMBIGUOUS",
+      auditOnly: true,
+      outcomeRefs: unboundOutcomes.map(({ ref }) => ref),
+      message: "Successful mutation evidence contains created or changed objects, but several accepted semantic outcomes could correspond to them and execution produced no unambiguous outcome binding. Semantic audit must compare the exact actions, calls, results, and owning contracts.",
+    });
+  }
+
   for (const outcome of outcomes) {
-    if (outcome.targetRefs.length === 0 && unboundCounts.get(outcome.objectType) > 1) continue;
+    const boundObjectTypes = [...typesByOutcome.get(outcome.ref)];
+    if (boundObjectTypes.length > 1) {
+      findings.push({
+        code: "INTENT_OUTCOME_REPRESENTATION_AMBIGUOUS",
+        auditOnly: true,
+        outcomeRefs: [outcome.ref],
+        boundObjectTypes,
+        message: `Execution bound ${outcome.ref} to several resource types (${boundObjectTypes.join(", ")}). Semantic audit must verify which receipts represent the requested result.`,
+      });
+      continue;
+    }
+    if (outcome.targetRefs.length === 0 && unboundOutcomes.length > 1) continue;
     const observed = observedByOutcome.get(outcome.ref)?.size ?? 0;
     const { minimum, maximum } = outcome.cardinality;
     const below = observed < minimum;
@@ -178,11 +209,12 @@ export function intentOutcomeFindings({ core, receipts, registry }) {
         ? "INTENT_OUTCOME_EVIDENCE_INCOMPLETE"
         : "INTENT_OUTCOME_EVIDENCE_EXCESS",
       auditOnly: true,
-      objectType: outcome.objectType,
+      ...(boundObjectTypes.length === 1 ? { objectType: boundObjectTypes[0] } : {}),
+      boundObjectTypes,
       outcomeRefs: [outcome.ref],
       expected,
       observed,
-      message: `The accepted final state names ${expected} ${outcome.objectType} object${expected === "1" ? "" : "s"} for ${outcome.ref}, while mechanically connected successful mutation results expose ${observed}. This is ${direction} correlated object evidence, not proof that the requested work failed; semantic audit must compare the exact bound calls, arguments, results, and owning contracts.`,
+      message: `The accepted semantic outcome names ${expected} requested result${expected === "1" ? "" : "s"} for ${outcome.ref}, while mechanically connected successful mutation results expose ${observed}. This is ${direction} correlated object evidence, not proof that the requested work failed; semantic audit must compare the exact bound calls, arguments, results, and owning contracts.`,
     });
   }
   return findings;

@@ -210,6 +210,23 @@ test("the orienter receives one organized catalog of every connected capability 
   assert.equal(catalog.find(({ capability }) => capability === "email").tools[0].annotations, undefined);
 });
 
+test("the orientation catalog retains declared capability vocabulary", () => {
+  const widgets = {
+    id: "widgets",
+    title: "Widgets",
+    summary: "Manage widgets.",
+    aliases: ["special widget"],
+    resources: [],
+  };
+  const catalog = requestCapabilityCatalog([{
+    ...tool("widget_add"),
+    capabilityId: "widgets",
+    capability: widgets,
+  }]);
+  assert.equal(catalog[0].capability, "widgets");
+  assert.deepEqual(catalog[0].aliases, ["special widget"]);
+});
+
 test("a TurnBrief tool override starts narrow and advertises exact in-capability expansion", async () => {
   const compiler = new RequestCompiler();
   const accountingTools = [

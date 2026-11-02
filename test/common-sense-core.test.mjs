@@ -32,9 +32,8 @@ function validCore() {
       targetSetRefs: [],
       relationshipSetRefs: [],
       unresolvedTargets: [],
-      outcomeObjects: [{
+      outcomes: [{
         description: "The three selected to-dos in their completed final state.",
-        objectType: "todos.personal_task",
         targetRefs: [
           "agent-slayer://todos/7",
           "agent-slayer://todos/8",
@@ -57,7 +56,6 @@ function validCore() {
 test("the common-sense core is compact, batch-shaped, and contains no tool planning", () => {
   const schema = commonSenseCoreSchema({
     capabilities: ["todos", "calendar"],
-    resourceTypes: ["todos.personal_task", "calendar.event"],
     objectRefs: [
       "agent-slayer://todos/7",
       "agent-slayer://todos/8",
@@ -71,10 +69,18 @@ test("the common-sense core is compact, batch-shaped, and contains no tool plann
   assert.equal(Object.hasOwn(schema.properties, "audit"), false);
   assert.equal(Object.hasOwn(schema.properties, "conversationState"), false);
   assert.equal(Object.hasOwn(schema.properties, "completionCriteria"), false);
+  assert.equal(Object.hasOwn(
+    schema.properties.actions.items.properties.outcomes.items.properties,
+    "objectType",
+  ), false);
+  assert.equal(Object.hasOwn(
+    schema.properties.actions.items.properties.unresolvedTargets.items.properties,
+    "objectType",
+  ), false);
   assert.match(schema.properties.mode.description, /act only when.*mutation/i);
   const connected = connectCoreIntent(value);
   assert.equal(connected.actions[0].actionId, "action_1");
-  assert.equal(connected.actions[0].outcomeObjects[0].outcomeId, "outcome_1");
+  assert.equal(connected.actions[0].outcomes[0].outcomeId, "outcome_1");
   assert.equal(intentContinuityProblem(connected), null);
 });
 
@@ -192,8 +198,9 @@ test("orientation contains families and selections but no exact tool catalog", (
   assert.match(context, /never copy the whole group/i);
   assert.doesNotMatch(context, /todo_complete_batch/);
   assert.match(commonSenseInstructions, /common-sense orientation/i);
+  assert.match(commonSenseInstructions, /Never choose or emit a capability resource type/i);
   assert.match(commonSenseInstructions, /not proof that every member is a current target/i);
-  assert.match(commonSenseInstructions, /Do not predict the concrete representation/i);
+  assert.match(commonSenseInstructions, /Do not predict the row, provider object, tool, or result shape/i);
   assert.match(commonSenseInstructions, /tag, relationship, field value/i);
   assert.match(commonSenseInstructions, /list of unresolved names, email addresses, search keys/i);
   assert.match(auditInstructions, /missing or partial mechanical outcome-reference correlation/i);
@@ -225,8 +232,28 @@ test("orientation distinguishes first-class objects from relationship effects", 
   });
   assert.match(context, /object:contacts\.contact \[CREATE\/READ\/UPDATE\/DELETE\]/u);
   assert.match(context, /relationship:contacts\.contact_tag \[LINK\/READ\/UPDATE\/UNLINK\]/u);
-  assert.match(context, /relationships describe edges and must never be recast as objects/i);
+  assert.match(context, /relationships describe edges and must never be recast as outcomes/i);
   assert.match(context, /tag assignment.*do not invent an outcome object/is);
+});
+
+test("orientation exposes matched declared vocabulary without hard-coded domain terms", () => {
+  const context = commonSenseContext({
+    requestId: "request-special-widget",
+    requestEventSeq: 10,
+    requestText: "Add a special widget.",
+    recentConversation: [],
+    capabilityCatalog: [{
+      capability: "widgets",
+      title: "Widgets",
+      summary: "Manage widgets.",
+      aliases: ["special widget"],
+      objectTypes: [],
+      relationships: [],
+      contextViews: [],
+    }],
+  });
+  assert.match(context, /matched request vocabulary: "special widget" \(declared capability alias\)/i);
+  assert.match(context, /matched request vocabulary is strong routing evidence/i);
 });
 
 test("orientation receives the compact journal object and batch semantics for tracker values", () => {
@@ -324,7 +351,7 @@ test("the core can define and select exact relationship sets from supplied objec
       targetSetRefs: [],
       relationshipSetRefs: [relationshipRef],
       unresolvedTargets: [],
-      outcomeObjects: [],
+      outcomes: [],
     }],
     relationshipSets: [{
       ref: relationshipRef,
