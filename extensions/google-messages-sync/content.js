@@ -42,7 +42,8 @@
   }
 
   function conversationIdFromHref(href) {
-    return /\/web\/conversations\/([^/?#]+)/u.exec(String(href || ""))?.[1] || null;
+    const id = /\/web\/conversations\/([^/?#]+)/u.exec(String(href || ""))?.[1] || null;
+    return id && /^[A-Za-z0-9_-]{6,}$/u.test(id) ? id : null;
   }
 
   function visibleTextNodes(root) {
@@ -66,7 +67,7 @@
     return null;
   }
 
-  function collectConversationLinks(found, scroller) {
+  function collectConversationLinks(found) {
     for (const link of document.querySelectorAll('a[href*="/web/conversations/"]')) {
       const id = conversationIdFromHref(link.href);
       if (!id || found.has(id)) continue;
@@ -76,7 +77,6 @@
         id,
         href: `https://messages.google.com/web/conversations/${encodeURIComponent(id)}`,
         title: text[0] || link.getAttribute("aria-label") || link.getAttribute("title") || "Unknown conversation",
-        listScrollTop: scroller?.scrollTop || 0,
       });
     }
   }
@@ -92,9 +92,12 @@
     if (!first) throw new Error("No Google Messages conversations are visible. Confirm that Messages for Web is paired.");
     const scroller = scrollableAncestor(first);
     const found = new Map();
-    collectConversationLinks(found, scroller);
+    collectConversationLinks(found);
     if (!scroller) return [...found.values()];
     const original = scroller.scrollTop;
+    scroller.scrollTop = 0;
+    await sleep(500);
+    collectConversationLinks(found);
     let unchanged = 0;
     let previousSize = found.size;
     for (let step = 0; step < 2000 && unchanged < 4; step += 1) {
@@ -104,7 +107,7 @@
         scroller.scrollTop + Math.max(300, Math.floor(scroller.clientHeight * 0.8)),
       );
       await sleep(450);
-      collectConversationLinks(found, scroller);
+      collectConversationLinks(found);
       const atBottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4;
       unchanged = found.size === previousSize && (atBottom || scroller.scrollTop === beforeTop)
         ? unchanged + 1
@@ -379,22 +382,6 @@
   async function navigateToConversation(target) {
     const alreadyAtTarget = conversationIdFromHref(location.href) === target.id;
     if (alreadyAtTarget && await waitForConversation(target.id, 12_000)) return true;
-    let link = [...document.querySelectorAll('a[href*="/web/conversations/"]')]
-      .find((candidate) => conversationIdFromHref(candidate.href) === target.id);
-    if (!link) {
-      const first = document.querySelector('a[href*="/web/conversations/"]');
-      const scroller = scrollableAncestor(first);
-      if (scroller) {
-        scroller.scrollTop = target.listScrollTop || 0;
-        await sleep(500);
-        link = [...document.querySelectorAll('a[href*="/web/conversations/"]')]
-          .find((candidate) => conversationIdFromHref(candidate.href) === target.id);
-      }
-    }
-    if (link) {
-      link.click();
-      if (await waitForConversation(target.id)) return true;
-    }
     if (alreadyAtTarget) {
       throw new Error(`Google Messages opened ${target.title}, but its message list did not render. Reload the tab once and retry.`);
     }

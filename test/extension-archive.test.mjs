@@ -38,7 +38,7 @@ test("the downloadable Google Messages extension is a self-contained unpacked-ex
   const manifest = JSON.parse(entries.get(`${prefix}manifest.json`).toString("utf8"));
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.name, "Time V3 Google Messages Sync");
-  assert.equal(manifest.version, "0.3.1");
+  assert.equal(manifest.version, "0.3.2");
   assert.deepEqual(JSON.parse(entries.get(`${prefix}connection.json`).toString("utf8")), {
     serverUrl: "https://time-v3.example.test",
     accountKey: "default",
@@ -76,6 +76,8 @@ test("Correspondence can request a sync that the extension polls and reports", (
   assert.match(content, /mw-conversation-container, mws-conversation-container/u);
   assert.match(content, /if \(alreadyAtTarget\)/u);
   assert.match(content, /message list did not render/u);
+  assert.match(content, /\^\[A-Za-z0-9_-\]\{6,\}\$/u);
+  assert.doesNotMatch(content, /target[.]listScrollTop/u);
   assert.ok(popup.indexOf('type: "SAVE_CONFIG"') < popup.indexOf("chrome.permissions.request"));
   assert.ok(manifest.permissions.includes("alarms"));
 });
