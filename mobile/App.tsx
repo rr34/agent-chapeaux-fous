@@ -5,6 +5,7 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from 'expo-audio';
+import * as Clipboard from 'expo-clipboard';
 import { StatusBar } from 'expo-status-bar';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -58,6 +59,8 @@ const voiceRecordingOptions = {
 };
 
 const meterHistoryLength = 18;
+const phoneNumberPattern = /(?:\+\d{8,15}|(?:\+\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)|\d{2,4})[\s.-]\d{3,4}[\s.-]\d{4}|\d{10,11})/g;
+const emailAddressPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,63}/gi;
 
 type RecordingPhase = 'idle' | 'recording' | 'cancelling' | 'sending';
 
@@ -80,6 +83,56 @@ function normalizeMetering(decibels: number | undefined): number {
   if (decibels === undefined || !Number.isFinite(decibels)) return 0;
   const normalized = Math.max(0, Math.min(1, (decibels + 55) / 55));
   return Math.pow(normalized, 0.55);
+}
+
+type CopyFragment = { text: string; copyValue?: string; copyLabel?: string };
+type CopyCandidate = { start: number; end: number; text: string; copyValue: string; copyLabel: string };
+
+function inlineCodeCandidates(value: string): CopyCandidate[] {
+  const candidates: CopyCandidate[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] !== '`' || value[index - 1] === '`' || value[index + 1] === '`') continue;
+    const end = value.indexOf('`', index + 1);
+    if (end < 0) break;
+    if (value[end - 1] === '`' || value[end + 1] === '`') {
+      index = end;
+      continue;
+    }
+    const copyValue = value.slice(index + 1, end);
+    if (copyValue.trim() && !copyValue.includes('\n')) {
+      candidates.push({ start: index, end: end + 1, text: copyValue, copyValue, copyLabel: 'Copy value' });
+    }
+    index = end;
+  }
+  return candidates;
+}
+
+function responseFragments(value: string): CopyFragment[] {
+  const candidates: CopyCandidate[] = inlineCodeCandidates(value);
+  for (const match of value.matchAll(emailAddressPattern)) {
+    const before = value[match.index - 1] || '';
+    const after = value[match.index + match[0].length] || '';
+    if (/[A-Za-z0-9._%+-]/.test(before) || /[A-Za-z0-9-]/.test(after)) continue;
+    candidates.push({ start: match.index, end: match.index + match[0].length, text: match[0], copyValue: match[0], copyLabel: 'Copy email address' });
+  }
+  let offset = 0;
+  for (const match of value.matchAll(phoneNumberPattern)) {
+    const before = value[match.index - 1] || '';
+    const after = value[match.index + match[0].length] || '';
+    if (/[A-Za-z0-9]/.test(before) || /[A-Za-z0-9]/.test(after)) continue;
+    candidates.push({ start: match.index, end: match.index + match[0].length, text: match[0], copyValue: match[0], copyLabel: 'Copy phone number' });
+  }
+  candidates.sort((left, right) => left.start - right.start || right.end - left.end);
+
+  const fragments: CopyFragment[] = [];
+  for (const candidate of candidates) {
+    if (candidate.start < offset) continue;
+    if (candidate.start > offset) fragments.push({ text: value.slice(offset, candidate.start) });
+    fragments.push({ text: candidate.text, copyValue: candidate.copyValue, copyLabel: candidate.copyLabel });
+    offset = candidate.end;
+  }
+  if (offset < value.length) fragments.push({ text: value.slice(offset) });
+  return fragments;
 }
 
 function ConnectionModal({
@@ -632,6 +685,12 @@ function reconcileRequests(current: AgentRequest[], incoming: AgentRequest[]): A
 
 const RequestCard = memo(function RequestCard({ request, onDraft }: { request: AgentRequest; onDraft: (recipient: string, text: string) => void }) {
   const active = request.status === 'queued' || request.status === 'processing';
+  const [copiedValue, setCopiedValue] = useState('');
+  const copyResponseValue = async (value: string) => {
+    await Clipboard.setStringAsync(value);
+    setCopiedValue(value);
+    setTimeout(() => setCopiedValue(''), 1600);
+  };
   return (
     <View style={styles.exchange}>
       <View style={styles.requestMeta}>
@@ -648,7 +707,16 @@ const RequestCard = memo(function RequestCard({ request, onDraft }: { request: A
       {!!request.response && (
         <View style={styles.agentBlock}>
           <Text style={styles.agentLabel}>TIME V3 TECHNOLOGY AGENT</Text>
-          <Text selectable style={styles.agentText}>{request.response}</Text>
+          <Text selectable style={styles.agentText}>{responseFragments(request.response).map((fragment, index) => fragment.copyValue
+            ? <Text
+                accessibilityLabel={`${fragment.copyLabel}: ${fragment.copyValue}`}
+                accessibilityRole="button"
+                key={`${fragment.copyValue}-${index}`}
+                onPress={() => void copyResponseValue(fragment.copyValue!)}
+                style={[styles.agentCopyFragment, copiedValue === fragment.copyValue && styles.agentCopyFragmentCopied]}
+              >{fragment.text}</Text>
+            : <Text key={index}>{fragment.text}</Text>)}</Text>
+          {!!copiedValue && <Text accessibilityLiveRegion="polite" style={styles.copyConfirmation}>Copied {copiedValue}</Text>}
           {request.smsDraft && <Pressable onPress={() => onDraft(request.smsDraft!.address, request.smsDraft!.body)} style={styles.draftAction}>
             <Text style={styles.draftActionText}>OPEN IN MESSAGES · {request.smsDraft.contact_name}</Text>
           </Pressable>}
@@ -1073,6 +1141,9 @@ const styles = StyleSheet.create({
   agentBlock: { marginTop: 18, paddingLeft: 14, borderLeftWidth: 2, borderLeftColor: colors.accent },
   agentLabel: { color: colors.accent, fontSize: 9, fontWeight: '900', letterSpacing: 1.6, marginBottom: 8 },
   agentText: { color: colors.ink, fontSize: 16, lineHeight: 24 },
+  agentCopyFragment: { color: colors.gold, textDecorationLine: 'underline', textDecorationStyle: 'dotted' },
+  agentCopyFragmentCopied: { color: colors.success, textDecorationStyle: 'solid' },
+  copyConfirmation: { alignSelf: 'flex-start', marginTop: 5, color: colors.success, fontSize: 11, fontWeight: '700' },
   draftAction: { alignSelf: 'flex-start', marginTop: 12, paddingVertical: 7, paddingHorizontal: 10, borderRadius: 7, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   draftActionText: { color: colors.muted, fontSize: 9, fontWeight: '800', letterSpacing: 1.1 },
   requestError: { marginTop: 12, color: colors.error, fontSize: 14, lineHeight: 20 },

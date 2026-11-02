@@ -243,148 +243,50 @@ increasing `nativeShellVersion` and explicit capability names; JavaScript that
 requires a newer shell must report that mismatch literally and must not present
 missing native access as an ordinary permission denial.
 
-The ordinary development installation path is Android Wireless Debugging, not
-USB. Use the native Linux Android SDK `adb` under WSL; the Windows `adb.exe` may
-fail to connect even when the native Linux binary succeeds.
+Use this one physical-phone development path. It uses the native Linux Android
+SDK `adb`, installs the debug APK through Wireless Debugging, and does not use
+USB, manual file transfer, Expo tunnels, or QR codes.
 
-#### Quick resume after leaving WSL
-
-Pixel: **Settings → System → Developer options → Wireless debugging**.
-Read the current port from **IP address & port**.
-
-Terminal 1:
-
-```bash
-cd /home/nate/code/agent-chapeaux-fous/mobile
-/home/nate/Android/Sdk/platform-tools/adb connect 192.168.1.210:CURRENT_PORT
-/home/nate/Android/Sdk/platform-tools/adb reverse tcp:8081 tcp:8081
-npm start -- --localhost
-```
-
-Terminal 2:
-
-```bash
-/home/nate/Android/Sdk/platform-tools/adb shell am start -a android.intent.action.VIEW -d 'exp+time-v3-technology-agent://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081' com.timev3.technologyagent
-```
-
-#### Rebuild and install after native changes
-
-Terminal 1:
-
-```bash
-cd /home/nate/code/agent-chapeaux-fous/mobile
-npm run android:build:debug
-/home/nate/Android/Sdk/platform-tools/adb connect 192.168.1.210:CURRENT_PORT
-/home/nate/Android/Sdk/platform-tools/adb install -r -g /home/nate/code/agent-chapeaux-fous/mobile/android/app/build/outputs/apk/debug/app-debug.apk
-/home/nate/Android/Sdk/platform-tools/adb reverse tcp:8081 tcp:8081
-npm start -- --localhost
-```
-
-Terminal 2:
-
-```bash
-/home/nate/Android/Sdk/platform-tools/adb shell am start -a android.intent.action.VIEW -d 'exp+time-v3-technology-agent://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081' com.timev3.technologyagent
-```
-
-#### Full fresh Android development start (Pixel and WSL)
-
-1. On a Pixel, enable Developer options by opening **Settings → About phone**
-   and tapping **Build number** seven times. Then open **Settings → System →
-   Developer options → Wireless debugging**. The phone and workstation must be
-   on the same Wi-Fi network.
-2. If `nate@unicornslayer` is not already listed under **Paired devices**, tap
-   **Pair device with pairing code**. Keep that dialog open and use its pairing
-   address, pairing port, and six-digit code:
+1. Put the Pixel and workstation on the same Wi-Fi network. On the phone, open
+   **Settings → System → Developer options → Wireless debugging**.
+2. The first time only, select **Pair device with pairing code** and run the
+   following command with the pairing address shown in that dialog:
 
    ```bash
    /home/nate/Android/Sdk/platform-tools/adb pair PHONE_IP:PAIRING_PORT
    ```
 
-3. Return to the main Wireless debugging screen. Use its **IP address & port**,
-   not the port from the pairing dialog, to connect and verify the phone:
+3. Return to the main **Wireless debugging** screen. Use its current **IP
+   address & port** to connect; this is not the pairing port:
 
    ```bash
    /home/nate/Android/Sdk/platform-tools/adb connect PHONE_IP:DEBUG_PORT
    /home/nate/Android/Sdk/platform-tools/adb devices -l
    ```
 
-   Pairing and connecting are separate operations. If connection fails, toggle
-   Wireless debugging off and on, read the new port, and connect again. The
-   debugging port changes frequently.
-
-4. From the mobile project, check whether an old process owns Metro's port. If
-   the first command lists a stale Node/Expo process, stop that exact port owner
-   with the second command:
+4. Build and install the debug APK, then connect the phone to Metro:
 
    ```bash
    cd /home/nate/code/agent-chapeaux-fous/mobile
-   fuser -v 8081/tcp
-   fuser -k 8081/tcp
-   ```
-
-5. For a genuinely clean phone start, clear this app's data and old ADB reverse
-   mappings. **The `pm clear` command erases the saved bearer token and every
-   other app setting.** Omit that command for an ordinary data-preserving
-   reinstall.
-
-   ```bash
-   /home/nate/Android/Sdk/platform-tools/adb shell pm clear com.timev3.technologyagent
-   /home/nate/Android/Sdk/platform-tools/adb reverse --remove-all
-   ```
-
-6. Generate the debug APK, install it over the existing package, and forward
-   the phone's Metro port to WSL:
-
-   ```bash
+   npm install
+   npx expo prebuild --clean --platform android
    npm run android:build:debug
    /home/nate/Android/Sdk/platform-tools/adb install -r -g /home/nate/code/agent-chapeaux-fous/mobile/android/app/build/outputs/apk/debug/app-debug.apk
    /home/nate/Android/Sdk/platform-tools/adb reverse tcp:8081 tcp:8081
-   ```
-
-   The generated file is
-   `mobile/android/app/build/outputs/apk/debug/app-debug.apk`. Installation with
-   `-r -g` replaces the native shell, retains app data unless it was explicitly
-   cleared above, and grants the permissions declared by the APK. Use this ADB
-   installation path when testing phone synchronization; installing the APK
-   manually through Files does not allowlist Android's hard-restricted
-   `READ_SMS` and `READ_CALL_LOG` permissions, and their Settings toggles can
-   remain disabled. Do not add ADB's `--restrict-permissions` install option.
-
-7. Start one clean Metro instance in the first terminal and leave it running:
-
-   ```bash
    npm start -- --localhost --clear
    ```
 
-8. In a second terminal, open the development client with an explicit Metro
-   port:
+5. Leave Metro running. In a second terminal, launch the installed development
+   client:
 
    ```bash
    /home/nate/Android/Sdk/platform-tools/adb shell am start -a android.intent.action.VIEW -d 'exp+time-v3-technology-agent://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081' com.timev3.technologyagent
    ```
 
-This localhost-plus-ADB-reverse path requires no Expo login, tunnel, or QR code
-and avoids the dev-launcher `Invalid URL port: "-1"` crash. JavaScript,
-TypeScript, and styling changes then arrive through Fast Refresh. Rebuild and
-reinstall the APK after adding or updating a native Expo module, native
-dependency, Kotlin/Swift code, Android permission or service, or native app
-configuration. An error such as `Cannot find native module 'ExpoClipboard'`
-means Metro is serving newer JavaScript than the installed APK contains.
-
-The npm device wrapper prefers the current Windows Android SDK `adb.exe` when
-running under WSL, accepts an explicit binary through `ANDROID_ADB`, and falls
-back to `adb` on `PATH`. For this workstation, use the explicit native-Linux ADB
-commands above.
-
-To capture a startup crash after connecting the phone, clear the log, launch
-the app, and print only the fatal Android, React Native, and native-library
-records:
-
-```bash
-/home/nate/Android/Sdk/platform-tools/adb logcat -c
-/home/nate/Android/Sdk/platform-tools/adb shell am start -W -n com.timev3.technologyagent/.MainActivity
-/home/nate/Android/Sdk/platform-tools/adb logcat -d -v time AndroidRuntime:E ReactNativeJS:E libc:F '*:S'
-```
+The `adb install -r -g` step replaces the native shell, retains app data, and
+allows the declared phone permissions needed for synchronization. Fast Refresh
+handles bundled-code changes; repeat this complete list after native or
+`app.json` changes. If the debugging port changes, repeat from step 3.
 
 ### Music upload and playback contract
 
@@ -1270,7 +1172,12 @@ speech remains on the client device; the server-side speech service is reserved
 for disclosed video narration. Written responses render GitHub-flavored Markdown after
 HTML sanitization. Before speech playback, Markdown structure and formatting
 punctuation are converted into natural pauses and spoken labels; code blocks are
-left visible and summarized rather than read punctuation by punctuation.
+left visible and summarized rather than read punctuation by punctuation. In
+Agent responses on web and mobile, phone numbers and email addresses become
+inline copy controls automatically. Short Markdown inline-code values are the
+explicit copy mechanism for other exact reusable text; fenced code blocks and
+ordinary links keep their existing behavior. Copy controls preserve the exact
+displayed value and confirm success.
 
 ## Deployment
 
@@ -1329,133 +1236,6 @@ commit implicitly, so each migration must state its own safe replay and recovery
 rules rather than assuming a transaction can roll back the complete schema
 change. Database comment changes are applied by the migration runner along with the
 deployed revision.
-
-### Mobile application: development, QR testing, and standalone release
-
-The Android-first Expo application under `mobile/` is a client of the Time V3
-Technology Agent HTTP service. Typed and recorded requests enter the server's
-existing FIFO queue and preserve its orientation, execution, audit, repair, and
-usage trace.
-
-The mobile application includes:
-
-- HTTPS server pairing with the bearer token stored by `expo-secure-store`;
-- recent request history with live queue/progress polling;
-- exact typed-request submission to `POST /api/requests`;
-- native audio recording and raw upload to `POST /api/voice`;
-- an authenticated release-and-work-aware MP3 library and single concert queue
-  backed by `GET /api/music`;
-- visible temporary AI-voice introductions generated from listener-selected
-  music metadata; and
-- an explicit Android `ACTION_SENDTO` handoff to the default messaging app.
-
-The messaging handoff creates a draft. Time V3 Technology Agent does not send
-it and is not the default SMS application.
-
-#### Development build
-
-Prepare and run the Android development build with:
-
-```bash
-cd mobile
-npm install
-npx expo prebuild --platform android
-npx expo run:android
-```
-
-This project requires a development build rather than Expo Go because
-`modules/time-v3-native` contains native Kotlin and Swift code. The Android
-emulator permits `http://10.0.2.2` for local development; every other configured
-server address must use HTTPS.
-
-#### First physical Android phone and QR testing
-
-The debug APK is generated at:
-
-```text
-mobile/android/app/build/outputs/apk/debug/app-debug.apk
-```
-
-On a fresh phone:
-
-1. Connect the phone to Wi-Fi and finish Android's initial setup and system
-   updates.
-2. In Windows File Explorer, open
-   `\\wsl.localhost\Ubuntu-22.04\home\nate\code\agent-chapeaux-fous\mobile\android\app\build\outputs\apk\debug`,
-   then transfer `app-debug.apk` to the phone's **Download** folder by USB,
-   cloud storage, or another trusted file-transfer method.
-3. Open the APK on the phone. When Android asks, allow the app used to open the
-   file to install unknown apps, then install it.
-4. Launch **Time V3 Technology Agent**. Android may show the Expo development
-   client launcher until Metro is available.
-5. On the development computer, start Metro with a tunnel:
-
-   ```bash
-   cd /home/nate/code/agent-chapeaux-fous/mobile
-   npm start -- --tunnel
-   ```
-
-6. Open the tunnel URL or scan its QR code from the development-client launcher.
-   Keep that terminal running while developing.
-7. Enter the bearer token in the app and use **TEST & CONNECT**. The production
-   HTTPS server address is built into the app.
-
-This direct APK route does not require Google Play, Android Studio, Developer
-Options, or USB debugging. Turn off the temporary **Install unknown apps**
-permission after installation if it is not otherwise needed.
-
-JavaScript, TypeScript, styling, and ordinary API-client edits use Fast Refresh
-and do not require reinstalling the APK. Rebuild and reinstall after changing
-Kotlin, Swift, native dependencies, native permissions, services, intent
-declarations, or `app.json` native configuration. To rebuild the debug APK:
-
-```bash
-cd /home/nate/code/agent-chapeaux-fous/mobile
-npx expo prebuild --clean --platform android
-cd android
-./gradlew assembleDebug
-```
-
-The tunnel permits the phone to connect from a different network, but the
-development client still depends on Metro running on the computer.
-
-#### Standalone release for use away from the development computer
-
-After the current mobile changes pass QR/Fast Refresh testing, build a release
-APK with the JavaScript bundle embedded:
-
-```bash
-cd /home/nate/code/agent-chapeaux-fous/mobile
-npm run typecheck
-cd android
-NODE_ENV=production ./gradlew assembleRelease
-```
-
-The generated APK is:
-
-```text
-mobile/android/app/build/outputs/apk/release/app-release.apk
-```
-
-Transfer the APK to the phone and open it to install or update **Time V3
-Technology Agent**. Then verify the standalone path:
-
-1. Stop Metro on the development computer.
-2. Turn off Wi-Fi on the phone and leave cellular data enabled.
-3. Open the installed app and confirm that it connects.
-4. Submit a small request and confirm that its response arrives.
-
-The standalone app does not require the development computer or home Wi-Fi. It
-does require internet access through Wi-Fi or cellular data because it is a
-client of `https://agent.timev3tech.com` on the VPS; it is not an offline copy
-of the server-side Agent.
-
-Building or installing the mobile client does not update the VPS application,
-restart `agent-slayer.service`, or require a database migration. Deploy server
-changes separately with the applicable no-migration or migration procedure
-above. The current Android release build uses the repository's debug signing
-key and is suitable for personal sideloading. Configure and preserve a
-permanent release/upload key before distributing through Google Play.
 
 ## Journal scheduling
 

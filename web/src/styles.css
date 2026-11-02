@@ -244,6 +244,12 @@ textarea { resize: vertical; }
 .request-response-markdown pre { max-width: 100%; padding: .75rem; overflow-x: auto; background: rgba(61, 70, 51, .08); border: 1px solid rgba(61, 70, 51, .18); border-radius: 8px; }
 .request-response-markdown pre code { padding: 0; white-space: pre; background: transparent; border: 0; }
 .request-response-markdown a { color: var(--olive-dark); text-decoration-thickness: 2px; text-underline-offset: 2px; }
+.response-copy-fragment { display: inline; min-width: 0; margin: 0; padding: 0; color: var(--olive-dark); background: transparent; border: 0; border-radius: 0; font: inherit; font-weight: inherit; line-height: inherit; text-align: inherit; text-decoration: underline dotted; text-decoration-thickness: 1px; text-underline-offset: 3px; cursor: copy; }
+.response-copy-fragment:hover { color: var(--olive); }
+.response-copy-fragment:focus-visible { outline: 2px solid var(--olive); outline-offset: 2px; }
+.response-copy-fragment[data-copy-state="copied"] { color: #3f6334; text-decoration-style: solid; }
+.response-copy-fragment[data-copy-state="error"] { color: #8c3025; }
+.response-copy-fragment-code code { pointer-events: none; }
 .request-response-markdown hr { margin: 1rem 0; border: 0; border-top: 1px solid var(--line); }
 .request-response-markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
 .request-response-markdown th,

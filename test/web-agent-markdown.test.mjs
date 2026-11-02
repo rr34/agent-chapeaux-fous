@@ -8,7 +8,7 @@ const styles = fs.readFileSync(new URL("../web/src/styles.css", import.meta.url)
 
 test("the React Agent conversation renders sanitized Markdown responses", () => {
   assert.match(app, /import \{ Markdown \} from "\.\/components\/Markdown"/);
-  assert.match(app, /<Markdown className="request-response-markdown" source=\{request\.response\} \/>/);
+  assert.match(app, /<Markdown className="request-response-markdown" source=\{request\.response\} copyableFragments \/>/);
   assert.doesNotMatch(app, /<p>\{request\.response\}<\/p>/);
   assert.match(markdown, /marked\.parse\(source, \{[\s\S]*async: false,[\s\S]*gfm: true,[\s\S]*renderer: markdownRenderer/);
   assert.match(markdown, /DOMPurify\.sanitize\(rendered, sanitizerOptions\)/);
@@ -21,6 +21,15 @@ test("the React Agent conversation renders sanitized Markdown responses", () => 
   assert.match(markdown, /url\.origin !== window\.location\.origin/);
   assert.match(markdown, /event\.preventDefault\(\)/);
   assert.match(markdown, /downloadAuthenticated\(downloadPath/);
+  assert.match(markdown, /addCopyableFragments\(container\.current\)/);
+  assert.match(markdown, /emailAddressMatches/);
+  assert.match(markdown, /kind: "email address"/);
+  assert.match(markdown, /`Copy \$\{match\.kind\}`/);
+  assert.match(markdown, /Copy value/);
+  assert.match(markdown, /button\.dataset\.copyValue = value/);
+  assert.match(markdown, /copyText\(copyValue\)/);
+  assert.match(markdown, /kind: "phone number"/);
+  assert.match(styles, /\.response-copy-fragment/);
   assert.match(styles, /\.request-response-markdown pre/);
   assert.match(styles, /\.request-response-markdown table/);
 });
