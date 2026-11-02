@@ -23,6 +23,20 @@ async function messagesTab() {
   return tabs[0] || null;
 }
 
+function durationText(milliseconds) {
+  const totalSeconds = Math.max(0, Math.round(milliseconds / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours) return `${hours}h ${minutes}m`;
+  if (minutes) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+function historyText(mode) {
+  return ({ incremental: "Since last sync", days_30: "Last 30 days", days_90: "Last 90 days", days_365: "Last year", all: "All available history" })[mode] || "Since last sync";
+}
+
 function jobText(job, config, commandStatus) {
   const command = commandStatus
     ? `Server command check: ${commandStatus.status}\n${commandStatus.detail}\n${commandStatus.serverUrl || "No server URL"} · account ${commandStatus.accountKey || "default"}`
@@ -36,16 +50,19 @@ function jobText(job, config, commandStatus) {
   const total = job.conversations?.length || 0;
   const current = Math.min(total, Number(job.conversationIndex || 0) + (job.status === "complete" ? 0 : 1));
   const elapsed = Math.max(0, Date.now() - Number(job.startedAtMs || Date.now()));
-  const minutes = Math.floor(elapsed / 60000);
-  const seconds = Math.floor((elapsed % 60000) / 1000);
+  const completed = job.status === "complete" ? total : Math.min(total, Number(job.conversationIndex || 0));
+  const remaining = job.status === "running" && completed > 0
+    ? (elapsed / completed) * Math.max(0, total - completed)
+    : null;
   return [
     `${job.status.toUpperCase()} — ${job.phase || "Working"}`,
     total ? `Conversation ${current}/${total}` : "Conversation discovery in progress",
+    `History range ${historyText(job.historyMode)}`,
     `Read ${Number(job.messagesRead || 0).toLocaleString()} · accepted ${Number(job.messagesAccepted || 0).toLocaleString()}`,
     `New ${Number(job.messagesCreated || 0).toLocaleString()} · refreshed ${Number(job.messagesUpdated || 0).toLocaleString()} · deduplicated ${Number(job.messagesDeduplicated || 0).toLocaleString()}`,
     `Ambiguous duplicates ${Number(job.messagesAmbiguous || 0).toLocaleString()} · unresolved participants ${Number(job.unresolvedParticipants || 0).toLocaleString()}`,
     `Skipped without usable time ${Number(job.undatedSkipped || 0).toLocaleString()}`,
-    `Elapsed ${minutes}:${String(seconds).padStart(2, "0")}`,
+    `Elapsed ${durationText(elapsed)}${remaining == null ? "" : ` · rough remaining ${durationText(remaining)}`}`,
     job.error ? `Error: ${job.error}` : "",
     "",
     command,

@@ -87,12 +87,13 @@
       || null;
   }
 
-  async function discoverConversations() {
+  async function discoverConversations(progress = null) {
     const first = document.querySelector('a[href*="/web/conversations/"]');
     if (!first) throw new Error("No Google Messages conversations are visible. Confirm that Messages for Web is paired.");
     const scroller = scrollableAncestor(first);
     const found = new Map();
     collectConversationLinks(found);
+    if (progress) await progress(found.size);
     if (!scroller) return [...found.values()];
     const original = scroller.scrollTop;
     scroller.scrollTop = 0;
@@ -108,6 +109,7 @@
       );
       await sleep(450);
       collectConversationLinks(found);
+      if (progress && step % 5 === 0) await progress(found.size);
       const atBottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4;
       unchanged = found.size === previousSize && (atBottom || scroller.scrollTop === beforeTop)
         ? unchanged + 1
@@ -436,7 +438,9 @@
       let job = initialJob || (await currentState()).job;
       if (!job || job.status !== "running") return;
       if (!job.conversations?.length) {
-        const conversations = await discoverConversations();
+        const conversations = await discoverConversations(async (count) => {
+          job = await updateJob({ phase: `Discovering conversations\nFound ${count.toLocaleString()} so far` });
+        });
         job = await updateJob({
           conversations,
           conversationIndex: 0,
@@ -489,7 +493,8 @@
         });
         job = await updateJob({ conversationIndex: index + 1, phase: `Accepted ${target.title}` });
       }
-      await runtimeMessage({ type: "COMPLETE_JOB", patch: { conversationIndex: job.conversations.length } });
+      const finalJob = (await currentState()).job || job;
+      await runtimeMessage({ type: "COMPLETE_JOB", patch: { conversationIndex: finalJob.conversations.length } });
     } catch (error) {
       const current = await currentState().catch(() => ({ job: null }));
       if (current.job?.status === "running") {

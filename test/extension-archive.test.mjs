@@ -38,7 +38,7 @@ test("the downloadable Google Messages extension is a self-contained unpacked-ex
   const manifest = JSON.parse(entries.get(`${prefix}manifest.json`).toString("utf8"));
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.name, "Time V3 Google Messages Sync");
-  assert.equal(manifest.version, "0.5.1");
+  assert.equal(manifest.version, "0.5.5");
   assert.deepEqual(JSON.parse(entries.get(`${prefix}connection.json`).toString("utf8")), {
     serverUrl: "https://time-v3.example.test",
     accountKey: "default",
@@ -81,15 +81,24 @@ test("Correspondence can request a sync that the extension polls and reports", (
   assert.match(background, /restorePreviousTab/u);
   assert.match(background, /chrome[.]tabs[.]onUpdated/u);
   assert.match(background, /reloadRunningJobAfterExtensionUpdate/u);
+  assert.match(background, /STALL_TIMEOUT_MS = 90_000/u);
+  assert.match(background, /STALL_ALARM/u);
+  assert.match(background, /scheduleStallCheck/u);
+  assert.match(background, /recoverStalledJob/u);
+  assert.match(background, /Date[.]now\(\) - 30 \* 24 \* 60 \* 60 \* 1000/u);
   assert.match(content, /mw-conversation-container, mws-conversation-container/u);
   assert.match(content, /if \(alreadyAtTarget\)/u);
   assert.match(content, /message list did not render/u);
   assert.match(content, /\^\[A-Za-z0-9_-\]\{6,\}\$/u);
   assert.doesNotMatch(content, /target[.]listScrollTop/u);
   assert.match(content, /captureNewMessages/u);
+  assert.match(content, /Found \$\{count[.]toLocaleString\(\)\} so far/u);
   assert.match(content, /Saving currently loaded messages/u);
   assert.match(content, /RESUME_SYNC/u);
   assert.match(popup, /history-mode/u);
+  assert.match(popup, /rough remaining/u);
+  assert.match(screen, /message-sync-progress/u);
+  assert.match(screen, /Automatic recovery will reload the Messages tab after 90 seconds/u);
   assert.ok(popup.indexOf('type: "SAVE_CONFIG"') < popup.indexOf("chrome.permissions.request"));
   assert.ok(manifest.permissions.includes("alarms"));
 });

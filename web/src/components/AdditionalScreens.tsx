@@ -17,6 +17,12 @@ type CorrespondenceItem = {
   email_keywords: string[]; is_read: boolean | null; mailboxes: CorrespondenceMailbox[];
   participants: Participant[]; linked_todos: Array<{ todo_id: number; text: string; status: string }>;
 };
+type MessageSyncProgress = {
+  status: "pending" | "running" | "complete" | "error" | "cancelled";
+  completed: number;
+  total: number;
+  updatedAtMs: number;
+};
 
 function correspondenceIdentity(item: CorrespondenceItem): SelectedObjectCandidate {
   return {
@@ -41,6 +47,20 @@ function correspondenceMediumGroup(medium: string) {
   return ["sms", "mms", "rcs", "imessage"].includes(medium) ? "messages" : medium;
 }
 
+function syncDuration(milliseconds: number) {
+  const totalSeconds = Math.max(0, Math.round(milliseconds / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours) return `${hours}h ${minutes}m`;
+  if (minutes) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+function messageHistoryLabel(mode: string) {
+  return ({ incremental: "Since last sync", days_30: "Last 30 days", days_90: "Last 90 days", days_365: "Last year", all: "All available history" } as Record<string, string>)[mode] || "Since last sync";
+}
+
 export function CorrespondenceScreen() {
   const [query, setQuery] = useState("");
   const [medium, setMedium] = useState("");
@@ -50,6 +70,7 @@ export function CorrespondenceScreen() {
   const [page, setPage] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [syncingMessages, setSyncingMessages] = useState(false);
+  const [messageSyncProgress, setMessageSyncProgress] = useState<MessageSyncProgress | null>(null);
   const [choosingMessageHistory, setChoosingMessageHistory] = useState(false);
   const [messageHistoryMode, setMessageHistoryMode] = useState("incremental");
   const [downloadingExtension, setDownloadingExtension] = useState(false);
@@ -106,6 +127,7 @@ export function CorrespondenceScreen() {
   };
   const syncMessages = async () => {
     setChoosingMessageHistory(false);
+    setMessageSyncProgress(null);
     setSyncingMessages(true); setNotice("");
     try {
       const requested = await api<{ requestId: string }>(
@@ -116,7 +138,8 @@ export function CorrespondenceScreen() {
       while (!complete) {
         const status = await api<{
           status: "pending" | "running" | "complete" | "error" | "cancelled";
-          phase: string; error: string | null; conversationIndex: number; conversationCount: number;
+          phase: string; error: string | null; historyMode: string; createdAtMs: number; updatedAtMs: number;
+          conversationIndex: number; conversationCount: number;
           messagesRead: number; messagesAccepted: number; messagesCreated: number;
           messagesUpdated: number; messagesDeduplicated: number; messagesAmbiguous: number;
           unresolvedParticipants: number; undatedSkipped: number;
@@ -124,9 +147,24 @@ export function CorrespondenceScreen() {
         const conversation = status.conversationCount
           ? `Conversation ${Math.min(status.conversationCount, status.conversationIndex + 1)} of ${status.conversationCount}`
           : "Waiting for conversation discovery";
+        const elapsed = Math.max(0, Date.now() - status.createdAtMs);
+        const completed = status.status === "complete"
+          ? status.conversationCount
+          : Math.min(status.conversationCount, status.conversationIndex);
+        const remaining = status.status === "running" && completed > 0
+          ? (elapsed / completed) * Math.max(0, status.conversationCount - completed)
+          : null;
+        setMessageSyncProgress({
+          status: status.status,
+          completed,
+          total: status.conversationCount,
+          updatedAtMs: status.updatedAtMs,
+        });
         setNotice([
           status.phase,
           conversation,
+          `History range ${messageHistoryLabel(status.historyMode)}`,
+          `Elapsed ${syncDuration(elapsed)}${remaining == null ? "" : ` · rough remaining ${syncDuration(remaining)}`}`,
           `Read ${status.messagesRead.toLocaleString()} · accepted ${status.messagesAccepted.toLocaleString()}`,
           `New ${status.messagesCreated.toLocaleString()} · refreshed ${status.messagesUpdated.toLocaleString()} · deduplicated ${status.messagesDeduplicated.toLocaleString()}`,
           `Ambiguous duplicates ${status.messagesAmbiguous.toLocaleString()} · unresolved participants ${status.unresolvedParticipants.toLocaleString()}`,
@@ -144,7 +182,7 @@ export function CorrespondenceScreen() {
   };
   return <>
     <header className="page-heading"><div><p className="eyebrow">Every channel, one record</p><h1>Correspondence</h1><p>Email, messages, calls, and voicemail consolidated without replacing their authoritative apps.</p></div><div className="heading-actions"><button className="button button--quiet" disabled={downloadingExtension} onClick={() => void downloadExtension()}>{downloadingExtension ? "Downloading…" : "Download Messages extension"}</button><button className="button" disabled={syncing} onClick={() => void sync()}>{syncing ? "Syncing…" : "Sync email"}</button><button className="button" disabled={syncingMessages} onClick={() => setChoosingMessageHistory(true)}>{syncingMessages ? "Syncing…" : "Sync Google Messages"}</button></div></header>
-    {choosingMessageHistory && <div className="object-editor-backdrop"><section className="object-editor message-history-dialog" role="dialog" aria-modal="true" aria-labelledby="message-history-heading"><form onSubmit={(event) => { event.preventDefault(); void syncMessages(); }}><header className="object-editor-heading"><div><p className="eyebrow">Google Messages</p><h2 id="message-history-heading">Choose history range</h2></div></header><label>Messages to synchronize<select autoFocus value={messageHistoryMode} onChange={(event) => setMessageHistoryMode(event.target.value)}><option value="incremental">Since last sync</option><option value="days_30">Last 30 days</option><option value="days_90">Last 90 days</option><option value="days_365">Last year</option><option value="all">All available history</option></select></label><p className="object-editor-note">On the first run, “Since last sync” imports one year. Later runs overlap the previous successful sync by two days.</p><footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={() => setChoosingMessageHistory(false)}>Cancel</button><button className="button" type="submit">Start sync</button></footer></form></section></div>}
+    {choosingMessageHistory && <div className="object-editor-backdrop"><section className="object-editor message-history-dialog" role="dialog" aria-modal="true" aria-labelledby="message-history-heading"><form onSubmit={(event) => { event.preventDefault(); void syncMessages(); }}><header className="object-editor-heading"><div><p className="eyebrow">Google Messages</p><h2 id="message-history-heading">Choose history range</h2></div></header><label>Messages to synchronize<select autoFocus value={messageHistoryMode} onChange={(event) => setMessageHistoryMode(event.target.value)}><option value="incremental">Since last sync</option><option value="days_30">Last 30 days</option><option value="days_90">Last 90 days</option><option value="days_365">Last year</option><option value="all">All available history</option></select></label><p className="object-editor-note">On the first run, “Since last sync” imports 30 days. Later runs overlap the previous successful sync by two days.</p><footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={() => setChoosingMessageHistory(false)}>Cancel</button><button className="button" type="submit">Start sync</button></footer></form></section></div>}
     <div className="section-filter correspondence-filters">
       <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search subject or body" />
       <select value={medium} onChange={(event) => setMedium(event.target.value)}><option value="">All media</option>{["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "other"].map((value) => <option key={value}>{value}</option>)}</select>
@@ -152,6 +190,7 @@ export function CorrespondenceScreen() {
       <select aria-label="Email mailbox" value={mailbox} onChange={(event) => setMailbox(event.target.value)}><option value="">All mailboxes</option>{(data?.mailboxes || []).map((value) => <option key={value.mailbox_id} value={value.mailbox_id}>{value.name}</option>)}</select>
       <select value={groupBy} onChange={(event) => setGroupBy(event.target.value)}><option value="date">Group by date</option><option value="contact">Group by contact</option><option value="medium">Group by medium</option><option value="direction">Group by direction</option></select>
     </div>
+    {syncingMessages && messageSyncProgress && <section className="message-sync-progress" aria-live="polite"><div className="message-sync-progress-heading"><strong>{messageSyncProgress.total ? `${messageSyncProgress.completed} of ${messageSyncProgress.total} conversations complete` : "Discovering conversations"}</strong>{messageSyncProgress.total > 0 && <span>{Math.round((messageSyncProgress.completed / messageSyncProgress.total) * 100)}%</span>}</div><progress max={messageSyncProgress.total || undefined} value={messageSyncProgress.total ? messageSyncProgress.completed : undefined} /><small>{Date.now() - messageSyncProgress.updatedAtMs > 30_000 ? `No new progress for ${syncDuration(Date.now() - messageSyncProgress.updatedAtMs)}. Automatic recovery will reload the Messages tab after 90 seconds.` : `Last activity ${syncDuration(Date.now() - messageSyncProgress.updatedAtMs)} ago.`}</small></section>}
     {notice && <p className="status correspondence-sync-status">{notice}</p>}
     {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}
     {!loading && !error && !groups.length && <Empty>No correspondence matches these filters.</Empty>}

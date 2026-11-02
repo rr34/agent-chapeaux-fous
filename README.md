@@ -212,7 +212,7 @@ Pair and open `https://messages.google.com/web/`, then use the extension popup
 to save the Time V3 access token once. The downloaded package already contains
 this server's canonical origin and the fixed `default` account key. Leave that
 tab open while synchronization runs. Choose **Since last sync**, 30 days,
-90 days, one year, or all history. **Since last sync** defaults to one year on
+90 days, one year, or all history. **Since last sync** defaults to 30 days on
 the first run and retains a two-day overlap afterward. The access token is
 stored in the local Brave profile so it does not need to be reentered.
 
@@ -227,6 +227,11 @@ navigation and explicitly resume when the new page finishes loading. Updating
 the extension during a run reloads the paired tab once and resumes that same
 checkpoint. The popup remains available for an explicit complete-history
 rescan or cancellation.
+
+An active run may not wait indefinitely on a frozen Google Messages page. At
+90 seconds without a real checkpoint, the extension reloads the paired tab and
+retries the same conversation once. If that checkpoint stalls again, the run
+fails visibly without skipping the conversation or claiming a complete import.
 
 ### Android native-shell and wireless installation contract
 

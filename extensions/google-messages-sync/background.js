@@ -2,7 +2,10 @@ const CONFIG_KEY = "timeV3GoogleMessagesConfig";
 const JOB_KEY = "timeV3GoogleMessagesJob";
 const COMMAND_STATUS_KEY = "timeV3GoogleMessagesCommandStatus";
 const COMMAND_ALARM = "timeV3GoogleMessagesCommands";
+const STALL_ALARM = "timeV3GoogleMessagesStallWatchdog";
+const STALL_TIMEOUT_MS = 90_000;
 let commandPollRunning = false;
+let recoveryRunning = false;
 let packagedConnectionPromise = null;
 
 function storageGet(keys) {
@@ -11,6 +14,16 @@ function storageGet(keys) {
 
 function storageSet(value) {
   return chrome.storage.local.set(value);
+}
+
+async function scheduleStallCheck(job) {
+  if (job?.status === "running") {
+    await chrome.alarms.create(STALL_ALARM, {
+      when: Math.max(Date.now() + 1000, Number(job.updatedAtMs || Date.now()) + STALL_TIMEOUT_MS),
+    });
+  } else {
+    await chrome.alarms.clear(STALL_ALARM);
+  }
 }
 
 function packagedConnection() {
@@ -63,12 +76,14 @@ async function commandStatus(status, detail, config = {}) {
   return value;
 }
 
-async function updateJob(patch) {
+async function updateJob(patch, { waitForReport = true } = {}) {
   const stored = await storageGet(JOB_KEY);
   const current = stored[JOB_KEY] || {};
   const job = { ...current, ...patch, updatedAtMs: Date.now() };
   await storageSet({ [JOB_KEY]: job });
-  await reportJob(job).catch(() => {});
+  await scheduleStallCheck(job);
+  if (waitForReport) await reportJob(job).catch(() => {});
+  else void reportJob(job).catch(() => {});
   return job;
 }
 
@@ -153,6 +168,53 @@ async function reloadRunningJobAfterExtensionUpdate() {
   const tab = await chrome.tabs.get(job.tabId).catch(() => null);
   if (tab?.url?.startsWith("https://messages.google.com/web/")) {
     await chrome.tabs.reload(tab.id).catch(() => {});
+  }
+}
+
+async function reloadJobTab(job) {
+  if (!job?.tabId) return;
+  const tab = await chrome.tabs.get(job.tabId).catch(() => null);
+  if (tab?.url?.startsWith("https://messages.google.com/web/")) {
+    await chrome.tabs.reload(tab.id).catch(() => {});
+  }
+}
+
+async function recoverStalledJob() {
+  if (recoveryRunning) return false;
+  recoveryRunning = true;
+  try {
+    const stored = await storageGet(JOB_KEY);
+    const job = stored[JOB_KEY] || null;
+    if (job?.status !== "running") return false;
+    if (Date.now() - Number(job.updatedAtMs || 0) < STALL_TIMEOUT_MS) {
+      await scheduleStallCheck(job);
+      return false;
+    }
+    const index = Number(job.conversationIndex || 0);
+    const retryingSameCheckpoint = job.recoveryConversationIndex === index && Number(job.recoveryAttempts || 0) > 0;
+    if (!retryingSameCheckpoint) {
+      const target = job.conversations?.[index];
+      const recovered = await updateJob({
+        phase: `No progress for 90 seconds. Reloading Google Messages and retrying${target?.title ? ` ${target.title}` : ""}.`,
+        recoveryConversationIndex: index,
+        recoveryAttempts: 1,
+      }, { waitForReport: false });
+      await reloadJobTab(recovered);
+      return true;
+    }
+    const target = job.conversations?.[index];
+    const failed = await updateJob({
+      status: "error",
+      phase: "Automatic recovery failed",
+      error: target
+        ? `Google Messages made no progress while processing ${target.title}, including after an automatic reload. No conversation was skipped.`
+        : "Google Messages stopped responding during conversation discovery, including after an automatic reload.",
+      completedAtMs: Date.now(),
+    }, { waitForReport: false });
+    void restorePreviousTab(failed);
+    return true;
+  } finally {
+    recoveryRunning = false;
   }
 }
 
@@ -254,7 +316,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             ? Date.now() - historyDays * 24 * 60 * 60 * 1000
             : current.config.lastSuccessfulSyncMs
               ? Math.max(0, current.config.lastSuccessfulSyncMs - overlapMs)
-              : Date.now() - 365 * 24 * 60 * 60 * 1000;
+              : Date.now() - 30 * 24 * 60 * 60 * 1000;
         const job = {
           syncId: crypto.randomUUID(),
           requestId: message.requestId || null,
@@ -267,6 +329,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sinceMs,
           conversations: [],
           conversationIndex: 0,
+          recoveryConversationIndex: null,
+          recoveryAttempts: 0,
           messagesRead: 0,
           messagesAccepted: 0,
           messagesCreated: 0,
@@ -280,12 +344,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           updatedAtMs: Date.now(),
         };
         await storageSet({ [JOB_KEY]: job });
+        await scheduleStallCheck(job);
         await reportJob(job).catch(() => {});
         sendResponse({ ok: true, job });
         return;
       }
       if (message?.type === "UPDATE_JOB") {
-        sendResponse({ ok: true, job: await updateJob(message.patch || {}) });
+        const stored = await storageGet(JOB_KEY);
+        const currentJob = stored[JOB_KEY] || {};
+        const patch = message.patch || {};
+        const advanced = patch.conversationIndex != null
+          && Number(patch.conversationIndex) !== Number(currentJob.conversationIndex || 0);
+        const discoveryCompleted = Array.isArray(patch.conversations) && patch.conversations.length > 0;
+        sendResponse({ ok: true, job: await updateJob({
+          ...patch,
+          ...(advanced || discoveryCompleted ? { recoveryConversationIndex: null, recoveryAttempts: 0 } : {}),
+        }) });
         return;
       }
       if (message?.type === "UPLOAD_BATCH") {
@@ -309,6 +383,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       if (message?.type === "FAIL_JOB") {
         const job = await updateJob({
+          ...(message.patch || {}),
           status: "error",
           phase: "Failed",
           error: String(message.error || "Unknown synchronization failure"),
@@ -338,9 +413,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 chrome.alarms.create(COMMAND_ALARM, { periodInMinutes: 0.5 });
 chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === STALL_ALARM) {
+    void recoverStalledJob();
+    return;
+  }
   if (alarm.name === COMMAND_ALARM) {
     void pollServerCommands();
-    void resumeRunningJob();
+    void recoverStalledJob().then((recovered) => {
+      if (!recovered) void resumeRunningJob();
+    });
   }
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
@@ -356,3 +437,4 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 void pollServerCommands();
 void resumeRunningJob();
+void storageGet(JOB_KEY).then((stored) => scheduleStallCheck(stored[JOB_KEY] || null));
