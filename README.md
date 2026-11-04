@@ -1019,6 +1019,14 @@ are recorded as typed terminal failures. Agent Slayer does not let completion
 repair retry that unchanged transfer, and it permits another attempt only after
 a successful integration refresh rediscovers the provider tools.
 
+An MCP may also return the versioned provider-download descriptor defined in
+the same manifesto when a successful tool makes a provider-owned PDF available.
+Agent Slayer fetches it from the MCP origin with the integration's bearer token,
+confirms every declared byte range, size, and SHA-256, and adds the verified PDF
+at high detail to the next model call in that execution. The bytes stay out of
+MCP JSON and observability and live only in a bounded five-minute memory cache;
+the MCP remains the durable source of record.
+
 MCP integrations with an `oauth` block use the standard MCP authorization-code
 flow with OAuth discovery, dynamic client registration, PKCE, and refresh
 tokens. Set `SLAYER_PUBLIC_URL` to the origin where a browser can reach Agent

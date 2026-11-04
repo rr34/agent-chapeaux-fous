@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
+import { attachModelInputAttachments, modelInputAttachments } from "./model-input-attachments.mjs";
 import { canonicalizeAgentName } from "./agent-name.mjs";
 import { formatUserFacingDates } from "../public/presentation-format.js";
 import {
@@ -2668,11 +2669,14 @@ export class SlayerRuntime {
                   },
                 });
               }
-              return {
+              return attachModelInputAttachments({
                 ok: true,
                 result: inline.deliveredResult,
+                ...(providerResult?.attachmentFailures?.length
+                  ? { attachmentFailures: providerResult.attachmentFailures }
+                  : {}),
                 ...(newObjectReferences.length ? { objectReferences: newObjectReferences } : {}),
-              };
+              }, modelInputAttachments(toolResult));
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
               const toolFailure = normalizedToolFailure(error?.toolFailure)

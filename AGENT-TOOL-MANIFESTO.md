@@ -1391,6 +1391,37 @@ The boundary is deterministic:
   digest, and confirmed byte ranges; an arbitrary URL is never inferred from
   prose or a field name.
 
+A provider may return this versioned download descriptor inside a successful
+tool result when the referenced document becomes available only after the tool
+runs:
+
+```json
+{
+  "contractVersion": 1,
+  "transportId": "statement_evidence_download",
+  "sourceRef": "accounting://evidence-files/1",
+  "fileName": "statement.pdf",
+  "mediaType": "application/pdf",
+  "byteSize": 641681,
+  "sha256": "sha256:64-lowercase-hexadecimal-characters",
+  "method": "GET",
+  "endpointPath": "/mcp/evidence-files/1/content",
+  "acceptsByteRanges": true
+}
+```
+
+Agent Slayer recognizes the descriptor only from its complete typed shape. It
+resolves `endpointPath` against the configured MCP server origin, reuses the
+same bearer authorization, requests and confirms the declared byte ranges,
+and verifies the complete byte count and SHA-256. A verified PDF is retained
+only in a short-lived bounded memory cache and is supplied as a high-detail
+`input_file` in the next model call of the same execution. Its bytes never enter
+MCP JSON, tool receipts, or traces. The cache is an execution accelerator, not
+domain persistence; the provider remains the durable owner. Invalid download
+descriptors or failed verification are returned to the model as explicit host
+attachment failures without changing the provider tool's already-observed
+effect receipt.
+
 An upload-capable provider declares the convention mechanically on the MCP tool
 that will consume the completed artifact. Human-readable server instructions
 may explain the workflow, but they do not activate transport behavior. The

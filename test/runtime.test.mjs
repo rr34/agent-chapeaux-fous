@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { SlayerDatabase } from "../src/database.mjs";
 import { Ledger } from "../src/ledger.mjs";
+import { attachModelInputAttachments, modelInputAttachments } from "../src/model-input-attachments.mjs";
 import { registerNativeCapabilities } from "../src/native-capabilities.mjs";
 import {
   objectInputBindingsMetadataKey,
@@ -232,6 +233,46 @@ test("the first model turn contains the exact request, context, and callable too
   assert.deepEqual(contextEvent.payload.relevantProfileQuestions, [{ factType: "address" }]);
   assert.equal(contextEvent.payload.attachment.filename, "contacts.csv");
   assert.equal(toolExecutionContext.attachment, attachment);
+});
+
+test("provider attachments remain internal while crossing the runtime tool boundary", async () => {
+  const bytes = Buffer.from("%PDF-1.7\nstatement\n%%EOF\n");
+  const modelTransport = fakeTransport(async (payload) => {
+    const response = await payload.onToolCall({
+      callId: "statement-call", tool: "statement_get", arguments: {},
+    });
+    assert.equal(response.ok, true);
+    assert.deepEqual(JSON.parse(JSON.stringify(response)), {
+      ok: true, result: { status: "processing" },
+    });
+    assert.equal(modelInputAttachments(response)[0].dataBase64, bytes.toString("base64"));
+    return completedTurn({ text: "Statement supplied." });
+  });
+  const registry = new ToolRegistry();
+  registry.register({
+    name: "statement_get", description: "Get one provider statement.",
+    source: "mcp:test",
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+    async execute() {
+      return attachModelInputAttachments({ status: "processing" }, [{
+        mediaKind: "document", filename: "statement.pdf", mimeType: "application/pdf",
+        byteSize: bytes.length, sha256: "statement-sha", dataBase64: bytes.toString("base64"),
+      }]);
+    },
+  });
+  const runtime = new SlayerRuntime({
+    modelTransport, registry,
+    contextBuilder: { async build() {
+      return { text: "context", profileFacts: [], history: [], contextBudget: { truncated: false } };
+    } },
+    ledger: { append() { return 1; }, eventSequence(value) { return value; } },
+    config: runtimeConfig(),
+  });
+  runtime.systemPrompt = "prompt";
+  assert.equal(await runtime.run({
+    requestId: "provider-pdf", requestEventId: "provider-pdf-event",
+    text: "Get the provider statement.",
+  }), "Statement supplied.");
 });
 
 test("failed model responses retain provider diagnostics and observed usage in the trace", async () => {

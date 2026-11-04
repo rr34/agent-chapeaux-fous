@@ -16,6 +16,7 @@ import {
 } from "../src/tools/mcp-tools.mjs";
 import { toolDescriptionMetadataKey } from "../src/tool-description.mjs";
 import { schemaProblem, ToolRegistry } from "../src/tools/registry.mjs";
+import { modelInputAttachments } from "../src/model-input-attachments.mjs";
 
 test("remote application tools use provider-neutral names", () => {
   const name = remoteToolName("weather", "openmeteo_search_locations");
@@ -427,6 +428,79 @@ test("an advertised HTTP artifact receiver becomes one resumable file-upload app
     method === "POST" && requestPath.endsWith("/complete")
   )).length, 1);
   await manager.close();
+});
+
+test("a provider-declared PDF download is verified, attached transiently, and reused from memory", async (context) => {
+  const temporary = temporaryDirectory();
+  context.after(temporary.cleanup);
+  const configPath = path.join(temporary.directory, "mcp.json");
+  fs.writeFileSync(configPath, JSON.stringify({ accounting: {
+    enabled: true,
+    url: "https://accounting.example.test/mcp",
+    headers: { Authorization: "Bearer accounting-token" },
+  } }));
+  const bytes = Buffer.from("%PDF-1.7\nstatement\n%%EOF\n");
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  let downloadCount = 0;
+  const descriptor = {
+    contractVersion: 1, transportId: "statement_evidence_download",
+    sourceRef: "accounting://evidence-files/1", fileName: "statement.pdf",
+    mediaType: "application/pdf", byteSize: bytes.length, sha256: `sha256:${sha256}`,
+    method: "GET", endpointPath: "/mcp/evidence-files/1/content", acceptsByteRanges: true,
+  };
+  let activeDescriptor = descriptor;
+  const manager = new McpToolManager({
+    configPath,
+    clientFactory: () => ({
+      async connect() {},
+      getServerVersion() { return { name: "third-party-accounting" }; },
+      async listTools() { return { tools: [{
+        name: "get_statement", description: "Get one statement.",
+        inputSchema: { type: "object", additionalProperties: false, properties: {} },
+        annotations: { readOnlyHint: true },
+      }] }; },
+      async callTool() { return { structuredContent: { job: { status: "processing", download: activeDescriptor } } }; },
+      async close() {},
+    }),
+    transportFactory: () => ({ async close() {} }),
+    fetchFn: async (input, options) => {
+      downloadCount += 1;
+      assert.equal(new URL(input).pathname, descriptor.endpointPath);
+      assert.equal(options.headers.Authorization, "Bearer accounting-token");
+      assert.equal(options.headers.Range, `bytes=0-${bytes.length - 1}`);
+      return new Response(bytes, {
+        status: 206,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Length": String(bytes.length),
+          "Content-Range": `bytes 0-${bytes.length - 1}/${bytes.length}`,
+        },
+      });
+    },
+  });
+  context.after(() => manager.close());
+  const registry = new ToolRegistry();
+  await manager.initialize(registry);
+
+  const first = await registry.execute("remote_accounting_get_statement", {}, {
+    requestId: "request-1", callId: "call-1", channel: "web",
+  });
+  const firstAttachment = modelInputAttachments(first)[0];
+  assert.equal(firstAttachment.filename, "statement.pdf");
+  assert.equal(firstAttachment.dataBase64, bytes.toString("base64"));
+  assert.equal(firstAttachment.cache, "downloaded");
+  assert.doesNotMatch(JSON.stringify(first), new RegExp(bytes.toString("base64")));
+
+  const second = await registry.execute("remote_accounting_get_statement", {});
+  assert.equal(modelInputAttachments(second)[0].cache, "memory");
+  assert.equal(downloadCount, 1);
+
+  activeDescriptor = { ...descriptor, sha256: `sha256:${"0".repeat(64)}` };
+  const failedAttachment = await registry.execute("remote_accounting_get_statement", {});
+  assert.equal(modelInputAttachments(failedAttachment).length, 0);
+  assert.match(mcpResultDetails(failedAttachment).attachmentFailures[0].error, /SHA-256 did not match/);
+  assert.equal(failedAttachment.job.status, "processing");
+  assert.equal(downloadCount, 2);
 });
 
 test("an advertised artifact route returning 405 is terminal until a successful integration refresh", async (context) => {

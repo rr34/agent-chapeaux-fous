@@ -16,6 +16,7 @@ import {
   objectInputBindingsVersion,
   validateObjectInputBindings,
 } from "../object-input-bindings.mjs";
+import { attachModelInputAttachments } from "../model-input-attachments.mjs";
 
 // Match the identity supplied by the MCP initialize response, including for
 // user-managed connections whose local connection name is arbitrary.
@@ -114,6 +115,11 @@ const artifactUploadContractVersion = 1;
 const artifactFailureContractVersion = 1;
 const maximumArtifactChunkBytes = 1024 * 1024;
 const maximumArtifactResponseBytes = 1024 * 1024;
+const maximumProviderDownloadBytes = 50 * 1024 * 1024;
+const providerDownloadChunkBytes = 1024 * 1024;
+const providerDownloadCacheTtlMs = 5 * 60 * 1000;
+const maximumProviderDownloadCacheEntries = 8;
+const maximumProviderDownloadCacheBytes = 64 * 1024 * 1024;
 
 function artifactFailureKey(serverName, upload) {
   return `${serverName}\n${upload.transportId}\n${upload.contractFingerprint}`;
@@ -348,6 +354,78 @@ function normalizedSha256(value, label) {
   return digest;
 }
 
+function providerDownloadDescriptors(value, found = [], depth = 0) {
+  if (depth > 16 || found.length >= 4 || value == null || typeof value !== "object") return found;
+  if (!Array.isArray(value)
+    && value.contractVersion === 1
+    && value.method === "GET"
+    && typeof value.transportId === "string"
+    && typeof value.endpointPath === "string") {
+    found.push(value);
+    return found;
+  }
+  for (const child of Array.isArray(value) ? value : Object.values(value)) {
+    providerDownloadDescriptors(child, found, depth + 1);
+    if (found.length >= 4) break;
+  }
+  return found;
+}
+
+function validatedProviderDownload(descriptor) {
+  if (!/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(descriptor.transportId)
+    || !/^\/(?!\/)[A-Za-z0-9._~!$&'()*+,;=:@%/-]{1,1000}$/.test(descriptor.endpointPath)) {
+    throw new Error("Provider artifact download descriptor has an invalid identity or endpoint");
+  }
+  if (typeof descriptor.mediaType !== "string"
+    || !Number.isSafeInteger(descriptor.byteSize)
+    || typeof descriptor.sha256 !== "string"
+    || typeof descriptor.fileName !== "string"
+    || typeof descriptor.acceptsByteRanges !== "boolean") {
+    throw new Error("Provider artifact download descriptor is incomplete");
+  }
+  const mimeType = descriptor.mediaType.trim().toLowerCase();
+  if (mimeType !== "application/pdf") {
+    throw new Error(`Provider artifact download media type ${mimeType || "(missing)"} is not model-readable`);
+  }
+  if (descriptor.byteSize < 1 || descriptor.byteSize > maximumProviderDownloadBytes) {
+    throw new Error(`Provider PDF must be between 1 and ${maximumProviderDownloadBytes} bytes`);
+  }
+  const filename = path.basename(descriptor.fileName.trim());
+  if (!filename || filename.length > 255) throw new Error("Provider artifact download filename is invalid");
+  return {
+    transportId: descriptor.transportId,
+    endpointPath: descriptor.endpointPath,
+    mimeType,
+    byteSize: descriptor.byteSize,
+    sha256: normalizedSha256(descriptor.sha256, "provider artifact download sha256"),
+    filename,
+    acceptsByteRanges: descriptor.acceptsByteRanges === true,
+    sourceRef: typeof descriptor.sourceRef === "string" ? descriptor.sourceRef.slice(0, 2048) : null,
+  };
+}
+
+async function boundedResponseBytes(response, maximumBytes, label) {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) {
+    throw new Error(`${label} returned more bytes than requested`);
+  }
+  if (!response.body) return Buffer.alloc(0);
+  const reader = response.body.getReader();
+  const chunks = [];
+  let byteCount = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    byteCount += value.byteLength;
+    if (byteCount > maximumBytes) {
+      await reader.cancel().catch(() => {});
+      throw new Error(`${label} returned more bytes than requested`);
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks, byteCount);
+}
+
 function requiredString(value, label, maximumLength = 1024) {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${label} is missing`);
   if (value.length > maximumLength) throw new Error(`${label} is too long`);
@@ -528,6 +606,7 @@ export class McpToolManager {
     this.registeredTools = new Set();
     this.serverTools = new Map();
     this.artifactContractFailures = new Map();
+    this.providerDownloadCache = new Map();
     this.states = {};
     this.servers = {};
     this.userServers = {};
@@ -735,7 +814,7 @@ export class McpToolManager {
       validateArguments: true,
       source: `mcp:${serverName}`,
       upstreamName: tool.name,
-      execute: async (argumentsObject) => {
+      execute: async (argumentsObject, context = {}) => {
         const connection = this.connections.get(serverName);
         if (!connection) throw new Error(`${serverName} is not connected`);
         if (contractFailure) throw artifactTransferError(
@@ -743,7 +822,37 @@ export class McpToolManager {
         );
         try {
           const result = await connection.client.callTool({ name: tool.name, arguments: argumentsObject });
-          return resultContent(result);
+          const value = resultContent(result);
+          const attachments = [];
+          const attachmentFailures = [];
+          if (!result?.isError) {
+            for (const rawDescriptor of providerDownloadDescriptors(value)) {
+              try {
+                attachments.push(await this.downloadProviderArtifact(serverName, rawDescriptor, context));
+              } catch (downloadError) {
+                const message = downloadError instanceof Error ? downloadError.message : String(downloadError);
+                attachmentFailures.push({
+                  transportId: String(rawDescriptor?.transportId ?? "unknown").slice(0, 64),
+                  error: message,
+                });
+                this.ledger?.append?.({
+                  type: "mcp.artifact.download", phase: "error", status: "error",
+                  actorType: "service", actorName: "MCP artifact HTTP", source: `mcp:${serverName}`,
+                  channel: context.channel, turnId: context.requestId, operationId: context.callId,
+                  name: `Provider PDF download from ${serverName} failed`,
+                  payload: {
+                    transportId: String(rawDescriptor?.transportId ?? "unknown").slice(0, 64),
+                    path: typeof rawDescriptor?.endpointPath === "string"
+                      ? rawDescriptor.endpointPath.slice(0, 1024) : null,
+                  },
+                  error: message,
+                });
+              }
+            }
+          }
+          const details = mcpResultDetails(value);
+          if (details && attachmentFailures.length) details.attachmentFailures = attachmentFailures;
+          return attachModelInputAttachments(value, attachments);
         } catch (error) {
           // This is the SDK's result-validation diagnostic, not ordinary input
           // validation or provider business rejection sharing JSON-RPC -32602.
@@ -765,6 +874,130 @@ export class McpToolManager {
       },
     });
     this.rememberRegisteredTool(serverName, modelName);
+  }
+
+  async providerDownloadAuthorization(serverName) {
+    const connection = this.connections.get(serverName);
+    if (!connection) throw new Error(`${serverName} is not connected`);
+    const configured = Object.entries(connection.headers ?? {})
+      .find(([name]) => name.toLowerCase() === "authorization")?.[1];
+    if (configured) {
+      if (!/^Bearer\s+\S+/i.test(configured)) {
+        throw new Error(`${serverName} provider download requires bearer authorization`);
+      }
+      return configured;
+    }
+    const tokens = await connection.provider?.tokens?.();
+    if (tokens?.access_token) return `Bearer ${tokens.access_token}`;
+    throw new Error(`${serverName} provider download requires the integration's bearer token`);
+  }
+
+  pruneProviderDownloadCache(now = Date.now()) {
+    for (const [key, cached] of this.providerDownloadCache) {
+      if (cached.expiresAt <= now) this.providerDownloadCache.delete(key);
+    }
+    const cacheBytes = () => [...this.providerDownloadCache.values()]
+      .reduce((total, cached) => total + cached.byteSize, 0);
+    while (this.providerDownloadCache.size > maximumProviderDownloadCacheEntries
+      || cacheBytes() > maximumProviderDownloadCacheBytes) {
+      this.providerDownloadCache.delete(this.providerDownloadCache.keys().next().value);
+    }
+  }
+
+  async downloadProviderArtifact(serverName, rawDescriptor, context = {}) {
+    const descriptor = validatedProviderDownload(rawDescriptor);
+    const cacheKey = `${serverName}:${descriptor.sha256}`;
+    this.pruneProviderDownloadCache();
+    const cached = this.providerDownloadCache.get(cacheKey);
+    if (cached && cached.byteSize === descriptor.byteSize && cached.mimeType === descriptor.mimeType) {
+      this.providerDownloadCache.delete(cacheKey);
+      this.providerDownloadCache.set(cacheKey, cached);
+      return {
+        ...cached.attachment,
+        filename: descriptor.filename,
+        text: `# Provider document\nComplete original PDF from ${serverName}${descriptor.sourceRef ? ` (${descriptor.sourceRef})` : ""}. Read every page at high detail.`,
+        transportId: descriptor.transportId,
+        cache: "memory",
+      };
+    }
+    const connection = this.connections.get(serverName);
+    if (!connection) throw new Error(`${serverName} is not connected`);
+    const endpoint = new URL(descriptor.endpointPath, connection.serverUrl.origin);
+    if (endpoint.origin !== connection.serverUrl.origin) {
+      throw new Error(`${serverName} provider download endpoint must use the MCP server origin`);
+    }
+    const authorization = await this.providerDownloadAuthorization(serverName);
+    const fetchFn = this.fetchFn ?? globalThis.fetch;
+    const chunks = [];
+    let offset = 0;
+    while (offset < descriptor.byteSize) {
+      const end = descriptor.acceptsByteRanges
+        ? Math.min(descriptor.byteSize - 1, offset + providerDownloadChunkBytes - 1)
+        : descriptor.byteSize - 1;
+      const headers = { Authorization: authorization };
+      if (descriptor.acceptsByteRanges) headers.Range = `bytes=${offset}-${end}`;
+      const response = await fetchFn(endpoint, { method: "GET", headers, redirect: "error" });
+      const expectedStatus = descriptor.acceptsByteRanges ? 206 : 200;
+      if (response.status !== expectedStatus) {
+        await boundedResponseBytes(response, maximumArtifactResponseBytes, `${serverName} provider download`).catch(() => {});
+        throw new Error(`${serverName} provider download returned HTTP ${response.status}; expected ${expectedStatus}`);
+      }
+      const expectedBytes = end - offset + 1;
+      const responseMediaType = String(response.headers.get("content-type") ?? "")
+        .split(";", 1)[0].trim().toLowerCase();
+      if (responseMediaType && responseMediaType !== descriptor.mimeType) {
+        throw new Error(`${serverName} provider download returned ${responseMediaType} instead of ${descriptor.mimeType}`);
+      }
+      if (descriptor.acceptsByteRanges) {
+        const expectedRange = `bytes ${offset}-${end}/${descriptor.byteSize}`;
+        if (response.headers.get("content-range") !== expectedRange) {
+          throw new Error(`${serverName} provider download did not confirm byte range ${offset}-${end}`);
+        }
+      }
+      const bytes = await boundedResponseBytes(response, expectedBytes, `${serverName} provider download`);
+      if (bytes.length !== expectedBytes) {
+        throw new Error(`${serverName} provider download returned ${bytes.length} bytes for range ${offset}-${end}`);
+      }
+      chunks.push(bytes);
+      offset += bytes.length;
+      if (!descriptor.acceptsByteRanges) break;
+    }
+    const bytes = Buffer.concat(chunks, descriptor.byteSize);
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    if (digest !== descriptor.sha256) throw new Error(`${serverName} provider download SHA-256 did not match`);
+    if (!bytes.subarray(0, Math.min(bytes.length, 1024)).includes(Buffer.from("%PDF-", "ascii"))) {
+      throw new Error(`${serverName} provider download did not contain a PDF header`);
+    }
+    const attachment = {
+      mediaKind: "document",
+      filename: descriptor.filename,
+      mimeType: descriptor.mimeType,
+      byteSize: descriptor.byteSize,
+      sha256: descriptor.sha256,
+      dataBase64: bytes.toString("base64"),
+      text: `# Provider document\nComplete original PDF from ${serverName}${descriptor.sourceRef ? ` (${descriptor.sourceRef})` : ""}. Read every page at high detail.`,
+      source: `mcp:${serverName}`,
+      transportId: descriptor.transportId,
+      cache: "downloaded",
+    };
+    this.providerDownloadCache.set(cacheKey, {
+      attachment, byteSize: descriptor.byteSize, mimeType: descriptor.mimeType,
+      expiresAt: Date.now() + providerDownloadCacheTtlMs,
+    });
+    this.pruneProviderDownloadCache();
+    this.ledger?.append?.({
+      type: "mcp.artifact.download", phase: "end", status: "complete",
+      actorType: "service", actorName: "MCP artifact HTTP", source: `mcp:${serverName}`,
+      channel: context.channel, turnId: context.requestId, operationId: context.callId,
+      name: `Verified provider PDF from ${serverName}`,
+      payload: {
+        transportId: descriptor.transportId, path: endpoint.pathname,
+        mediaType: descriptor.mimeType, byteSize: descriptor.byteSize,
+        sha256: `sha256:${descriptor.sha256}`, byteRangeRequests: chunks.length,
+        persistence: "bounded_memory_cache",
+      },
+    });
+    return attachment;
   }
 
   registerArtifactUpload(serverName, upload) {

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { redactText, redactValue } from "./redaction.mjs";
+import { modelInputAttachments } from "./model-input-attachments.mjs";
 
 function combinedInstructions(baseInstructions, developerInstructions) {
   return [
@@ -100,6 +101,26 @@ function userContent(input, requestAttachmentInput, imageDetail, pdfDetail) {
     });
   }
   return content;
+}
+
+function attachmentUserMessage(attachment, imageDetail, pdfDetail) {
+  return {
+    role: "user",
+    content: userContent(
+      attachment.text || "Read the complete provider document for the current task.",
+      { ...attachment, text: null },
+      imageDetail,
+      pdfDetail,
+    ),
+  };
+}
+
+function requestContainsDataFile(value) {
+  if (Array.isArray(value)) return value.some(requestContainsDataFile);
+  if (value == null || typeof value !== "object") return false;
+  return Object.entries(value).some(([key, child]) => (
+    key === "file_data" && typeof child === "string" && child.startsWith("data:")
+  ) || requestContainsDataFile(child));
 }
 
 function publicCitationUrl(value) {
@@ -418,6 +439,8 @@ export class OpenAIResponsesClient {
     const controlTransfers = [];
     let objectBindingRefreshCount = 0;
     let terminalVerificationRounds = terminalFailureObserved ? 1 : null;
+    const deliveredAttachmentKeys = new Set();
+    let usedPdfAttachment = isPdfAttachment(requestAttachmentInput);
     let response;
     let previousResponseId = conversationId;
     let nextInput = [{
@@ -499,7 +522,7 @@ export class OpenAIResponsesClient {
             bodySha256: sha256(serializedRequestBody),
             redactions: requestAttachmentInput?.mediaKind === "image"
               ? ["Authorization header value redacted", "Input image data URL bytes replaced by length and SHA-256"]
-              : isPdfAttachment(requestAttachmentInput)
+              : isPdfAttachment(requestAttachmentInput) || requestContainsDataFile(exactProviderBody.input)
                 ? ["Authorization header value redacted", "Input PDF data URL bytes replaced by length and SHA-256"]
                 : ["Authorization header value redacted"],
           },
@@ -556,6 +579,7 @@ export class OpenAIResponsesClient {
         let immediateControlTransfer = false;
         let refreshedToolDefinitions = null;
         let stopCurrentToolLoop = false;
+        const nextAttachments = new Map();
         const batchProblems = typeof onToolCallBatch === "function"
           ? await onToolCallBatch({
               calls: calls.map((call) => ({
@@ -630,7 +654,20 @@ export class OpenAIResponsesClient {
             call_id: call.call_id,
             output: JSON.stringify(result ?? null),
           });
+          for (const attachment of modelInputAttachments(result)) {
+            const key = `${attachment.source ?? "provider"}:${attachment.sha256 ?? attachment.filename}`;
+            if (!deliveredAttachmentKeys.has(key) && !nextAttachments.has(key)) {
+              nextAttachments.set(key, attachment);
+            }
+          }
           if (immediateControlTransfer) break;
+        }
+        for (const attachment of nextAttachments.values()) {
+          nextInput.push(attachmentUserMessage(attachment, this.imageDetail, this.pdfDetail));
+          if (isPdfAttachment(attachment)) usedPdfAttachment = true;
+          deliveredAttachmentKeys.add(
+            `${attachment.source ?? "provider"}:${attachment.sha256 ?? attachment.filename}`,
+          );
         }
         if (!immediateControlTransfer && refreshedToolDefinitions) {
           callableTools = openAITools(refreshedToolDefinitions);
@@ -666,7 +703,7 @@ export class OpenAIResponsesClient {
           toolSchemaCount: callableTools.length,
           structuredOutput: Boolean(providerOutputSchema),
           imageDetail: requestAttachmentInput?.mediaKind === "image" ? this.imageDetail : null,
-          pdfDetail: isPdfAttachment(requestAttachmentInput) ? this.pdfDetail : null,
+          pdfDetail: usedPdfAttachment ? this.pdfDetail : null,
           controlTransfer: controlTransfers.length > 0,
           objectBindingRefreshCount,
         },

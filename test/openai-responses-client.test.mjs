@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { attachModelInputAttachments } from "../src/model-input-attachments.mjs";
 import {
   OpenAIResponsesClient,
   openAICompatibleSchema,
@@ -710,6 +711,65 @@ test("OpenAI Responses sends a complete PDF at high detail and redacts its bytes
     detail: "high",
   });
   assert.doesNotMatch(JSON.stringify(description), new RegExp(dataBase64));
+});
+
+test("OpenAI Responses adds a verified provider PDF after its MCP tool result", async () => {
+  const requests = [];
+  const events = [];
+  const bytes = Buffer.from("%PDF-1.7\nprovider statement\n%%EOF\n");
+  const responses = [{
+    id: "resp_provider_descriptor", model: "gpt-5.6-terra", status: "completed",
+    output: [{
+      type: "function_call", call_id: "call_statement", name: "get_statement",
+      arguments: "{}",
+    }],
+    usage: { input_tokens: 10, output_tokens: 2, total_tokens: 12 },
+  }, {
+    id: "resp_provider_read", model: "gpt-5.6-terra", status: "completed",
+    output: [{
+      type: "message", id: "msg_provider", role: "assistant",
+      content: [{ type: "output_text", text: "I read every page." }],
+    }],
+    usage: { input_tokens: 50, output_tokens: 4, total_tokens: 54 },
+  }];
+  const client = new OpenAIResponsesClient({
+    apiKey: "test-key",
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return jsonResponse(responses.shift());
+    },
+  });
+  const result = await client.runTurn({
+    model: "gpt-5.6-terra", baseInstructions: "BASE", developerInstructions: "CONTEXT",
+    input: "Process the statement.",
+    tools: [{
+      name: "get_statement", description: "Get the statement job.",
+      inputSchema: { type: "object", additionalProperties: false, properties: {} },
+    }],
+    onEvent: event => events.push(event),
+    onToolCall: async () => attachModelInputAttachments({ ok: true, result: { status: "processing" } }, [{
+      mediaKind: "document", filename: "statement.pdf", mimeType: "application/pdf",
+      byteSize: bytes.length, sha256: "verified-sha", dataBase64: bytes.toString("base64"),
+      text: "Complete original provider PDF. Read every page.", source: "mcp:accounting",
+    }]),
+  });
+
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].input[0].type, "function_call_output");
+  assert.deepEqual(JSON.parse(requests[1].input[0].output), {
+    ok: true, result: { status: "processing" },
+  });
+  assert.equal(requests[1].input[1].role, "user");
+  assert.equal(requests[1].input[1].content[0].text, "Complete original provider PDF. Read every page.");
+  assert.equal(requests[1].input[1].content[1].type, "input_file");
+  assert.equal(requests[1].input[1].content[1].detail, "high");
+  assert.equal(requests[1].input[1].content[1].file_data,
+    `data:application/pdf;base64,${bytes.toString("base64")}`);
+  const secondTrace = events.filter(({ type }) => type === "request.started")[1].providerRequest;
+  assert.match(secondTrace.body.input[1].content[1].file_data, /REDACTED.*sha256=/);
+  assert.doesNotMatch(JSON.stringify(secondTrace), new RegExp(bytes.toString("base64")));
+  assert.equal(result.text, "I read every page.");
+  assert.equal(result.protocol.pdfDetail, "high");
 });
 
 test("OpenAI schemas omit provider-unsupported uniqueness constraints without mutating local schemas", () => {
