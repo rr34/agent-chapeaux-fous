@@ -281,6 +281,13 @@ test("new provider confirmations suppress jargon and ask the user for a simple d
 
   const alreadyPlain = "The preview contains 13 transactions. Please confirm that exact deletion.";
   assert.equal(pendingConfirmationResponse(alreadyPlain), alreadyPlain);
+
+  const exactCommitQuestion = [
+    "The pending preview contains one transaction and two line items.",
+    "",
+    "Commit these import settings now?",
+  ].join("\n");
+  assert.equal(pendingConfirmationResponse(exactCommitQuestion), exactCommitQuestion);
 });
 
 test("receipt findings enforce only explicitly authorized MCP action references", () => {

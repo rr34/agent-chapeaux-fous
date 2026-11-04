@@ -247,6 +247,16 @@ test("provider attachments remain internal while crossing the runtime tool bound
       ok: true, result: { status: "processing" },
     });
     assert.equal(modelInputAttachments(response)[0].dataBase64, bytes.toString("base64"));
+    await payload.onEvent({
+      type: "model_input.attachment",
+      modelCallIndex: 2,
+      delivery: "input_file",
+      attachment: {
+        mediaKind: "document", filename: "statement.pdf", mimeType: "application/pdf",
+        byteSize: bytes.length, sha256: "statement-sha", source: "mcp:test",
+        transportId: "statement_download", cache: "downloaded",
+      },
+    });
     return completedTurn({ text: "Statement supplied." });
   });
   const registry = new ToolRegistry();
@@ -287,8 +297,13 @@ test("provider attachments remain internal while crossing the runtime tool bound
     source: null,
     transportId: null,
     cache: null,
-    deliveredAsModelInput: true,
+    availableInModelChain: true,
   }]);
+  const attachmentEvent = events.find((event) => event.type === "model.input.attachment");
+  assert.equal(attachmentEvent.payload.modelCallIndex, 2);
+  assert.equal(attachmentEvent.payload.delivery, "input_file");
+  assert.equal(attachmentEvent.payload.attachment.filename, "statement.pdf");
+  assert.equal(JSON.stringify(attachmentEvent).includes(bytes.toString("base64")), false);
   assert.equal(JSON.stringify(resultEvent).includes(bytes.toString("base64")), false);
 });
 

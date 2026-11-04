@@ -1456,6 +1456,13 @@ descriptors or failed verification are returned to the model as explicit host
 attachment failures without changing the provider tool's already-observed
 effect receipt.
 
+Tool receipts retain only compact evidence that a verified document is available
+in the model chain. They never claim that every repeated descriptor caused a new
+delivery. The model transport records one separate literal attachment event when
+it actually inserts the provider document into a model request; a cache hit or
+duplicate descriptor that is already present in the chain does not emit another
+delivery event.
+
 An upload-capable provider declares the convention mechanically on the MCP tool
 that will consume the completed artifact. Human-readable server instructions
 may explain the workflow, but they do not activate transport behavior. The

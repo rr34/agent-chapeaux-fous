@@ -447,6 +447,7 @@ export class OpenAIResponsesClient {
       role: "user",
       content: userContent(input, requestAttachmentInput, this.imageDetail, this.pdfDetail),
     }];
+    let pendingAttachmentDeliveries = [];
     let toolCallCount = 0;
     let modelCallCount = 0;
     let latestInputTokens = 0;
@@ -507,6 +508,15 @@ export class OpenAIResponsesClient {
         modelCallCount += 1;
         const serializedRequestBody = JSON.stringify(requestBody);
         const exactProviderBody = JSON.parse(serializedRequestBody);
+        for (const attachment of pendingAttachmentDeliveries) {
+          await onEvent?.({
+            type: "model_input.attachment",
+            modelCallIndex: modelCallCount,
+            delivery: attachment.delivery,
+            attachment: attachment.evidence,
+          });
+        }
+        pendingAttachmentDeliveries = [];
         await onEvent?.({
           type: "request.started",
           modelCallIndex: modelCallCount,
@@ -664,6 +674,19 @@ export class OpenAIResponsesClient {
         }
         for (const attachment of nextAttachments.values()) {
           nextInput.push(attachmentUserMessage(attachment, this.imageDetail, this.pdfDetail));
+          pendingAttachmentDeliveries.push({
+            delivery: isPdfAttachment(attachment) ? "input_file" : "input_image",
+            evidence: {
+              mediaKind: attachment.mediaKind ?? null,
+              filename: attachment.filename ?? null,
+              mimeType: attachment.mimeType ?? null,
+              byteSize: attachment.byteSize ?? null,
+              sha256: attachment.sha256 ?? null,
+              source: attachment.source ?? null,
+              transportId: attachment.transportId ?? null,
+              cache: attachment.cache ?? null,
+            },
+          });
           if (isPdfAttachment(attachment)) usedPdfAttachment = true;
           deliveredAttachmentKeys.add(
             `${attachment.source ?? "provider"}:${attachment.sha256 ?? attachment.filename}`,

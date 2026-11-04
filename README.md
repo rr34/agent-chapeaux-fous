@@ -1040,9 +1040,13 @@ confirms every declared byte range, size, and SHA-256, and adds the verified PDF
 at high detail to the next model call in that execution. Tool expansion preserves
 that Responses chain, so subsequent calls in the execution can continue reading
 the document. Compact receipt evidence records the filename, media type, byte
-count, digest, source, and transport ID but never the bytes. The bytes stay out
-of MCP JSON and observability and live only in a bounded five-minute memory
-cache; the MCP remains the durable source of record.
+count, digest, source, and transport ID as evidence that the document remains
+available in the model chain, but never records the bytes. A separate literal
+`model.input.attachment` event is emitted only when the transport actually adds
+the provider document to a model request; cached descriptor repetitions do not
+claim another delivery. The bytes stay out of MCP JSON and observability and
+live only in a bounded five-minute memory cache; the MCP remains the durable
+source of record.
 
 MCP integrations with an `oauth` block use the standard MCP authorization-code
 flow with OAuth discovery, dynamic client registration, PKCE, and refresh

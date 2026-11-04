@@ -206,12 +206,14 @@ export function pendingConfirmationFindings(receipts, confirmedReferences = []) 
 }
 
 const internalConfirmationJargon = /(?:\bauthorization\b|accepted\s+(?:TurnBrief|common-sense core)|provider\s+invocation|MCP\s+action\s+reference|active\s+provider)/iu;
+const plainActionQuestion = /\b(?:approve|commit|confirm|proceed|send|delete|remove|finalize|post|apply|import|carry\s+out)\b[^?\n]{0,240}\?/iu;
 
 export function pendingConfirmationResponse(proposedResponse) {
   const proposed = String(proposedResponse ?? "").trim();
   if (proposed
     && !internalConfirmationJargon.test(proposed)
-    && /\b(?:confirm|confirmation|yes\s+or\s+no|should\s+I|proceed)\b/iu.test(proposed)) {
+    && (/\b(?:confirm|confirmation|yes\s+or\s+no|should\s+I|proceed)\b/iu.test(proposed)
+      || plainActionQuestion.test(proposed))) {
     return proposed;
   }
   const paragraphs = proposed

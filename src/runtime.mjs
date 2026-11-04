@@ -605,7 +605,7 @@ function compactModelInputAttachmentEvidence(value) {
     source: attachment.source ?? null,
     transportId: attachment.transportId ?? null,
     cache: attachment.cache ?? null,
-    deliveredAsModelInput: true,
+    availableInModelChain: true,
   }));
 }
 
@@ -2121,6 +2121,22 @@ export class SlayerRuntime {
         result = await this.modelTransport.runTurn({
           ...turnRequest,
           onEvent: (event) => {
+            if (event.type === "model_input.attachment") {
+              this.ledger.append({
+                type: "model.input.attachment", status: "complete", actorType: "service",
+                actorName: `${this.modelTransport.displayName} transport`, channel,
+                turnId: requestId, operationId,
+                name: `Attached ${event.attachment?.filename ?? "provider document"} to model input`,
+                content: event.delivery,
+                payload: {
+                  workflowStep, workflowStepLabel, stepIndex, reasoningEffort: selectedEffort,
+                  attempt, modelCallIndex: event.modelCallIndex,
+                  delivery: event.delivery,
+                  attachment: event.attachment,
+                },
+              });
+              return;
+            }
             if (event.type === "tools.refreshed") {
               this.ledger.append({
                 type: "tools.sent", status: "complete", actorType: "system",

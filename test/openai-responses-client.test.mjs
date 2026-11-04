@@ -765,6 +765,21 @@ test("OpenAI Responses adds a verified provider PDF after its MCP tool result", 
   assert.equal(requests[1].input[1].content[1].detail, "high");
   assert.equal(requests[1].input[1].content[1].file_data,
     `data:application/pdf;base64,${bytes.toString("base64")}`);
+  assert.deepEqual(events.filter(({ type }) => type === "model_input.attachment"), [{
+    type: "model_input.attachment",
+    modelCallIndex: 2,
+    delivery: "input_file",
+    attachment: {
+      mediaKind: "document",
+      filename: "statement.pdf",
+      mimeType: "application/pdf",
+      byteSize: bytes.length,
+      sha256: "verified-sha",
+      source: "mcp:accounting",
+      transportId: null,
+      cache: null,
+    },
+  }]);
   const secondTrace = events.filter(({ type }) => type === "request.started")[1].providerRequest;
   assert.match(secondTrace.body.input[1].content[1].file_data, /REDACTED.*sha256=/);
   assert.doesNotMatch(JSON.stringify(secondTrace), new RegExp(bytes.toString("base64")));

@@ -68,12 +68,12 @@ test("continuation evidence retains compact model-input document proof without b
       source: "mcp:accounting",
       transportId: "statement_evidence_download",
       cache: "downloaded",
-      deliveredAsModelInput: true,
+      availableInModelChain: true,
     }],
   })]);
   const [projected] = entries(text);
   assert.equal(projected.modelInputAttachments[0].filename, "statement.pdf");
-  assert.equal(projected.modelInputAttachments[0].deliveredAsModelInput, true);
+  assert.equal(projected.modelInputAttachments[0].availableInModelChain, true);
   assert.equal(text.includes("dataBase64"), false);
 });
 
