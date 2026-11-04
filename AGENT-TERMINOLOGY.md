@@ -336,3 +336,11 @@ no callable tool schemas and does not predict arguments, required fields,
 results, or call order. Execution receives exact schemas only for that set and
 may refine the approach or explicitly request another tool from the accepted
 capability families as evidence develops.
+
+**66. Outcome Evidence Binding** — A compact versioned provider-owned result
+contract that maps an exact output path to a declared first-class object type,
+effect, optional semantic role, and whether the returned objects count toward
+the accepted outcome. The runtime evaluates it after execution and stores the
+exact stable references on the receipt. It is not model-facing planning,
+resource-lifecycle ownership, or inference from field names, schema shape, or
+other objects returned by the same call.

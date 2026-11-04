@@ -1,6 +1,10 @@
 import { selectedFields } from "./record-fields.mjs";
 import { renameJournalGroup } from "../journal-group-operations.mjs";
 import { updateJournalEntry } from "../journal-entry-operations.mjs";
+import {
+  defineOutcomeEvidenceBindings,
+  outcomeEvidenceBindingsMetadataKey,
+} from "../outcome-evidence-bindings.mjs";
 
 const toolDescriptions = Object.freeze({
   "journal_add": {
@@ -15,11 +19,7 @@ const toolDescriptions = Object.freeze({
     ]
   },
   "tracker_create": { "summary": "Create one or more personal-journal trackers without recording journal entries." },
-  "journal_import": {
-    "summary": "Idempotently import up to 100 personal-journal entries with stable source IDs and explicit occurrence times.",
-    "actionClasses": ["CREATE"],
-    "effectClassifications": ["MUTATING"]
-  },
+  "journal_import": { "summary": "Idempotently import up to 100 personal-journal entries with stable source IDs and explicit occurrence times." },
   "journal_list": { "summary": "List recent personal-journal entries, optionally filtered by tracker, group, source, or UTC occurrence range." },
   "journal_update": { "summary": "Correct one personal-journal entry by stable ID without changing the tracker's canonical unit." },
   "journal_entry_delete": { "summary": "Atomically delete up to 100 exact personal-journal entries without changing their trackers or sibling observations." },
@@ -769,6 +769,15 @@ export function registerJournalTools(registry, store, ledger) {
     outputSchema: {
       type: "object",
       properties: { entry: journalEntryRecordSchema, tracker: trackerRecordSchema },
+    },
+    metadata: {
+      [outcomeEvidenceBindingsMetadataKey]: defineOutcomeEvidenceBindings([{
+        path: "/entry",
+        objectType: "journal.entry",
+        effect: "created",
+        countsTowardOutcome: true,
+        role: "recorded_observation",
+      }]),
     },
     parameters: {
       type: "object",

@@ -26,6 +26,10 @@ const objectInputBindingsSchemaPath = new URL(
   "../config/protocol-schemas/object-input-bindings.v1.schema.json",
   import.meta.url,
 );
+const outcomeEvidenceBindingsSchemaPath = new URL(
+  "../config/protocol-schemas/outcome-evidence-bindings.v1.schema.json",
+  import.meta.url,
+);
 const referenceSetSchemaPath = new URL(
   "../config/protocol-schemas/reference-set.v1.schema.json",
   import.meta.url,
@@ -167,6 +171,24 @@ test("the manifesto publishes domain-owned first-class object input bindings", (
   assert.match(manifesto, /2A\.2\. Object-input binding contract/);
   assert.match(manifesto, /never guesses it at runtime from names such as/);
   assert.match(manifesto, /cannot reach the tool/);
+});
+
+test("the manifesto publishes provider-owned outcome evidence bindings", () => {
+  const schema = JSON.parse(fs.readFileSync(outcomeEvidenceBindingsSchemaPath, "utf8"));
+  const manifesto = fs.readFileSync(manifestoPath, "utf8");
+  assert.equal(schema.properties.protocol.const, "agent-slayer.outcome-evidence-bindings");
+  assert.equal(schema.properties.version.const, 1);
+  assert.deepEqual(new Set(schema.required), new Set(["protocol", "version", "bindings"]));
+  assert.deepEqual(
+    new Set(schema.properties.bindings.items.required),
+    new Set(["path", "objectType", "effect", "countsTowardOutcome"]),
+  );
+  assert.match(manifesto, /Outcome Evidence Binding/);
+  assert.match(
+    manifesto,
+    /config\/protocol-schemas\/outcome-evidence-bindings\.v1\.schema\.json/,
+  );
+  assert.match(manifesto, /omitted from orientation and the schema-free tool-selection/);
 });
 
 test("the manifesto publishes exact object and directed relationship sets", () => {

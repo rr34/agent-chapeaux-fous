@@ -82,6 +82,17 @@ function walkRecords(value, visit, state = { remaining: maximumTraversalNodes },
   for (const child of Object.values(value)) walkRecords(child, visit, state, depth + 1);
 }
 
+function visitResultRecords(value, visit, exactRecords) {
+  if (!exactRecords) {
+    walkRecords(value, visit);
+    return;
+  }
+  const records = Array.isArray(value) ? value : [value];
+  for (const record of records) {
+    if (record && typeof record === "object" && !Array.isArray(record)) visit(record);
+  }
+}
+
 function inactiveContactRecord(record) {
   if (!record || typeof record !== "object") return false;
   const status = record.status
@@ -117,11 +128,12 @@ function remoteIdentity(record, type) {
   return type.identity?.field ? nativeId(record?.[type.identity.field]) : null;
 }
 
-function remoteReferences(toolDefinition, toolDefinitions, result, sourceEventSeq) {
+function remoteReferences(toolDefinition, toolDefinitions, result, sourceEventSeq, exactRecords) {
   const groups = [];
   for (const type of remoteObjectTypes(toolDefinition, toolDefinitions)) {
     const byRole = new Map();
-    walkRecords(result, (record) => {
+    visitResultRecords(result, (record) => {
+      if (record?.objectType != null && record.objectType !== type.id) return;
       if (type.requireObjectType && record?.objectType !== type.id) return;
       const reference = compactScalar(record?.[type.reference.field], 1_000);
       const display = compactScalar(record?.[type.display.field], 500);
@@ -132,7 +144,7 @@ function remoteReferences(toolDefinition, toolDefinitions, result, sourceEventSe
       const byRef = byRole.get(role) ?? new Map();
       if (id != null && !byRef.has(reference)) byRef.set(reference, { id, ref: reference, display });
       byRole.set(role, byRef);
-    });
+    }, exactRecords);
     for (const [role, byRef] of byRole) {
       const objects = [...byRef.values()].slice(0, maximumObjectsPerBinding);
       if (objects.length) groups.push({
@@ -148,7 +160,7 @@ function remoteReferences(toolDefinition, toolDefinitions, result, sourceEventSe
   return groups;
 }
 
-function nativeReferences(toolDefinition, result, sourceEventSeq) {
+function nativeReferences(toolDefinition, result, sourceEventSeq, exactRecords) {
   if (toolDefinition?.source !== "local") return [];
   const byType = new Map(nativeFirstClassObjectTypes.map((type) => [type.id, new Map()]));
   const add = (type, record, object) => {
@@ -159,7 +171,7 @@ function nativeReferences(toolDefinition, result, sourceEventSeq) {
     if (!byRef.has(object.ref)) byRef.set(object.ref, object);
     byRole.set(role, byRef);
   };
-  walkRecords(result, (record) => {
+  visitResultRecords(result, (record) => {
     // Inactive contacts are logical deletions. Do not create a reusable
     // identity for the contact or descend into its methods and tags.
     if (inactiveContactRecord(record)) return false;
@@ -187,7 +199,7 @@ function nativeReferences(toolDefinition, result, sourceEventSeq) {
         : `${type.refPrefix}${encodeURIComponent(String(id))}`;
       add(type, record, { id, ref, display });
     }
-  });
+  }, exactRecords);
   const groups = [];
   for (const type of nativeFirstClassObjectTypes) {
     for (const [role, byRef] of byType.get(type.id)) {
@@ -206,12 +218,16 @@ function nativeReferences(toolDefinition, result, sourceEventSeq) {
 }
 
 export function objectReferenceGroupsFromToolResult({
-  toolDefinition, toolDefinitions = [], result, sourceEventSeq = null,
+  toolDefinition, toolDefinitions = [], result, sourceEventSeq = null, exactRecords = false,
 }) {
   if (!toolDefinition || result == null) return [];
-  const remote = remoteReferences(toolDefinition, toolDefinitions, result, sourceEventSeq);
+  const remote = remoteReferences(
+    toolDefinition, toolDefinitions, result, sourceEventSeq, exactRecords,
+  );
   return normalizeObjectReferenceGroups(
-    remote.length ? remote : nativeReferences(toolDefinition, result, sourceEventSeq),
+    remote.length
+      ? remote
+      : nativeReferences(toolDefinition, result, sourceEventSeq, exactRecords),
   );
 }
 

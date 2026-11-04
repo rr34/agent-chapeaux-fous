@@ -49,29 +49,56 @@ function requestOutcomes(core) {
     .filter(({ cardinality }) => cardinality?.basis === "request");
 }
 
-export function matchIntentOutcomes(core, objectReferenceGroups, toolDefinition = null) {
+export function matchIntentOutcomes(
+  core,
+  objectReferenceGroups,
+  toolDefinition = null,
+  explicitOutcomeEvidenceGroups = null,
+) {
   const observedByType = groupsByType(objectReferenceGroups);
+  const outcomeEvidenceByType = explicitOutcomeEvidenceGroups === null
+    ? null
+    : groupsByType(explicitOutcomeEvidenceGroups);
+  const bindableByType = outcomeEvidenceByType ?? observedByType;
   const outcomes = requestOutcomes(core);
   const bindings = [];
 
   for (const outcome of outcomes.filter(({ targetRefs }) => targetRefs.length > 0)) {
-    for (const [objectType, observed] of observedByType) {
-      if (outcome.targetRefs.some((ref) => observed.has(ref))) {
-        bindings.push({ outcomeRef: outcome.ref, objectType });
+    for (const [objectType, observed] of bindableByType) {
+      const objectRefs = outcome.targetRefs.filter((ref) => observed.has(ref));
+      if (objectRefs.length > 0) {
+        bindings.push({
+          outcomeRef: outcome.ref,
+          objectType,
+          ...(outcomeEvidenceByType ? { objectRefs } : {}),
+        });
       }
     }
   }
 
   const unbound = outcomes.filter(({ targetRefs }) => targetRefs.length === 0);
   if (unbound.length === 1) {
-    const observedTypes = [...observedByType.keys()];
-    const declaredMutationTypes = mutationResourceTypes(toolDefinition);
-    const contractMatches = observedTypes.filter((objectType) => declaredMutationTypes.has(objectType));
-    const authoritativeTypes = contractMatches.length === 1
-      ? contractMatches
-      : observedTypes.length === 1 ? observedTypes : [];
-    if (authoritativeTypes.length === 1) {
-      bindings.push({ outcomeRef: unbound[0].ref, objectType: authoritativeTypes[0] });
+    if (outcomeEvidenceByType) {
+      const evidenceTypes = [...outcomeEvidenceByType.entries()]
+        .filter(([, refs]) => refs.size > 0);
+      if (evidenceTypes.length === 1) {
+        const [[objectType, refs]] = evidenceTypes;
+        bindings.push({
+          outcomeRef: unbound[0].ref,
+          objectType,
+          objectRefs: [...refs],
+        });
+      }
+    } else {
+      const observedTypes = [...observedByType.keys()];
+      const declaredMutationTypes = mutationResourceTypes(toolDefinition);
+      const contractMatches = observedTypes.filter((objectType) => declaredMutationTypes.has(objectType));
+      const authoritativeTypes = contractMatches.length === 1
+        ? contractMatches
+        : observedTypes.length === 1 ? observedTypes : [];
+      if (authoritativeTypes.length === 1) {
+        bindings.push({ outcomeRef: unbound[0].ref, objectType: authoritativeTypes[0] });
+      }
     }
   }
 
@@ -164,10 +191,11 @@ export function intentOutcomeFindings({ core, receipts, registry }) {
     const bindings = receiptOutcomeBindings(receipt)
       .filter(({ outcomeRef: ref }) => outcomeByRef.has(ref));
     if (bindings.length === 0 && grouped.size > 0) unboundMutationEvidence = true;
-    for (const { outcomeRef: ref, objectType } of bindings) {
+    for (const { outcomeRef: ref, objectType, objectRefs } of bindings) {
       typesByOutcome.get(ref).add(objectType);
       const observed = observedByOutcome.get(ref);
-      for (const objectRef of grouped.get(objectType) ?? []) observed.add(objectRef);
+      const boundRefs = Array.isArray(objectRefs) ? objectRefs : grouped.get(objectType) ?? [];
+      for (const objectRef of boundRefs) observed.add(objectRef);
     }
   }
 

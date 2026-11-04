@@ -8,6 +8,9 @@ import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { FileOAuthClientProvider } from "../src/mcp-oauth.mjs";
 import { objectDescriptionMetadataKey } from "../src/object-description.mjs";
 import { objectInputBindingsMetadataKey } from "../src/object-input-bindings.mjs";
+import {
+  defineOutcomeEvidenceBindings, outcomeEvidenceBindingsMetadataKey,
+} from "../src/outcome-evidence-bindings.mjs";
 import { requestCapabilityCatalog } from "../src/request-compiler.mjs";
 import { SlayerRuntime } from "../src/runtime.mjs";
 import {
@@ -198,6 +201,38 @@ test("owned MCPs require Tool Descriptions and remote objects require a read-onl
       },
     },
   }], owned), /text must be trimmed and single-line/);
+
+  const mutationTool = {
+    name: "create_account_alias",
+    annotations: { readOnlyHint: false },
+    inputSchema: { type: "object", properties: {} },
+    outputSchema: {
+      type: "object",
+      properties: { account: { type: "object" } },
+    },
+    _meta: {
+      [toolDescriptionMetadataKey]: {
+        protocol: "agent-slayer.tool-description", version: 1,
+        summary: "Create an account alias and return the affected account.",
+        actionClasses: ["CREATE"], effectClassifications: ["MUTATING"],
+      },
+      [outcomeEvidenceBindingsMetadataKey]: defineOutcomeEvidenceBindings([{
+        path: "/account",
+        objectType: "accounting.account",
+        effect: "updated",
+        countsTowardOutcome: true,
+      }]),
+    },
+  };
+  assert.deepEqual(validateDiscoveredMcpTools([
+    accountObjectTool, mutationTool,
+  ], owned), { owned: true, objectTypeCount: 1 });
+  const invalidMutation = structuredClone(mutationTool);
+  invalidMutation._meta[outcomeEvidenceBindingsMetadataKey].bindings[0].objectType = "accounting.ghost";
+  assert.throws(
+    () => validateDiscoveredMcpTools([accountObjectTool, invalidMutation], owned),
+    /undeclared object type accounting\.ghost/,
+  );
 });
 
 test("owned MCP discovery keeps its last valid tools when refreshed metadata fails", async (context) => {

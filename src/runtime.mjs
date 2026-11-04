@@ -48,6 +48,7 @@ import {
   intentPreflightProblems,
   matchIntentOutcomes,
 } from "./intent-continuity.mjs";
+import { outcomeEvidenceReferences } from "./outcome-evidence-bindings.mjs";
 import {
   temporalConsistencyFindings,
   temporalRepairContext,
@@ -2717,11 +2718,20 @@ export class SlayerRuntime {
                 result: readOnly ? inline.deliveredResult : toolResult,
                 sourceEventSeq: receiptEventSeq,
               });
+              const outcomeEvidence = !readOnly
+                ? outcomeEvidenceReferences({
+                    toolDefinition: registeredTool ?? callableToolDefinitions.get(name),
+                    toolDefinitions: this.registry.toolDefinitions(),
+                    result: toolResult,
+                    sourceEventSeq: receiptEventSeq,
+                  })
+                : null;
               const intentMatch = intentCore && !readOnly
                 ? matchIntentOutcomes(
                     intentCore,
                     newObjectReferences,
                     callableToolDefinitions.get(name),
+                    outcomeEvidence?.groups ?? null,
                   )
                 : { outcomeRefs: [], bindings: [] };
               const intentOutcomeRefs = intentMatch.outcomeRefs;
@@ -2772,6 +2782,7 @@ export class SlayerRuntime {
                 ...(intentMatch.bindings.length
                   ? { intentOutcomeBindings: intentMatch.bindings }
                   : {}),
+                ...(outcomeEvidence ? { outcomeEvidence: outcomeEvidence.evidence } : {}),
                 ...(createEffects.length ? { intentCreateEffects: createEffects } : {}),
                 ...(recordedSets.length ? { referenceSets: recordedSets } : {}),
                 ...(sourcedActionReference ? { deferredActionReference: sourcedActionReference } : {}),

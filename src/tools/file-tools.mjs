@@ -9,6 +9,10 @@ import { inspectTextStructure } from "../file-structure-inspect.mjs";
 import { musicMetadataInputSchema, serializeMusicMetadata } from "../music-metadata.mjs";
 import { readTextAttachment } from "../request-attachments.mjs";
 import { inspectDelimitedText, readDelimitedRecords, transformDelimitedText } from "../tabular-transform.mjs";
+import {
+  defineOutcomeEvidenceBindings,
+  outcomeEvidenceBindingsMetadataKey,
+} from "../outcome-evidence-bindings.mjs";
 
 const toolDescriptions = Object.freeze({
   "file_get": { "summary": "Get authoritative metadata and stable provenance for a bounded exact set of durable uploads. Use file_read for verified contents." },
@@ -808,6 +812,18 @@ export function registerFileTools(registry, {
         "exceptionFile", "exceptionPreview", "exceptionPreviewTruncated",
       ],
     },
+    metadata: {
+      [outcomeEvidenceBindingsMetadataKey]: defineOutcomeEvidenceBindings([{
+        path: "/outputFile", objectType: "files.file", effect: "created",
+        countsTowardOutcome: true, role: "artifact_source",
+      }, {
+        path: "/exceptionFile", objectType: "files.file", effect: "supporting",
+        countsTowardOutcome: false, role: "transformation_exceptions",
+      }, {
+        path: "/sourceFile", objectType: "files.file", effect: "supporting",
+        countsTowardOutcome: false, role: "source",
+      }]),
+    },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async execute({ file_id: fileId, delimiter, header_row: headerRow, mapping, target_schema: targetSchema }, context = {}) {
       const stored = ledger.file(fileId);
@@ -931,6 +947,15 @@ export function registerFileTools(registry, {
         nextPart: { type: ["integer", "null"], minimum: 1 },
       },
       required: ["sourceFile", "sourceSha256", "verified", "sourceRecordCount", "recordsPerFile", "totalPartCount", "parts", "hasMore", "nextPart"],
+    },
+    metadata: {
+      [outcomeEvidenceBindingsMetadataKey]: defineOutcomeEvidenceBindings([{
+        path: "/parts/*/file", objectType: "files.file", effect: "created",
+        countsTowardOutcome: true, role: "artifact_source",
+      }, {
+        path: "/sourceFile", objectType: "files.file", effect: "supporting",
+        countsTowardOutcome: false, role: "source",
+      }]),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async execute({ file_id: fileId, records_per_file: recordsPerFile, start_part: startPart = 1, max_parts: maxParts = 50 }, context = {}) {

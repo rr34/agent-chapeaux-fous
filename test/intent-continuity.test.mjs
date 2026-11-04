@@ -7,6 +7,7 @@ import {
   matchingIntentOutcomeRefs,
 } from "../src/intent-continuity.mjs";
 import { registerNativeCapabilities } from "../src/native-capabilities.mjs";
+import { outcomeEvidenceReferences } from "../src/outcome-evidence-bindings.mjs";
 import { registerJournalTools } from "../src/tools/journal-tools.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
 
@@ -201,10 +202,32 @@ test("journal_add binds its returned entry rather than its surrounding tracker a
       ...references("journal.tracker", "journal-trackers", index === 0 ? 10 : 12),
       ...references("journal.entry", "journal-entries", entryId),
     ];
-    const match = matchIntentOutcomes(core, objectReferences, definition);
+    const outcomeEvidence = outcomeEvidenceReferences({
+      toolDefinition: definition,
+      toolDefinitions: registry.toolDefinitions(),
+      sourceEventSeq: 900 + index,
+      result: {
+        entry: {
+          journal_entry_id: entryId,
+          tracker_id: index === 0 ? 10 : 12,
+          tracker_name: index === 0 ? "Pushups" : "Running",
+          journal_group_id: 3,
+          group_name: "Exercise",
+          content_text: `Observation ${entryId}`,
+          ref: `agent-slayer://journal-entries/${entryId}`,
+        },
+      },
+    });
+    const match = matchIntentOutcomes(
+      core, objectReferences, definition, outcomeEvidence.groups,
+    );
     assert.deepEqual(match, {
       outcomeRefs: [outcomeRef],
-      bindings: [{ outcomeRef, objectType: "journal.entry" }],
+      bindings: [{
+        outcomeRef,
+        objectType: "journal.entry",
+        objectRefs: [`agent-slayer://journal-entries/${entryId}`],
+      }],
     });
     return {
       ok: true,
@@ -212,6 +235,7 @@ test("journal_add binds its returned entry rather than its surrounding tracker a
       objectReferences,
       intentOutcomeRefs: match.outcomeRefs,
       intentOutcomeBindings: match.bindings,
+      outcomeEvidence: outcomeEvidence.evidence,
     };
   });
   assert.deepEqual(intentOutcomeFindings({

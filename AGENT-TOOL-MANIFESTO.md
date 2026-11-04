@@ -996,8 +996,10 @@ or paraphrases it.
 6. **Execution description** — the complete provider-owned instructions stating
    how and when to use the tool and what its result proves.
 7. **Exact input schema** — the complete callable argument contract.
-8. **Exact output schema and result states** — structured success, incomplete,
-   partial, error, retry, and handoff shapes.
+8. **Exact output schema, result states, and outcome evidence bindings** —
+   structured success, incomplete, partial, error, retry, and handoff shapes;
+   mutation results may also map exact output paths to the first-class objects
+   that do or do not count as evidence of the requested outcome.
 9. **Protocol annotations and metadata** — truthful read-only, destructive,
    idempotent, open-world, artifact, and other protocol facts.
 10. **Owning implementation** — authorization, validation, transactions,
@@ -1053,6 +1055,52 @@ capability family was accepted, where the provider's exact layers 6 through 9
 remain authoritative and the missing compact metadata stays visible. This
 fallback never applies to an Agent Slayer-owned MCP: owned tools missing a valid
 selection extension are rejected when the connection is accepted or refreshed.
+
+An owned mutation provider whose result returns first-class objects that may be
+confused with supporting, source, parent, workflow, or exception objects also
+publishes a versioned **Outcome Evidence Binding** under
+`_meta["agent-slayer/outcome-evidence-bindings"]`. Each entry names one exact
+output-schema JSON Pointer (with `*` only for array or map members), one
+provider-declared Object Description type, the result effect, an optional
+semantic role, and whether those objects count toward an accepted outcome.
+The runtime evaluates that declaration only after the tool returns and records
+the exact stable references in the receipt. A declared contract that yields no
+counting evidence does not fall back to another object merely because it is the
+only returned type.
+
+Every published binding validates against
+`config/protocol-schemas/outcome-evidence-bindings.v1.schema.json`; discovery
+also proves that each path exists in the tool's output schema and each object
+type exists in the provider's Object Description catalog.
+
+Outcome Evidence Binding is provider-owned result meaning, not another model
+prediction. It is omitted from orientation and the schema-free tool-selection
+interaction, and the runtime does not need to show it to execution for the
+model to restate or interpret. Resource lifecycle remains the exhaustive owner
+of ordinary operations; it must not be reassigned merely to make an alternate
+workflow's result look bindable. Names, field spelling, schema shape, and a
+shared object type are never sufficient to decide that a returned object is the
+requested result. Third-party tools without this extension retain the audited
+legacy correlation fallback; Agent Slayer does not invent the missing provider
+declaration.
+
+The extension object has this exact shape:
+
+```json
+{
+  "protocol": "agent-slayer.outcome-evidence-bindings",
+  "version": 1,
+  "bindings": [
+    {
+      "path": "/entry",
+      "objectType": "journal.entry",
+      "effect": "created",
+      "countsTowardOutcome": true,
+      "role": "recorded_observation"
+    }
+  ]
+}
+```
 
 The extension object has this exact shape:
 
@@ -1162,12 +1210,12 @@ metadata never replaces, rewrites, or broadens a provider-published
 description, schema, authorization boundary, or workflow meaning.
 
 Each owned provider keeps contract tests beside its implementation. Those
-tests validate every published Tool Description, Object Description, and
-object-input binding against
+tests validate every published Tool Description, Object Description,
+object-input binding, and Outcome Evidence Binding against
 the versioned schemas, the read-only annotation and effect agreement, unique
 object type IDs, provider-native identity fields, stable references and display
-fields in representative read results, mapped input-schema paths, and the tool
-named as each object's read path. Agent Slayer keeps
+fields in representative read results, mapped input- and output-schema paths,
+and the tool named as each object's read path. Agent Slayer keeps
 consumer tests for discovery, orientation, exact schema selection, tool-result
 return, and third-party compatibility. A provider change to these contracts
 must update and pass its provider tests and the relevant agent consumer cases.
@@ -1216,6 +1264,7 @@ The protocol carries:
 - structured results, errors, and retry descriptors;
 - resource links and result metadata;
 - effect receipts; and
+- outcome evidence bindings and their exact receipt references; and
 - opaque provider-owned workflow references.
 
 Orientation receives a bounded capability catalog containing capability

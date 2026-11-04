@@ -180,6 +180,12 @@ and `npm run capabilities:verify` rejects unclassified first-class objects or
 join tables. Unsupported cells remain explicit, reasoned catalog entries rather
 than accidental missing tools; unimplemented cells are separately labeled as
 visible engineering gaps rather than misrepresented as intentional limits.
+Mutation workflows that return both requested results and related supporting
+objects use provider-owned Outcome Evidence Bindings to map exact output paths
+to first-class object types and receipt references. This keeps intent
+continuity deterministic without moving schemas or result prediction into
+orientation or tool selection, and without misusing the ordinary resource
+lifecycle to describe alternate workflows.
 The normative cross-domain requirements live in the **Native domain
 consistency invariant** in `AGENT-TOOL-MANIFESTO.md`.
 

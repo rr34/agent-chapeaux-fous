@@ -253,6 +253,45 @@ test("provider-declared object roles keep same-type returned objects in separate
   }), []);
 });
 
+test("an explicit nested objectType cannot be misclassified as another directly published type", () => {
+  const multiTypeTool = structuredClone(accountRead);
+  multiTypeTool.name = "remote_accounting_start_import";
+  multiTypeTool.metadata[objectDescriptionMetadataKey].types.push({
+    ...structuredClone(multiTypeTool.metadata[objectDescriptionMetadataKey].types[0]),
+    id: "accounting.statement_import_job",
+    title: "Statement import job",
+  });
+  const groups = objectReferenceGroupsFromToolResult({
+    toolDefinition: multiTypeTool,
+    toolDefinitions: [multiTypeTool],
+    sourceEventSeq: 45,
+    result: {
+      account: {
+        objectType: "accounting.account",
+        id: 178,
+        ref: "accounting://accounts/178",
+        name: "Operating Checking",
+      },
+      importJob: {
+        objectType: "accounting.statement_import_job",
+        id: 991,
+        ref: "accounting://statement-import-jobs/991",
+        name: "November import",
+      },
+    },
+  });
+
+  assert.deepEqual(groups.map(({ type, objects }) => ({
+    type, refs: objects.map(({ ref }) => ref),
+  })), [{
+    type: "accounting.account",
+    refs: ["accounting://accounts/178"],
+  }, {
+    type: "accounting.statement_import_job",
+    refs: ["accounting://statement-import-jobs/991"],
+  }]);
+});
+
 test("a related native object never inherits the primary object's stable reference", () => {
   const groups = objectReferenceGroupsFromToolResult({
     toolDefinition: { name: "todo_list", source: "local", capabilityId: "todos" },

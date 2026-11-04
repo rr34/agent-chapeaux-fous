@@ -17,6 +17,11 @@ import {
   validateObjectInputBindings,
 } from "../object-input-bindings.mjs";
 import { attachModelInputAttachments } from "../model-input-attachments.mjs";
+import {
+  outcomeEvidenceBindingSchemaProblem,
+  outcomeEvidenceBindingsMetadataKey,
+  validateOutcomeEvidenceBindings,
+} from "../outcome-evidence-bindings.mjs";
 
 // Match the identity supplied by the MCP initialize response, including for
 // user-managed connections whose local connection name is arbitrary.
@@ -29,6 +34,7 @@ export function validateDiscoveredMcpTools(tools, { serverName, serverInfo } = {
   const owned = ownedMcpServerIdentities.has(serverInfo?.name);
   const objectIds = new Set();
   const objectInputTools = [];
+  const outcomeEvidenceTools = [];
   let objectCatalogBytes = 0;
   for (const tool of tools) {
     const label = `${serverName} ${tool.name}`;
@@ -43,6 +49,11 @@ export function validateDiscoveredMcpTools(tools, { serverName, serverInfo } = {
     if (objectInputs) {
       validateObjectInputBindings(objectInputs, { label });
       objectInputTools.push(tool);
+    }
+    const outcomeEvidence = tool._meta?.[outcomeEvidenceBindingsMetadataKey];
+    if (outcomeEvidence) {
+      validateOutcomeEvidenceBindings(outcomeEvidence, { label });
+      outcomeEvidenceTools.push(tool);
     }
     const objects = tool._meta?.[objectDescriptionMetadataKey];
     if (!objects) continue;
@@ -60,6 +71,10 @@ export function validateDiscoveredMcpTools(tools, { serverName, serverInfo } = {
   }
   for (const tool of objectInputTools) {
     const problem = objectInputBindingSchemaProblem(tool, objectIds);
+    if (problem) throw new Error(`${serverName} ${problem}`);
+  }
+  for (const tool of outcomeEvidenceTools) {
+    const problem = outcomeEvidenceBindingSchemaProblem(tool, objectIds);
     if (problem) throw new Error(`${serverName} ${problem}`);
   }
   return { owned, objectTypeCount: objectIds.size };

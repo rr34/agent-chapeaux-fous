@@ -1,7 +1,14 @@
 import { withReadResultFilterSchema } from "../search/result-filter.mjs";
 import { applyNativeObjectInputBindings } from "../native-object-input-bindings.mjs";
 import { applyNativeObjectDescription } from "../native-object-descriptions.mjs";
-import { normalizeNativeIdentityScalars } from "../native-object-types.mjs";
+import {
+  nativeFirstClassObjectTypes, normalizeNativeIdentityScalars,
+} from "../native-object-types.mjs";
+import {
+  outcomeEvidenceBindingSchemaProblem,
+  outcomeEvidenceBindingsMetadataKey,
+  validateOutcomeEvidenceBindings,
+} from "../outcome-evidence-bindings.mjs";
 import { nativeCapabilityManifest } from "../native-capabilities.mjs";
 import { publicResource, resourceToolDescriptionDefaults } from "../capability-packages.mjs";
 import { objectDescriptionMetadataKey, validateObjectDescription } from "../object-description.mjs";
@@ -224,6 +231,16 @@ export class ToolRegistry {
         annotations: described.annotations ?? null,
         label: described.name,
       });
+    }
+    const outcomeEvidence = described.metadata?.[outcomeEvidenceBindingsMetadataKey];
+    if (outcomeEvidence) {
+      validateOutcomeEvidenceBindings(outcomeEvidence, { label: described.name });
+      const problem = outcomeEvidenceBindingSchemaProblem({
+        name: described.name,
+        outputSchema: described.outputSchema,
+        metadata: described.metadata,
+      }, new Set(nativeFirstClassObjectTypes.map(({ id }) => id)));
+      if (problem) throw new Error(problem);
     }
     const publishedObjects = described.metadata?.[objectDescriptionMetadataKey];
     if (publishedObjects) {
