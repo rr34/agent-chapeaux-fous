@@ -66,7 +66,7 @@
       "kind": "object",
       "management": "user",
       "operations": {
-        "create": { "tool": "journal_import", "batch": { "mode": "array", "input": "/entries" }, "note": "Ordinary one-entry recording also uses journal_add." },
+        "create": { "tool": "journal_add", "batch": { "mode": "singleton", "reason": "One call records one authoritative observation and returns that exact journal entry." }, "note": "Idempotent external batches use the separate journal_import workflow." },
         "read": { "tool": "journal_list", "batch": { "mode": "collection" } },
         "update": { "tool": "journal_update", "batch": { "mode": "singleton", "reason": "A correction applies to one exact observation without changing its tracker's canonical unit." } },
         "delete": { "tool": "journal_entry_delete", "batch": { "mode": "array", "input": "/journal_entry_ids" }, "destructive": true }

@@ -6,6 +6,9 @@ import {
   matchIntentOutcomes,
   matchingIntentOutcomeRefs,
 } from "../src/intent-continuity.mjs";
+import { registerNativeCapabilities } from "../src/native-capabilities.mjs";
+import { registerJournalTools } from "../src/tools/journal-tools.mjs";
+import { ToolRegistry } from "../src/tools/registry.mjs";
 
 function semanticCore({ basis = "request", targetRefs = [] } = {}) {
   return {
@@ -168,6 +171,53 @@ test("one homogeneous batch outcome accepts its exact distinct object count", ()
     core,
     receipts,
     registry: { get: () => ({ annotations: { readOnlyHint: false } }) },
+  }), []);
+});
+
+test("journal_add binds its returned entry rather than its surrounding tracker and group", () => {
+  const core = {
+    actions: [{
+      actionId: "record_measurements",
+      outcomes: [{
+        outcomeId: "entries",
+        description: "The two requested journal entries.",
+        targetRefs: [],
+        cardinality: { minimum: 2, maximum: 2, basis: "request" },
+      }],
+    }],
+  };
+  const registry = registerNativeCapabilities(new ToolRegistry());
+  registerJournalTools(
+    registry,
+    { requireReady() { throw new Error("The binding test must not access the database"); } },
+    { append() { throw new Error("The binding test must not write to the ledger"); } },
+  );
+  const definition = registry.toolDefinitions().find(({ name }) => name === "journal_add");
+  assert.ok(definition);
+  const outcomeRef = "record_measurements.entries";
+  const receipts = [245, 246].map((entryId, index) => {
+    const objectReferences = [
+      ...references("journal.group", "journal-groups", 3),
+      ...references("journal.tracker", "journal-trackers", index === 0 ? 10 : 12),
+      ...references("journal.entry", "journal-entries", entryId),
+    ];
+    const match = matchIntentOutcomes(core, objectReferences, definition);
+    assert.deepEqual(match, {
+      outcomeRefs: [outcomeRef],
+      bindings: [{ outcomeRef, objectType: "journal.entry" }],
+    });
+    return {
+      ok: true,
+      tool: "journal_add",
+      objectReferences,
+      intentOutcomeRefs: match.outcomeRefs,
+      intentOutcomeBindings: match.bindings,
+    };
+  });
+  assert.deepEqual(intentOutcomeFindings({
+    core,
+    receipts,
+    registry,
   }), []);
 });
 

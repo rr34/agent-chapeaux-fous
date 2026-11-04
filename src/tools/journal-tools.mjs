@@ -15,7 +15,11 @@ const toolDescriptions = Object.freeze({
     ]
   },
   "tracker_create": { "summary": "Create one or more personal-journal trackers without recording journal entries." },
-  "journal_import": { "summary": "Idempotently import up to 100 personal-journal entries with stable source IDs and explicit occurrence times." },
+  "journal_import": {
+    "summary": "Idempotently import up to 100 personal-journal entries with stable source IDs and explicit occurrence times.",
+    "actionClasses": ["CREATE"],
+    "effectClassifications": ["MUTATING"]
+  },
   "journal_list": { "summary": "List recent personal-journal entries, optionally filtered by tracker, group, source, or UTC occurrence range." },
   "journal_update": { "summary": "Correct one personal-journal entry by stable ID without changing the tracker's canonical unit." },
   "journal_entry_delete": { "summary": "Atomically delete up to 100 exact personal-journal entries without changing their trackers or sibling observations." },
