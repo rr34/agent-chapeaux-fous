@@ -1354,8 +1354,12 @@ export class SlayerRuntime {
     const confirmedReferenceIds = new Set(
       confirmedActionReferences.map(({ referenceId }) => referenceId),
     );
+    const confirmedTargetTools = new Set(
+      confirmedActionReferences.map(({ targetTool }) => targetTool),
+    );
     const pendingTargetTools = new Set(relevantActionReferences
       .filter(({ referenceId }) => !confirmedReferenceIds.has(referenceId))
+      .filter(({ targetTool }) => !confirmedTargetTools.has(targetTool))
       .map(({ targetTool }) => targetTool));
 
     this.ledger.append({

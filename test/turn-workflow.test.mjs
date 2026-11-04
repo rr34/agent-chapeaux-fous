@@ -289,6 +289,87 @@ test("the normal mutation path orients, selects tools without schemas, executes,
   assert.equal(ledger.events.find(({ name }) => name === "Audit skipped").payload.skipped, true);
 });
 
+test("a confirmed action keeps its shared target tool available while another action remains pending", async () => {
+  const requests = [];
+  const targetTool = "remote_accounting_commit_transaction_import";
+  const september = {
+    referenceId: "prepared-change:september",
+    state: "pending",
+    sourceConnection: "mcp:accounting",
+    sourceTool: "remote_accounting_submit_statement_import_job_artifact",
+    sourceRequestId: "request-september-preview",
+    sourceReceiptEventSeq: 41,
+    targetTool,
+    targetUpstreamTool: "commit_transaction_import",
+    arguments: { import_plan_id: "plan-september" },
+    readiness: { ready: true, expiresAt: "2099-01-01T00:00:00.000Z" },
+  };
+  const october = {
+    ...september,
+    referenceId: "prepared-change:october",
+    sourceRequestId: "request-october-preview",
+    sourceReceiptEventSeq: 42,
+    arguments: { import_plan_id: "plan-october" },
+  };
+  const ledger = fakeLedger({
+    conversation: [{
+      eventSeq: 4,
+      requestId: "request-october-preview",
+      role: "assistant",
+      content: "The October statement import is ready. Approve it?",
+    }],
+    actionReferences: [september, october],
+  });
+  const registry = new ToolRegistry();
+  const committedPlans = [];
+  registry.register({
+    name: targetTool,
+    description: "Commit one exact prepared transaction import after confirmation.",
+    source: "mcp:accounting",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: { import_plan_id: { type: "string" } },
+      required: ["import_plan_id"],
+    },
+    async execute({ import_plan_id }) {
+      committedPlans.push(import_plan_id);
+      return { status: "committed", import_plan_id };
+    },
+  });
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) {
+        return completed(JSON.stringify(core({
+          objective: "Commit the October statement import.",
+          conversationSummary: "The user approved the October statement import.",
+          actions: [{ instruction: "Commit the October statement import.", targetRefs: [] }],
+          capabilities: ["integration:accounting"],
+          confirmedActionReferenceIds: [october.referenceId],
+        })));
+      }
+      assert.equal(index, 1);
+      assert.deepEqual(payload.tools.map(({ name }) => name), [targetTool]);
+      const result = await payload.onToolCall({
+        callId: "commit-october",
+        tool: targetTool,
+        arguments: october.arguments,
+      });
+      assert.equal(result.ok, true);
+      return completed("Committed the October statement import.");
+    },
+  });
+
+  assert.equal(await runtime.run({
+    requestId: "request-approve-october", requestEventId: "event-current", text: "Yes, approve it.",
+  }), "Committed the October statement import.");
+  assert.deepEqual(committedPlans, ["plan-october"]);
+});
+
 test("PDF bytes are withheld from orientation and supplied to execution", async () => {
   const requests = [];
   const ledger = fakeLedger();

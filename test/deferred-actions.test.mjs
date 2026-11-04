@@ -250,6 +250,36 @@ test("opaque MCP arguments must match a provider reference selected by the TurnB
   );
 });
 
+test("confirming one prepared change does not authorize another change that uses the same tool", () => {
+  const confirmed = actionReference({
+    referenceId: "prepared-change:october",
+    arguments: { import_plan_id: "plan-october" },
+  });
+  const stillPending = actionReference({
+    referenceId: "prepared-change:september",
+    arguments: { import_plan_id: "plan-september" },
+  });
+
+  assert.equal(
+    deferredActionArgumentProblem(
+      confirmed.targetTool,
+      confirmed.arguments,
+      [confirmed],
+      [confirmed, stillPending],
+    ),
+    null,
+  );
+  assert.match(
+    deferredActionArgumentProblem(
+      stillPending.targetTool,
+      stillPending.arguments,
+      [confirmed],
+      [confirmed, stillPending],
+    ),
+    /does not match the exact prepared change/,
+  );
+});
+
 test("new provider confirmations suppress jargon and ask the user for a simple decision", () => {
   const reference = actionReference();
   assert.deepEqual(
