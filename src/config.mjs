@@ -130,6 +130,7 @@ export function loadConfig(environment = process.env) {
     model: environment.SLAYER_MODEL?.trim() || "gpt-5.6-terra",
     reasoningEffort: environment.SLAYER_REASONING_EFFORT?.trim() || "high",
     orientationReasoningEffort: environment.SLAYER_ORIENTATION_REASONING_EFFORT?.trim() || "medium",
+    toolSelectionReasoningEffort: environment.SLAYER_TOOL_SELECTION_REASONING_EFFORT?.trim() || "medium",
     auditReasoningEffort: environment.SLAYER_AUDIT_REASONING_EFFORT?.trim() || "low",
     repairReasoningEffort: environment.SLAYER_REPAIR_REASONING_EFFORT?.trim()
       || environment.SLAYER_REASONING_EFFORT?.trim()

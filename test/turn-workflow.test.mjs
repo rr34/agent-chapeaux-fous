@@ -139,6 +139,7 @@ function workflowConfig() {
     model: "test-model",
     reasoningEffort: "high",
     orientationReasoningEffort: "medium",
+    toolSelectionReasoningEffort: "medium",
     auditReasoningEffort: "low",
     repairReasoningEffort: "high",
     turnWorkflowEnabled: true,
@@ -147,7 +148,7 @@ function workflowConfig() {
   };
 }
 
-function transport(runTurn, requests) {
+function transport(runTurn, requests, toolSelectionRunTurn = null) {
   return {
     id: "test-transport",
     displayName: "Test model",
@@ -164,15 +165,27 @@ function transport(runTurn, requests) {
       };
     },
     async runTurn(payload) {
+      if (payload.outputSchema?.properties?.selectedTools) {
+        if (toolSelectionRunTurn) return toolSelectionRunTurn(payload);
+        const selectedTools = payload.outputSchema.properties.selectedTools.items.enum ?? [];
+        return completed(JSON.stringify({
+          version: 1,
+          summary: "Use the available tools that match the accepted intent.",
+          selectedTools,
+        }));
+      }
       requests.push(payload);
       return runTurn(payload, requests.length - 1);
     },
   };
 }
 
-function runtimeWith({ registry, ledger, runTurn, requests, contextBuilderOverride = null }) {
+function runtimeWith({
+  registry, ledger, runTurn, requests, contextBuilderOverride = null,
+  toolSelectionRunTurn = null,
+}) {
   const runtime = new SlayerRuntime({
-    modelTransport: transport(runTurn, requests),
+    modelTransport: transport(runTurn, requests, toolSelectionRunTurn),
     registry,
     contextBuilder: contextBuilderOverride ?? contextBuilder(),
     requestCompiler: new RequestCompiler(),
@@ -225,7 +238,7 @@ function calendarRoutineUpdateTool(registry, execute) {
   });
 }
 
-test("the normal mutation path is one common-sense call plus execution and skips semantic audit", async () => {
+test("the normal mutation path orients, selects tools without schemas, executes, and skips semantic audit", async () => {
   const requests = [];
   const ledger = fakeLedger();
   const registry = new ToolRegistry();
@@ -271,6 +284,7 @@ test("the normal mutation path is one common-sense call plus execution and skips
   assert.equal(updates, 1);
   assert.equal(requests.length, 2);
   assert.equal(ledger.events.filter(({ type }) => type === "orientation.core").length, 1);
+  assert.equal(ledger.events.some(({ payload }) => payload?.workflowStep === "tool_selection"), true);
   assert.equal(ledger.events.some(({ payload }) => payload?.workflowStep === "orientation_context"), false);
   assert.equal(ledger.events.find(({ name }) => name === "Audit skipped").payload.skipped, true);
 });
@@ -1835,6 +1849,102 @@ test("ordinary informational work needs no mutation receipt and no audit", async
   assert.equal(await runtime.run({
     requestId: "request-list", requestEventId: "event-current", text: "What are my current to-dos?",
   }), "There are no current to-dos.");
+  assert.equal(requests.length, 2);
+});
+
+test("a tool-free answer skips tool selection without forcing a capability", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) {
+        return completed(JSON.stringify(core({
+          mode: "answer",
+          objective: "Reply conversationally.",
+          conversationSummary: "The user greeted the agent.",
+          actions: [],
+          capabilities: [],
+        })));
+      }
+      assert.equal(index, 1);
+      assert.deepEqual(payload.tools, []);
+      return completed("Hello.");
+    },
+  });
+
+  assert.equal(await runtime.run({
+    requestId: "request-tool-free",
+    requestEventId: "event-current",
+    text: "Hello.",
+  }), "Hello.");
+  assert.equal(requests.length, 2);
+  assert.equal(ledger.events.some(({ payload }) => payload?.workflowStep === "tool_selection"), false);
+});
+
+test("schema-free selection exposes only the chosen exact schema to execution", async () => {
+  const requests = [];
+  const selectionRequests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  calendarUpdateTool(registry, async () => ({
+    updated: true,
+    event: { calendar_event_id: 3165, title: "Admin" },
+  }));
+  calendarRoutineUpdateTool(registry, async () => ({ updated: true }));
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    toolSelectionRunTurn: async (payload) => {
+      selectionRequests.push(payload);
+      assert.equal(payload.tools.length, 0);
+      assert.deepEqual(new Set(payload.outputSchema.properties.selectedTools.items.enum), new Set([
+        "calendar_event_update", "calendar_routine_update",
+      ]));
+      assert.match(payload.developerInstructions, /Schema-free tool selection/);
+      assert.match(payload.developerInstructions, /calendar_event_update/);
+      assert.doesNotMatch(payload.developerInstructions, /"inputSchema"|"parameters"\s*:/);
+      return completed(JSON.stringify({
+        version: 1,
+        summary: "Rename the exact calendar event with the focused event update tool.",
+        selectedTools: ["calendar_event_update"],
+      }));
+    },
+    runTurn: async (payload, index) => {
+      if (index === 0) {
+        return completed(JSON.stringify(core({
+          objective: "Rename calendar event 3165 to Admin.",
+          conversationSummary: "The user wants one calendar event renamed.",
+          actions: [{ instruction: "Rename calendar event 3165 to Admin.", targetRefs: [] }],
+        })));
+      }
+      assert.equal(index, 1);
+      assert.deepEqual(new Set(payload.tools.map(({ name }) => name)), new Set([
+        "calendar_event_update", "request_tools",
+      ]));
+      assert.match(payload.developerInstructions, /Rename the exact calendar event/);
+      const result = await payload.onToolCall({
+        callId: "update-event",
+        tool: "calendar_event_update",
+        arguments: { calendar_event_id: 3165, title: "Admin", status: null },
+      });
+      assert.equal(result.ok, true);
+      return completed("Renamed the event to Admin.");
+    },
+  });
+
+  assert.equal(await runtime.run({
+    requestId: "request-schema-split",
+    requestEventId: "event-current",
+    text: "Rename calendar event 3165 to Admin.",
+  }), "Renamed the event to Admin.");
+  assert.equal(selectionRequests.length, 1);
   assert.equal(requests.length, 2);
 });
 

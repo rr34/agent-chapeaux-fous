@@ -13,6 +13,9 @@ import {
   intentContinuityProblem,
   normalizeCompletionAudit,
   parseStructuredModelOutput,
+  toolSelectionContext,
+  toolSelectionInstructions,
+  toolSelectionSchema,
 } from "../src/common-sense-core.mjs";
 import { nativeCapabilityManifest } from "../src/native-capabilities.mjs";
 
@@ -204,6 +207,34 @@ test("orientation contains families and selections but no exact tool catalog", (
   assert.match(commonSenseInstructions, /tag, relationship, field value/i);
   assert.match(commonSenseInstructions, /list of unresolved names, email addresses, search keys/i);
   assert.match(auditInstructions, /missing or partial mechanical outcome-reference correlation/i);
+});
+
+test("tool selection is compact, schema-free, and cannot invent a tool", () => {
+  const schema = toolSelectionSchema({ toolNames: ["todo_list", "todo_complete_batch"] });
+  const value = {
+    version: 1,
+    summary: "Read the current to-dos, then complete the exact requested batch if needed.",
+    selectedTools: ["todo_list", "todo_complete_batch"],
+  };
+  assert.deepEqual(parseStructuredModelOutput(JSON.stringify(value), schema, "Tool selection"), value);
+  assert.throws(() => parseStructuredModelOutput(JSON.stringify({
+    ...value,
+    selectedTools: ["invented_tool"],
+  }), schema, "Tool selection"), /selectedTools\[0\] must be one of/);
+  const context = toolSelectionContext({
+    requestText: "Complete these to-dos.",
+    core: validCore(),
+    capabilityCatalog: [{
+      capability: "todos",
+      title: "To-dos",
+      summary: "Read and manage personal to-dos.",
+      tools: [{ name: "todo_complete_batch", summary: "Complete exact to-dos in one batch." }],
+    }],
+  });
+  assert.match(context, /todo_complete_batch/);
+  assert.match(context, /provider-published routing summaries, not callable schemas/i);
+  assert.doesNotMatch(context, /inputSchema|additionalProperties/);
+  assert.match(toolSelectionInstructions, /Do not predict arguments, results, call order/i);
 });
 
 test("orientation distinguishes first-class objects from relationship effects", () => {

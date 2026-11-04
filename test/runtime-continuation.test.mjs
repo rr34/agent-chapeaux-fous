@@ -123,8 +123,8 @@ test("pending expansion allows already advertised tools and rejects tools not ye
       },
     },
     requestCompiler: {
-      async compile({ tools, toolOverride }) {
-        const expanded = toolOverride.includes("beta_write");
+      async compile({ tools, selectedToolNames }) {
+        const expanded = selectedToolNames.includes("beta_write");
         return {
           tools: expanded ? tools : [tools.find(({ name }) => name === "alpha_write"), expansionTool],
           capabilities: ["provider"], instructionCapabilities: [], instructions: "", reasons: [],
@@ -143,7 +143,7 @@ test("pending expansion allows already advertised tools and rejects tools not ye
   runtime.systemPrompt = "Test request";
   const result = await runtime.run({
     requestId: "expansion", requestEventId: "request-event", text: "Complete both writes.",
-    capabilityOverride: ["provider"], toolOverride: ["alpha_write"],
+    capabilityOverride: ["provider"], selectedToolNames: ["alpha_write"],
   });
   assert.equal(result, "Completed both writes.");
   assert.equal(attempts, 2);

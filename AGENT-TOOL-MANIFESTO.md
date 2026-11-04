@@ -277,7 +277,8 @@ The agent structure owns:
 - authorization binding and approval state;
 - execution and delivery of each result to the same model exchange;
 - request state, persistence, receipts, and final responses;
-- orientation, execution-context preparation, execution, audit, and repair;
+- orientation, execution-context preparation, schema-free tool selection,
+  execution, audit, and repair;
 - a literal chronological trace of every observable step; and
 - per-step model usage, tool usage, failures, and timing.
 
@@ -294,13 +295,24 @@ For every request, the structure:
    other named, bounded, read-only context views selected in the core;
 7. deterministically hydrates relevant exact object bindings without another
    model call;
-8. gives execution the accepted common-sense core, prepared context, verified
-   bindings, and exact schemas for tools in the selected capability families;
-9. invokes the exact application function named by a valid model tool call;
-10. returns each tool result, including compact bindings for identified
+8. gives a dedicated tool-selection interaction the accepted core, prepared
+   context, verified bindings, capability guidance, and layers 1 through 5 of
+   the tools in the accepted capability families, without callable schemas;
+9. accepts a short nonbinding operational summary and the smallest exact
+   initial tool-name set, then gives execution only those tools' layers 6
+   through 9; mechanically required dependencies may be added explicitly;
+10. invokes the exact application function named by a valid model tool call;
+11. returns each tool result, including compact bindings for identified
     first-class objects, to the same model exchange; and
-11. accepts a final answer after deterministic receipt checks or an exceptional
+12. accepts a final answer after deterministic receipt checks or an exceptional
     semantic audit when those checks are insufficient.
+
+Tool selection does not predict arguments, required fields, result shapes, or
+call order. Its operational summary connects the persisted intent to an initial
+tool set but does not constrain execution after exact contracts and results are
+known. Execution may request another exact tool from the accepted capability
+families; the continuation preserves same-request receipts and exposes only the
+newly requested schema.
 
 When one model response contains sibling tool calls, execution completes every
 still-valid sibling and returns all sibling results through the same provider
@@ -483,8 +495,9 @@ connection so orientation remains bounded.
 
 Discovery validates the schema and these cross-contract rules before replacing
 the connection's registered tools. Orientation sees concise owning capability
-descriptions; execution receives exact schemas for the selected capability
-families. The model must use the returned
+descriptions; schema-free tool selection sees validated layers 1 through 5 for
+the accepted families; execution receives exact schemas only for the tools
+selected initially or requested through continuation. The model must use the returned
 record and its stable reference to verify a particular object before making
 claims or choosing an action. No object metadata authorizes a read, mutation,
 or workflow, and Agent Slayer does not infer provider semantics from field
@@ -670,17 +683,23 @@ Agent Slayer uses a structured loop derived from the military OODA loop:
 2. **Prepare** — deterministically verify explicit selections, read the core's
    bounded context requests, and hydrate exact bindings without another model
    interpretation.
-3. **Execute** — receive the accepted core, prepared context, and verified
-   bindings; expose exact schemas for the selected capability families; invoke
+3. **Select tools** — receive the accepted core, prepared context, verified
+   bindings, capability guidance, and compact provider-published routing
+   metadata without callable schemas; emit a short nonbinding operational
+   summary and the smallest exact initial tool-name set without predicting
+   arguments, results, or call order.
+4. **Execute** — receive the accepted core, prepared context, verified
+   bindings, and selection brief; expose exact schemas only for the selected
+   tools; refine the approach from exact contracts and results; invoke
    tools; bind unambiguous semantic outcomes to concrete resource types from
    owning lifecycle declarations and canonical result bindings; connect those
    results back to accepted outcome identities; and return every result to the
    same model exchange.
-4. **Audit when exceptional** — compare the ordinary-language outcome with
+5. **Audit when exceptional** — compare the ordinary-language outcome with
    exact contracts and receipts only when deterministic completion is
    insufficient.
-5. **Repair** — correct a concrete audited gap within the user's authorization.
-6. **Verify repair** — run another semantic audit over the repaired receipts;
+6. **Repair** — correct a concrete audited gap within the user's authorization.
+7. **Verify repair** — run another semantic audit over the repaired receipts;
    never accept repair merely because the repair model returned prose.
 
 Typed successful receipts complete ordinary reads and mutations without an
@@ -801,7 +820,7 @@ Core structured interaction families include:
 - **Information reporting** — audience, requested scope, source references,
   ordering, format, partial-result disclosure, and confidence or uncertainty.
 - **Agent request processing** — orientation, execution-context preparation,
-  execution, conditional audit, and repair.
+  schema-free tool selection, execution, conditional audit, and repair.
 
 Interaction state is explicit and source-referenced. The trace records the
 accepted structured output and every transition literally.
@@ -984,14 +1003,14 @@ or paraphrases it.
 10. **Owning implementation** — authorization, validation, transactions,
     idempotency, persistence, and actual effects behind the published contract.
 
-Layers 1 and 2 form the compact tool index visible for every connected
-capability family in orientation. Layers 3 through 5 are expanded for the
-families the deterministic router found plausible and for families selected by
-a context-informed orientation pass. This progressive disclosure never hides a
-connected family or tool identity and never represents a deferred tool as
-callable. Layers 6 through 9 are shown only when the exact tool becomes callable
-in execution. Layer 10 never becomes model context; the model observes only its
-published contracts and results.
+Orientation sees compact capability-family identity and scope, not tool names
+or schemas. After orientation and deterministic context preparation, the
+dedicated tool-selection interaction sees layers 1 through 5 for tools in the
+accepted capability families. Those entries are routing evidence only and are
+not callable. Layers 6 through 9 are shown only for the exact tools selected
+for execution or explicitly requested by an execution continuation. Layer 10
+never becomes model context; the model observes only its published contracts
+and results.
 
 Every Tool Description validates against the single authoritative versioned
 schema at
@@ -1026,6 +1045,14 @@ names. An unrelated third-party tool lacking it may remain connected for
 compatibility, but its catalog entry explicitly says that Tool Description
 metadata is missing; Agent Slayer does not invent provider meaning or present
 a clipped execution description as validated routing evidence.
+
+A tool without validated layers 3 through 5 cannot appear as semantic evidence
+in the schema-free tool-selection interaction. For an unrelated third-party
+connection only, compatibility may carry such a tool into execution when its
+capability family was accepted, where the provider's exact layers 6 through 9
+remain authoritative and the missing compact metadata stays visible. This
+fallback never applies to an Agent Slayer-owned MCP: owned tools missing a valid
+selection extension are rejected when the connection is accepted or refreshed.
 
 The extension object has this exact shape:
 

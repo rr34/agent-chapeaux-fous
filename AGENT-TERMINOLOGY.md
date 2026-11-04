@@ -260,8 +260,9 @@ resolutions. Outcome objects preserve continuity into execution and completion;
 they describe intended first-class final-state roles rather than rows, calls, or
 tool order. It does not select exact tools, copy full object bindings, generate
 audit policy, or restate generic safety prose. Application code verifies current
-selections and hydrates exact bindings before execution receives the core plus
-the exact schemas for tools in its selected capability families.
+selections and hydrates exact bindings before a separate schema-free interaction
+selects the initial exact tool names. Execution then receives the core, the
+selection brief, and exact schemas only for those selected tools.
 
 **57. Object reference set** — A named immutable membership snapshot whose
 members are exact stable references to first-class objects. Selecting it selects
@@ -326,3 +327,12 @@ temporary disclosed AI-voice introductions assembled from listener-selected
 metadata. It streams music from Agent media storage and temporary narration
 with range requests, stops at the queue boundary, and remains a playback
 surface over the native file domain rather than a second music store.
+
+**65. Tool-selection brief** — The compact structured result of the model
+interaction after orientation and deterministic context preparation. It
+contains a short nonbinding operational summary and the smallest exact initial
+tool-name set chosen from validated provider-published routing metadata. It sees
+no callable tool schemas and does not predict arguments, required fields,
+results, or call order. Execution receives exact schemas only for that set and
+may refine the approach or explicitly request another tool from the accepted
+capability families as evidence develops.

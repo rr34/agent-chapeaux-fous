@@ -489,13 +489,13 @@ function requestToolsDefinition(tools) {
   };
 }
 
-function exactToolOverrideSelection(tools, capabilities, requestedToolNames) {
+function exactSelectedToolSelection(tools, capabilities, requestedToolNames) {
   const capabilitySelection = overrideSelection(tools, capabilities);
   const allowedByName = new Map(capabilitySelection.tools.map((tool) => [tool.name, tool]));
   const requested = [...new Set(requestedToolNames)];
   const unavailable = requested.filter((name) => !allowedByName.has(name));
   if (unavailable.length) {
-    throw new Error(`Tool override is outside the selected capabilities or unavailable: ${unavailable.join(", ")}`);
+    throw new Error(`Selected tool is outside the accepted capabilities or unavailable: ${unavailable.join(", ")}`);
   }
   const requestedSet = new Set([
     ...requested,
@@ -509,7 +509,7 @@ function exactToolOverrideSelection(tools, capabilities, requestedToolNames) {
     tools: selectedTools,
     reasons: [
       ...capabilitySelection.reasons,
-      ...requested.map((name) => `${name}:turn-brief-tool`),
+      ...requested.map((name) => `${name}:tool-selection`),
     ],
     deferredTools,
   };
@@ -561,9 +561,9 @@ export class RequestCompiler {
     const tools = requestScopedTools(input.tools, input.text);
     const explicitHats = this.hatCatalog?.explicitHats(input.text) ?? [];
     const expanding = Array.isArray(input.capabilityOverride);
-    const exactToolSelection = expanding && Array.isArray(input.toolOverride);
+    const exactToolSelection = expanding && Array.isArray(input.selectedToolNames);
     const selection = exactToolSelection
-      ? exactToolOverrideSelection(tools, input.capabilityOverride, input.toolOverride)
+      ? exactSelectedToolSelection(tools, input.capabilityOverride, input.selectedToolNames)
       : expanding
       ? overrideSelection(tools, input.capabilityOverride)
       : selectRequestCapabilities({ ...input, tools, explicitHats });

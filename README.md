@@ -14,7 +14,8 @@ web or voice input
   -> common-sense orientation with the exact request, brief relevant conversation, explicit selections, and capability families
   -> deterministic core validation, with one visible correction pass for invalid weekday/date claims
   -> deterministic selection verification, bounded context reads, and exact binding hydration
-  -> execution with the accepted common-sense core and exact schemas for the selected capability families
+  -> schema-free selection of the smallest exact initial tool set from compact provider routing metadata
+  -> execution with the accepted core, a nonbinding selection brief, and exact schemas only for those tools
   -> local or MCP tool execution, with sibling calls completed as a batch and all results returned to that same model exchange
   -> deterministic receipt checks, with a semantic audit only for exceptional ambiguity
   -> optional receipt-aware repair within the remaining turn-wide budget
@@ -704,10 +705,15 @@ object or one key to several.
 
 Application code then verifies explicit selections, reads the requested bounded
 context views, and hydrates exact object bindings without another model call.
-Execution receives the accepted core, prepared context, exact bindings, and the
-exact schemas for tools in the selected capability families plus versioned guidance from
-`config/capabilities/<id>/guidance.md`; `config/system-prompt.md` contains only universal
-behavior. Provider tool continuations preserve same-request receipts. Prior
+After context preparation, a separate schema-free tool-selection call receives
+the accepted core, prepared context, exact bindings, versioned capability
+guidance, and compact validated routing metadata. It returns a short nonbinding
+operational summary and the smallest exact initial tool-name set without
+predicting arguments or result shapes. Execution receives exact schemas only
+for that set. `config/capabilities/<id>/guidance.md` remains the capability
+guidance source; `config/system-prompt.md` contains only universal behavior.
+Provider tool continuations can request another exact tool inside the accepted
+families while preserving same-request receipts. Prior
 opaque receipts can be recovered through the execution-only receipt reader
 without adding them to orientation.
 
@@ -749,11 +755,12 @@ calls selected by default. Its editable per-million-token rate table identifies
 browser-entered prices as their source; no rate is inferred from recorded
 history. Estimates are editable because provider prices can change; historical
 token counts remain the durable authority. Each request card and trace also break usage down by orientation,
-execution, audit, and repair, including reasoning effort, tokens, elapsed time,
-and recorded estimated cost. Orientation defaults to `medium` reasoning,
-execution uses the main configured effort, audit defaults to `low`, and repair
+tool selection, execution, audit, and repair, including reasoning effort, tokens, elapsed time,
+and recorded estimated cost. Orientation and tool selection default to `medium`
+reasoning, execution uses the main configured effort, audit defaults to `low`, and repair
 uses its own strong effort. These are configurable with
-`SLAYER_ORIENTATION_REASONING_EFFORT`, `SLAYER_REASONING_EFFORT`,
+`SLAYER_ORIENTATION_REASONING_EFFORT`,
+`SLAYER_TOOL_SELECTION_REASONING_EFFORT`, `SLAYER_REASONING_EFFORT`,
 `SLAYER_AUDIT_REASONING_EFFORT`, and `SLAYER_REPAIR_REASONING_EFFORT`.
 
 ## Native capability architecture

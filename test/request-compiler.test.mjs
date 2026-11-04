@@ -227,7 +227,7 @@ test("the orientation catalog retains declared capability vocabulary", () => {
   assert.deepEqual(catalog[0].aliases, ["special widget"]);
 });
 
-test("a TurnBrief tool override starts narrow and advertises exact in-capability expansion", async () => {
+test("an exact selected tool set starts narrow and advertises in-capability expansion", async () => {
   const compiler = new RequestCompiler();
   const accountingTools = [
     tool("remote_accounting_preview_delete_transactions", "mcp:accounting"),
@@ -240,7 +240,7 @@ test("a TurnBrief tool override starts narrow and advertises exact in-capability
     recentConversation: [],
     previousCapabilities: [],
     capabilityOverride: ["integration:accounting"],
-    toolOverride: ["remote_accounting_preview_delete_transactions"],
+    selectedToolNames: ["remote_accounting_preview_delete_transactions"],
     allowCapabilityExpansion: false,
     allowToolExpansion: true,
   });
@@ -866,7 +866,7 @@ test("a focused payment execution includes authoritative payer and to-do reads",
     ],
     text: "Make Lucas an invoice with his trench to-do.",
     capabilityOverride: ["payments", "search"],
-    toolOverride: ["payment_invoice_prepare"],
+    selectedToolNames: ["payment_invoice_prepare"],
     allowCapabilityExpansion: false,
     allowToolExpansion: true,
   });
@@ -892,7 +892,7 @@ test("focused executions always include relationship-set recording infrastructur
     ],
     text: "Read these tasks.",
     capabilityOverride: ["todos"],
-    toolOverride: ["todo_list"],
+    selectedToolNames: ["todo_list"],
     allowCapabilityExpansion: false,
     allowToolExpansion: true,
   });

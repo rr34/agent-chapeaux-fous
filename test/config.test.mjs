@@ -26,6 +26,7 @@ test("OpenAI Responses configuration has stable defaults", () => {
   assert.equal(config.openAIPdfDetail, "high");
   assert.equal(config.reasoningEffort, "high");
   assert.equal(config.orientationReasoningEffort, "medium");
+  assert.equal(config.toolSelectionReasoningEffort, "medium");
   assert.equal(config.auditReasoningEffort, "low");
   assert.equal(config.repairReasoningEffort, "high");
   assert.equal(config.turnWorkflowEnabled, true);
@@ -107,12 +108,14 @@ test("turn workflow reasoning effort is independently configurable by phase", ()
     SLAYER_ALLOW_UNAUTHENTICATED: "true",
     SLAYER_REASONING_EFFORT: "xhigh",
     SLAYER_ORIENTATION_REASONING_EFFORT: "low",
+    SLAYER_TOOL_SELECTION_REASONING_EFFORT: "xhigh",
     SLAYER_AUDIT_REASONING_EFFORT: "medium",
     SLAYER_REPAIR_REASONING_EFFORT: "high",
     SLAYER_TURN_WORKFLOW_ENABLED: "false",
   });
   assert.equal(config.reasoningEffort, "xhigh");
   assert.equal(config.orientationReasoningEffort, "low");
+  assert.equal(config.toolSelectionReasoningEffort, "xhigh");
   assert.equal(config.auditReasoningEffort, "medium");
   assert.equal(config.repairReasoningEffort, "high");
   assert.equal(config.turnWorkflowEnabled, false);

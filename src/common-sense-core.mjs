@@ -452,6 +452,79 @@ export function commonSenseContext({
   ].join("\n");
 }
 
+export function toolSelectionSchema({ toolNames = [] } = {}) {
+  const allowed = [...new Set(toolNames)].sort();
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      version: { type: "integer", enum: [1] },
+      summary: {
+        ...text(1_200),
+        description: "A short operational approach connected to the accepted intent. State what the selected tools are expected to accomplish, without predicting arguments, result shapes, or tool order.",
+      },
+      selectedTools: {
+        type: "array",
+        maxItems: Math.min(32, allowed.length),
+        uniqueItems: true,
+        items: allowed.length ? { type: "string", enum: allowed } : { type: "string" },
+        description: "The smallest exact initial tool set needed to begin carrying out the accepted intent. An empty list is valid when no tool is needed.",
+      },
+    },
+    required: ["version", "summary", "selectedTools"],
+  };
+}
+
+export function toolSelectionContext({
+  requestText,
+  core,
+  capabilityCatalog,
+  objectReferences = [],
+  referenceSets = [],
+  confirmedActionReferences = [],
+  preparedCapabilityContext = [],
+  recentToolReceipts = [],
+  capabilityGuidance = "",
+}) {
+  return [
+    "# Schema-free tool selection",
+    "Choose the smallest exact initial tool set that can begin carrying out the accepted intent. The catalog contains provider-published routing summaries, not callable schemas. Do not invent arguments, required fields, result shapes, tool order, safeguards, or missing facts. Execution will receive the selected exact schemas, may refine this approach from those contracts and results, and may request another tool from the accepted capability families when evidence shows it is needed.",
+    "",
+    "## Exact current request",
+    requestText,
+    "",
+    "## Accepted common-sense core",
+    JSON.stringify(core, null, 2),
+    "",
+    "## Verified object bindings",
+    JSON.stringify(compactObjectReferenceContext(objectReferences), null, 2),
+    "",
+    "## Verified object and relationship sets",
+    JSON.stringify(compactReferenceSets(referenceSets), null, 2),
+    "",
+    "## Confirmed prepared changes",
+    JSON.stringify(confirmedActionReferences, null, 2),
+    "",
+    ...(preparedCapabilityContext.length ? [
+      "## Prepared bounded context",
+      JSON.stringify(preparedCapabilityContext, null, 2),
+      "",
+    ] : []),
+    ...(recentToolReceipts.length ? [
+      "## Relevant earlier receipts",
+      JSON.stringify(recentToolReceipts, null, 2),
+      "",
+    ] : []),
+    ...(capabilityGuidance ? [
+      "## Accepted capability guidance",
+      capabilityGuidance,
+      "",
+    ] : []),
+    "## Available exact tools (compact routing metadata only)",
+    JSON.stringify(capabilityCatalog, null, 2),
+  ].join("\n");
+}
+
 export function commonSenseExecutionInstructions(
   core, objectReferences, confirmedActionReferences = [], referenceSets = [],
   selectedObjectCandidates = [],
@@ -534,6 +607,13 @@ export const commonSenseInstructions = [
   "Use contextRequests only for advertised read-only context that execution genuinely needs. Explicit composer selections are verified automatically.",
   "When the request names a weekday or relative calendar date that governs execution, record the literal, source event, IANA time zone, weekday, resolved local date, role, and affected field in temporalResolutions.",
   "Use mode act only when the requested end state requires an application mutation. Use answer for read-only retrieval, analysis, explanation, or writing, including work that needs read-only application tools. Use clarify only for a genuine unresolved ambiguity that blocks a correct result.",
+].join("\n");
+
+export const toolSelectionInstructions = [
+  "You are the schema-free tool-selection phase of Time v3 Agent. Produce only the schema-constrained selection brief.",
+  "Preserve the accepted common-sense intent. Select exact tools only from the supplied compact provider-published catalog.",
+  "Choose the smallest useful initial set. Do not infer fields from schemas, because no callable schemas are present; do not predict arguments, results, call order, or implementation details.",
+  "The summary is a short operational bridge from intent to execution, not a plan that constrains execution. Execution may refine it after reading exact contracts and tool results.",
 ].join("\n");
 
 export const auditInstructions = [

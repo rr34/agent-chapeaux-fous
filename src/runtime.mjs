@@ -38,6 +38,9 @@ import {
   intentContinuityProblem,
   normalizeCompletionAudit,
   parseStructuredModelOutput,
+  toolSelectionContext,
+  toolSelectionInstructions,
+  toolSelectionSchema,
 } from "./common-sense-core.mjs";
 import {
   intentCreateEffects,
@@ -743,7 +746,9 @@ export class SlayerRuntime {
       conversationId: null,
       baseInstructions: step.startsWith("orientation")
         ? commonSenseInstructions
-        : auditInstructions,
+        : step === "tool_selection"
+          ? toolSelectionInstructions
+          : auditInstructions,
       developerInstructions,
       input,
       requestAttachmentInput,
@@ -1398,19 +1403,88 @@ export class SlayerRuntime {
       ...primaryExecutionCapabilities,
       ...supportTools.map(capabilityForTool),
     ])];
-    const primaryExecutionCapabilitySet = new Set(primaryExecutionCapabilities);
-    const executionToolNames = [...new Set([
-      ...availableTools
-        .filter((tool) => primaryExecutionCapabilitySet.has(capabilityForTool(tool)))
-        .map(({ name }) => name)
-        .filter((name) => !pendingTargetTools.has(name)),
+    const acceptedToolCompilation = executionCapabilities.length
+      ? await this.requestCompiler.compile({
+          tools: availableTools,
+          text: args.text,
+          attachment: args.attachment,
+          recentConversation,
+          previousCapabilities: [],
+          capabilityOverride: executionCapabilities,
+          allowCapabilityExpansion: false,
+        })
+      : { tools: [], dependentTools: [], instructions: "" };
+    const infrastructureToolNames = new Set([
+      "request_capabilities", "request_tools", "reference_set_record",
+    ]);
+    const candidateTools = acceptedToolCompilation.tools.filter(({ name }) => (
+      !infrastructureToolNames.has(name) && !pendingTargetTools.has(name)
+    ));
+    const compactCandidateCatalog = requestCapabilityCatalog(candidateTools).map((entry) => ({
+      capability: entry.capability,
+      title: entry.title,
+      summary: entry.summary,
+      tools: entry.tools,
+    }));
+    const selectableToolNames = compactCandidateCatalog.flatMap(({ tools = [] }) => (
+      tools.filter(({ descriptionStatus }) => descriptionStatus == null).map(({ name }) => name)
+    ));
+    const compatibilityToolNames = compactCandidateCatalog.flatMap(({ tools = [] }) => (
+      tools.filter(({ descriptionStatus }) => descriptionStatus != null).map(({ name }) => name)
+    ));
+    const requiredToolNames = [...new Set([
+      ...(acceptedToolCompilation.dependentTools ?? []),
       ...supportTools.map(({ name }) => name),
       ...confirmedActionReferences.map(({ targetTool }) => targetTool),
-    ])];
+    ])].filter((name) => candidateTools.some((tool) => tool.name === name));
+    let toolSelectionBrief = {
+      version: 1,
+      summary: candidateTools.length
+        ? "Use the exact tools whose provider metadata is available for this accepted request."
+        : "No application tool is needed for this request.",
+      selectedTools: [],
+    };
+    if (selectableToolNames.length) {
+      const selection = await this.#runStructuredStep({
+        requestId: args.requestId,
+        channel,
+        step: "tool_selection",
+        label: "Select tools",
+        stepIndex: 3,
+        model: args.model || this.config.model,
+        effort: this.config.toolSelectionReasoningEffort ?? "medium",
+        input: args.text,
+        developerInstructions: toolSelectionContext({
+          requestText: args.text,
+          core,
+          capabilityCatalog: compactCandidateCatalog.map((entry) => ({
+            ...entry,
+            tools: entry.tools.filter(({ descriptionStatus }) => descriptionStatus == null),
+          })).filter(({ tools }) => tools.length),
+          objectReferences: executionObjectReferences,
+          referenceSets: acceptedReferenceSets,
+          confirmedActionReferences,
+          preparedCapabilityContext,
+          recentToolReceipts,
+          capabilityGuidance: acceptedToolCompilation.instructions,
+        }),
+        outputSchema: toolSelectionSchema({ toolNames: selectableToolNames }),
+        runTimeoutMs: remainingTimeoutMs(),
+      });
+      toolSelectionBrief = selection.value;
+    }
+    const selectedToolNameSet = new Set([
+      ...toolSelectionBrief.selectedTools,
+      ...compatibilityToolNames,
+      ...requiredToolNames,
+    ]);
+    const executionToolNames = candidateTools
+      .map(({ name }) => name)
+      .filter((name) => selectedToolNameSet.has(name));
     const executorArgs = {
       ...args,
-      capabilityOverride: executionCapabilities,
-      toolOverride: executionToolNames,
+      capabilityOverride: executionCapabilities.length ? executionCapabilities : null,
+      selectedToolNames: executionCapabilities.length ? executionToolNames : null,
       runLimits: {
         maxToolCalls: configuredMaxToolCalls,
         timeoutMs: remainingTimeoutMs(),
@@ -1424,6 +1498,14 @@ export class SlayerRuntime {
           acceptedReferenceSets,
           selectedObjectCandidates,
         ),
+        [
+          "# Tool-selection brief",
+          "This is a schema-free operational starting point, not an argument plan. Refine it from the exact callable contracts and actual results; request another exact tool from the accepted capability families if the current set cannot finish the accepted intent.",
+          JSON.stringify({
+            summary: toolSelectionBrief.summary,
+            selectedTools: executionToolNames,
+          }, null, 2),
+        ].join("\n"),
         priorReceiptInstructions(recentToolReceipts),
       ),
       activeActionReferences: relevantActionReferences,
@@ -1484,7 +1566,7 @@ export class SlayerRuntime {
     }
 
     const execution = await this.#runExecutorStep(executorArgs, {
-      step: "execution", label: "Execute request", stepIndex: 3,
+      step: "execution", label: "Execute request", stepIndex: 4,
       effort: args.effort || this.config.reasoningEffort,
     });
     const receiptFindings = completionReceiptFindings({
@@ -1542,7 +1624,7 @@ export class SlayerRuntime {
     if (auditReasons.length === 0) {
       const operationId = `${this.modelTransport.id}:${args.requestId}:audit`;
       const auditPayload = {
-        workflowStep: "audit", workflowStepLabel: "Audit completion", stepIndex: 4,
+        workflowStep: "audit", workflowStepLabel: "Audit completion", stepIndex: 5,
         reasoningEffort: null, skipped: true,
         reason: "Typed tool receipts were sufficient; no exceptional semantic audit was needed.",
       };
@@ -1564,7 +1646,7 @@ export class SlayerRuntime {
       channel,
       step: "audit",
       label: "Audit exceptional outcome",
-      stepIndex: 4,
+      stepIndex: 5,
       model: args.model || this.config.model,
       effort: this.config.auditReasoningEffort ?? "low",
       input: `Audit completion of request ${args.requestId}.`,
@@ -1604,7 +1686,7 @@ export class SlayerRuntime {
       : Math.max(0, configuredMaxToolCalls - execution.toolCallCount);
     const repairArgs = {
       ...executorArgs,
-      toolOverride: execution.selectedToolNames,
+      selectedToolNames: execution.selectedToolNames,
       runLimits: {
         maxToolCalls: remainingToolCalls,
         timeoutMs: remainingTimeoutMs(),
@@ -1619,7 +1701,7 @@ export class SlayerRuntime {
       ),
     };
     const repair = await this.#runExecutorStep(repairArgs, {
-      step: "repair", label: "Repair completion", stepIndex: 5,
+      step: "repair", label: "Repair completion", stepIndex: 6,
       effort: this.config.repairReasoningEffort ?? args.effort ?? this.config.reasoningEffort,
       initialReceipts: execution.receipts,
     });
@@ -1653,7 +1735,7 @@ export class SlayerRuntime {
       channel,
       step: "audit",
       label: "Audit repaired outcome",
-      stepIndex: 6,
+      stepIndex: 7,
       model: args.model || this.config.model,
       effort: this.config.auditReasoningEffort ?? "low",
       input: `Verify the repaired completion of request ${args.requestId}.`,
@@ -1712,7 +1794,7 @@ export class SlayerRuntime {
     requestId, requestEventId, text, channel = "web", attachment = null, runLimits = null,
     model = null, effort = null, supplementalInstructions = "",
     capabilityOverride = null, workflowStep = null, workflowStepLabel = null, stepIndex = null,
-    toolOverride = null,
+    selectedToolNames: initiallySelectedToolNames = null,
     allowedToolNames: allowedToolNameList = null,
     isolatedConversation = false, conversationStartEventSeq = 0, initialReceipts = [],
     activeActionReferences = [], confirmedActionReferences = [],
@@ -1753,9 +1835,9 @@ export class SlayerRuntime {
           recentConversation,
           previousCapabilities: priorConversation.capabilities,
           capabilityOverride,
-          toolOverride,
+          selectedToolNames: initiallySelectedToolNames,
           allowCapabilityExpansion: true,
-          allowToolExpansion: Array.isArray(toolOverride),
+          allowToolExpansion: Array.isArray(initiallySelectedToolNames),
         })
       : {
           tools: availableTools,
@@ -1804,11 +1886,11 @@ export class SlayerRuntime {
     // discovery into a terminal dead end.
     const maximumCapabilityExpansionRounds = 1;
     let capabilityExpansionRounds = 0;
-    const maximumToolExpansionRounds = Array.isArray(toolOverride)
+    const maximumToolExpansionRounds = Array.isArray(initiallySelectedToolNames)
       ? Math.max(0, this.config.maxToolExpansionRounds ?? 2)
       : 0;
     let toolExpansionRounds = 0;
-    const selectedToolNames = new Set(toolOverride ?? []);
+    const activeToolNames = new Set(initiallySelectedToolNames ?? []);
     let attempt = 0;
     let result;
     const sameRequestReceipts = [...initialReceipts];
@@ -2756,7 +2838,7 @@ export class SlayerRuntime {
       conversationId = null;
       if (requestedTools.size > 0) {
         toolExpansionRounds += 1;
-        for (const toolName of requestedTools) selectedToolNames.add(toolName);
+        for (const toolName of requestedTools) activeToolNames.add(toolName);
         compilation = await this.requestCompiler.compile({
           tools: availableTools,
           text,
@@ -2764,7 +2846,7 @@ export class SlayerRuntime {
           recentConversation,
           previousCapabilities: priorConversation.capabilities,
           capabilityOverride: compilation.capabilities,
-          toolOverride: [...selectedToolNames],
+          selectedToolNames: [...activeToolNames],
           allowCapabilityExpansion: false,
           allowToolExpansion: toolExpansionRounds < maximumToolExpansionRounds,
         });
@@ -2804,7 +2886,7 @@ export class SlayerRuntime {
       actionReferences: generatedActionReferences,
       toolCallCount: totalToolCallCount,
       capabilities: compilation.capabilities,
-      selectedToolNames: [...selectedToolNames],
+      selectedToolNames: [...activeToolNames],
       callableToolCatalog: callableToolCatalog(compilation.tools),
       conversationId: finalConversationId,
     };
