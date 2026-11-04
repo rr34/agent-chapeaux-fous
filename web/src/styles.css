@@ -1038,6 +1038,10 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .account-tabs { display: flex; gap: .5rem; margin-bottom: 1rem; border-bottom: 1px solid var(--line); }
 .account-tabs button { border: 0; border-bottom: 3px solid transparent; background: transparent; padding: .75rem 1rem; }
 .account-tabs button.active { border-bottom-color: var(--accent); color: var(--accent); }
+.account-tool-refresh { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 1rem; margin-top: 1.5rem; }
+.account-tool-refresh h2 { margin-bottom: .35rem; }
+.account-tool-refresh p:not(.eyebrow) { margin: 0; color: var(--muted); }
+.account-tool-refresh-status { grid-column: 1 / -1; }
 .usage-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 1rem; }
 .usage-summary strong { overflow-wrap: anywhere; }
 .usage-summary-note { margin: -.35rem 0 1rem; color: var(--muted); font-size: 12px; }
@@ -1141,6 +1145,8 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .music-player-timeline > div { display: flex; justify-content: space-between; color: #444c3d; font: 700 11px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; font-variant-numeric: tabular-nums; }
 @media (max-width: 800px) {
   .correspondence-filters, .profile-fact-form { grid-template-columns: 1fr; }
+  .account-tool-refresh { grid-template-columns: 1fr; }
+  .account-tool-refresh-status { grid-column: 1; }
   .usage-summary, .usage-pricing-form { grid-template-columns: 1fr; }
   .usage-section-heading { align-items: stretch; flex-direction: column; }
   .usage-section-heading > label { flex-basis: auto; }

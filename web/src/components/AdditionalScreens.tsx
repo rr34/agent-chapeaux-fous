@@ -243,7 +243,46 @@ export function ProfileScreen() {
 export function AccountScreen({ usage }: { usage: React.ReactNode }) {
   const [tab, setTab] = useState<"profile" | "usage" | "access">("profile");
   const [token, setToken] = useState(getAccessToken());
-  return <><header className="page-heading"><div><p className="eyebrow">Identity and service</p><h1>Account</h1><p>Your durable profile, model usage, and this browser’s access.</p></div></header><nav className="account-tabs"><button className={tab === "profile" ? "active" : ""} onClick={() => setTab("profile")}>Profile</button><button className={tab === "usage" ? "active" : ""} onClick={() => setTab("usage")}>AI usage</button><button className={tab === "access" ? "active" : ""} onClick={() => setTab("access")}>Access</button></nav>{tab === "profile" ? <ProfileScreen /> : tab === "usage" ? usage : <form className="profile-fact-form" onSubmit={(event) => { event.preventDefault(); setAccessToken(token); }}><label>Access token<input type="password" value={token} onChange={(event) => setToken(event.target.value)} /></label><button className="button">Save token</button></form>}</>;
+  const [refreshingTools, setRefreshingTools] = useState(false);
+  const [toolRefreshStatus, setToolRefreshStatus] = useState("");
+  const refreshTools = async () => {
+    setRefreshingTools(true);
+    setToolRefreshStatus("");
+    try {
+      await api("/api/integrations/mcp/refresh", { method: "POST" });
+      setToolRefreshStatus("Tools refreshed. Reloading…");
+      window.location.reload();
+    } catch (caught) {
+      setToolRefreshStatus(caught instanceof Error ? caught.message : String(caught));
+      setRefreshingTools(false);
+    }
+  };
+  const access = <>
+    <form className="profile-fact-form" onSubmit={(event) => { event.preventDefault(); setAccessToken(token); }}>
+      <label>Access token<input type="password" value={token} onChange={(event) => setToken(event.target.value)} /></label>
+      <button className="button">Save token</button>
+    </form>
+    <section className="surface account-tool-refresh" aria-labelledby="account-tool-refresh-heading">
+      <div>
+        <p className="eyebrow">Connected services</p>
+        <h2 id="account-tool-refresh-heading">Tool catalog</h2>
+        <p>Rediscover tools and schemas from every enabled integration.</p>
+      </div>
+      <button className="button button--quiet" type="button" disabled={refreshingTools} onClick={() => void refreshTools()}>
+        {refreshingTools ? "Refreshing tools…" : "Refresh tools"}
+      </button>
+      {toolRefreshStatus && <p className="account-tool-refresh-status" role="status">{toolRefreshStatus}</p>}
+    </section>
+  </>;
+  return <>
+    <header className="page-heading"><div><p className="eyebrow">Identity and service</p><h1>Account</h1><p>Your durable profile, model usage, and this browser’s access.</p></div></header>
+    <nav className="account-tabs">
+      <button className={tab === "profile" ? "active" : ""} onClick={() => setTab("profile")}>Profile</button>
+      <button className={tab === "usage" ? "active" : ""} onClick={() => setTab("usage")}>AI usage</button>
+      <button className={tab === "access" ? "active" : ""} onClick={() => setTab("access")}>Access</button>
+    </nav>
+    {tab === "profile" ? <ProfileScreen /> : tab === "usage" ? usage : access}
+  </>;
 }
 
 type MusicSequence = { type: string; number: number | string | null; title: string | null };

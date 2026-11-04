@@ -5434,7 +5434,7 @@ elements.refresh.addEventListener("click", async () => {
   } catch (error) {
     elements.status.textContent = error.message;
     elements.refresh.disabled = false;
-    elements.refresh.textContent = "Refresh tools";
+    elements.refresh.textContent = "Refresh";
   }
 });
 elements.requestLimit.addEventListener("change", () => loadRequests({ force: true }).catch((error) => { elements.status.textContent = error.message; }));
