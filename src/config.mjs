@@ -122,6 +122,11 @@ export function loadConfig(environment = process.env) {
       ["auto", "low", "high", "original"],
       "original",
     ),
+    openAIPdfDetail: selectedValue(
+      environment.SLAYER_OPENAI_PDF_DETAIL,
+      ["auto", "low", "high"],
+      "high",
+    ),
     model: environment.SLAYER_MODEL?.trim() || "gpt-5.6-terra",
     reasoningEffort: environment.SLAYER_REASONING_EFFORT?.trim() || "high",
     orientationReasoningEffort: environment.SLAYER_ORIENTATION_REASONING_EFFORT?.trim() || "medium",

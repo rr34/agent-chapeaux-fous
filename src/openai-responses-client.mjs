@@ -38,7 +38,11 @@ function openAITools(tools) {
   });
 }
 
-function attachmentDescription(attachment, imageDetail) {
+function isPdfAttachment(attachment) {
+  return attachment?.mediaKind === "document" && attachment.mimeType === "application/pdf";
+}
+
+function attachmentDescription(attachment, imageDetail, pdfDetail) {
   if (!attachment) return null;
   if (attachment.mediaKind === "image") {
     return {
@@ -48,6 +52,16 @@ function attachmentDescription(attachment, imageDetail) {
       byteSize: attachment.byteSize,
       sha256: attachment.sha256,
       detail: imageDetail,
+    };
+  }
+  if (isPdfAttachment(attachment)) {
+    return {
+      type: "file",
+      filename: attachment.filename,
+      mimeType: attachment.mimeType,
+      byteSize: attachment.byteSize,
+      sha256: attachment.sha256,
+      detail: pdfDetail,
     };
   }
   return {
@@ -60,7 +74,7 @@ function attachmentDescription(attachment, imageDetail) {
   };
 }
 
-function userContent(input, requestAttachmentInput, imageDetail) {
+function userContent(input, requestAttachmentInput, imageDetail, pdfDetail) {
   const content = [{ type: "input_text", text: input }];
   if (!requestAttachmentInput) return content;
   if (typeof requestAttachmentInput === "string") {
@@ -75,6 +89,14 @@ function userContent(input, requestAttachmentInput, imageDetail) {
       type: "input_image",
       detail: imageDetail,
       image_url: `data:${requestAttachmentInput.mimeType};base64,${requestAttachmentInput.dataBase64}`,
+    });
+  }
+  if (isPdfAttachment(requestAttachmentInput)) {
+    content.push({
+      type: "input_file",
+      filename: requestAttachmentInput.filename,
+      file_data: `data:${requestAttachmentInput.mimeType};base64,${requestAttachmentInput.dataBase64}`,
+      detail: pdfDetail,
     });
   }
   return content;
@@ -216,7 +238,7 @@ function sha256(value) {
 
 function traceableProviderValue(value, key = "") {
   if (
-    key === "image_url"
+    ["image_url", "file_data"].includes(key)
     && typeof value === "string"
     && /^data:[^;,]+;base64,/u.test(value)
   ) {
@@ -239,6 +261,7 @@ export class OpenAIResponsesClient {
     requestTimeoutMs = 10 * 60 * 1000,
     modelContextWindowTokens = 1_050_000,
     imageDetail = "original",
+    pdfDetail = "high",
     fetchImpl = globalThis.fetch,
   } = {}) {
     this.id = "openai-responses";
@@ -248,6 +271,7 @@ export class OpenAIResponsesClient {
     this.requestTimeoutMs = requestTimeoutMs;
     this.modelContextWindowTokens = modelContextWindowTokens;
     this.imageDetail = imageDetail;
+    this.pdfDetail = pdfDetail;
     this.fetchImpl = fetchImpl;
     this.started = false;
   }
@@ -267,6 +291,7 @@ export class OpenAIResponsesClient {
       reason: ready ? null : "OPENAI_API_KEY is required for the OpenAI Responses transport",
       endpoint: this.baseUrl,
       imageDetail: this.imageDetail,
+      pdfDetail: this.pdfDetail,
       usageMode: "metered",
     };
   }
@@ -285,7 +310,7 @@ export class OpenAIResponsesClient {
     runTimeoutMs,
   }) {
     const attachment = requestAttachmentInput && typeof requestAttachmentInput === "object"
-      ? attachmentDescription(requestAttachmentInput, this.imageDetail)
+      ? attachmentDescription(requestAttachmentInput, this.imageDetail, this.pdfDetail)
       : requestAttachmentInput
         ? { type: "text", included: true }
         : null;
@@ -397,7 +422,7 @@ export class OpenAIResponsesClient {
     let previousResponseId = conversationId;
     let nextInput = [{
       role: "user",
-      content: userContent(input, requestAttachmentInput, this.imageDetail),
+      content: userContent(input, requestAttachmentInput, this.imageDetail, this.pdfDetail),
     }];
     let toolCallCount = 0;
     let modelCallCount = 0;
@@ -474,7 +499,9 @@ export class OpenAIResponsesClient {
             bodySha256: sha256(serializedRequestBody),
             redactions: requestAttachmentInput?.mediaKind === "image"
               ? ["Authorization header value redacted", "Input image data URL bytes replaced by length and SHA-256"]
-              : ["Authorization header value redacted"],
+              : isPdfAttachment(requestAttachmentInput)
+                ? ["Authorization header value redacted", "Input PDF data URL bytes replaced by length and SHA-256"]
+                : ["Authorization header value redacted"],
           },
         });
         const callStartedAtMs = Date.now();
@@ -639,6 +666,7 @@ export class OpenAIResponsesClient {
           toolSchemaCount: callableTools.length,
           structuredOutput: Boolean(providerOutputSchema),
           imageDetail: requestAttachmentInput?.mediaKind === "image" ? this.imageDetail : null,
+          pdfDetail: isPdfAttachment(requestAttachmentInput) ? this.pdfDetail : null,
           controlTransfer: controlTransfers.length > 0,
           objectBindingRefreshCount,
         },

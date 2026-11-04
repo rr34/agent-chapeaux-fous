@@ -392,6 +392,7 @@ export async function readRequestAttachment({ mediaRoot, file, maximumBytes, max
       return {
         fileId: Number(file.file_id), filename: originalFilename, mediaKind: "document",
         mimeType, byteSize: bytes.length, sha256, text: "", encoding: null,
+        dataBase64: bytes.toString("base64"),
       };
     }
     return readTextAttachment({ mediaRoot, file, maximumBytes: maximumTextBytes });

@@ -275,6 +275,82 @@ test("the normal mutation path is one common-sense call plus execution and skips
   assert.equal(ledger.events.find(({ name }) => name === "Audit skipped").payload.skipped, true);
 });
 
+test("PDF bytes are withheld from orientation and supplied to execution", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  calendarUpdateTool(registry, async (argumentsObject) => ({
+    updated: true,
+    event: { calendar_event_id: argumentsObject.calendar_event_id, title: "Admin" },
+  }));
+  const pdfInput = {
+    mediaKind: "document",
+    filename: "statement.pdf",
+    mimeType: "application/pdf",
+    byteSize: 28,
+    sha256: "statement-sha",
+    text: "EXECUTION PDF METADATA",
+    dataBase64: "sensitive-pdf-base64",
+  };
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    contextBuilderOverride: {
+      async build(_requestId, _requestText, options) {
+        return {
+          text: "BOUNDED APPLICATION CONTEXT",
+          developerInstructions: "BOUNDED APPLICATION CONTEXT",
+          requestAttachmentInput: pdfInput,
+          orientationAttachmentInput: "ORIENTATION PDF METADATA ONLY",
+          profileFacts: [],
+          activeProfileFactCount: 0,
+          relevantProfileTypes: [],
+          relevantProfileQuestions: [],
+          localCalendar: null,
+          history: [],
+          contextBudget: { truncated: false },
+          attachment: options.attachment ?? null,
+        };
+      },
+    },
+    runTurn: async (payload, index) => {
+      if (index === 0) {
+        assert.equal(payload.requestAttachmentInput, "ORIENTATION PDF METADATA ONLY");
+        return completed(JSON.stringify(core({
+          objective: "Rename calendar event 3165 to Admin.",
+          conversationSummary: "The user wants one calendar event renamed.",
+          actions: [{ instruction: "Rename calendar event 3165 to Admin.", targetRefs: [] }],
+        })));
+      }
+      assert.equal(index, 1);
+      assert.equal(payload.requestAttachmentInput, pdfInput);
+      const result = await payload.onToolCall({
+        callId: "update-event",
+        tool: "calendar_event_update",
+        arguments: { calendar_event_id: 3165, title: "Admin", status: null },
+      });
+      assert.equal(result.ok, true);
+      return completed("Renamed the event to Admin.", 30);
+    },
+  });
+
+  assert.equal(await runtime.run({
+    requestId: "request-pdf-evidence",
+    requestEventId: "event-current",
+    text: "Rename event 3165 to Admin using the attached statement.",
+    attachment: {
+      fileId: 482,
+      filename: "statement.pdf",
+      mediaKind: "document",
+      mimeType: "application/pdf",
+      byteSize: 28,
+      sha256: "statement-sha",
+    },
+  }), "Renamed the event to Admin.");
+});
+
 test("mutation identity evidence is derived before a large result is paged", async () => {
   const requests = [];
   const ledger = fakeLedger();

@@ -627,6 +627,91 @@ test("OpenAI request descriptions expose schemas and image metadata without byte
   assert.doesNotMatch(JSON.stringify(client.health()), /sk_test/);
 });
 
+test("OpenAI Responses sends a complete PDF at high detail and redacts its bytes from traces", async () => {
+  const requests = [];
+  const events = [];
+  const dataBase64 = Buffer.from("%PDF-1.7\nstatement\n%%EOF\n").toString("base64");
+  const client = new OpenAIResponsesClient({
+    apiKey: "sk_test_secret_value_123456",
+    pdfDetail: "high",
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return jsonResponse({
+        id: "resp_pdf",
+        model: "gpt-5.6-terra",
+        status: "completed",
+        output: [{
+          type: "message", id: "msg_pdf", role: "assistant",
+          content: [{ type: "output_text", text: "I read the statement." }],
+        }],
+        usage: { input_tokens: 200, output_tokens: 10, total_tokens: 210 },
+      });
+    },
+  });
+  const requestAttachmentInput = {
+    mediaKind: "document",
+    filename: "statement.pdf",
+    mimeType: "application/pdf",
+    byteSize: 28,
+    sha256: "statement-sha",
+    text: "ATTACHED PDF METADATA",
+    dataBase64,
+  };
+  const result = await client.runTurn({
+    model: "gpt-5.6-terra",
+    effort: "high",
+    baseInstructions: "BASE",
+    developerInstructions: "CONTEXT",
+    input: "Read every statement page.",
+    requestAttachmentInput,
+    tools: [],
+    onEvent: event => events.push(event),
+    onToolCall: async () => assert.fail("PDF read should not require a local tool"),
+  });
+
+  assert.deepEqual(requests[0].input[0].content, [{
+    type: "input_text", text: "Read every statement page.",
+  }, {
+    type: "input_text", text: "ATTACHED PDF METADATA",
+  }, {
+    type: "input_file",
+    filename: "statement.pdf",
+    file_data: `data:application/pdf;base64,${dataBase64}`,
+    detail: "high",
+  }]);
+  const trace = events.find(event => event.type === "request.started").providerRequest;
+  assert.match(trace.body.input[0].content[2].file_data, /REDACTED.*sha256=/);
+  assert.doesNotMatch(JSON.stringify(trace), new RegExp(dataBase64));
+  assert.deepEqual(trace.redactions, [
+    "Authorization header value redacted",
+    "Input PDF data URL bytes replaced by length and SHA-256",
+  ]);
+  assert.equal(result.protocol.pdfDetail, "high");
+  assert.equal(result.text, "I read the statement.");
+
+  const description = client.describeRequest({
+    model: "gpt-5.6-terra",
+    effort: "high",
+    conversationId: null,
+    baseInstructions: "BASE",
+    developerInstructions: "CONTEXT",
+    input: "Read it",
+    requestAttachmentInput,
+    tools: [],
+    maxToolCalls: 0,
+    runTimeoutMs: null,
+  });
+  assert.deepEqual(description.input[1], {
+    type: "file",
+    filename: "statement.pdf",
+    mimeType: "application/pdf",
+    byteSize: 28,
+    sha256: "statement-sha",
+    detail: "high",
+  });
+  assert.doesNotMatch(JSON.stringify(description), new RegExp(dataBase64));
+});
+
 test("OpenAI schemas omit provider-unsupported uniqueness constraints without mutating local schemas", () => {
   const localSchema = {
     type: "object",

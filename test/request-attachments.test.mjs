@@ -228,6 +228,7 @@ test("receipt PDFs are stored as verified binary documents without decoding them
   assert.equal(attachment.filename, "receipt.pdf");
   assert.equal(attachment.text, "");
   assert.equal(attachment.sha256, registration.sha256);
+  assert.deepEqual(Buffer.from(attachment.dataBase64, "base64"), pdf);
 });
 
 test("MP3 uploads verify MPEG bytes and preserve ID3 hints as validated music metadata", async (context) => {
@@ -470,6 +471,37 @@ test("image context carries verified metadata and bytes separately from develope
   assert.match(built.requestAttachmentInput.text, /Attached request image/);
   assert.doesNotMatch(built.developerInstructions, /\/9j\//);
   assert.doesNotMatch(JSON.stringify(built.attachment), /\/9j\//);
+});
+
+test("PDF context carries complete verified bytes only to execution", async () => {
+  const builder = new ContextBuilder({
+    ledger: { recentConversation() { return []; } },
+    profileFacts: { list() { return { facts: [] }; } },
+    maximumCharacters: 1000,
+  });
+  const dataBase64 = Buffer.from("%PDF-1.7\nstatement\n%%EOF\n").toString("base64");
+  const attachment = {
+    fileId: 482,
+    title: "Statement_082026_7334.pdf",
+    description: "PDF document.",
+    titleSource: "original_filename",
+    filename: "Statement_082026_7334.pdf",
+    mediaKind: "document",
+    mimeType: "application/pdf",
+    byteSize: 28,
+    sha256: "statement-sha",
+    dataBase64,
+  };
+  const built = await builder.build("request-pdf", "Import this statement.", { attachment });
+  assert.equal(built.requestAttachmentInput.mediaKind, "document");
+  assert.equal(built.requestAttachmentInput.mimeType, "application/pdf");
+  assert.equal(built.requestAttachmentInput.dataBase64, dataBase64);
+  assert.match(built.requestAttachmentInput.text, /complete PDF directly, including every page and small print/);
+  assert.match(built.orientationAttachmentInput, /Attached request PDF metadata/);
+  assert.doesNotMatch(built.orientationAttachmentInput, new RegExp(dataBase64));
+  assert.doesNotMatch(built.developerInstructions, new RegExp(dataBase64));
+  assert.doesNotMatch(JSON.stringify(built.attachment), new RegExp(dataBase64));
+  assert.equal(built.contextBudget.attachment.sentCharacters, 0);
 });
 
 test("the request queue supplies a stored document to the same runtime request", async (context) => {

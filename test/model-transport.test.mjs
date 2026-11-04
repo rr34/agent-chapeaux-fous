@@ -27,9 +27,11 @@ test("the installed transport factory returns an adapter that satisfies the prov
     openAIRequestTimeoutMs: 600000,
     openAIContextWindowTokens: 1050000,
     openAIImageDetail: "original",
+    openAIPdfDetail: "high",
   });
   assert.equal(transport.id, "openai-responses");
   assert.equal(transport.health().ready, true);
+  assert.equal(transport.health().pdfDetail, "high");
   assert.equal(Object.hasOwn(transport.health(), "pricing"), false);
   assert.doesNotMatch(JSON.stringify(transport.health()), /sk_test_secret/);
 });

@@ -21,5 +21,6 @@ export async function createModelTransport(config) {
     requestTimeoutMs: config.openAIRequestTimeoutMs,
     modelContextWindowTokens: config.openAIContextWindowTokens,
     imageDetail: config.openAIImageDetail,
+    pdfDetail: config.openAIPdfDetail,
   }));
 }

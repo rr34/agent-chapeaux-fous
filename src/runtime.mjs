@@ -1102,7 +1102,9 @@ export class SlayerRuntime {
       effort: this.config.orientationReasoningEffort ?? "medium",
       input: args.text,
       developerInstructions: orientationDeveloperInstructions,
-      requestAttachmentInput: orientationBaseContext.requestAttachmentInput ?? null,
+      requestAttachmentInput: orientationBaseContext.orientationAttachmentInput
+        ?? orientationBaseContext.requestAttachmentInput
+        ?? null,
       outputSchema: schema,
       runTimeoutMs: remainingTimeoutMs(),
     });
@@ -1168,7 +1170,9 @@ export class SlayerRuntime {
           orientationDeveloperInstructions,
           temporalRepairContext(core, temporalFindings),
         ),
-        requestAttachmentInput: orientationBaseContext.requestAttachmentInput ?? null,
+        requestAttachmentInput: orientationBaseContext.orientationAttachmentInput
+          ?? orientationBaseContext.requestAttachmentInput
+          ?? null,
         outputSchema: schema,
         runTimeoutMs: remainingTimeoutMs(),
       });

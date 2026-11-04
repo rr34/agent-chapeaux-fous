@@ -23,6 +23,7 @@ test("OpenAI Responses configuration has stable defaults", () => {
   });
   assert.equal(config.openAIBaseUrl, "https://api.openai.com/v1");
   assert.equal(config.openAIImageDetail, "original");
+  assert.equal(config.openAIPdfDetail, "high");
   assert.equal(config.reasoningEffort, "high");
   assert.equal(config.orientationReasoningEffort, "medium");
   assert.equal(config.auditReasoningEffort, "low");

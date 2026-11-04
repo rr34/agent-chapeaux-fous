@@ -596,7 +596,14 @@ outputs instead.
 
 `SLAYER_OPENAI_IMAGE_DETAIL=original` favors receipt legibility. Change it to
 `high` or `low` when input-token efficiency matters more than tiny visual
-details. `SLAYER_MAX_REQUEST_ATTACHMENT_BYTES` is a generous operational memory
+details. Stored request PDFs are sent to the execution model as direct Responses
+`input_file` evidence, which supplies extracted text and every page image in one
+model interaction. `SLAYER_OPENAI_PDF_DETAIL=high` is the default so dense
+tables and small print remain legible; `auto` and `low` are available when token
+efficiency matters more. Orientation receives only the PDF's verified metadata,
+while execution receives the complete file and preserves it through that
+Responses tool loop. PDF bytes are redacted from traces.
+`SLAYER_MAX_REQUEST_ATTACHMENT_BYTES` is a generous operational memory
 ceiling, not a usage allowance, and can be raised. The dedicated **AI Usage**
 screen totals recorded tokens and estimates USD cost. Its per-million-token
 prices are set only on that screen and saved in browser storage. These same
