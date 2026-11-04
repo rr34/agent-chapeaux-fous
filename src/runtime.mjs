@@ -1354,7 +1354,7 @@ export class SlayerRuntime {
       .filter(({ referenceId }) => core.confirmedActionReferenceIds.includes(referenceId))
       .map((reference) => ({ ...reference, state: "confirmed" }));
     const directlyConfirmedAction = directPreparedActionReference({
-      core, confirmedActionReferences,
+      requestText: args.text, core, confirmedActionReferences,
     });
     if (directlyConfirmedAction
       && availableTools.some(({ name }) => name === directlyConfirmedAction.targetTool)) {

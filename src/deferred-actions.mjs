@@ -253,8 +253,25 @@ export function completionReceiptFindings({ receipts, confirmedActionReferences 
   return findings;
 }
 
-export function directPreparedActionReference({ core, confirmedActionReferences }) {
-  if (core?.mode !== "act"
+const confirmationOnlyPhrases = new Set([
+  "yes", "yes please", "yes approve", "yes approve it", "yes approve this",
+  "yes approve that", "approve", "approve it", "approve this", "approve that",
+  "go ahead", "yes go ahead", "do it", "yes do it", "proceed", "yes proceed",
+  "make it so", "commit it", "send it", "delete it",
+]);
+
+function confirmationOnlyRequest(value) {
+  const normalized = String(value ?? "").normalize("NFKC").trim().toLowerCase()
+    .replace(/[.!]+$/gu, "")
+    .replace(/[,;:]+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return confirmationOnlyPhrases.has(normalized);
+}
+
+export function directPreparedActionReference({ requestText, core, confirmedActionReferences }) {
+  if (!confirmationOnlyRequest(requestText)
+    || core?.mode !== "act"
     || core.actions?.length !== 1
     || core.confirmedActionReferenceIds?.length !== 1
     || confirmedActionReferences?.length !== 1

@@ -706,7 +706,10 @@ One narrow deterministic exception may omit step 3: when orientation confirms
 exactly one still-ready provider-prepared change, that reference already fixes
 one available target tool and its complete argument object, and the accepted
 core contains one action with no additional constraints, questions, context
-requests, sets, temporal resolutions, or unresolved targets. The application
+requests, sets, temporal resolutions, or unresolved targets. The exact current
+request must also consist only of a bounded confirmation phrase such as “yes,
+approve,” “go ahead,” or “do it”; any additional words that introduce work or
+conditions retain the normal path. The application
 exposes that exact tool to execution without asking another model to select it.
 This is not tool selection by orientation and never permits application code to
 infer a tool or construct arguments; mixed work and ordinary requests retain

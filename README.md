@@ -720,7 +720,9 @@ for that set. `config/capabilities/<id>/guidance.md` remains the capability
 guidance source; `config/system-prompt.md` contains only universal behavior.
 The selection call is omitted only for one self-contained confirmed
 provider-prepared change whose active reference already fixes one available
-target tool and its complete arguments. Such a confirmation also does not gain
+target tool and its complete arguments, and whose current request is only a
+bounded confirmation phrase. Any added instruction or condition retains the
+normal selection path. Such a confirmation also does not gain
 a synthetic outcome object merely restating the prepared effect; its exact
 matching successful receipt is the completion evidence. Mixed requests,
 changed constraints, unresolved targets, and ordinary actions continue through

@@ -357,18 +357,35 @@ test("only one self-contained confirmed prepared change can bypass tool selectio
     objectSets: [], relationshipSets: [], temporalResolutions: [],
     confirmedActionReferenceIds: [reference.referenceId],
   };
+  for (const requestText of [
+    "yes, approve", "Yes, approve it.", "go ahead", "do it!", "proceed", "make it so",
+  ]) {
+    assert.equal(directPreparedActionReference({
+      requestText, core: directCore, confirmedActionReferences: [reference],
+    }), reference);
+  }
+  for (const requestText of [
+    "yes, approve it and create a receipt PDF",
+    "go ahead, but change the destination account",
+    "do it tomorrow",
+    "should I approve it?",
+  ]) {
+    assert.equal(directPreparedActionReference({
+      requestText, core: directCore, confirmedActionReferences: [reference],
+    }), null);
+  }
   assert.equal(directPreparedActionReference({
-    core: directCore, confirmedActionReferences: [reference],
-  }), reference);
-  assert.equal(directPreparedActionReference({
+    requestText: "yes",
     core: { ...directCore, actions: [...directCore.actions, directCore.actions[0]] },
     confirmedActionReferences: [reference],
   }), null);
   assert.equal(directPreparedActionReference({
+    requestText: "yes",
     core: { ...directCore, constraints: ["Also change the destination account."] },
     confirmedActionReferences: [reference],
   }), null);
   assert.equal(directPreparedActionReference({
+    requestText: "yes",
     core: directCore,
     confirmedActionReferences: [{ ...reference, readiness: { ready: false } }],
   }), null);
