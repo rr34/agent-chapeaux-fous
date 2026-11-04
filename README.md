@@ -1015,10 +1015,17 @@ the versioned `agent-slayer/artifactUpload` metadata contract defined under
 “Large artifacts across the Agent Slayer–MCP boundary” in
 [`AGENT-TOOL-MANIFESTO.md`](AGENT-TOOL-MANIFESTO.md). Agent Slayer then exposes
 one exact resumable file-upload function beside the provider's artifact consumer
-tool. The application verifies local UTF-8 packaging, size, and SHA-256; sends
-raw chunks of no more than 1 MiB through the provider's same-origin HTTP
-artifact endpoint with the same bearer authorization; resumes from the
-provider-confirmed byte offset; and verifies the completed provider artifact.
+tool. Selecting an artifact consumer deterministically makes that upload wrapper
+callable; when it accepts JSON Lines, the same dependency closure also makes the
+general `file_jsonl_create` materializer callable. That native tool validates a
+bounded set of complete interaction-produced records against the provider's
+authoritative per-record schema before atomically saving canonical JSON Lines.
+Table transformations converge on the same generated-file storage path rather
+than defining destination-specific serializers. The application verifies local
+UTF-8 packaging, size, and SHA-256; sends raw chunks of no more than 1 MiB
+through the provider's same-origin HTTP artifact endpoint with the same bearer
+authorization; resumes from the provider-confirmed byte offset; and verifies
+the completed provider artifact.
 File contents never enter model context. Transfer does not infer or execute the
 provider's domain workflow; the MCP consumer tool owns that later operation.
 Required artifact routes or methods that contradict the advertised contract
@@ -1030,9 +1037,12 @@ An MCP may also return the versioned provider-download descriptor defined in
 the same manifesto when a successful tool makes a provider-owned PDF available.
 Agent Slayer fetches it from the MCP origin with the integration's bearer token,
 confirms every declared byte range, size, and SHA-256, and adds the verified PDF
-at high detail to the next model call in that execution. The bytes stay out of
-MCP JSON and observability and live only in a bounded five-minute memory cache;
-the MCP remains the durable source of record.
+at high detail to the next model call in that execution. Tool expansion preserves
+that Responses chain, so subsequent calls in the execution can continue reading
+the document. Compact receipt evidence records the filename, media type, byte
+count, digest, source, and transport ID but never the bytes. The bytes stay out
+of MCP JSON and observability and live only in a bounded five-minute memory
+cache; the MCP remains the durable source of record.
 
 MCP integrations with an `oauth` block use the standard MCP authorization-code
 flow with OAuth discovery, dynamic client registration, PKCE, and refresh

@@ -4,7 +4,7 @@
   "version": 1,
   "id": "files",
   "title": "Files",
-  "summary": "Find, inspect, enrich, and safely transform durable uploads, including bounded music metadata batches.",
+  "summary": "Find, inspect, enrich, safely transform durable uploads, and materialize schema-validated canonical JSON Lines artifacts.",
   "aliases": [
     "file",
     "upload",
@@ -57,7 +57,7 @@
       "kind": "object",
       "management": "user",
       "operations": {
-        "create": { "unavailable": "unsupported", "reason": "Durable files enter through user uploads or specialized artifact-producing workflows; no generic model-authored file creation operation is exposed." },
+        "create": { "unavailable": "unsupported", "reason": "Ordinary user files enter through uploads. Specialized artifact workflows, including schema-validated JSON Lines materialization, are not the general files.file lifecycle create operation." },
         "read": { "tool": "file_get", "batch": { "mode": "array", "input": "/file_ids" }, "note": "The compatibility file_id input remains accepted; new metadata reads use the bounded file_ids array, including one-file reads." },
         "update": { "tool": "file_update", "batch": { "mode": "array", "input": "/updates" }, "note": "The compatibility singleton input remains accepted; new multi-file enrichment uses the bounded atomic updates array." },
         "delete": { "unavailable": "unsupported", "reason": "Stored file bytes and provenance are immutable evidence; no destructive file deletion operation is exposed to the agent." }

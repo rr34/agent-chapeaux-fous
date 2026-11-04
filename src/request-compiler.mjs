@@ -87,6 +87,10 @@ const capabilitySummaries = new Map([
 // mutation tool, especially one owned by an MCP.
 const explicitSelectionOnlyCapabilities = new Set(["database-write"]);
 const executionInfrastructureToolNames = new Set(["reference_set_record"]);
+const artifactUploadMetadataKey = "agent-slayer/artifactUpload";
+const jsonLinesMediaTypes = new Set([
+  "application/x-ndjson", "application/ndjson", "application/jsonl", "text/x-jsonl",
+]);
 
 function isExecutionInfrastructureTool(tool) {
   return executionInfrastructureToolNames.has(tool.name);
@@ -492,6 +496,7 @@ function requestToolsDefinition(tools) {
 function exactSelectedToolSelection(tools, capabilities, requestedToolNames) {
   const capabilitySelection = overrideSelection(tools, capabilities);
   const allowedByName = new Map(capabilitySelection.tools.map((tool) => [tool.name, tool]));
+  const allByName = new Map(tools.map((tool) => [tool.name, tool]));
   const requested = [...new Set(requestedToolNames)];
   const unavailable = requested.filter((name) => !allowedByName.has(name));
   if (unavailable.length) {
@@ -502,7 +507,37 @@ function exactSelectedToolSelection(tools, capabilities, requestedToolNames) {
     ...capabilitySelection.dependentTools,
     ...capabilitySelection.tools.filter(isExecutionInfrastructureTool).map(({ name }) => name),
   ]);
-  const selectedTools = capabilitySelection.tools.filter(({ name }) => requestedSet.has(name));
+  // Artifact consumers own the requirement to receive an uploaded artifact,
+  // but the host owns its mechanical preparation and transfer. Pull those
+  // dependencies in deterministically instead of requiring the model to know
+  // which provider wrapper or local serializer happens to implement them.
+  for (const name of [...requestedSet]) {
+    const consumer = allByName.get(name);
+    const selectedUploadMetadata = consumer?.metadata?.[artifactUploadMetadataKey];
+    if (selectedUploadMetadata?.consumerTool) {
+      const destinationConsumer = tools.find((candidate) => (
+        candidate.source === consumer.source
+        && candidate.upstreamName === selectedUploadMetadata.consumerTool
+      ));
+      if (destinationConsumer) requestedSet.add(destinationConsumer.name);
+      const acceptedMediaTypes = selectedUploadMetadata.acceptedMediaTypes ?? [];
+      if (acceptedMediaTypes.some((mediaType) => jsonLinesMediaTypes.has(String(mediaType).toLowerCase()))) {
+        if (allByName.has("file_jsonl_create")) requestedSet.add("file_jsonl_create");
+      }
+      continue;
+    }
+    const upload = tools.find((candidate) => (
+      candidate.source === consumer?.source
+      && candidate.metadata?.[artifactUploadMetadataKey]?.consumerTool === consumer?.upstreamName
+    ));
+    if (!upload) continue;
+    requestedSet.add(upload.name);
+    const acceptedMediaTypes = upload.metadata?.[artifactUploadMetadataKey]?.acceptedMediaTypes ?? [];
+    if (acceptedMediaTypes.some((mediaType) => jsonLinesMediaTypes.has(String(mediaType).toLowerCase()))) {
+      if (allByName.has("file_jsonl_create")) requestedSet.add("file_jsonl_create");
+    }
+  }
+  const selectedTools = tools.filter(({ name }) => requestedSet.has(name));
   const deferredTools = capabilitySelection.tools.filter(({ name }) => !requestedSet.has(name));
   return {
     ...capabilitySelection,

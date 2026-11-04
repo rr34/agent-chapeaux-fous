@@ -584,12 +584,29 @@ function continuationReceipt(receipt) {
     ...(receipt.error ? { error: receipt.error } : {}),
     ...(receipt.toolFailure ? { toolFailure: receipt.toolFailure } : {}),
     ...(receipt.deferredActionReference ? { deferredActionReference: receipt.deferredActionReference } : {}),
+    ...(receipt.modelInputAttachments?.length
+      ? { modelInputAttachments: receipt.modelInputAttachments }
+      : {}),
     ...(receipt.intentOutcomeRefs?.length ? { intentOutcomeRefs: receipt.intentOutcomeRefs } : {}),
     ...(receipt.intentOutcomeBindings?.length
       ? { intentOutcomeBindings: receipt.intentOutcomeBindings }
       : {}),
   };
   return compact;
+}
+
+function compactModelInputAttachmentEvidence(value) {
+  return modelInputAttachments(value).map((attachment) => ({
+    mediaKind: attachment.mediaKind ?? null,
+    filename: attachment.filename ?? null,
+    mimeType: attachment.mimeType ?? null,
+    byteSize: attachment.byteSize ?? null,
+    sha256: attachment.sha256 ?? null,
+    source: attachment.source ?? null,
+    transportId: attachment.transportId ?? null,
+    cache: attachment.cache ?? null,
+    deliveredAsModelInput: true,
+  }));
 }
 
 function structuralEvidenceSummary(value, pointer = "", depth = 0, budget = { nodes: 1500 }) {
@@ -1879,6 +1896,7 @@ export class SlayerRuntime {
     const selectedModel = model || this.config.model;
     const selectedEffort = effort || this.config.reasoningEffort;
     let conversationId = conversation.conversationId;
+    const executionStartedNewConversation = !conversationId;
     let totalToolCallCount = 0;
     // Orientation normally supplies the right capability families. Execution
     // may still discover one evidenced owning-domain dependency after a read;
@@ -1906,7 +1924,6 @@ export class SlayerRuntime {
     ]);
     const generatedActionReferences = [];
     let conversationCheckpoint = null;
-    let finalAttemptStartedNewConversation = !conversationId;
     const failedToolAttempts = new Set(initialReceipts.filter((receipt) => (
       !receipt.ok && receipt.preExecutionRejection !== true
     ))
@@ -1921,7 +1938,6 @@ export class SlayerRuntime {
       if (runTimeoutMs !== null && runTimeoutMs <= 0) {
         throw new Error(`Model execution timed out after ${configuredRunTimeoutMs}ms`);
       }
-      finalAttemptStartedNewConversation = !conversationId;
       // Callable schemas remain the exact owning provider contracts. Verified
       // bindings are identity evidence at the call boundary; they never rewrite
       // a provider schema into a historical ID allow-list.
@@ -2485,6 +2501,7 @@ export class SlayerRuntime {
               });
               const toolDefinition = this.registry.get(name);
               const providerResult = mcpResultDetails(toolResult);
+              const inputAttachmentEvidence = compactModelInputAttachmentEvidence(toolResult);
               const resolveProviderTool = (targetName) => toolDefinition?.source === "local"
                 ? this.registry.get(targetName)
                 : this.registry.resolveUpstreamTool(toolDefinition?.source, targetName);
@@ -2588,6 +2605,9 @@ export class SlayerRuntime {
                 payload: {
                   callId, name, result: toolResult,
                   ...(providerResult ? { providerResult } : {}),
+                  ...(inputAttachmentEvidence.length
+                    ? { modelInputAttachments: inputAttachmentEvidence }
+                    : {}),
                   ...(deferredActionReference ? { deferredActionReference } : {}),
                 },
               });
@@ -2735,6 +2755,9 @@ export class SlayerRuntime {
                 ...(createEffects.length ? { intentCreateEffects: createEffects } : {}),
                 ...(recordedSets.length ? { referenceSets: recordedSets } : {}),
                 ...(sourcedActionReference ? { deferredActionReference: sourcedActionReference } : {}),
+                ...(inputAttachmentEvidence.length
+                  ? { modelInputAttachments: inputAttachmentEvidence }
+                  : {}),
               });
               if (!readOnly) successfulMutationAttempts.add(attemptKey);
               if (inline.paged) {
@@ -2835,7 +2858,7 @@ export class SlayerRuntime {
 
       if (requestedCapabilities.size === 0 && requestedTools.size === 0) break;
       if (!this.requestCompiler) throw new Error("Tool expansion requires the request compiler");
-      conversationId = null;
+      conversationId = result.conversationId ?? result.threadId ?? conversationId;
       if (requestedTools.size > 0) {
         toolExpansionRounds += 1;
         for (const toolName of requestedTools) activeToolNames.add(toolName);
@@ -2868,7 +2891,7 @@ export class SlayerRuntime {
     const finalToolFingerprint = callableToolsFingerprint(compilation.tools);
     if (
       !isolatedConversation
-      && finalAttemptStartedNewConversation
+      && (executionStartedNewConversation || toolExpansionRounds > 0 || capabilityExpansionRounds > 0)
       && typeof this.ledger.markConversationStarted === "function"
     ) {
       this.ledger.markConversationStarted({

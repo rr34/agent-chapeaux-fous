@@ -33,6 +33,16 @@ replace the destination's questions, validation, preview, or commit. Use a
 general declarative file transformation when that workflow calls for a mapped
 artifact or when no more focused intake path is advertised.
 
+When complete canonical records already exist directly in the model interaction,
+use `file_jsonl_create` as the one general JSON Lines materialization path. Copy
+the destination's authoritative per-record `target_schema` exactly and pass the
+complete bounded record set once. The application validates every record before
+writing anything, preserves order, serializes one object per line, and returns a
+verified `artifact_source` file. This prepares bytes only; it does not imply that
+the destination accepted or imported the records. Do not use this tool to make
+the model retype rows from a source table; table inputs use the complete-file
+transform path below.
+
 For a CSV, TSV, or other delimited table, prefer `file_table_inspect` over
 reading every record into model context. Inspect returns exact whole-file
 counts, headers, bounded samples, and column profiles. Blank and repeated

@@ -237,6 +237,7 @@ test("the first model turn contains the exact request, context, and callable too
 
 test("provider attachments remain internal while crossing the runtime tool boundary", async () => {
   const bytes = Buffer.from("%PDF-1.7\nstatement\n%%EOF\n");
+  const events = [];
   const modelTransport = fakeTransport(async (payload) => {
     const response = await payload.onToolCall({
       callId: "statement-call", tool: "statement_get", arguments: {},
@@ -265,7 +266,10 @@ test("provider attachments remain internal while crossing the runtime tool bound
     contextBuilder: { async build() {
       return { text: "context", profileFacts: [], history: [], contextBudget: { truncated: false } };
     } },
-    ledger: { append() { return 1; }, eventSequence(value) { return value; } },
+    ledger: {
+      append(event) { events.push(event); return events.length; },
+      eventSequence(value) { return value; },
+    },
     config: runtimeConfig(),
   });
   runtime.systemPrompt = "prompt";
@@ -273,6 +277,19 @@ test("provider attachments remain internal while crossing the runtime tool bound
     requestId: "provider-pdf", requestEventId: "provider-pdf-event",
     text: "Get the provider statement.",
   }), "Statement supplied.");
+  const resultEvent = events.find((event) => event.type === "tool.result");
+  assert.deepEqual(resultEvent.payload.modelInputAttachments, [{
+    mediaKind: "document",
+    filename: "statement.pdf",
+    mimeType: "application/pdf",
+    byteSize: bytes.length,
+    sha256: "statement-sha",
+    source: null,
+    transportId: null,
+    cache: null,
+    deliveredAsModelInput: true,
+  }]);
+  assert.equal(JSON.stringify(resultEvent).includes(bytes.toString("base64")), false);
 });
 
 test("failed model responses retain provider diagnostics and observed usage in the trace", async () => {
@@ -676,12 +693,12 @@ test("the runtime expands deferred capabilities and continues the same user requ
   assert.equal(answer, "The deferred beta action completed.");
   assert.equal(modelRequests.length, 2);
   assert.equal(modelRequests[0].conversationId, null);
-  assert.equal(modelRequests[1].conversationId, null);
+  assert.equal(modelRequests[1].conversationId, "thread-1");
   assert.equal(modelRequests[0].input, "Use the beta capability.");
   assert.deepEqual(modelRequests[0].tools.map(({ name }) => name), ["alpha_action", "request_capabilities"]);
   assert.deepEqual(modelRequests[1].tools.map(({ name }) => name), ["alpha_action", "beta_action"]);
   assert.match(modelRequests[1].input, /Original user request:\nUse the beta capability\./);
-  assert.equal(contextOptions[1].nativeConversation, false);
+  assert.equal(contextOptions[1].nativeConversation, true);
   assert.equal(modelRequests[1].maxToolCalls, 3);
   assert.equal(betaExecutions, 1);
   assert.equal(events.some(({ type }) => type === "tools.expansion.requested"), true);

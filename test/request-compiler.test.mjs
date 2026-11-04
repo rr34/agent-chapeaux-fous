@@ -305,6 +305,58 @@ test("file search and partition schemas are callable when the files capability i
   assert.match(compiled.instructions, /`file_jsonl_partition`/);
 });
 
+test("selecting a JSON Lines artifact consumer includes the general materializer and upload wrapper", async () => {
+  const consumer = {
+    ...tool("remote_accounting_import_statement_artifact", "mcp:accounting"),
+    upstreamName: "import_statement_artifact",
+    capabilityId: "integration:accounting",
+    metadata: {
+      "agent-slayer/artifactUpload": {
+        contractVersion: 1,
+        transportId: "statement_import_job",
+        endpointPath: "/mcp/artifacts",
+        acceptedMediaTypes: ["application/x-ndjson"],
+        maximumChunkBytes: 1024,
+      },
+    },
+  };
+  const upload = {
+    ...tool("remote_accounting_upload_statement_import_job_file", "mcp:accounting"),
+    upstreamName: null,
+    capabilityId: "integration:accounting",
+    metadata: {
+      "agent-slayer/artifactUpload": {
+        contractVersion: 1,
+        transportId: "statement_import_job",
+        endpointPath: "/mcp/artifacts",
+        acceptedMediaTypes: ["application/x-ndjson"],
+        maximumChunkBytes: 1024,
+        consumerTool: "import_statement_artifact",
+      },
+    },
+  };
+  const materializer = { ...tool("file_jsonl_create"), capabilityId: "files" };
+  const compiler = new RequestCompiler();
+  const compiled = await compiler.compile({
+    tools: [consumer, upload, materializer],
+    text: "Import the statement artifact.",
+    capabilityOverride: ["integration:accounting"],
+    selectedToolNames: [consumer.name],
+    allowToolExpansion: true,
+  });
+
+  assert.deepEqual(names(compiled), [consumer.name, upload.name, materializer.name]);
+
+  const wrapperSelected = await compiler.compile({
+    tools: [consumer, upload, materializer],
+    text: "Upload the statement artifact.",
+    capabilityOverride: ["integration:accounting"],
+    selectedToolNames: [upload.name],
+    allowToolExpansion: true,
+  });
+  assert.deepEqual(names(wrapperSelected), [consumer.name, upload.name, materializer.name]);
+});
+
 test("an explicit interaction-video request selects the script creator", () => {
   const selection = selectRequestCapabilities({
     tools: [...tools, tool("video_script_create")],

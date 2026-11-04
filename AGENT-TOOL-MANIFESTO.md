@@ -1408,6 +1408,11 @@ The boundary is deterministic:
   artifact and then follows the artifact path;
 - UTF-8 JSON Lines (`application/x-ndjson`) is the canonical file encoding for
   sequences of structured records: one complete JSON object per nonblank line;
+- complete canonical records already produced in a bounded model interaction
+  enter one general native JSON Lines materializer together with the exact
+  authoritative per-record schema. The application validates the whole batch
+  atomically before serializing or persisting it; destination-specific tools do
+  not own a parallel serializer;
 - ordinary `application/json` may represent the same records as one top-level
   array when an exact provider tool accepts an inline batch; packaging never
   changes the domain record schema or meaning; and
@@ -1442,9 +1447,11 @@ resolves `endpointPath` against the configured MCP server origin, reuses the
 same bearer authorization, requests and confirms the declared byte ranges,
 and verifies the complete byte count and SHA-256. A verified PDF is retained
 only in a short-lived bounded memory cache and is supplied as a high-detail
-`input_file` in the next model call of the same execution. Its bytes never enter
-MCP JSON, tool receipts, or traces. The cache is an execution accelerator, not
-domain persistence; the provider remains the durable owner. Invalid download
+`input_file` in the next model call of the same execution. Later tool-schema
+expansion continues that same model response chain, so the verified PDF remains
+available without another download or a receipt reconstruction. Its bytes never
+enter MCP JSON, tool receipts, or traces. The cache is an execution accelerator,
+not domain persistence; the provider remains the durable owner. Invalid download
 descriptors or failed verification are returned to the model as explicit host
 attachment failures without changing the provider tool's already-observed
 effect receipt.

@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import Ajv2020 from "ajv/dist/2020.js";
+import addFormats from "ajv-formats";
 import { RE2JS } from "re2js";
 import { createFileArtifactSource } from "../artifact-source.mjs";
 import { inspectTextStructure } from "../file-structure-inspect.mjs";
@@ -10,6 +12,17 @@ import { inspectDelimitedText, readDelimitedRecords, transformDelimitedText } fr
 
 const toolDescriptions = Object.freeze({
   "file_get": { "summary": "Get authoritative metadata and stable provenance for a bounded exact set of durable uploads. Use file_read for verified contents." },
+  "file_jsonl_create": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Validate a bounded set of complete JSON objects against one authoritative per-record schema and materialize them atomically as a canonical JSON Lines artifact.",
+    "actionClasses": [
+      "CREATE"
+    ],
+    "effectClassifications": [
+      "MUTATING"
+    ]
+  },
   "file_jsonl_partition": {
     "protocol": "agent-slayer.tool-description",
     "version": 1,
@@ -248,7 +261,7 @@ async function storeGeneratedJsonLines({
 }) {
   const bytes = Buffer.from(contents, "utf8");
   if (bytes.length > maximumBytes) {
-    throw new Error(`Transformed JSON exceeds the ${maximumBytes}-byte generated-file ceiling`);
+    throw new Error(`Generated JSON Lines exceeds the ${maximumBytes}-byte generated-file ceiling`);
   }
   const now = new Date();
   const relativeDirectory = path.join(
@@ -334,6 +347,110 @@ export function registerFileTools(registry, {
   ledger, searchCoordinator, mediaRoot, maximumTextBytes, maximumGeneratedBytes = 50 * 1024 * 1024,
 }) {
   registry = registry.withCapability?.("files", toolDescriptions, nativeToolContracts) ?? registry;
+  registry.register({
+    name: "file_jsonl_create",
+    description: "Create one canonical JSON Lines artifact from 1-1000 complete JSON objects already present in this interaction. Copy target_schema exactly from the authoritative destination contract; do not invent or weaken it. The application compiles that schema, validates every record before writing anything, serializes one object per line in order, and returns a verified files.file with role artifact_source. This is a general artifact materializer, not a destination-specific import tool. Use a source-file transform instead when rows still need to be read or mapped from an uploaded table.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        records: {
+          type: "array", minItems: 1, maxItems: 1000,
+          items: { type: "object" },
+          description: "Complete output records in canonical order; each must validate against target_schema.",
+        },
+        target_schema: {
+          type: "object",
+          description: "The authoritative JSON Schema for one record, copied exactly from the destination contract.",
+        },
+        filename: {
+          type: "string", minLength: 7, maxLength: 255,
+          description: "A basename ending in .jsonl.",
+        },
+        title: { type: "string", minLength: 1, maxLength: 200 },
+        description: { type: ["string", "null"], maxLength: 2000 },
+        source_refs: {
+          type: "array", maxItems: 20, uniqueItems: true,
+          items: { type: "string", minLength: 1, maxLength: 2048 },
+          description: "Optional stable references identifying the evidence from which these records were derived.",
+        },
+      },
+      required: ["records", "target_schema", "filename", "title"],
+    },
+    outputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        file: { type: "object" },
+        recordCount: { type: "integer", minimum: 1 },
+        byteSize: { type: "integer", minimum: 1 },
+        sha256: { type: "string", pattern: "^[0-9a-f]{64}$" },
+        schemaId: { type: ["string", "null"] },
+        verified: { type: "boolean", const: true },
+      },
+      required: ["file", "recordCount", "byteSize", "sha256", "schemaId", "verified"],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    async execute({
+      records, target_schema: targetSchema, filename, title, description = null, source_refs: sourceRefs = [],
+    }, context = {}) {
+      if (path.basename(filename) !== filename || !filename.toLowerCase().endsWith(".jsonl")) {
+        throw new Error("filename must be a basename ending in .jsonl");
+      }
+      const schemaCharacters = JSON.stringify(targetSchema).length;
+      if (schemaCharacters > 128 * 1024) {
+        throw new Error("target_schema exceeds the 131072-character schema ceiling");
+      }
+      let validate;
+      try {
+        const ajv = new Ajv2020({ allErrors: true, strict: false });
+        addFormats(ajv);
+        validate = ajv.compile(targetSchema);
+      } catch (error) {
+        throw new Error(`target_schema is not a usable JSON Schema: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      const invalid = [];
+      for (const [index, record] of records.entries()) {
+        if (validate(record)) continue;
+        invalid.push({
+          record: index + 1,
+          errors: (validate.errors ?? []).slice(0, 20).map(({ instancePath, keyword, message, params }) => ({
+            instancePath, keyword, message, params,
+          })),
+        });
+        if (invalid.length >= 20) break;
+      }
+      if (invalid.length) {
+        throw new Error(`JSON Lines records do not match target_schema: ${JSON.stringify(invalid)}`);
+      }
+      const contents = jsonLines(records);
+      const file = await storeGeneratedJsonLines({
+        ledger, mediaRoot, contents, originalFilename: filename, title, description,
+        maximumBytes: maximumGeneratedBytes,
+      });
+      file.objectRole = "artifact_source";
+      const result = {
+        file,
+        recordCount: records.length,
+        byteSize: Buffer.byteLength(contents),
+        sha256: createHash("sha256").update(contents).digest("hex"),
+        schemaId: typeof targetSchema.$id === "string" ? targetSchema.$id : null,
+        verified: true,
+      };
+      ledger.append?.({
+        type: "file.jsonl.created", status: "complete", actorType: "tool",
+        actorName: "file_jsonl_create", channel: context.channel, turnId: context.requestId,
+        operationId: context.callId, name: `Created ${records.length} canonical JSON Lines records`,
+        subjectType: "file", subjectId: String(file.fileId), primaryFileId: file.fileId,
+        payload: {
+          fileId: file.fileId, recordCount: records.length, byteSize: result.byteSize,
+          sha256: result.sha256, schemaId: result.schemaId, sourceRefs,
+        },
+      });
+      return result;
+    },
+  });
+
   registry.register({
     name: "file_get",
     description: "Get authoritative metadata for 1-100 durably stored uploads by stable file ID, preserving the requested order. Use file_ids for every new read, including a one-file read; file_id remains a compatibility input. Returns every file's title, description, original filename, integrity metadata, and originating requests. This does not return file contents; use file_read for verified text contents.",

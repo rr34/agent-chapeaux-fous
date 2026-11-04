@@ -56,6 +56,27 @@ test("oversized recent arguments do not hide smaller earlier receipts", () => {
   });
 });
 
+test("continuation evidence retains compact model-input document proof without bytes", () => {
+  const text = sameRequestReceiptInstructions([receipt(7, { status: "processing" }, {
+    tool: "statement_get",
+    modelInputAttachments: [{
+      mediaKind: "document",
+      filename: "statement.pdf",
+      mimeType: "application/pdf",
+      byteSize: 641681,
+      sha256: "abc123",
+      source: "mcp:accounting",
+      transportId: "statement_evidence_download",
+      cache: "downloaded",
+      deliveredAsModelInput: true,
+    }],
+  })]);
+  const [projected] = entries(text);
+  assert.equal(projected.modelInputAttachments[0].filename, "statement.pdf");
+  assert.equal(projected.modelInputAttachments[0].deliveredAsModelInput, true);
+  assert.equal(text.includes("dataBase64"), false);
+});
+
 test("continuation budgets remain bounded with many receipts or very small limits", () => {
   const receipts = Array.from({ length: 100 }, (_, index) => receipt(index + 1, { id: index }));
   for (const maximum of [0, 200, 2_000, 24_000]) {
@@ -98,6 +119,7 @@ test("pending expansion allows already advertised tools and rejects tools not ye
       describeRequest: (payload) => ({ ...payload, callableTools: payload.tools }),
       async runTurn(payload) {
         attempts += 1;
+        assert.equal(payload.conversationId, attempts === 1 ? null : "test-1");
         if (attempts === 1) {
           assert.equal((await payload.onToolCall({
             callId: "expand", tool: "request_tools", arguments: { tools: ["beta_write"] },
