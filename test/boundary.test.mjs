@@ -368,6 +368,8 @@ test("the standalone client restores calendar, routine, grouped to-do, grouped c
   }
   assert.ok(document.indexOf('id="agent-view-button"') < document.indexOf('id="settings-menu"'));
   assert.match(document, /id="settings-menu"[\s\S]+<summary aria-label="Menu" title="Menu">[\s\S]+class="menu-icon"[\s\S]+id="select-video-script-sources"[\s\S]+id="refresh"/);
+  assert.match(document, /aria-label="Account settings"[\s\S]+<strong>Account<\/strong>[\s\S]+id="refresh"[^>]*>Refresh tools<\/button>/);
+  assert.ok(document.indexOf('aria-label="Account settings"') < document.indexOf('id="refresh"'));
   assert.doesNotMatch(document, /<\/div>\s*<button id="select-video-script-sources" class="top-nav-button/);
   assert.match(application, /Git commit: \$\{commit\}/);
   assert.match(application, /refresh\.addEventListener\("click", async \(\) =>/);
