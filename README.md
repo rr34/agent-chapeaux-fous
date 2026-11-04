@@ -440,21 +440,10 @@ Display-title equality alone never merges unrelated files, and a later return
 to the same work begins a new visual run rather than joining nonconsecutive
 queue entries.
 
-### Raspberry Pi Hardware Implementation
-- microphone - Kiseer USB 2.0 Mini Microphone
-- speakers - USB to Audio USB Sound Card with 8Ω 5W Speaker, Driver-Free Plug and Play
-- motor - 5V enough, basic motor
-- screen - 2004 type screen
-- temp / humidity sensor - Taidacent SHT30 RS485 Modbus RTU Temperature and Humidity Sensor Transmitter for PLC and DCS Room Thermocouple Monitoring
-- accelerometers - HiLetgo 3pcs GY-521 MPU-6050 MPU6050 3 Axis Accelerometer Gyroscope Module 6 DOF 6-axis Accelerometer Gyroscope Sensor Module 16 Bit AD Converter Data Output IIC I2C for Arduino
-- plug-in, then controllable outlets - ELEGOO 4 Channel DC 5V Relay Module with Optocoupler for Arduino Projects
-- time maintained when unplugged - Dorhea 4PCS DS3231 Real Time Clock Module RTC Clock Memory Module 3.3V/5V for Raspberry Pi
-- outputs
-  - RS-485 - USB to RS485 Converter Industrial Adapter Original FT232RL and SP485EEN
-  - headphone jack - 5Pcs 3.5mm TRS Audio Jack PCB Adapter to 5Pin Header
-  - Bluetooth?
-  - USB for mouse, keyboard
-  - HDMI
+### Time v3 Node hardware
+
+The Raspberry Pi hardware description for The Time v3 Node lives in
+[`time-v3-node/HARDWARE.md`](time-v3-node/HARDWARE.md).
 
 
 ## Hats and the user manual
