@@ -253,6 +253,28 @@ export function completionReceiptFindings({ receipts, confirmedActionReferences 
   return findings;
 }
 
+export function directPreparedActionReference({ core, confirmedActionReferences }) {
+  if (core?.mode !== "act"
+    || core.actions?.length !== 1
+    || core.confirmedActionReferenceIds?.length !== 1
+    || confirmedActionReferences?.length !== 1
+    || core.constraints?.length
+    || core.questions?.length
+    || core.contextRequests?.length
+    || core.objectSets?.length
+    || core.relationshipSets?.length
+    || core.temporalResolutions?.length) return null;
+  const [action] = core.actions;
+  const [reference] = confirmedActionReferences;
+  if (core.confirmedActionReferenceIds[0] !== reference.referenceId
+    || reference.state !== "confirmed"
+    || reference.readiness?.ready !== true
+    || action.targetSetRefs?.length
+    || action.relationshipSetRefs?.length
+    || action.unresolvedTargets?.length) return null;
+  return reference;
+}
+
 export function incompleteReceiptResponse(findings) {
   return [
     "I could not verify that the requested operation completed, so I did not treat it as completed.",

@@ -5,6 +5,7 @@ import {
   completionReceiptFindings,
   deferredActionContractProblem,
   deferredActionArgumentProblem,
+  directPreparedActionReference,
   extractDeferredActionReference,
   matchingDeferredActionReferences,
   pendingConfirmationFindings,
@@ -341,4 +342,34 @@ test("receipt findings enforce only explicitly authorized MCP action references"
     }).map(({ code }) => code),
     ["CONFIRMED_CHANGE_RECEIPT_REQUIRED"],
   );
+});
+
+test("only one self-contained confirmed prepared change can bypass tool selection", () => {
+  const reference = { ...actionReference(), state: "confirmed" };
+  const directCore = {
+    mode: "act",
+    actions: [{
+      targetRefs: ["accounting://statement-import-jobs/job-one"],
+      targetSetRefs: [], relationshipSetRefs: [], unresolvedTargets: [],
+      outcomes: [{ description: "The import was committed." }],
+    }],
+    constraints: [], questions: [], contextRequests: [],
+    objectSets: [], relationshipSets: [], temporalResolutions: [],
+    confirmedActionReferenceIds: [reference.referenceId],
+  };
+  assert.equal(directPreparedActionReference({
+    core: directCore, confirmedActionReferences: [reference],
+  }), reference);
+  assert.equal(directPreparedActionReference({
+    core: { ...directCore, actions: [...directCore.actions, directCore.actions[0]] },
+    confirmedActionReferences: [reference],
+  }), null);
+  assert.equal(directPreparedActionReference({
+    core: { ...directCore, constraints: ["Also change the destination account."] },
+    confirmedActionReferences: [reference],
+  }), null);
+  assert.equal(directPreparedActionReference({
+    core: directCore,
+    confirmedActionReferences: [{ ...reference, readiness: { ready: false } }],
+  }), null);
 });

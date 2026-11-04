@@ -235,6 +235,7 @@ test("tool selection is compact, schema-free, and cannot invent a tool", () => {
   assert.match(context, /provider-published routing summaries, not callable schemas/i);
   assert.doesNotMatch(context, /inputSchema|additionalProperties/);
   assert.match(toolSelectionInstructions, /Do not predict arguments, results, call order/i);
+  assert.match(commonSenseInstructions, /only confirms one supplied provider-prepared change/i);
 });
 
 test("orientation distinguishes first-class objects from relationship effects", () => {

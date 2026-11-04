@@ -335,7 +335,10 @@ tool-name set chosen from validated provider-published routing metadata. It sees
 no callable tool schemas and does not predict arguments, required fields,
 results, or call order. Execution receives exact schemas only for that set and
 may refine the approach or explicitly request another tool from the accepted
-capability families as evidence develops.
+capability families as evidence develops. The interaction is omitted only when
+one self-contained confirmed provider-prepared change already fixes the exact
+available target tool and complete arguments; that deterministic exception
+does not let orientation select a tool.
 
 **66. Outcome Evidence Binding** — A compact versioned provider-owned result
 contract that maps an exact output path to a declared first-class object type,

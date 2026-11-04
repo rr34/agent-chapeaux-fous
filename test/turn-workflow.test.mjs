@@ -347,7 +347,15 @@ test("a confirmed action keeps its shared target tool available while another ac
         return completed(JSON.stringify(core({
           objective: "Commit the October statement import.",
           conversationSummary: "The user approved the October statement import.",
-          actions: [{ instruction: "Commit the October statement import.", targetRefs: [] }],
+          actions: [{
+            instruction: "Commit the October statement import.",
+            targetRefs: [],
+            outcomes: [{
+              description: "The approved statement import was applied.",
+              targetRefs: [],
+              cardinality: { minimum: 1, maximum: 1, basis: "request" },
+            }],
+          }],
           capabilities: ["integration:accounting"],
           confirmedActionReferenceIds: [october.referenceId],
         })));
@@ -368,6 +376,21 @@ test("a confirmed action keeps its shared target tool available while another ac
     requestId: "request-approve-october", requestEventId: "event-current", text: "Yes, approve it.",
   }), "Committed the October statement import.");
   assert.deepEqual(committedPlans, ["plan-october"]);
+  assert.equal(requests.length, 2);
+  assert.equal(
+    ledger.events.some(({ payload }) => payload?.workflowStep === "tool_selection"),
+    false,
+  );
+  assert.equal(
+    ledger.events.some(({ type }) => type === "tool.selection.determined"),
+    true,
+  );
+  assert.equal(
+    ledger.events.find(({ type }) => type === "orientation.core")
+      .payload.core.actions[0].outcomes.length,
+    0,
+  );
+  assert.equal(ledger.events.find(({ name }) => name === "Audit skipped").payload.skipped, true);
 });
 
 test("PDF bytes are withheld from orientation and supplied to execution", async () => {

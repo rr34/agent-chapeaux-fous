@@ -718,6 +718,13 @@ operational summary and the smallest exact initial tool-name set without
 predicting arguments or result shapes. Execution receives exact schemas only
 for that set. `config/capabilities/<id>/guidance.md` remains the capability
 guidance source; `config/system-prompt.md` contains only universal behavior.
+The selection call is omitted only for one self-contained confirmed
+provider-prepared change whose active reference already fixes one available
+target tool and its complete arguments. Such a confirmation also does not gain
+a synthetic outcome object merely restating the prepared effect; its exact
+matching successful receipt is the completion evidence. Mixed requests,
+changed constraints, unresolved targets, and ordinary actions continue through
+schema-free selection.
 Provider tool continuations can request another exact tool inside the accepted
 families while preserving same-request receipts. Prior
 opaque receipts can be recovered through the execution-only receipt reader

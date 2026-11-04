@@ -702,6 +702,16 @@ Agent Slayer uses a structured loop derived from the military OODA loop:
 7. **Verify repair** — run another semantic audit over the repaired receipts;
    never accept repair merely because the repair model returned prose.
 
+One narrow deterministic exception may omit step 3: when orientation confirms
+exactly one still-ready provider-prepared change, that reference already fixes
+one available target tool and its complete argument object, and the accepted
+core contains one action with no additional constraints, questions, context
+requests, sets, temporal resolutions, or unresolved targets. The application
+exposes that exact tool to execution without asking another model to select it.
+This is not tool selection by orientation and never permits application code to
+infer a tool or construct arguments; mixed work and ordinary requests retain
+the schema-free selection interaction.
+
 Typed successful receipts complete ordinary reads and mutations without an
 additional model call. Audit is required for destructive-language semantics,
 conflicting or failed receipts that may have been recovered, unknown tool
@@ -731,6 +741,14 @@ provable fan-out that would exceed an explicit accepted maximum. Mixed or
 ambiguous resource representations proceed to owning tools and receipts rather
 than being rejected from an orientation hypothesis. Provider schemas and
 arguments remain unchanged.
+
+When the user only confirms one exact provider-prepared change, commitment,
+sending, deletion, or another effect of that prepared change remains the action
+itself rather than a new cardinality-one outcome object. The exact saved tool
+and arguments plus its required matching successful receipt establish that
+effect. The application removes a redundant effect outcome from this narrow
+confirmation shape before execution so it cannot create a meaningless
+zero-object audit.
 
 Mechanical correlation is not the whole receipt. An exact bound mutation call,
 its arguments, literal result, per-item or aggregate effects, and owning tool

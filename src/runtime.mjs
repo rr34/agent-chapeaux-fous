@@ -7,6 +7,7 @@ import {
   completionReceiptFindings,
   deferredActionContractProblem,
   deferredActionArgumentProblem,
+  directPreparedActionReference,
   extractDeferredActionReference,
   incompleteReceiptResponse,
   pendingConfirmationFindings,
@@ -1352,6 +1353,32 @@ export class SlayerRuntime {
     const confirmedActionReferences = relevantActionReferences
       .filter(({ referenceId }) => core.confirmedActionReferenceIds.includes(referenceId))
       .map((reference) => ({ ...reference, state: "confirmed" }));
+    const directlyConfirmedAction = directPreparedActionReference({
+      core, confirmedActionReferences,
+    });
+    if (directlyConfirmedAction
+      && availableTools.some(({ name }) => name === directlyConfirmedAction.targetTool)) {
+      const removedOutcomeCount = core.actions.reduce(
+        (count, action) => count + (action.outcomes?.length ?? 0), 0,
+      );
+      if (removedOutcomeCount > 0) {
+        core = {
+          ...core,
+          actions: core.actions.map((action) => ({ ...action, outcomes: [] })),
+        };
+        this.ledger.append({
+          type: "orientation.normalized", status: "complete", actorType: "system",
+          actorName: "Common-sense core validator", channel, turnId: args.requestId,
+          name: "Confirmed prepared-change effect normalized",
+          content: "Kept the exact confirmed action and removed a redundant effect outcome",
+          payload: {
+            referenceId: directlyConfirmedAction.referenceId,
+            targetTool: directlyConfirmedAction.targetTool,
+            removedOutcomeCount,
+          },
+        });
+      }
+    }
     const confirmedReferenceIds = new Set(
       confirmedActionReferences.map(({ referenceId }) => referenceId),
     );
@@ -1466,7 +1493,28 @@ export class SlayerRuntime {
         : "No application tool is needed for this request.",
       selectedTools: [],
     };
-    if (selectableToolNames.length) {
+    const bypassToolSelection = Boolean(
+      directlyConfirmedAction
+      && requiredToolNames.includes(directlyConfirmedAction.targetTool),
+    );
+    if (bypassToolSelection) {
+      toolSelectionBrief = {
+        version: 1,
+        summary: "Execute the exact provider-prepared change already confirmed by the user.",
+        selectedTools: [directlyConfirmedAction.targetTool],
+      };
+      this.ledger.append({
+        type: "tool.selection.determined", status: "complete", actorType: "system",
+        actorName: "Tool selector", channel, turnId: args.requestId,
+        name: "Confirmed prepared-change tool selected",
+        content: directlyConfirmedAction.targetTool,
+        payload: {
+          referenceId: directlyConfirmedAction.referenceId,
+          targetTool: directlyConfirmedAction.targetTool,
+          reason: "The provider-prepared change already fixes the exact tool and arguments.",
+        },
+      });
+    } else if (selectableToolNames.length) {
       const selection = await this.#runStructuredStep({
         requestId: args.requestId,
         channel,
