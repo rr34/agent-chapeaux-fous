@@ -802,6 +802,11 @@ test("clicking a displayed request ID copies the complete request ID", () => {
   const document = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   assert.match(document, /<button class="request-number" type="button"><\/button>/);
   assert.match(application, /querySelector\("\.request-number"\)\.addEventListener\("click"/);
+  assert.match(document, /<button class="copy-request-id secondary compact" type="button">Copy request ID<\/button>/);
+  assert.match(application, /querySelector\("\.copy-request-id"\)\.addEventListener\("click"/);
+  assert.match(document, /<button id="copy-trace-request-id" class="secondary compact" type="button">Copy request ID<\/button>/);
+  assert.match(application, /copyTraceRequestId\.addEventListener\("click"/);
+  assert.match(application, /button\.textContent = copied \? "Copied" : "Copy failed"/);
   assert.match(application, /copyText\(request\.requestId, event\.currentTarget\)/);
   assert.match(application, /requestNumber\.setAttribute\("aria-label", `Copy request ID \$\{request\.requestId\}`\)/);
 });

@@ -1042,6 +1042,10 @@ button.text-button:hover { color: var(--text); background: transparent; text-dec
 .request-user-turn .request-number, .request-agent-turn .request-number { color: #ffffff; }
 .request-number:hover { color: var(--accent); background: transparent; }
 .request-number:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.request-actions button[data-copy-state="copied"],
+.trace-panel button[data-copy-state="copied"] { color: #d8f5ce; border-color: #83a878; }
+.request-actions button[data-copy-state="error"],
+.trace-panel button[data-copy-state="error"] { color: #ffd7cf; border-color: #c96a58; }
 .request-status { color: var(--warn); }
 .request-entry[data-status="complete"] .request-status { color: var(--good); }
 .request-entry[data-status="error"] .request-status, .request-error { color: var(--bad); }

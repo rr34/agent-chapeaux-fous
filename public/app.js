@@ -93,6 +93,7 @@ const elements = {
   tracePanel: document.querySelector("#trace-panel"),
   traceHeading: document.querySelector("#trace-heading"),
   traceEvents: document.querySelector("#trace-events"),
+  copyTraceRequestId: document.querySelector("#copy-trace-request-id"),
   copyTrace: document.querySelector("#copy-trace"),
   closeTrace: document.querySelector("#close-trace"),
   tokenDialog: document.querySelector("#token-dialog"),
@@ -372,6 +373,7 @@ const elements = {
 let accessToken = localStorage.getItem("agent-slayer-token") || "";
 let lastHealth = null;
 let activeTrace = null;
+let activeTraceRequestId = null;
 let recorder = null;
 let recordingStream = null;
 let recordingChunks = [];
@@ -1179,23 +1181,32 @@ function clearRunLimits() {
 }
 
 async function copyText(text, button = null) {
+  let copied = false;
   try {
     await navigator.clipboard.writeText(text);
+    copied = true;
   } catch {
-    const area = document.createElement("textarea");
-    area.value = text;
-    area.style.position = "fixed";
-    area.style.opacity = "0";
-    document.body.append(area);
-    area.select();
-    document.execCommand("copy");
-    area.remove();
+    try {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.style.position = "fixed";
+      area.style.opacity = "0";
+      document.body.append(area);
+      area.select();
+      copied = document.execCommand("copy");
+      area.remove();
+    } catch {
+      copied = false;
+    }
   }
   if (button) {
     const original = button.textContent;
-    button.textContent = "Copied";
+    button.textContent = copied ? "Copied" : "Copy failed";
+    button.dataset.copyState = copied ? "copied" : "error";
     setTimeout(() => { button.textContent = original; }, 1200);
+    setTimeout(() => { delete button.dataset.copyState; }, 1200);
   }
+  return copied;
 }
 
 const recurrenceWeekdays = [
@@ -1928,6 +1939,9 @@ function requestNode(request, index) {
     node.querySelector(".copy-response").addEventListener("click", (event) => {
       copyText(node.querySelector(".agent-response-markdown").dataset.markdown || "", event.currentTarget);
     });
+    node.querySelector(".copy-request-id").addEventListener("click", (event) => {
+      copyText(request.requestId, event.currentTarget);
+    });
     node.querySelector(".show-trace").addEventListener("click", () => showTrace(request.requestId));
     node.querySelector(".reply-to-exchange").addEventListener("click", () => replyToExchange(request.requestId, request.request));
     node.querySelector(".video-script-source-checkbox").addEventListener("change", (event) => {
@@ -1960,6 +1974,9 @@ function requestNode(request, index) {
   setTextContent(requestNumber, `Request ${request.requestId.slice(0, 8)}`);
   requestNumber.title = `Copy request ID ${request.requestId}`;
   requestNumber.setAttribute("aria-label", `Copy request ID ${request.requestId}`);
+  const copyRequestId = node.querySelector(".copy-request-id");
+  copyRequestId.title = `Copy full request ID ${request.requestId}`;
+  copyRequestId.setAttribute("aria-label", `Copy full request ID ${request.requestId}`);
   setTextContent(node.querySelector(".request-channel"), request.channel === "voice" ? "Voice" : "Typed");
   setTextContent(node.querySelector(".request-status"), request.status);
   const replyButton = node.querySelector(".reply-to-exchange");
@@ -2220,7 +2237,10 @@ function traceLabel(event, index) {
 async function showTrace(requestId) {
   const body = await api(`/api/requests/${requestId}/trace`);
   activeTrace = body;
+  activeTraceRequestId = requestId;
   elements.traceHeading.textContent = `Trace ${requestId.slice(0, 8)}`;
+  elements.copyTraceRequestId.title = `Copy full request ID ${requestId}`;
+  elements.copyTraceRequestId.setAttribute("aria-label", `Copy full request ID ${requestId}`);
   elements.traceEvents.replaceChildren();
   body.events.forEach((event, index) => {
     const details = document.createElement("details");
@@ -5545,6 +5565,9 @@ window.addEventListener("storage", event => {
   if (event.key === aiPricingStorageKey || event.key === null) refreshCostDisplays();
 });
 elements.closeTrace.addEventListener("click", () => { elements.tracePanel.hidden = true; });
+elements.copyTraceRequestId.addEventListener("click", (event) => {
+  if (activeTraceRequestId) void copyText(activeTraceRequestId, event.currentTarget);
+});
 elements.copyTrace.addEventListener("click", (event) => copyText(JSON.stringify(activeTrace, null, 2), event.currentTarget));
 elements.tokenForm.addEventListener("submit", () => {
   accessToken = elements.token.value.trim();
