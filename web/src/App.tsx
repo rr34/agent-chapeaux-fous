@@ -559,6 +559,31 @@ interface RequestTrace {
   events: TraceEvent[];
 }
 
+function CopyRequestIdButton({ requestId, label = "Copy request ID", className = "button button--quiet" }: {
+  requestId: string;
+  label?: string;
+  className?: string;
+}) {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+  const copyRequestId = async () => {
+    try {
+      await navigator.clipboard.writeText(requestId);
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+    window.setTimeout(() => setCopyState("idle"), 1600);
+  };
+  const visibleLabel = copyState === "copied" ? "Copied" : copyState === "error" ? "Copy failed" : label;
+  return <button
+    className={className}
+    type="button"
+    title={`Copy full request ID ${requestId}`}
+    aria-label={`Copy full request ID ${requestId}`}
+    onClick={() => void copyRequestId()}
+  >{visibleLabel}</button>;
+}
+
 function traceLabel(event: TraceEvent, index: number) {
   const labels: Record<string, string> = {
     "request.received": "User request",
@@ -619,6 +644,7 @@ function TracePanel({ requestId, trace, error, onClose }: {
       <header className="trace-heading">
         <div><p className="eyebrow">Literal exchange</p><h2 id="trace-heading">Trace {requestId.slice(0, 8)}</h2></div>
         <div className="trace-actions">
+          <CopyRequestIdButton requestId={requestId} />
           <button className="button button--quiet" type="button" onClick={() => void copyTrace()} disabled={!trace}>{copyLabel}</button>
           <button className="button button--quiet" type="button" onClick={onClose}>Close</button>
         </div>
@@ -1415,7 +1441,7 @@ function AgentScreen({
         {request.response && <div className="request-response"><span>Time v3 Agent</span><Markdown className="request-response-markdown" source={request.response} copyableFragments />{request.smsDraft && <div className="sms-draft-actions"><button className="button button--quiet" onClick={() => void navigator.clipboard.writeText(request.smsDraft!.body)}>Copy SMS</button><a className="button" href={`sms:${encodeURIComponent(request.smsDraft.address)}?body=${encodeURIComponent(request.smsDraft.body)}`}>Open SMS app</a><small>Prepared for {request.smsDraft.contact_name}; not sent.</small></div>}</div>}
         {request.error && <p className="inline-error">{request.error}</p>}
         <RequestInteractionMetrics request={request} />
-        <footer><span className={`status-dot status-${request.status}`} />{request.status.replaceAll("_", " ")}<code>{request.requestId.slice(0, 8)}</code><button className="trace-button" type="button" onClick={() => onShowTrace(request.requestId)}>Show trace</button>{["complete", "error"].includes(request.status) && <ObjectSelectionControls identity={exchangeIdentity(request)} subject={`exchange ${request.requestId.slice(0, 8)}`} />}</footer>
+        <footer><span className={`status-dot status-${request.status}`} />{request.status.replaceAll("_", " ")}<CopyRequestIdButton requestId={request.requestId} label={request.requestId.slice(0, 8)} className="trace-button request-id-button" /><button className="trace-button" type="button" onClick={() => onShowTrace(request.requestId)}>Show trace</button>{["complete", "error"].includes(request.status) && <ObjectSelectionControls identity={exchangeIdentity(request)} subject={`exchange ${request.requestId.slice(0, 8)}`} />}</footer>
       </article>) : !loading && <Empty>{filterQuery.trim() ? "No exchanges match the filter." : "No requests yet. Start with what is on your mind."}</Empty>}
     </section>
   </>;

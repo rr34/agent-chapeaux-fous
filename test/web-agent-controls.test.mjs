@@ -144,3 +144,12 @@ test("request cards open the whole trace in collapsed sections with a copy actio
   assert.match(app, /navigator\.clipboard\.writeText\(JSON\.stringify\(trace, null, 2\)\)/);
   assert.match(styles, /\.trace-panel \{/);
 });
+
+test("request cards and traces explicitly copy the full request ID", () => {
+  assert.match(app, /function CopyRequestIdButton\(/);
+  assert.match(app, /navigator\.clipboard\.writeText\(requestId\)/);
+  assert.match(app, /title=\{`Copy full request ID \$\{requestId\}`\}/);
+  assert.match(app, /<CopyRequestIdButton requestId=\{requestId\} \/>/);
+  assert.match(app, /<CopyRequestIdButton requestId=\{request\.requestId\} label=\{request\.requestId\.slice\(0, 8\)\} className="trace-button request-id-button" \/>/);
+  assert.match(styles, /\.request-id-button \{[^}]*margin-left: auto[^}]*font-family:/s);
+});

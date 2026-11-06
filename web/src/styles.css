@@ -267,7 +267,7 @@ textarea { resize: vertical; }
 .interaction-metrics-label { color: var(--ink); font-weight: 700; }
 @keyframes progress-spin { to { transform: rotate(360deg); } }
 .request-card footer { display: flex; align-items: center; gap: 7px; margin-top: 16px; color: var(--muted); font-size: 11px; text-transform: capitalize; }
-.request-card footer code { margin-left: auto; }
+.request-id-button { margin-left: auto; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: none; }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #c19d45; }
 .status-complete { background: #6f8a58; }
 .status-error { background: #b14b37; }
