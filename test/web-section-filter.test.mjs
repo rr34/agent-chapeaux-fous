@@ -22,7 +22,7 @@ test("React sections share one consistent filter control", () => {
   assert.match(filterComponentSource, /<form className="section-filter surface"/);
   assert.match(filterComponentSource, /onSubmit=\{\(event\) => \{ event\.preventDefault\(\); onSearch\(\); \}\}/);
   assert.match(filterComponentSource, /\{searching \? "Searching…" : "Search"\}[\s\S]*<\/button>/);
-  for (const screen of ["AgentScreen", "GlobalSearchScreen", "CalendarScreen", "TodoScreen", "ContactsScreen", "LibraryScreen", "VideoScriptsScreen", "FilesScreen", "GenericScreen", "HatsScreen", "JournalScreen", "UsageScreen"]) {
+  for (const screen of ["AgentScreen", "GlobalSearchScreen", "CalendarScreen", "TodoScreen", "ContactsScreen", "LibraryScreen", "FilesScreen", "GenericScreen", "HatsScreen", "JournalScreen", "UsageScreen"]) {
     const start = appSource.indexOf(`function ${screen}`);
     assert.notEqual(start, -1, `${screen} exists`);
     const next = appSource.indexOf("\nfunction ", start + 1);
@@ -42,7 +42,7 @@ test("bounded section searches submit their query to server endpoints", () => {
   assert.match(appSource, /contactParameters\.set\("q", serverQuery\)/);
   assert.match(appSource, /`\/api\/journal-entries\?\$\{journalParameters\}`/);
   assert.match(appSource, /`\/api\/requests\?limit=200&q=\$\{encodeURIComponent\(serverQuery\)\}`/);
-  assert.match(appSource, /`\/api\/calendar-events\/search\?q=\$\{encodeURIComponent\(serverQuery\)\}&limit=200`/);
+  assert.match(appSource, /`\/api\/calendar-events\/search\?q=\$\{encodeURIComponent\(serverQuery\)\}&limit=200&includeArchived=\$\{includeArchivedSearch\}`/);
 });
 
 test("calendar filters highlight matching events without removing the calendar", () => {

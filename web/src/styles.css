@@ -1042,6 +1042,15 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .account-tool-refresh h2 { margin-bottom: .35rem; }
 .account-tool-refresh p:not(.eyebrow) { margin: 0; color: var(--muted); }
 .account-tool-refresh-status { grid-column: 1 / -1; }
+.account-integrations, .duplicate-review, .contact-bulk-actions { display: grid; gap: 14px; }
+.integration-list, .integration-add-form, .object-editor-related, .object-editor-related-add { display: grid; gap: 10px; }
+.integration-card, .object-editor-related-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.integration-card > div { display: grid; gap: 3px; }
+.integration-card.ready { border-color: #88aa8a; }
+.object-editor-related-add { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); align-items: end; }
+.contact-bulk-actions { grid-template-columns: auto minmax(160px, 1fr) auto auto; align-items: center; }
+.duplicate-group { display: flex; gap: 12px; align-items: end; justify-content: space-between; padding-block: 12px; border-top: 1px solid var(--line); }
+.composer-existing-file { min-width: 150px; max-width: 240px; }
 .usage-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 1rem; }
 .usage-summary strong { overflow-wrap: anywhere; }
 .usage-summary-note { margin: -.35rem 0 1rem; color: var(--muted); font-size: 12px; }

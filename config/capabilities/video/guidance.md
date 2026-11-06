@@ -107,4 +107,4 @@ For a request for the script alone:
 
 - Call `video_script_create` exactly once. It persists the script without creating an MP4 job.
 
-After either tool succeeds, tell the user the script and current production status are available under **Video Scripts**.
+After either tool succeeds, report the returned script and production status directly. The React client has no dedicated Video Scripts screen.

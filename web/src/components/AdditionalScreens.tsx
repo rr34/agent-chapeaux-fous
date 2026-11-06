@@ -243,6 +243,13 @@ export function ProfileScreen() {
 export function AccountScreen({ usage }: { usage: React.ReactNode }) {
   const [tab, setTab] = useState<"profile" | "usage" | "access">("profile");
   const [token, setToken] = useState(getAccessToken());
+  const { data: health, error: integrationError, loading: integrationsLoading, reload: reloadIntegrations } = useApi<{
+    integrations?: Record<string, Entity>;
+  }>(tab === "access" ? "/health" : null);
+  const [integrationDraft, setIntegrationDraft] = useState({ name: "", url: "", token: "" });
+  const [integrationAction, setIntegrationAction] = useState("");
+  const [integrationStatus, setIntegrationStatus] = useState("");
+  const [pendingIntegrationAction, setPendingIntegrationAction] = useState<{ name: string; action: "disconnect" | "remove" } | null>(null);
   const [refreshingTools, setRefreshingTools] = useState(false);
   const [toolRefreshStatus, setToolRefreshStatus] = useState("");
   const refreshTools = async () => {
@@ -257,11 +264,83 @@ export function AccountScreen({ usage }: { usage: React.ReactNode }) {
       setRefreshingTools(false);
     }
   };
+  const integrations = Object.entries(health?.integrations || {})
+    .filter(([name]) => !name.endsWith("configuration"));
+  const addIntegration = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setIntegrationAction("add");
+    setIntegrationStatus("");
+    try {
+      await api("/api/integrations/mcp", {
+        method: "POST",
+        body: JSON.stringify(integrationDraft),
+      });
+      setIntegrationDraft({ name: "", url: "", token: "" });
+      setIntegrationStatus("Integration connected.");
+      await reloadIntegrations();
+    } catch (caught) {
+      setIntegrationStatus(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setIntegrationAction("");
+    }
+  };
+  const changeIntegration = async (name: string, action: "connect" | "disconnect" | "remove") => {
+    setIntegrationAction(`${action}:${name}`);
+    setIntegrationStatus("");
+    try {
+      if (action === "connect") {
+        const result = await api<{ authorizationUrl: string }>(`/api/integrations/${encodeURIComponent(name)}/oauth/start`, { method: "POST" });
+        window.location.assign(result.authorizationUrl);
+        return;
+      }
+      await api(`/api/integrations/${encodeURIComponent(name)}${action === "disconnect" ? "/oauth/disconnect" : ""}`, {
+        method: action === "remove" ? "DELETE" : "POST",
+      });
+      setIntegrationStatus(`${name} ${action === "remove" ? "removed" : "disconnected"}.`);
+      setPendingIntegrationAction(null);
+      await reloadIntegrations();
+    } catch (caught) {
+      setIntegrationStatus(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setIntegrationAction("");
+    }
+  };
   const access = <>
     <form className="profile-fact-form" onSubmit={(event) => { event.preventDefault(); setAccessToken(token); }}>
       <label>Access token<input type="password" value={token} onChange={(event) => setToken(event.target.value)} /></label>
       <button className="button">Save token</button>
     </form>
+    <section className="surface account-integrations" aria-labelledby="account-integrations-heading">
+      <div className="section-title"><div><p className="eyebrow">Connected services</p><h2 id="account-integrations-heading">Integrations</h2></div><span>{integrations.filter(([, value]) => value.ready).length} connected</span></div>
+      {integrationsLoading && <Loading label="Loading integrations" />}
+      {Boolean(integrationError) && <ErrorState error={integrationError} retry={reloadIntegrations} />}
+      <div className="integration-list">{integrations.map(([name, integration]) => {
+        const ready = Boolean(integration.ready);
+        const status = integration.disabled ? "Disabled" : ready
+          ? `Connected${integration.toolCount == null ? "" : ` · ${String(integration.toolCount)} tools`}`
+          : integration.error ? "Connection failed" : "Disconnected";
+        return <article className={`integration-card${ready ? " ready" : ""}`} key={name} title={String(integration.refreshError || integration.error || "")}>
+          <div><strong>{name}</strong><span>{status}</span></div>
+          {integration.userManaged
+            ? <button className="button button--quiet" type="button" disabled={Boolean(integrationAction)} onClick={() => setPendingIntegrationAction({ name, action: "remove" })}>{integrationAction === `remove:${name}` ? "Removing…" : "Remove"}</button>
+            : integration.oauth && !integration.disabled
+              ? <button className="button button--quiet" type="button" disabled={Boolean(integrationAction)} onClick={() => ready ? setPendingIntegrationAction({ name, action: "disconnect" }) : void changeIntegration(name, "connect")}>{integrationAction.endsWith(`:${name}`) ? "Working…" : ready ? "Disconnect" : "Connect"}</button>
+              : null}
+        </article>;
+      })}</div>
+      {!integrationsLoading && !integrationError && !integrations.length && <Empty>No integrations are configured.</Empty>}
+      {pendingIntegrationAction && <section className="group-delete-confirmation" role="alertdialog" aria-label="Confirm integration change"><p>{pendingIntegrationAction.action === "remove" ? `Remove ${pendingIntegrationAction.name}? Its locally stored token and tools will be deleted.` : `Disconnect ${pendingIntegrationAction.name}? Local OAuth credentials and its tools will be removed.`}</p><div><button className="button button--quiet" onClick={() => setPendingIntegrationAction(null)}>Cancel</button><button className="button button--danger" onClick={() => void changeIntegration(pendingIntegrationAction.name, pendingIntegrationAction.action)}>{pendingIntegrationAction.action === "remove" ? "Remove" : "Disconnect"}</button></div></section>}
+      <form className="integration-add-form" onSubmit={(event) => void addIntegration(event)}>
+        <h3>Add token integration</h3>
+        <div className="object-editor-grid">
+          <label>Name<input required pattern="[A-Za-z0-9_-]+" value={integrationDraft.name} onChange={(event) => setIntegrationDraft({ ...integrationDraft, name: event.target.value })} /></label>
+          <label>Server URL<input required type="url" value={integrationDraft.url} onChange={(event) => setIntegrationDraft({ ...integrationDraft, url: event.target.value })} /></label>
+        </div>
+        <label>Bearer token<input required type="password" value={integrationDraft.token} onChange={(event) => setIntegrationDraft({ ...integrationDraft, token: event.target.value })} /></label>
+        <button className="button" disabled={Boolean(integrationAction)}>{integrationAction === "add" ? "Connecting…" : "Connect integration"}</button>
+      </form>
+      {integrationStatus && <p role="status" className="account-tool-refresh-status">{integrationStatus}</p>}
+    </section>
     <section className="surface account-tool-refresh" aria-labelledby="account-tool-refresh-heading">
       <div>
         <p className="eyebrow">Connected services</p>

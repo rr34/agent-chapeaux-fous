@@ -26,7 +26,7 @@ export const agentSelfTopicKnowledge = Object.freeze({
   video_generation: Object.freeze({
     facts: Object.freeze([
       "A video production creates a portable script from the selected conversation's user requests and final Agent responses after a video-only projection removes machine reference codes and unmistakably opaque identifiers; stored exchanges remain unchanged.",
-      "The portable script is designed to be usable as input to a general dedicated AI video generator and is available under Video Scripts.",
+      "The portable script is designed to be usable as input to a general dedicated AI video generator; the retained server workflow has no dedicated React screen.",
       "The built-in production reuses recorded request audio when available, generates the other voices, creates word timings, and uses Remotion to render synchronized dialogue into an MP4.",
       "The portable script and the built-in MP4 are two outputs of the same production workflow.",
     ]),
@@ -34,10 +34,9 @@ export const agentSelfTopicKnowledge = Object.freeze({
   }),
   video_user_creation: Object.freeze({
     facts: Object.freeze([
-      "The user starts with Create video, selects one to eight completed interactions, and chooses Create video from selected.",
-      "The user's hands-on work is two main clicks plus the interaction selections and usually takes only a few seconds.",
-      "Scripting and rendering continue in the background, and the script and current MP4 status appear under Video Scripts.",
-      "Background render time is variable and is distinct from the user's hands-on selection time.",
+      "Video creation remains available through the retained agent and server tools, without a dedicated React navigation item or production screen.",
+      "Scripting and rendering continue in the background when that retained workflow is invoked.",
+      "Background render time is variable.",
     ]),
     sourceRefs: Object.freeze(["agent:video-production", "agent:architecture"]),
   }),

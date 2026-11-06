@@ -14,14 +14,9 @@ function screenSource(name, nextName) {
   return appSource.slice(start, end);
 }
 
-test("video scripts mirror the grouped Library list by lifecycle status", () => {
-  const source = screenSource("VideoScriptsScreen", "FilesScreen");
-  assert.match(source, /\["draft", \{ id: "draft", name: "Drafts"/);
-  assert.match(source, /\["archived", \{ id: "archived", name: "Archived"/);
-  assert.match(source, /<ul className="library-list">/);
-  assert.match(source, /<VideoScriptCard\s+as="li"/);
-  assert.match(source, /type: "video\.script"/);
-  assert.match(appSource, /view === "video-scripts"\) screen = <VideoScriptsScreen/);
+test("video production is not exposed in React navigation", () => {
+  assert.doesNotMatch(appSource, /\["video-scripts", "Video Scripts"\]/);
+  assert.doesNotMatch(appSource, /view === "video-scripts"\) screen = <VideoScriptsScreen/);
 });
 
 test("files mirror the grouped Library list by stored media kind", () => {
@@ -52,10 +47,11 @@ test("journal trackers and entries share lists under their persisted journal gro
   assert.match(source, /type: "journal\.entry"/);
 });
 
-test("the Journal heading opens a tracker-only editor", () => {
+test("the Journal heading opens tracker and entry editors", () => {
   const source = screenSource("JournalScreen", "UsageScreen");
   const editors = fs.readFileSync(new URL("../web/src/components/EditableItems.tsx", import.meta.url), "utf8");
   assert.match(source, />Add tracker<\/button>/);
+  assert.match(source, />Add entry<\/button>/);
   assert.match(source, /<JournalTrackerEditor/);
   assert.match(editors, /export function JournalTrackerEditor/);
   assert.match(editors, /api\("\/api\/journal-trackers"/);
@@ -71,8 +67,8 @@ test("expanded journal entry cards open a version-safe edit modal", () => {
   assert.match(source, /editingEntry && <JournalEntryEditor/);
   assert.match(card, /props\.onEdit \? \[\{ key: "edit", label: "Edit"/);
   assert.match(editors, /export function JournalEntryEditor/);
-  assert.match(editors, /<h2>Edit \{trackerName\} entry<\/h2>/);
-  assert.match(editors, /method: "PATCH"/);
+  assert.match(editors, /creating \? "Add entry" : `Edit \$\{displayTrackerName\} entry`/);
+  assert.match(editors, /method: creating \? "POST" : "PATCH"/);
   assert.match(editors, /version: String\(entry\.version \|\| ""\)/);
   assert.match(editors, /`\/api\/journal-entries\/\$\{Number\(entry\.id\)\}`/);
   assert.match(serverSource, /organizer\.updateJournalEntry/);
@@ -90,8 +86,7 @@ test("the requested grouped sections put counted one-click filters beside their 
   const todos = screenSource("TodoScreen", "ContactsScreen");
   const things = screenSource("ThingsScreen", "LibraryScreen");
   const contacts = screenSource("ContactsScreen", "LibraryScreen");
-  const library = screenSource("LibraryScreen", "VideoScriptsScreen");
-  const scripts = screenSource("VideoScriptsScreen", "FilesScreen");
+  const library = screenSource("LibraryScreen", "FileMetadataEditor");
   const files = screenSource("FilesScreen", "GenericScreen");
   const journal = screenSource("JournalScreen", "UsageScreen");
 
@@ -110,8 +105,6 @@ test("the requested grouped sections put counted one-click filters beside their 
 
   // Unrequested synthetic groupings retain their existing selects.
   assert.match(library, /selectedGroupId === "all"/);
-  assert.match(scripts, /selectedStatus === "all"/);
-  assert.match(scripts, /<SectionSelectFilter label="Group"/);
   assert.match(files, /selectedMediaKind === "all"/);
   assert.match(contacts, /selectedKind === "all"/);
   assert.match(contacts, /<SectionSelectFilter label="Group"/);
@@ -152,9 +145,8 @@ test("contacts hide inactive records by default and identify them when requested
 
 test("persisted group headers expose the shared editor while synthetic groups do not", () => {
   const todos = screenSource("TodoScreen", "ContactsScreen");
-  const library = screenSource("LibraryScreen", "VideoScriptsScreen");
+  const library = screenSource("LibraryScreen", "FileMetadataEditor");
   const journal = screenSource("JournalScreen", "UsageScreen");
-  const scripts = screenSource("VideoScriptsScreen", "FilesScreen");
   const files = screenSource("FilesScreen", "GenericScreen");
 
   assert.match(todos, /resource: "todo-groups"/);
@@ -163,7 +155,6 @@ test("persisted group headers expose the shared editor while synthetic groups do
   assert.match(todos, /<TodoGroupCard/);
   assert.match(library, /<LibraryGroupCard/);
   assert.match(journal, /<JournalGroupCard/);
-  assert.doesNotMatch(scripts, /group-edit-button/);
   assert.doesNotMatch(files, /group-edit-button/);
   assert.match(appSource, /method: "PATCH"/);
   assert.match(appSource, /`\/api\/\$\{group\.resource\}\/\$\{group\.id\}`/);
@@ -175,7 +166,7 @@ test("persisted group headers expose the shared editor while synthetic groups do
 test("workspace sections use the intended navigation order", () => {
   assert.match(
     appSource,
-    /\["agent", "Agent"\], \["search", "Search"\], \["hats", "Hats"\], \["routine", "Routine"\], \["calendar", "Calendar"\],\s*\["journal", "Journal"\], \["contacts", "Contacts"\], \["correspondence", "Correspondence"\], \["things", "Things"\], \["todos", "To do"\],\s*\["files", "Files"\], \["music", "Music"\], \["content", "Content Library"\], \["payments", "Payments"\], \["account", "Account"\],\s*\["video-scripts", "Video Scripts"\]/,
+    /\["agent", "Agent"\], \["search", "Search"\], \["hats", "Hats"\], \["routine", "Routine"\], \["calendar", "Calendar"\],\s*\["journal", "Journal"\], \["contacts", "Contacts"\], \["correspondence", "Correspondence"\], \["things", "Things"\], \["todos", "To do"\],\s*\["files", "Files"\], \["music", "Music"\], \["content", "Content Library"\], \["payments", "Payments"\], \["account", "Account"\]/,
   );
 });
 

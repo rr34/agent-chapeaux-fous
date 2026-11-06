@@ -23,7 +23,6 @@ import { LibraryItemCard } from "./components/object-cards/LibraryItemCard";
 import { PhysicalItemCard } from "./components/object-cards/PhysicalItemCard";
 import { PhysicalItemGroupCard } from "./components/object-cards/PhysicalItemGroupCard";
 import { ObjectCard, type ObjectCardModel } from "./components/object-cards/ObjectCard";
-import { VideoScriptCard } from "./components/object-cards/VideoScriptCard";
 import { TodoGroupCard } from "./components/object-cards/TodoGroupCard";
 import {
   ObjectSelectionControls, contactIdentity, exchangeIdentity,
@@ -53,7 +52,6 @@ const navigation = [
   ["agent", "Agent"], ["search", "Search"], ["hats", "Hats"], ["routine", "Routine"], ["calendar", "Calendar"],
   ["journal", "Journal"], ["contacts", "Contacts"], ["correspondence", "Correspondence"], ["things", "Things"], ["todos", "To do"],
   ["files", "Files"], ["music", "Music"], ["content", "Content Library"], ["payments", "Payments"], ["account", "Account"],
-  ["video-scripts", "Video Scripts"],
 ] as const;
 
 const calendarMonthOptions = Array.from({ length: 12 }, (_, index) => ({
@@ -671,8 +669,11 @@ type RunLimits = {
 };
 
 type PendingRequestAttachment = {
-  file: File;
+  file: File | null;
   storedFileId: number | null;
+  name: string;
+  size: number;
+  mediaKind: string;
 };
 
 const requestAttachmentAccept = [
@@ -748,6 +749,8 @@ function AgentComposer({
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [pendingRunLimits, setPendingRunLimits] = useState<RunLimits | null>(null);
   const [attachments, setAttachments] = useState<PendingRequestAttachment[]>([]);
+  const { data: storedFileData } = useApi<{ files: Entity[] }>("/api/files?limit=500");
+  const [storedFileId, setStoredFileId] = useState("");
   const [attachmentStatus, setAttachmentStatus] = useState("");
   const [runLimitsOpen, setRunLimitsOpen] = useState(false);
   const [resettingConversation, setResettingConversation] = useState(false);
@@ -1069,7 +1072,7 @@ function AgentComposer({
           referencedRequestId ? [] : [selection],
       );
       let resolvedAttachments = attachments;
-      const pendingUploads = attachments.filter(({ storedFileId }) => storedFileId === null);
+      const pendingUploads = attachments.filter((entry): entry is PendingRequestAttachment & { file: File } => entry.storedFileId === null && entry.file !== null);
       if (pendingUploads.length) {
         setAttachmentStatus(`Uploading ${pendingUploads.length} ${pendingUploads.length === 1 ? "file" : "files"}…`);
         const uploaded = await Promise.all(pendingUploads.map(async ({ file }) => ({
@@ -1086,7 +1089,7 @@ function AgentComposer({
         const uploadedByFile = new Map(uploaded.map(({ file, result }) => [file, result.fileId]));
         resolvedAttachments = attachments.map((entry) => ({
           ...entry,
-          storedFileId: entry.storedFileId ?? uploadedByFile.get(entry.file) ?? null,
+          storedFileId: entry.storedFileId ?? (entry.file ? uploadedByFile.get(entry.file) : null) ?? null,
         }));
         setAttachments(resolvedAttachments);
         setAttachmentStatus(`Uploaded ${attachments.length} ${attachments.length === 1 ? "file" : "files"}. Submitting request…`);
@@ -1162,7 +1165,7 @@ function AgentComposer({
       setSubmitError(new Error("Multiple attachments must all be MP3 files."));
       return;
     }
-    setAttachments(selected.map((file) => ({ file, storedFileId: null })));
+    setAttachments(selected.map((file) => ({ file, storedFileId: null, name: file.name, size: file.size, mediaKind: file.name.toLowerCase().endsWith(".mp3") ? "audio" : "other" })));
     setAttachmentStatus("");
     setSubmitError(null);
   };
@@ -1171,6 +1174,19 @@ function AgentComposer({
     setAttachments([]);
     setAttachmentStatus("");
     if (fileInput.current) fileInput.current.value = "";
+  };
+  const attachStoredFile = () => {
+    const file = (storedFileData?.files || []).find((candidate) => String(candidate.fileId || candidate.id) === storedFileId);
+    if (!file) return;
+    const mediaKind = textKey(file, "mediaKind") || "document";
+    if (attachments.length && (mediaKind !== "audio" || attachments.some((entry) => entry.mediaKind !== "audio"))) {
+      setSubmitError(new Error("Multiple attachments must all be MP3 audio files."));
+      return;
+    }
+    const id = Number(file.fileId || file.id);
+    setAttachments((current) => [...current.filter((entry) => entry.storedFileId !== id), { file: null, storedFileId: id, name: textKey(file, "title", "originalFilename") || `File ${id}`, size: Number(file.byteSize || 0), mediaKind }]);
+    setAttachmentStatus(`Attached stored file #${id}.`);
+    setSubmitError(null);
   };
 
   return <><form ref={composer} className={`composer${isRecording ? " recording" : ""}${composerExpanded ? " expanded" : ""}`} onSubmit={submit}>
@@ -1214,12 +1230,14 @@ function AgentComposer({
       </button>
     </div>}
     {!isRecording && attachments.length > 0 && <div className="composer-attachment-summary" role="status">
-      <span title={attachments.map(({ file }) => file.name).join("\n")}><strong>{attachments.length === 1 ? attachments[0].file.name : `${attachments.length} MP3 files`}</strong> · {attachmentSize(attachments.reduce((total, { file }) => total + file.size, 0))}</span>
+      <span title={attachments.map(({ name }) => name).join("\n")}><strong>{attachments.length === 1 ? attachments[0].name : `${attachments.length} MP3 files`}</strong> · {attachmentSize(attachments.reduce((total, { size }) => total + size, 0))}</span>
       <button className="button button--quiet" type="button" disabled={sending} onClick={removeAttachments} aria-label="Remove attached files">Remove</button>
     </div>}
     <div className="composer-input-row">
       {isRecording && <button className="button button--quiet cancel-recording" type="button" onClick={cancelRecording} aria-label="Cancel recording" title="Cancel recording"><span aria-hidden="true">×</span><span>Cancel</span></button>}
       {!isRecording && <>
+        <select className="composer-existing-file" aria-label="Previously stored file" value={storedFileId} onChange={(event) => setStoredFileId(event.target.value)}><option value="">Stored file…</option>{(storedFileData?.files || []).filter((file) => ["document", "image", "audio"].includes(textKey(file, "mediaKind"))).map((file) => <option value={String(file.fileId || file.id)} key={String(file.fileId || file.id)}>#{String(file.fileId || file.id)} {textKey(file, "title", "originalFilename")}</option>)}</select>
+        <button className="button button--quiet" type="button" disabled={!storedFileId || sending} onClick={attachStoredFile}>Attach stored</button>
         <button
           className={`composer-attachment-button${attachments.length ? " selected" : ""}`}
           type="button"
@@ -1457,6 +1475,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
   const [displayDate, setDisplayDate] = useState(date);
   const [filterQuery, setFilterQuery] = useState("");
   const [serverQuery, setServerQuery] = useState("");
+  const [includeArchivedSearch, setIncludeArchivedSearch] = useState(false);
   const displayYear = displayDate.slice(0, 4);
   const displayMonth = displayDate.slice(5, 7);
   const calendarYearOptions = useMemo(() => {
@@ -1466,7 +1485,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
   const requestParameters = new URLSearchParams({ date: selectedDate, rangeDate: displayDate, timeZone, paperSize: "letter", includeCompletedTodos: "false" });
   const { data, error, loading, reload } = useApi<DailyPaperModel>(`/api/daily-paper?${requestParameters}`);
   const calendarSearchUrl = serverQuery
-    ? `/api/calendar-events/search?q=${encodeURIComponent(serverQuery)}&limit=200`
+    ? `/api/calendar-events/search?q=${encodeURIComponent(serverQuery)}&limit=200&includeArchived=${includeArchivedSearch}`
     : null;
   const {
     data: calendarSearchData, error: calendarSearchError, loading: calendarSearchLoading, reload: reloadCalendarSearch,
@@ -1528,6 +1547,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
       <SectionSelectFilter label="Month" value={displayMonth} onChange={(month) => setDisplayDate(calendarMonthAnchor(displayYear, month))} disabled={loading}>
         {calendarMonthOptions.map((month) => <option value={month.value} key={month.value}>{month.label}</option>)}
       </SectionSelectFilter>
+      <label className="todo-completed-filter"><input type="checkbox" checked={includeArchivedSearch} onChange={(event) => setIncludeArchivedSearch(event.target.checked)} />Include archived search results</label>
     </>} />
     {generationNotice && <div className="calendar-generation-notice surface" role="status"><span>{generationNotice}</span>{dismissGenerationNotice && <button className="button button--quiet" onClick={dismissGenerationNotice}>Dismiss</button>}</div>}
     {generationError && <ErrorState
@@ -1560,9 +1580,46 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
   </>;
 }
 
+function TodoCalendarEditor({ todo, onClose, onChanged }: { todo: Entity; onClose: () => void; onChanged: () => void | Promise<void> }) {
+  const todoId = Number(todo.id);
+  const { data, error, loading, reload } = useApi<{ links: Entity[]; events: Entity[] }>(`/api/todos/${todoId}/calendar-links?limit=500`);
+  const [eventId, setEventId] = useState("");
+  const [relationshipKind, setRelationshipKind] = useState("work");
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+  useEffect(() => { if (!eventId && data?.events?.[0]) setEventId(String(data.events[0].eventId)); }, [data?.events, eventId]);
+  const add = async () => {
+    if (!eventId) return;
+    setBusy(true); setStatus("");
+    try {
+      await api(`/api/todos/${todoId}/calendar-links`, { method: "POST", body: JSON.stringify({ eventId: Number(eventId), relationshipKind }) });
+      await Promise.all([reload(), onChanged()]);
+      setStatus("Calendar link added.");
+    } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setBusy(false); }
+  };
+  const remove = async (linkedEventId: number) => {
+    setBusy(true); setStatus("");
+    try {
+      await api(`/api/todos/${todoId}/calendar-links/${linkedEventId}`, { method: "DELETE" });
+      await Promise.all([reload(), onChanged()]);
+      setStatus("Calendar link removed.");
+    } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setBusy(false); }
+  };
+  return <div className="object-editor-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="object-editor" role="dialog" aria-modal="true" aria-label="To-do calendar links">
+    <header className="object-editor-heading"><div><p className="eyebrow">To do</p><h2>Calendar: {textKey(todo, "text")}</h2></div><button className="button button--quiet" onClick={onClose}>Close</button></header>
+    {loading && <Loading />}{Boolean(error) && <ErrorState error={error} retry={reload} />}
+    <div className="object-editor-related">{(data?.links || []).map((link) => <div className="object-editor-related-row" key={String(link.eventId)}><span><strong>{String(link.title)}</strong> · {formatDisplayDate(String(link.startsAtUtc))} · {String(link.relationshipKind)}</span><button className="button button--quiet" disabled={busy} onClick={() => void remove(Number(link.eventId))}>Remove</button></div>)}</div>
+    <div className="object-editor-related-add"><label>Event<select value={eventId} onChange={(event) => setEventId(event.target.value)}>{(data?.events || []).map((calendarEvent) => <option value={String(calendarEvent.eventId)} key={String(calendarEvent.eventId)}>{String(calendarEvent.title)} · {formatDisplayDate(String(calendarEvent.startsAtUtc))}</option>)}</select></label><label>Relationship<select value={relationshipKind} onChange={(event) => setRelationshipKind(event.target.value)}><option value="work">Work</option><option value="deadline">Deadline</option><option value="context">Context</option></select></label><button className="button" disabled={busy || !eventId} onClick={() => void add()}>Link event</button></div>
+    {status && <p role="status" className="account-tool-refresh-status">{status}</p>}
+  </section></div>;
+}
+
 function TodoScreen() {
   const [showCompleted, setShowCompleted] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState("all");
+  const [selectedContactId, setSelectedContactId] = useState("all");
   const [filterQuery, setFilterQuery] = useState("");
   const [serverQuery, setServerQuery] = useState("");
   const scope = showCompleted ? "all" : "active";
@@ -1570,14 +1627,18 @@ function TodoScreen() {
   if (serverQuery) todoParameters.set("q", serverQuery);
   const { data, error, loading, reload } = useApi<{ todos: Entity[] }>(`/api/todos?${todoParameters}`);
   const { data: groupData, error: groupError, loading: groupsLoading, reload: reloadGroups } = useApi<{ groups: Entity[] }>("/api/todo-groups");
+  const { data: contactData } = useApi<{ contacts: Entity[] }>("/api/contacts?scope=all&limit=10000");
   const [addingTodo, setAddingTodo] = useState(false);
+  const [addingGroup, setAddingGroup] = useState(false);
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
+  const [calendarTodo, setCalendarTodo] = useState<Entity | null>(null);
   const [reorderingTodoId, setReorderingTodoId] = useState<number | null>(null);
   const [reorderError, setReorderError] = useState("");
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [pdfError, setPdfError] = useState<unknown>(null);
   const statusTodos = (data?.todos || []).filter((todo) =>
-    todo.status === "todo" || todo.status === "ai_suggested" || (showCompleted && todo.status === "complete"),
+    (todo.status === "todo" || todo.status === "ai_suggested" || (showCompleted && todo.status === "complete"))
+    && (selectedContactId === "all" || String(todo.relatedContactId ?? "none") === selectedContactId),
   );
   const todoGroupCounts = new Map<string, number>();
   for (const todo of statusTodos) {
@@ -1600,6 +1661,38 @@ function TodoScreen() {
       body: JSON.stringify({ dailyPaperPinned }),
     });
     await reloadGroups();
+  };
+  const reorderGroups = async (groupId: number, movement: TodoPriorityMovement) => {
+    const ids = (groupData?.groups || []).map((group) => Number(group.id));
+    const currentIndex = ids.indexOf(groupId);
+    const targetIndex = movement === "top" ? 0 : movement === "bottom" ? ids.length - 1 : currentIndex + (movement === "up" ? -1 : 1);
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= ids.length || targetIndex === currentIndex) return;
+    ids.splice(currentIndex, 1); ids.splice(targetIndex, 0, groupId);
+    setReorderError("");
+    try {
+      await api("/api/todo-groups/reorder", { method: "POST", body: JSON.stringify({ orderedGroupIds: ids }) });
+      await reloadGroups();
+    } catch (caught) {
+      setReorderError(caught instanceof Error ? caught.message : "Could not reorder the to-do groups.");
+    }
+  };
+  const setGroupSequence = async (groupId: number, usesSequence: boolean) => {
+    setReorderError("");
+    try {
+      await api(`/api/todo-groups/${groupId}/sequence`, { method: "POST", body: JSON.stringify({ usesSequence }) });
+      await Promise.all([reload(), reloadGroups()]);
+    } catch (caught) {
+      setReorderError(caught instanceof Error ? caught.message : "Could not change the to-do sequence setting.");
+    }
+  };
+  const assignNextSequence = async (todo: Entity) => {
+    setReorderError("");
+    try {
+      await api(`/api/todos/${Number(todo.id)}/assign-next-sequence`, { method: "POST", body: JSON.stringify({ version: todo.version }) });
+      await reload();
+    } catch (caught) {
+      setReorderError(caught instanceof Error ? caught.message : "Could not assign the next sequence number.");
+    }
   };
   const moveTodo = async (groupId: number, orderedTodoIds: number[], todoId: number, movement: TodoPriorityMovement) => {
     const currentIndex = orderedTodoIds.indexOf(todoId);
@@ -1628,7 +1721,7 @@ function TodoScreen() {
   };
   const groups = useMemo(() => {
     const grouped = new Map<string, {
-      id: string; groupId: number | null; name: string; dailyPaperPinned: boolean; todos: Entity[];
+      id: string; groupId: number | null; name: string; dailyPaperPinned: boolean; usesSequence: boolean; todos: Entity[];
     }>();
     for (const group of groupData?.groups || []) {
       const groupId = Number(group.id);
@@ -1639,6 +1732,7 @@ function TodoScreen() {
         groupId,
         name: textKey(group, "name") || "Untitled group",
         dailyPaperPinned: Boolean(group.dailyPaperPinned),
+        usesSequence: Boolean(group.usesSequence),
         todos: [],
       });
     }
@@ -1651,6 +1745,7 @@ function TodoScreen() {
         groupId: groupId == null ? null : Number(groupId),
         name,
         dailyPaperPinned: false,
+        usesSequence: false,
         todos: [],
       };
       group.todos.push(todo);
@@ -1698,28 +1793,28 @@ function TodoScreen() {
     if (nextQuery === serverQuery) void reload();
     else setServerQuery(nextQuery);
   };
-  return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={todoGroupOptions} totalCount={statusTodos.length} disabled={groupsLoading} />} actions={<><button className="button" type="button" onClick={() => setAddingTodo(true)}>Add to-do</button><button className="button button--quiet" type="button" onClick={() => void generatePdf()} disabled={generatingPdf || loading || groupsLoading || Boolean(error || groupError)}>{generatingPdf ? "Making PDF…" : "Print PDF"}</button></>} />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchTodos} searching={loading} count={todos.length} noun="to-do" controls={<label className="todo-completed-filter"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} />Show completed</label>} />
+  return <><PageHeading eyebrow="Unscheduled work" title="To do" detail={`${todos.length} ${showCompleted ? "open and completed" : "open"} ${todos.length === 1 ? "item" : "items"} across ${groups.length} ${groups.length === 1 ? "list" : "lists"}.`} groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={todoGroupOptions} totalCount={statusTodos.length} disabled={groupsLoading} />} actions={<><button className="button button--quiet" type="button" onClick={() => setAddingGroup(true)}>Add group</button><button className="button" type="button" onClick={() => setAddingTodo(true)}>Add to-do</button><button className="button button--quiet" type="button" onClick={() => void generatePdf()} disabled={generatingPdf || loading || groupsLoading || Boolean(error || groupError)}>{generatingPdf ? "Making PDF…" : "Print PDF"}</button></>} />
+    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchTodos} searching={loading} count={todos.length} noun="to-do" controls={<><SectionSelectFilter label="Contact" value={selectedContactId} onChange={setSelectedContactId}><option value="all">All contacts</option><option value="none">No related contact</option>{(contactData?.contacts || []).map((contact) => <option value={String(contact.id)} key={String(contact.id)}>{String(contact.displayName)}</option>)}</SectionSelectFilter><label className="todo-completed-filter"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} />Show completed</label></>} />
     {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{groupError && <ErrorState error={groupError} retry={reloadGroups} />}{pdfError && <ErrorState error={pdfError} retry={() => void generatePdf()} dismiss={() => setPdfError(null)} />}{reorderError && <p className="inline-error" role="alert">{reorderError}</p>}{!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No to-do groups or items match the filter." : showCompleted ? "No to-do groups yet." : "No to-do groups yet."}</Empty>}<div className="group-list">{groups.map((group) => {
       const orderedTodoIds = group.todos.map((todo) => Number(todo.id));
       return <section className="todo-group" key={group.id} aria-label={`${group.name} to-do group`}>
         {group.groupId != null ? <TodoGroupCard
           object={{ id: group.groupId, type: "todos.todo_group", label: "To-do group", display: group.name, attributes: [{ label: "Items", value: String(group.todos.length) }], badges: [group.dailyPaperPinned ? "Pinned to paper" : "Active"] }}
           controls={<ObjectSelectionControls identity={todoGroupIdentity({ id: group.groupId, name: group.name })} subject={`to-do group ${group.name}`} />}
-          details={<div className="todo-group-management">{group.name.toLowerCase() !== "inbox" && <button className="button button--quiet group-edit-button" type="button" aria-label={`Edit ${group.name} group`} onClick={() => setEditingGroup({ id: group.groupId!, name: group.name, resource: "todo-groups" })}>Edit</button>}<button className={`button button--quiet todo-group-pin${group.dailyPaperPinned ? " is-pinned" : ""}`} type="button" aria-pressed={group.dailyPaperPinned} onClick={() => void setDailyPaperPinned(group.groupId!, !group.dailyPaperPinned)}><PaperPinIcon />{group.dailyPaperPinned ? "Pinned to paper" : "Pin to paper"}</button></div>}
+          details={<div className="todo-group-management"><TodoPriorityControls todoId={group.groupId} todoText={`${group.name} group`} todoIndex={(groupData?.groups || []).findIndex((candidate) => Number(candidate.id) === group.groupId)} todoCount={(groupData?.groups || []).length} busy={false} onMove={(_, movement) => void reorderGroups(group.groupId!, movement)} />{group.name.toLowerCase() !== "inbox" && <button className="button button--quiet group-edit-button" type="button" aria-label={`Edit ${group.name} group`} onClick={() => setEditingGroup({ id: group.groupId!, name: group.name, resource: "todo-groups" })}>Edit</button>}<button className="button button--quiet" type="button" onClick={() => void setGroupSequence(group.groupId!, !group.usesSequence)}>{group.usesSequence ? "Stop auto sequence" : "Enable sequence"}</button><button className={`button button--quiet todo-group-pin${group.dailyPaperPinned ? " is-pinned" : ""}`} type="button" aria-pressed={group.dailyPaperPinned} onClick={() => void setDailyPaperPinned(group.groupId!, !group.dailyPaperPinned)}><PaperPinIcon />{group.dailyPaperPinned ? "Pinned to paper" : "Pin to paper"}</button></div>}
         /> : <header className="todo-group-heading"><h2>{group.name}</h2></header>}
         <div className="todo-group-items">{group.todos.map((todo, todoIndex) => <TodoItem
           todo={todo}
           groups={groupData?.groups || []}
           onChanged={reload}
-          cardControls={group.groupId != null ? <TodoPriorityControls
+          cardControls={group.groupId != null ? <><button className="object-card-icon-button" type="button" title="Calendar links" aria-label={`Manage calendar links for ${textKey(todo, "text")}`} onClick={() => setCalendarTodo(todo)}>Calendar</button>{group.usesSequence && <button className="object-card-icon-button" type="button" onClick={() => void assignNextSequence(todo)}>Next #</button>}<TodoPriorityControls
             todoId={Number(todo.id)}
             todoText={textKey(todo, "text", "title") || "Task"}
             todoIndex={todoIndex}
             todoCount={group.todos.length}
             busy={reorderingTodoId != null}
             onMove={(todoId, movement) => void moveTodo(group.groupId!, orderedTodoIds, todoId, movement)}
-          /> : undefined}
+          /></> : undefined}
           key={String(todo.id)}
         />)}</div>
       </section>;
@@ -1730,6 +1825,8 @@ function TodoScreen() {
       onClose={() => setAddingTodo(false)}
       onChanged={reload}
     />}
+    {addingGroup && <NewGroupEditor resource="todo-groups" label="To-do" onClose={() => setAddingGroup(false)} onChanged={reloadGroups} />}
+    {calendarTodo && <TodoCalendarEditor todo={calendarTodo} onClose={() => setCalendarTodo(null)} onChanged={reload} />}
     {editingGroup && <GroupEditor
       group={editingGroup}
       onClose={() => setEditingGroup(null)}
@@ -1747,6 +1844,20 @@ function TodoScreen() {
   </>;
 }
 
+function ContactDuplicateGroup({ group, contacts, busy, onMerge }: { group: Entity; contacts: Entity[]; busy: boolean; onMerge: (keepId: number, mergeIds: number[]) => void }) {
+  const candidates = ((group.contactIds as number[] | undefined) || []).map((id) => contacts.find((contact) => Number(contact.id) === Number(id))).filter((contact): contact is Entity => Boolean(contact));
+  const defaultKeeper = [...candidates].sort((left, right) => (
+    (((right.methods as Entity[] | undefined) || []).length + ((right.tags as string[] | undefined) || []).length)
+    - (((left.methods as Entity[] | undefined) || []).length + ((left.tags as string[] | undefined) || []).length)
+  ))[0];
+  const [keepId, setKeepId] = useState(() => Number(defaultKeeper?.id || 0));
+  const [confirming, setConfirming] = useState(false);
+  if (candidates.length < 2) return null;
+  const keeper = candidates.find((contact) => Number(contact.id) === keepId);
+  const mergeIds = candidates.filter((contact) => Number(contact.id) !== keepId).map((contact) => Number(contact.id));
+  return <article className="duplicate-group"><p><strong>{candidates.length} possible matches</strong> · {((group.evidence as string[] | undefined) || []).join(" · ")}</p><label>Keep<select value={keepId} onChange={(event) => { setKeepId(Number(event.target.value)); setConfirming(false); }}>{candidates.map((contact) => <option value={Number(contact.id)} key={String(contact.id)}>{String(contact.displayName)}</option>)}</select></label>{confirming ? <section className="group-delete-confirmation" role="alertdialog" aria-label="Confirm contact merge"><p>Merge the other {mergeIds.length} {mergeIds.length === 1 ? "contact" : "contacts"} into {String(keeper?.displayName || "the selected contact")}? Source records remain as inactive history.</p><div><button className="button button--quiet" disabled={busy} onClick={() => setConfirming(false)}>Cancel</button><button className="button button--danger" disabled={busy} onClick={() => onMerge(keepId, mergeIds)}>Merge contacts</button></div></section> : <button className="button button--quiet" disabled={busy} onClick={() => setConfirming(true)}>Merge into selected contact</button>}</article>;
+}
+
 function ContactsScreen() {
   const [addingContact, setAddingContact] = useState(false);
   const [editingContactId, setEditingContactId] = useState<number | null>(null);
@@ -1755,9 +1866,19 @@ function ContactsScreen() {
   const [selectedKind, setSelectedKind] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("active");
   const [selectedTag, setSelectedTag] = useState("all");
+  const [selectedContactIds, setSelectedContactIds] = useState<Set<number>>(new Set());
+  const [bulkTag, setBulkTag] = useState("");
+  const [confirmingContactDelete, setConfirmingContactDelete] = useState(false);
+  const [renamingTag, setRenamingTag] = useState(false);
+  const [renameCurrentTag, setRenameCurrentTag] = useState("");
+  const [renameNextTag, setRenameNextTag] = useState("");
+  const [showDuplicates, setShowDuplicates] = useState(false);
+  const [contactAction, setContactAction] = useState("");
+  const [contactStatus, setContactStatus] = useState("");
   const contactParameters = new URLSearchParams({ scope: "all", limit: "10000" });
   if (serverQuery) contactParameters.set("q", serverQuery);
   const { data, error, loading, reload } = useApi<{ contacts: Entity[] }>(`/api/contacts?${contactParameters}`);
+  const { data: duplicateData, reload: reloadDuplicates } = useApi<{ groups: Entity[]; groupCount?: number }>("/api/contacts/duplicates?limit=200");
   const contacts = data?.contacts || [];
   const contactTags = useMemo(() => [...new Set(contacts.flatMap((contact) => (contact.tags as string[] | undefined) || []))].sort((left, right) => left.localeCompare(right)), [contacts]);
   const visibleContacts = contacts.filter((contact) =>
@@ -1783,12 +1904,45 @@ function ContactsScreen() {
     if (nextQuery === serverQuery) void reload();
     else setServerQuery(nextQuery);
   };
+  const selectedContacts = contacts.filter((contact) => selectedContactIds.has(Number(contact.id)));
+  const bulkContacts = async (action: "add_tag" | "delete") => {
+    if (!selectedContacts.length || (action === "add_tag" && !bulkTag.trim())) return;
+    setContactAction(action); setContactStatus("");
+    try {
+      await api("/api/contacts/bulk", { method: "POST", body: JSON.stringify({ action, ...(action === "add_tag" ? { tag: bulkTag } : {}), contacts: selectedContacts.map((contact) => ({ id: Number(contact.id), expectedVersion: contact.version })) }) });
+      setSelectedContactIds(new Set()); setBulkTag(""); setConfirmingContactDelete(false); setContactStatus(action === "delete" ? "Selected contacts deleted." : "Tag added to selected contacts.");
+      await Promise.all([reload(), reloadDuplicates()]);
+    } catch (caught) { setContactStatus(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setContactAction(""); }
+  };
+  const renameTag = async () => {
+    const currentTag = renameCurrentTag.trim();
+    if (!currentTag) return;
+    const newTag = renameNextTag.trim();
+    if (!newTag || newTag === currentTag) return;
+    setContactAction("rename");
+    try { await api("/api/contacts/tags/rename", { method: "POST", body: JSON.stringify({ currentTag, newTag }) }); setContactStatus(`Renamed ${currentTag} to ${newTag}.`); setRenamingTag(false); await reload(); }
+    catch (caught) { setContactStatus(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setContactAction(""); }
+  };
+  const mergeDuplicates = async (keepContactId: number, mergeContactIds: number[]) => {
+    const candidates = contacts.filter((contact) => keepContactId === Number(contact.id) || mergeContactIds.includes(Number(contact.id)));
+    setContactAction("merge"); setContactStatus("");
+    try {
+      await api("/api/contacts/merge", { method: "POST", body: JSON.stringify({ keepContactId, mergeContactIds, versions: Object.fromEntries(candidates.map((contact) => [String(contact.id), contact.version])) }) });
+      setContactStatus("Duplicate contacts merged."); await Promise.all([reload(), reloadDuplicates()]);
+    } catch (caught) { setContactStatus(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setContactAction(""); }
+  };
   return <><PageHeading eyebrow="People & organizations" title="Contacts" detail="Phone, message, and email links stay native-friendly for the future mobile client." actions={<div className="section-heading-actions">
+    <button className="button button--quiet" type="button" disabled={!contactTags.length || Boolean(contactAction)} onClick={() => { const current = selectedTag === "all" ? contactTags[0] : selectedTag; setRenameCurrentTag(current || ""); setRenameNextTag(current || ""); setRenamingTag(true); }}>Rename tag</button>
+    <button className="button button--quiet" type="button" disabled={!duplicateData?.groups?.length} onClick={() => setShowDuplicates((current) => !current)}>Review duplicates · {duplicateData?.groups?.length || 0}</button>
     <button className="button" type="button" onClick={() => setAddingContact(true)}>Add contact</button>
   </div>} />
     {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}
     {!loading && !error && <>
       <SectionFilter query={query} onChange={setQuery} onSearch={searchContacts} searching={loading} count={visibleContacts.length} noun="contact" controls={<>
+        <label className="todo-completed-filter"><input type="checkbox" aria-label="Select all visible contacts" checked={visibleContacts.length > 0 && visibleContacts.every((contact) => selectedContactIds.has(Number(contact.id)))} onChange={(event) => setSelectedContactIds((current) => { const next = new Set(current); for (const contact of visibleContacts) { if (event.target.checked) next.add(Number(contact.id)); else next.delete(Number(contact.id)); } return next; })} />Select visible</label>
         <SectionSelectFilter label="Group" value={selectedKind} onChange={setSelectedKind}>
           <option value="all">All groups</option><option value="person">People</option><option value="organization">Organizations</option><option value="service">Services</option>
         </SectionSelectFilter>
@@ -1799,6 +1953,11 @@ function ContactsScreen() {
           <option value="all">All tags</option>{contactTags.map((tag) => <option value={tag} key={tag}>{tag}</option>)}
         </SectionSelectFilter>
       </>} />
+      {selectedContacts.length > 0 && <section className="surface contact-bulk-actions"><strong>{selectedContacts.length} selected</strong><input aria-label="Tag selected contacts" placeholder="Tag" value={bulkTag} onChange={(event) => setBulkTag(event.target.value)} /><button className="button button--quiet" disabled={Boolean(contactAction) || !bulkTag.trim()} onClick={() => void bulkContacts("add_tag")}>Add tag</button><button className="button button--danger" disabled={Boolean(contactAction)} onClick={() => setConfirmingContactDelete(true)}>Delete selected</button></section>}
+      {confirmingContactDelete && <section className="group-delete-confirmation" role="alertdialog" aria-label="Confirm contact deletion"><p>Permanently delete {selectedContacts.length} selected contacts? This cannot be undone.</p><div><button className="button button--quiet" onClick={() => setConfirmingContactDelete(false)}>Cancel</button><button className="button button--danger" onClick={() => void bulkContacts("delete")}>Delete permanently</button></div></section>}
+      {renamingTag && <section className="surface integration-add-form" role="dialog" aria-label="Rename contact tag"><h2>Rename or merge tag</h2><label>Current tag<select value={renameCurrentTag} onChange={(event) => { setRenameCurrentTag(event.target.value); setRenameNextTag(event.target.value); }}>{contactTags.map((tag) => <option key={tag}>{tag}</option>)}</select></label><label>New tag<input value={renameNextTag} onChange={(event) => setRenameNextTag(event.target.value)} /></label><p className="field-hint">If the new tag already exists, assignments are merged into it.</p><div><button className="button button--quiet" onClick={() => setRenamingTag(false)}>Cancel</button><button className="button" disabled={!renameNextTag.trim() || renameNextTag.trim() === renameCurrentTag} onClick={() => void renameTag()}>Rename tag</button></div></section>}
+      {showDuplicates && <section className="surface duplicate-review"><div className="section-title"><h2>Possible duplicate contacts</h2><button className="button button--quiet" onClick={() => setShowDuplicates(false)}>Close</button></div>{(duplicateData?.groups || []).map((group, index) => <ContactDuplicateGroup key={((group.contactIds as number[] | undefined) || [index]).join("-")} group={group} contacts={contacts} busy={Boolean(contactAction)} onMerge={(keepId, mergeIds) => void mergeDuplicates(keepId, mergeIds)} />)}</section>}
+      {contactStatus && <p className="account-tool-refresh-status" role="status">{contactStatus}</p>}
       {!visibleContacts.length ? <Empty>{contactsFiltered ? "No contacts match the filters." : "No contacts yet."}</Empty> : <div className="library-groups">
         {contactGroups.map((group) => <section className="library-group" key={group.id} aria-labelledby={`contact-group-${group.id}`}>
           <header className="library-group-heading">
@@ -1835,7 +1994,7 @@ function ContactsScreen() {
               links,
             })}
             onEdit={() => setEditingContactId(Number(contact.id))}
-            controls={<ObjectSelectionControls identity={contactIdentity(contact)} subject={`contact ${name}`} />}
+            controls={<><label className="object-selection-control"><input type="checkbox" aria-label={`Select ${name}`} checked={selectedContactIds.has(Number(contact.id))} onChange={(event) => setSelectedContactIds((current) => { const next = new Set(current); if (event.target.checked) next.add(Number(contact.id)); else next.delete(Number(contact.id)); return next; })} /></label><ObjectSelectionControls identity={contactIdentity(contact)} subject={`contact ${name}`} /></>}
           />;
           })}
           </ul>
@@ -1847,9 +2006,8 @@ function ContactsScreen() {
   </>;
 }
 
-const genericScreens: Record<GenericObjectKind, { eyebrow: string; title: string; detail: string; url: string; key: string }> = {
+const genericScreens: Record<Exclude<GenericObjectKind, "video-scripts">, { eyebrow: string; title: string; detail: string; url: string; key: string }> = {
   content: { eyebrow: "Reference shelf", title: "Content Library", detail: "Reusable material and published content.", url: "/api/content-items?limit=1000", key: "content" },
-  "video-scripts": { eyebrow: "Production", title: "Video Scripts", detail: "Scripts grounded in completed conversations.", url: "/api/video-scripts?status=all&limit=500", key: "scripts" },
   files: { eyebrow: "Durable artifacts", title: "Files", detail: "Uploads, generated documents, and their source evidence.", url: "/api/files?limit=200", key: "files" },
 };
 
@@ -1950,7 +2108,9 @@ function LibraryScreen() {
   const [serverQuery, setServerQuery] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState("all");
   const [addingContent, setAddingContent] = useState(false);
+  const [addingGroup, setAddingGroup] = useState(false);
   const [editingContent, setEditingContent] = useState<Entity | null>(null);
+  const [deletingContent, setDeletingContent] = useState<Entity | null>(null);
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
   const [sequenceError, setSequenceError] = useState("");
   const [changingSequenceGroupId, setChangingSequenceGroupId] = useState<number | null>(null);
@@ -2022,13 +2182,37 @@ function LibraryScreen() {
       setChangingSequenceGroupId(null);
     }
   };
+  const moveContentGroup = async (groupId: number, movement: TodoPriorityMovement) => {
+    const ids = (groupData?.groups || []).map((group) => Number(group.id));
+    const currentIndex = ids.indexOf(groupId);
+    const targetIndex = movement === "top" ? 0 : movement === "bottom" ? ids.length - 1 : currentIndex + (movement === "up" ? -1 : 1);
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= ids.length || targetIndex === currentIndex) return;
+    ids.splice(currentIndex, 1); ids.splice(targetIndex, 0, groupId);
+    setSequenceError("");
+    try {
+      await api("/api/content-groups/reorder", { method: "POST", body: JSON.stringify({ orderedGroupIds: ids }) });
+      await reloadGroups();
+    } catch (caught) {
+      setSequenceError(caught instanceof Error ? caught.message : "Could not reorder the Library groups.");
+    }
+  };
+  const deleteContent = async (entity: Entity) => {
+    setSequenceError("");
+    try {
+      await api(`/api/content-items/${Number(entity.id)}`, { method: "DELETE", body: JSON.stringify({ version: entity.version }) });
+      setDeletingContent(null);
+      await reloadLibrary();
+    } catch (caught) {
+      setSequenceError(caught instanceof Error ? caught.message : "Could not delete the Library item.");
+    }
+  };
   const searchLibrary = () => {
     const nextQuery = filterQuery.trim();
     if (nextQuery === serverQuery) void reload();
     else setServerQuery(nextQuery);
   };
   return <>
-    <PageHeading eyebrow="Reference shelf" title="Content Library" detail="Reusable material and published content." groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={libraryGroupOptions} totalCount={content.length} disabled={groupsLoading} />} actions={<button className="button" type="button" onClick={() => setAddingContent(true)}>Add content</button>} />
+    <PageHeading eyebrow="Reference shelf" title="Content Library" detail="Reusable material and published content." groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={libraryGroupOptions} totalCount={content.length} disabled={groupsLoading} />} actions={<><button className="button button--quiet" type="button" onClick={() => setAddingGroup(true)}>Add group</button><button className="button" type="button" onClick={() => setAddingContent(true)}>Add content</button></>} />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchLibrary} searching={loading} count={visibleContent.length} noun="item" />
     {(loading || groupsLoading) && <Loading />}
     {error && <ErrorState error={error} retry={reloadLibrary} />}
@@ -2045,6 +2229,10 @@ function LibraryScreen() {
           object={{ id: Number(group.id), type: "video.content_group", label: "Library group", display: group.name, attributes: [{ label: "Items", value: String(group.items.length) }], badges: [group.usesSequence ? "Auto sequence" : "Manual numbering"] }}
           controls={<ObjectSelectionControls identity={contentGroupIdentity({ id: Number(group.id), name: group.name })} subject={`library group ${group.name}`} />}
           actions={[
+            { key: "top", label: "Move group to top", onClick: () => void moveContentGroup(Number(group.id), "top") },
+            { key: "up", label: "Move group up", onClick: () => void moveContentGroup(Number(group.id), "up") },
+            { key: "down", label: "Move group down", onClick: () => void moveContentGroup(Number(group.id), "down") },
+            { key: "bottom", label: "Move group to bottom", onClick: () => void moveContentGroup(Number(group.id), "bottom") },
             { key: "sequence", label: group.usesSequence ? "Stop auto sequence" : "Enable sequence", disabled: changingSequenceGroupId != null, onClick: () => group.usesSequence ? void setContentGroupSequenceMode(Number(group.id), false) : setPendingSequenceEnable({ id: Number(group.id), name: group.name }) },
             ...(group.editable ? [{ key: "edit", label: "Edit", onClick: () => setEditingGroup({ id: Number(group.id), name: group.name, resource: "content-groups" }) }] : []),
           ]}
@@ -2062,10 +2250,15 @@ function LibraryScreen() {
                 attributes: [
                   ...(readKey(entity, "sequence") != null ? [{ label: "Sequence", value: `#${String(entity.sequence)}` }] : []),
                   ...(textKey(entity, "groupName") ? [{ label: "Group", value: textKey(entity, "groupName") }] : []),
+                  ...(textKey(entity, "contentHost") ? [{ label: "Host", value: textKey(entity, "contentHost") }] : []),
+                  ...(textKey(entity, "publishedAtUtc") ? [{ label: "Published", value: formatDisplayDate(textKey(entity, "publishedAtUtc")) }] : []),
                 ],
+                links: textKey(entity, "contentUrl") ? [{ label: "Open content", href: textKey(entity, "contentUrl") }] : [],
                 badges: [textKey(entity, "contentType").replaceAll("_", " "), textKey(entity, "contentStatus", "status").replaceAll("_", " ")],
               })}
               onEdit={() => setEditingContent(entity)}
+              actions={[{ key: "delete", label: "Delete permanently", onClick: () => setDeletingContent(entity) }]}
+              details={textKey(entity, "transcript") ? <details><summary>Transcript</summary><p>{textKey(entity, "transcript")}</p></details> : undefined}
               controls={<ObjectSelectionControls identity={genericEntityIdentity("content", entity)} subject={`library ${title}`} />}
             />;
           })}
@@ -2078,82 +2271,26 @@ function LibraryScreen() {
       onClose={() => setAddingContent(false)}
       onChanged={reloadLibrary}
     />}
+    {deletingContent && <section className="group-delete-confirmation" role="alertdialog" aria-label="Confirm content deletion"><p>Permanently delete {textKey(deletingContent, "title") || `content #${String(deletingContent.id)}`}? This cannot be undone.</p><div><button className="button button--quiet" onClick={() => setDeletingContent(null)}>Cancel</button><button className="button button--danger" onClick={() => void deleteContent(deletingContent)}>Delete permanently</button></div></section>}
+    {addingGroup && <NewGroupEditor resource="content-groups" label="Library" onClose={() => setAddingGroup(false)} onChanged={reloadLibrary} />}
     {editingContent && <LibraryContentEditor content={editingContent} groups={groupData?.groups || []} onClose={() => setEditingContent(null)} onChanged={reloadLibrary} />}
-    {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={reloadLibrary} />}
+    {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={reloadLibrary} deleteAction={{ label: "Archive group", description: "Only empty Library groups can be archived.", confirmation: `Archive the empty ${editingGroup.name} group?`, execute: async () => { await api(`/api/content-groups/${editingGroup.id}/archive`, { method: "POST" }); if (selectedGroupId === String(editingGroup.id)) setSelectedGroupId("all"); } }} />}
   </>;
 }
 
-function VideoScriptsScreen() {
-  const [filterQuery, setFilterQuery] = useState("");
-  const [serverQuery, setServerQuery] = useState("");
-  const [selectedStatus, setSelectedStatus] = useState("all");
-  const scriptParameters = new URLSearchParams({ status: "all", limit: "500" });
-  if (serverQuery) scriptParameters.set("q", serverQuery);
-  const { data, error, loading, reload } = useApi<{ scripts: Entity[] }>(`/api/video-scripts?${scriptParameters}`);
-  const scripts = data?.scripts || [];
-  const visibleScripts = scripts.filter((script) =>
-    (selectedStatus === "all" || textKey(script, "status") === selectedStatus)
-    && matchesSearch(script, filterQuery),
-  );
-  const groups = useMemo(() => {
-    const availableGroups = [
-      ["draft", { id: "draft", name: "Drafts", scripts: [] as Entity[] }],
-      ["archived", { id: "archived", name: "Archived", scripts: [] as Entity[] }],
-    ] as const;
-    const grouped = new Map<string, { id: string; name: string; scripts: Entity[] }>(
-      availableGroups.filter(([id]) => selectedStatus === "all" || id === selectedStatus),
-    );
-    for (const script of visibleScripts) {
-      const id = textKey(script, "status") || "other";
-      const group = grouped.get(id) || { id, name: id.replaceAll("_", " "), scripts: [] };
-      group.scripts.push(script);
-      grouped.set(id, group);
-    }
-    const allGroups = [...grouped.values()];
-    return filterQuery.trim() ? allGroups.filter((group) => group.scripts.length) : allGroups;
-  }, [filterQuery, selectedStatus, visibleScripts]);
-  const searchScripts = () => {
-    const nextQuery = filterQuery.trim();
-    if (nextQuery === serverQuery) void reload();
-    else setServerQuery(nextQuery);
+function FileMetadataEditor({ file, onClose, onChanged }: { file: Entity; onClose: () => void; onChanged: () => void | Promise<void> }) {
+  const fileId = Number(file.fileId || file.id);
+  const [title, setTitle] = useState(textKey(file, "title"));
+  const [description, setDescription] = useState(textKey(file, "description"));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const save = async (event: FormEvent) => {
+    event.preventDefault(); setSaving(true); setError("");
+    try { await api(`/api/files/${fileId}`, { method: "PATCH", body: JSON.stringify({ title, description }) }); await onChanged(); onClose(); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setSaving(false); }
   };
-  return <>
-    <PageHeading eyebrow="Production" title="Video Scripts" detail="Scripts grounded in completed conversations." />
-    <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchScripts} searching={loading} count={visibleScripts.length} noun="script" controls={<SectionSelectFilter label="Group" value={selectedStatus} onChange={setSelectedStatus}>
-      <option value="all">All groups</option><option value="draft">Drafts</option><option value="archived">Archived</option>
-    </SectionSelectFilter>} />
-    {loading && <Loading />}
-    {error && <ErrorState error={error} retry={reload} />}
-    {!loading && !error && !groups.length && <Empty>{filterQuery.trim() ? "No video scripts match the filter." : "Nothing here yet."}</Empty>}
-    {!loading && !error && Boolean(groups.length) && <div className="library-groups">
-      {groups.map((group) => <section className="library-group" key={group.id} aria-labelledby={`video-script-group-${group.id}`}>
-        <header className="library-group-heading">
-          <h2 id={`video-script-group-${group.id}`}>{group.name}</h2>
-          <span>{group.scripts.length} {group.scripts.length === 1 ? "script" : "scripts"}</span>
-        </header>
-        {group.scripts.length ? <ul className="library-list">
-          {group.scripts.map((script, index) => {
-            const scriptId = script.id || index;
-            const title = textKey(script, "title", "name") || `Script ${scriptId}`;
-            const plan = script.plan && typeof script.plan === "object" ? script.plan as Entity : {};
-            const render = script.render && typeof script.render === "object" ? script.render as Entity : {};
-            const sourceCount = Array.isArray(script.sources) ? script.sources.length : 0;
-            return <VideoScriptCard
-              as="li"
-              key={scriptId}
-              object={objectCardData({
-                id: Number(script.id), type: "video.script", label: "Video script", display: title,
-                body: textKey(plan, "concept") || null,
-                attributes: [{ label: "ID", value: `#${String(scriptId)}` }],
-                badges: [`${sourceCount} ${sourceCount === 1 ? "source" : "sources"}`, textKey(render, "status").replaceAll("_", " ")],
-              })}
-              controls={<ObjectSelectionControls identity={genericEntityIdentity("video-scripts", script)} subject={`video script ${title}`} />}
-            />;
-          })}
-        </ul> : <p className="library-group-empty">No scripts in this group.</p>}
-      </section>)}
-    </div>}
-  </>;
+  return <div className="object-editor-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="object-editor" role="dialog" aria-modal="true" aria-label="Edit file metadata"><form onSubmit={(event) => void save(event)}><header className="object-editor-heading"><div><p className="eyebrow">File #{fileId}</p><h2>Edit file details</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header><label>Title<input autoFocus required value={title} onChange={(event) => setTitle(event.target.value)} /></label><label>Description<textarea rows={6} value={description} onChange={(event) => setDescription(event.target.value)} /></label>{error && <p className="inline-error" role="alert">{error}</p>}<footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={saving || !title.trim()}>{saving ? "Saving…" : "Save file details"}</button></footer></form></section></div>;
 }
 
 function FilesScreen() {
@@ -2163,6 +2300,7 @@ function FilesScreen() {
   if (serverQuery) fileParameters.set("query", serverQuery);
   const { data, error, loading, reload } = useApi<{ files: Entity[] }>(`/api/files?${fileParameters}`);
   const [selectedMediaKind, setSelectedMediaKind] = useState("all");
+  const [editingFile, setEditingFile] = useState<Entity | null>(null);
   const files = data?.files || [];
   const fileGroupLabels: Record<string, string> = { document: "Documents", image: "Images", video: "Videos", audio: "Audio" };
   const fileGroupOrder = ["document", "image", "video", "audio"];
@@ -2227,11 +2365,13 @@ function FilesScreen() {
               })}
               controls={<ObjectSelectionControls identity={genericEntityIdentity("files", file)} subject={`file ${title}`} />}
               onDownload={() => void downloadAuthenticated(`/api/files/${fileId}/download`, textKey(file, "originalFilename") || `file-${fileId}`)}
+              actions={[{ key: "edit", label: "Edit details", onClick: () => setEditingFile(file) }]}
             />;
           })}
         </ul>
       </section>)}
     </div>}
+    {editingFile && <FileMetadataEditor file={editingFile} onClose={() => setEditingFile(null)} onChanged={reload} />}
   </>;
 }
 
@@ -2244,11 +2384,11 @@ function GenericScreen({ kind }: { kind: keyof typeof genericScreens }) {
   return <><PageHeading eyebrow={config.eyebrow} title={config.title} detail={config.detail} /><SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={() => void reload()} searching={loading} count={visibleEntities.length} noun="item" />{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}{!loading && !visibleEntities.length && <Empty>{filterQuery.trim() ? `No ${config.title.toLowerCase()} items match the filter.` : "Nothing here yet."}</Empty>}<div className="card-grid">{visibleEntities.map((entity, index) => {
     const entityId = entity.id || entity.fileId;
     const title = textKey(entity, "title", "name", "originalFilename") || `Item ${entityId || index + 1}`;
-    const type = kind === "content" ? "video.content_item" : kind === "video-scripts" ? "video.script" : "files.file";
+    const type = kind === "content" ? "video.content_item" : "files.file";
     return <ObjectCard
       key={entityId || index}
       object={objectCardData({
-        id: Number(entityId), type, label: kind === "content" ? "Library item" : kind === "video-scripts" ? "Video script" : "File",
+        id: Number(entityId), type, label: kind === "content" ? "Library item" : "File",
         display: title, body: textKey(entity, "description", "summary", "contentText") || null,
         attributes: readKey(entity, "sequence") != null ? [{ label: "Sequence", value: `#${String(entity.sequence)}` }] : [],
         badges: [textKey(entity, "status", "contentStatus", "mediaKind") || config.title],
@@ -2272,6 +2412,7 @@ function JournalScreen() {
   const [serverQuery, setServerQuery] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState("all");
   const [addingTracker, setAddingTracker] = useState(false);
+  const [addingEntry, setAddingEntry] = useState(false);
   const [editingEntry, setEditingEntry] = useState<Entity | null>(null);
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
   const journalParameters = new URLSearchParams({ limit: "500" });
@@ -2325,7 +2466,7 @@ function JournalScreen() {
     else setServerQuery(nextQuery);
   };
   return <>
-    <PageHeading eyebrow="A record of lived time" title="Journal" groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={journalGroupOptions} totalCount={journalTrackers.length + journalEntries.length} disabled={loading || entriesLoading} />} actions={<button className="button" type="button" disabled={groupsLoading || Boolean(groupError)} onClick={() => setAddingTracker(true)}>Add tracker</button>} />
+    <PageHeading eyebrow="A record of lived time" title="Journal" groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={journalGroupOptions} totalCount={journalTrackers.length + journalEntries.length} disabled={loading || entriesLoading} />} actions={<><button className="button button--quiet" type="button" disabled={groupsLoading || Boolean(groupError)} onClick={() => setAddingTracker(true)}>Add tracker</button><button className="button" type="button" disabled={loading || groupsLoading || Boolean(error || groupError)} onClick={() => setAddingEntry(true)}>Add entry</button></>} />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchJournal} searching={loading || entriesLoading} count={visibleCount} noun="result" />
     {(loading || entriesLoading) && <Loading />}
     {error && <ErrorState error={error} retry={reloadJournal} />}
@@ -2381,6 +2522,13 @@ function JournalScreen() {
       groups={groupData?.groups || []}
       initialGroupId={selectedGroupId === "all" ? undefined : Number(selectedGroupId)}
       onClose={() => setAddingTracker(false)}
+      onChanged={reloadJournal}
+    />}
+    {addingEntry && <JournalEntryEditor
+      trackers={journalTrackers}
+      groups={groupData?.groups || []}
+      initialTrackerId={selectedGroupId === "all" ? undefined : Number(visibleTrackers[0]?.id)}
+      onClose={() => setAddingEntry(false)}
       onChanged={reloadJournal}
     />}
     {editingEntry && <JournalEntryEditor entry={editingEntry} onClose={() => setEditingEntry(null)} onChanged={reloadJournal} />}
@@ -3318,7 +3466,6 @@ function Workspace() {
   else if (view === "payments") screen = <PaymentsScreen />;
   else if (view === "account") screen = <AccountScreen usage={<UsageScreen />} />;
   else if (view === "content") screen = <LibraryScreen />;
-  else if (view === "video-scripts") screen = <VideoScriptsScreen />;
   else if (view === "files") screen = <FilesScreen />;
   else if (view === "music") screen = <MusicScreen player={musicPlayer} />;
   else if (view === "correspondence") screen = <CorrespondenceScreen />;

@@ -395,19 +395,29 @@ interface JournalEntryDraft {
   occurredAt: string;
 }
 
-export function JournalEntryEditor({ entry, onClose, onChanged }: {
-  entry: Entity;
+export function JournalEntryEditor({ entry, trackers = [], groups = [], initialTrackerId, onClose, onChanged }: {
+  entry?: Entity;
+  trackers?: Entity[];
+  groups?: Entity[];
+  initialTrackerId?: number;
   onClose: () => void;
   onChanged: Changed;
 }) {
+  const creating = entry == null;
+  const defaultTracker = trackers.find((tracker) => Number(tracker.id) === initialTrackerId) || trackers[0];
+  const [trackerId, setTrackerId] = useState(defaultTracker ? String(defaultTracker.id) : "new");
+  const [trackerName, setTrackerName] = useState("");
+  const [trackerUnit, setTrackerUnit] = useState("");
+  const [groupName, setGroupName] = useState(String(groups[0]?.name || "General"));
   const [draft, setDraft] = useState<JournalEntryDraft>({
-    contentText: String(entry.contentText || ""),
-    numberValue: entry.numberValue == null ? "" : String(entry.numberValue),
-    occurredAt: localDateTimeValue(String(entry.occurredAtUtc || "")),
+    contentText: String(entry?.contentText || ""),
+    numberValue: entry?.numberValue == null ? "" : String(entry.numberValue),
+    occurredAt: localDateTimeValue(String(entry?.occurredAtUtc || new Date().toISOString())),
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const trackerName = String(entry.trackerName || "Journal");
+  const selectedTracker = trackers.find((tracker) => String(tracker.id) === trackerId);
+  const displayTrackerName = String(entry?.trackerName || selectedTracker?.name || trackerName || "Journal");
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -419,9 +429,17 @@ export function JournalEntryEditor({ entry, onClose, onChanged }: {
     setSaving(true);
     setError("");
     try {
-      await api(`/api/journal-entries/${Number(entry.id)}`, {
-        method: "PATCH",
-        body: JSON.stringify({
+      await api(creating ? "/api/journal-entries" : `/api/journal-entries/${Number(entry.id)}`, {
+        method: creating ? "POST" : "PATCH",
+        body: JSON.stringify(creating ? {
+          trackerId: trackerId === "new" ? null : Number(trackerId),
+          trackerName: trackerId === "new" ? trackerName : null,
+          groupName: trackerId === "new" ? groupName : null,
+          trackerUnit: trackerId === "new" ? trackerUnit : null,
+          contentText: draft.contentText,
+          numberValue,
+          occurredAtUtc: localDateTimeIso(draft.occurredAt),
+        } : {
           version: String(entry.version || ""),
           contentText: draft.contentText,
           numberValue,
@@ -431,22 +449,33 @@ export function JournalEntryEditor({ entry, onClose, onChanged }: {
       await onChanged();
       onClose();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not update the journal entry.");
+      setError(caught instanceof Error ? caught.message : `Could not ${creating ? "create" : "update"} the journal entry.`);
     } finally {
       setSaving(false);
     }
   };
 
-  return <EditorFrame title={`Edit ${trackerName} journal entry`} onClose={onClose}>
+  return <EditorFrame title={creating ? "Add journal entry" : `Edit ${displayTrackerName} journal entry`} onClose={onClose}>
     <form onSubmit={(event) => void save(event)}>
-      <header className="object-editor-heading"><div><p className="eyebrow">Journal</p><h2>Edit {trackerName} entry</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
+      <header className="object-editor-heading"><div><p className="eyebrow">Journal</p><h2>{creating ? "Add entry" : `Edit ${displayTrackerName} entry`}</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
+      {creating && <>
+        <label>Tracker<select value={trackerId} onChange={(event) => setTrackerId(event.target.value)}>
+          {trackers.map((tracker) => <option value={String(tracker.id)} key={String(tracker.id)}>{String(tracker.name)} · {String(tracker.groupName || "General")}</option>)}
+          <option value="new">Create a new tracker…</option>
+        </select></label>
+        {trackerId === "new" && <div className="object-editor-grid">
+          <label>Tracker name<input required maxLength={200} value={trackerName} onChange={(event) => setTrackerName(event.target.value)} /></label>
+          <label>Canonical unit<input required maxLength={100} placeholder="kg, reps, out of 10, occurrence…" value={trackerUnit} onChange={(event) => setTrackerUnit(event.target.value)} /></label>
+          <label>Group<input required list="journal-entry-groups" maxLength={200} value={groupName} onChange={(event) => setGroupName(event.target.value)} /><datalist id="journal-entry-groups">{groups.map((group) => <option key={String(group.id)} value={String(group.name)} />)}</datalist></label>
+        </div>}
+      </>}
       <label>Entry<textarea autoFocus required rows={6} maxLength={10_000} value={draft.contentText} onChange={(event) => setDraft({ ...draft, contentText: event.target.value })} /></label>
       <div className="object-editor-grid">
         <label>Occurred<input required type="datetime-local" step="1" value={draft.occurredAt} onChange={(event) => setDraft({ ...draft, occurredAt: event.target.value })} /></label>
-        <label>Numeric value <span className="field-hint">Optional{entry.trackerUnit ? ` · ${String(entry.trackerUnit)}` : ""}</span><input type="number" step="any" value={draft.numberValue} onChange={(event) => setDraft({ ...draft, numberValue: event.target.value })} /></label>
+        <label>Numeric value <span className="field-hint">Optional{(entry?.trackerUnit || selectedTracker?.unit) ? ` · ${String(entry?.trackerUnit || selectedTracker?.unit)}` : ""}</span><input type="number" step="any" value={draft.numberValue} onChange={(event) => setDraft({ ...draft, numberValue: event.target.value })} /></label>
       </div>
       {error && <p className="inline-error" role="alert">{error}</p>}
-      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={saving || !draft.contentText.trim() || !draft.occurredAt}>{saving ? "Saving…" : "Save entry"}</button></footer>
+      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={saving || !draft.contentText.trim() || !draft.occurredAt || (creating && trackerId === "new" && (!trackerName.trim() || !trackerUnit.trim() || !groupName.trim()))}>{saving ? "Saving…" : creating ? "Add entry" : "Save entry"}</button></footer>
     </form>
   </EditorFrame>;
 }
@@ -612,6 +641,13 @@ export function CalendarEventEditor({ eventId, recurring = false, initialDate, o
   const [loading, setLoading] = useState(!creating);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [contacts, setContacts] = useState<Entity[]>([]);
+  const [contactId, setContactId] = useState("");
+  const [contactRole, setContactRole] = useState("attendee");
+  const [selectedInviteContactIds, setSelectedInviteContactIds] = useState<number[]>([]);
+  const [relationBusy, setRelationBusy] = useState(false);
+  const [relationStatus, setRelationStatus] = useState("");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   useEffect(() => {
     if (eventId == null) return;
     let active = true;
@@ -626,6 +662,69 @@ export function CalendarEventEditor({ eventId, recurring = false, initialDate, o
     });
     return () => { active = false; };
   }, [eventId]);
+  useEffect(() => {
+    if (creating) return;
+    let active = true;
+    void api<{ contacts: Entity[] }>("/api/contacts?scope=active&limit=10000").then(({ contacts: loaded }) => {
+      if (!active) return;
+      setContacts(loaded);
+      setContactId(String(loaded[0]?.id || ""));
+      setSelectedInviteContactIds((event?.linkedContacts || []).map(({ contactId: id }) => Number(id)));
+    }).catch((caught) => {
+      if (active) setRelationStatus(caught instanceof Error ? caught.message : String(caught));
+    });
+    return () => { active = false; };
+  }, [creating, event?.linkedContacts]);
+
+  const changeContactLink = async (selectedContactId: number, participantRole: string, linked: boolean) => {
+    if (eventId == null) return;
+    setRelationBusy(true);
+    setRelationStatus("");
+    try {
+      const result = await api<{ event: CalendarEvent }>(`/api/calendar-events/${eventId}/contact-links`, {
+        method: "PATCH",
+        body: JSON.stringify({ contactId: selectedContactId, participantRole, linked }),
+      });
+      setEvent(result.event);
+      setSelectedInviteContactIds((current) => linked
+        ? [...new Set([...current, selectedContactId])]
+        : current.filter((id) => id !== selectedContactId));
+      setRelationStatus(linked ? "Contact linked." : "Contact unlinked.");
+      await onChanged();
+    } catch (caught) {
+      setRelationStatus(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setRelationBusy(false);
+    }
+  };
+  const createInviteDraft = async () => {
+    if (eventId == null || !selectedInviteContactIds.length) return;
+    setRelationBusy(true);
+    setRelationStatus("");
+    try {
+      await api(`/api/calendar-events/${eventId}/invite-draft`, {
+        method: "POST", body: JSON.stringify({ contactIds: selectedInviteContactIds }),
+      });
+      setRelationStatus("Fastmail invitation draft created.");
+    } catch (caught) {
+      setRelationStatus(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setRelationBusy(false);
+    }
+  };
+  const deleteEvent = async () => {
+    if (eventId == null || !event?.version) return;
+    setRelationBusy(true);
+    setRelationStatus("");
+    try {
+      await api(`/api/calendar-events/${eventId}`, { method: "DELETE", body: JSON.stringify({ version: event.version }) });
+      await onChanged();
+      onClose();
+    } catch (caught) {
+      setRelationStatus(caught instanceof Error ? caught.message : String(caught));
+      setRelationBusy(false);
+    }
+  };
 
   const save = async (submitEvent: FormEvent) => {
     submitEvent.preventDefault();
@@ -729,9 +828,27 @@ export function CalendarEventEditor({ eventId, recurring = false, initialDate, o
         <label>Notes (optional)<textarea rows={4} value={draft.description} onChange={(change) => setDraft({ ...draft, description: change.target.value })} /></label>
         <RecurrenceEditor value={draft.recurrence} onChange={(recurrence) => setDraft({ ...draft, recurrence })} />
         <label>Status<select value={draft.status} onChange={(change) => setDraft({ ...draft, status: change.target.value })}><option value="active">Active</option><option value="archived">Archived</option></select></label>
+        {!creating && !isRecurring && <section className="object-editor-related" aria-labelledby="calendar-contact-links-heading">
+          <h3 id="calendar-contact-links-heading">Contacts and invitations</h3>
+          {(event?.linkedContacts || []).map((link) => <div className="object-editor-related-row" key={`${link.contactId}-${link.participantRole}`}>
+            <label><input type="checkbox" checked={selectedInviteContactIds.includes(Number(link.contactId))} onChange={(change) => setSelectedInviteContactIds((current) => change.target.checked ? [...new Set([...current, Number(link.contactId)])] : current.filter((id) => id !== Number(link.contactId)))} /> Invite</label>
+            <span>{link.displayName} · {String(link.participantRole || "other").replaceAll("_", " ")}</span>
+            <button className="button button--quiet" type="button" disabled={relationBusy} onClick={() => void changeContactLink(Number(link.contactId), String(link.participantRole || "other"), false)}>Remove</button>
+          </div>)}
+          <details><summary>Choose invitation recipients · {selectedInviteContactIds.length} selected</summary><div className="contact-editor-tags">{contacts.filter((contact) => !contact.isSelf && ((contact.methods as Entity[] | undefined) || []).some((method) => method.kind === "email" && method.canReceive !== false)).map((contact) => <label key={String(contact.id)}><input type="checkbox" checked={selectedInviteContactIds.includes(Number(contact.id))} onChange={(change) => setSelectedInviteContactIds((current) => change.target.checked ? [...new Set([...current, Number(contact.id)])] : current.filter((id) => id !== Number(contact.id)))} />{String(contact.displayName)}</label>)}</div></details>
+          <div className="object-editor-related-add">
+            <label>Contact<select value={contactId} onChange={(change) => setContactId(change.target.value)}>{contacts.map((contact) => <option key={String(contact.id)} value={String(contact.id)}>{String(contact.displayName)}</option>)}</select></label>
+            <label>Role<select value={contactRole} onChange={(change) => setContactRole(change.target.value)}><option value="organizer">Organizer</option><option value="attendee">Attendee</option><option value="customer">Customer</option><option value="other">Other</option></select></label>
+            <button className="button button--quiet" type="button" disabled={relationBusy || !contactId} onClick={() => void changeContactLink(Number(contactId), contactRole, true)}>Link contact</button>
+            <button className="button button--quiet" type="button" disabled={relationBusy || !selectedInviteContactIds.length} onClick={() => void createInviteDraft()}>Create Fastmail draft</button>
+          </div>
+        </section>}
+        {!creating && isRecurring && <p className="object-editor-note">Contact roles and invitation drafts are available on concrete, non-recurring events, not on the recurring series.</p>}
       </>}
       {error && <p className="inline-error" role="alert">{error}</p>}
-      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={!draft || saving}>{saving ? "Saving..." : creating ? "Add event" : "Save event"}</button></footer>
+      {relationStatus && <p className="account-tool-refresh-status" role="status">{relationStatus}</p>}
+      {confirmingDelete && event && <section className="group-delete-confirmation" role="alertdialog" aria-label="Confirm calendar event deletion"><p>Permanently delete {event.title}? This cannot be undone.</p><div><button className="button button--quiet" type="button" onClick={() => setConfirmingDelete(false)}>Cancel</button><button className="button button--danger" type="button" onClick={() => void deleteEvent()}>Delete permanently</button></div></section>}
+      <footer className="object-editor-actions">{!creating && !confirmingDelete && <button className="button button--danger" type="button" disabled={relationBusy} onClick={() => setConfirmingDelete(true)}>Delete permanently</button>}<button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={!draft || saving || confirmingDelete}>{saving ? "Saving..." : creating ? "Add event" : "Save event"}</button></footer>
     </form>
   </EditorFrame>;
 }
@@ -990,6 +1107,7 @@ interface TodoDraft {
   status: string;
   billableAmount: string;
   billableCurrency: string;
+  relatedContactId: string;
 }
 
 function currencyDigits(currency: string): number {
@@ -1029,6 +1147,7 @@ export function TodoEditor({ todoId: id, suppliedGroups, initialGroupId, onClose
 }) {
   const [todo, setTodo] = useState<Entity | null>(null);
   const [groups, setGroups] = useState<Entity[]>(suppliedGroups || []);
+  const [contacts, setContacts] = useState<Entity[]>([]);
   const [draft, setDraft] = useState<TodoDraft | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1041,11 +1160,13 @@ export function TodoEditor({ todoId: id, suppliedGroups, initialGroupId, onClose
     const todoRequest = id == null
       ? Promise.resolve({ todo: null })
       : api<{ todo: Entity }>(`/api/todos/${id}`);
-    void Promise.all([todoRequest, groupRequest]).then(([todoBody, groupBody]) => {
+    const contactRequest = api<{ contacts: Entity[] }>("/api/contacts?scope=all&limit=10000");
+    void Promise.all([todoRequest, groupRequest, contactRequest]).then(([todoBody, groupBody, contactBody]) => {
       if (!active) return;
       const current = todoBody.todo;
       setTodo(current);
       setGroups(groupBody.groups);
+      setContacts(contactBody.contacts);
       const selectedGroup = groupBody.groups.find((group) => Number(group.id) === initialGroupId)
         ?? groupBody.groups.find((group) => String(group.name).toLowerCase() === "inbox")
         ?? groupBody.groups[0];
@@ -1059,6 +1180,7 @@ export function TodoEditor({ todoId: id, suppliedGroups, initialGroupId, onClose
           Number(current.billableAmountMinor) / (10 ** currencyDigits(String(current.billableCurrency || "USD"))),
         ),
         billableCurrency: String(current?.billableCurrency || "USD"),
+        relatedContactId: current?.relatedContactId == null ? "" : String(current.relatedContactId),
       });
     }).catch((caught) => {
       if (active) setError(caught instanceof Error ? caught.message : String(caught));
@@ -1084,6 +1206,7 @@ export function TodoEditor({ todoId: id, suppliedGroups, initialGroupId, onClose
           groupId: Number(draft.groupId),
           sequence: draft.sequence ? Number(draft.sequence) : null,
           status: draft.status,
+          relatedContactId: draft.relatedContactId ? Number(draft.relatedContactId) : null,
           ...price,
         }),
       });
@@ -1107,6 +1230,7 @@ export function TodoEditor({ todoId: id, suppliedGroups, initialGroupId, onClose
         <div className="object-editor-grid">
           <label>Group<select required value={draft.groupId} onChange={(change) => setDraft({ ...draft, groupId: change.target.value })}>{groups.map((group) => <option key={String(group.id)} value={String(group.id)}>{String(group.name)}</option>)}</select></label>
           <label>Sequence<input type="number" min={1} step={1} value={draft.sequence} onChange={(change) => setDraft({ ...draft, sequence: change.target.value })} /></label>
+          <label>Related contact<select value={draft.relatedContactId} onChange={(change) => setDraft({ ...draft, relatedContactId: change.target.value })}><option value="">No related contact</option>{contacts.map((contact) => <option value={String(contact.id)} key={String(contact.id)}>{String(contact.displayName)}{contact.status && contact.status !== "active" ? ` (${String(contact.status)})` : ""}</option>)}</select></label>
         </div>
         <div className="object-editor-grid">
           <label>Billable amount<input inputMode="decimal" placeholder="125.00" value={draft.billableAmount} onChange={(change) => setDraft({ ...draft, billableAmount: change.target.value })} /></label>

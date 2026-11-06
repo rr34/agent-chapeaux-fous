@@ -9,22 +9,15 @@ export function createStaticHandler(config) {
     ["/logo-chapeaux-fous-1200-square-transparent.png", ["logo-chapeaux-fous-1200-square-transparent.png", "image/png"]],
     ["/app", [path.join(uiRoot, "index.html"), "text/html; charset=utf-8"]],
     ["/app/", [path.join(uiRoot, "index.html"), "text/html; charset=utf-8"]],
-    ["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
     ["/ai-usage.js", ["ai-usage.js", "text/javascript; charset=utf-8"]],
-    ["/calendar-grid.js", ["calendar-grid.js", "text/javascript; charset=utf-8"]],
     ["/event-date-time.js", ["event-date-time.js", "text/javascript; charset=utf-8"]],
     ["/presentation-format.js", ["presentation-format.js", "text/javascript; charset=utf-8"]],
-    ["/timing-editor.js", ["timing-editor.js", "text/javascript; charset=utf-8"]],
-    ["/markdown.js", ["markdown.js", "text/javascript; charset=utf-8"]],
-    ["/styles.css", ["styles.css", "text/css; charset=utf-8"]],
     ["/manifest.webmanifest", ["manifest.webmanifest", "application/manifest+json"]],
     ["/service-worker.js", ["service-worker.js", "text/javascript; charset=utf-8"]],
     ["/favicon.png", ["favicon.png", "image/png"]],
     ["/icon.svg", ["icon.svg", "image/svg+xml"]],
     ["/hats.svg", ["hats.svg", "image/svg+xml"]],
     ["/logo-outline-hat.svg", ["logo-outline-hat.svg", "image/svg+xml"]],
-    ["/vendor/dompurify.js", [path.join(config.repositoryRoot, "node_modules", "dompurify", "dist", "purify.es.mjs"), "text/javascript; charset=utf-8"]],
-    ["/vendor/marked.js", [path.join(config.repositoryRoot, "node_modules", "marked", "lib", "marked.esm.js"), "text/javascript; charset=utf-8"]],
   ]);
 
   const contentTypes = new Map([

@@ -12,13 +12,13 @@ test("the React to-do page starts with open tasks and opts into completed tasks"
   assert.match(appSource, /const scope = showCompleted \? "all" : "active"/);
   assert.match(appSource, /todo\.status === "todo" \|\| todo\.status === "ai_suggested" \|\| \(showCompleted && todo\.status === "complete"\)/);
   assert.match(appSource, />Show completed<\/label>/);
-  assert.match(appSource, /<SectionFilter[^>]*controls=\{<label className="todo-completed-filter"/);
+  assert.match(appSource, /<SectionFilter[^>]*controls=\{<>[\s\S]*<label className="todo-completed-filter"/);
   assert.match(styles, /\.todo-completed-filter input \{[^}]*width: 24px;[^}]*height: 24px;/);
 });
 
 test("the React to-do page opens the full editor from one add button", () => {
   assert.match(appSource, /const \[addingTodo, setAddingTodo\] = useState\(false\)/);
-  assert.match(appSource, /actions=\{<>\s*<button className="button" type="button" onClick=\{\(\) => setAddingTodo\(true\)\}>Add to-do<\/button>/);
+  assert.match(appSource, /onClick=\{\(\) => setAddingTodo\(true\)\}>Add to-do<\/button>/);
   assert.match(appSource, /\{addingTodo && <TodoEditor/);
   assert.doesNotMatch(appSource, /placeholder="Add a task"/);
   assert.match(editableItemsSource, /todoId\?: number/);
@@ -66,7 +66,7 @@ test("the React to-do page can filter its visible tasks by group", () => {
 });
 
 test("to-do cards use the workspace-wide Agent selection instead of a section-only batch bar", () => {
-  assert.doesNotMatch(appSource, /Select all visible|Reference selected in Agent/);
+  assert.doesNotMatch(appSource, /Reference selected in Agent/);
   assert.match(appSource, /<TodoItem[\s\S]*?todo=\{todo\}[\s\S]*?onChanged=\{reload\}/);
   assert.match(appSource, /<ObjectSelectionProvider selections=\{agentObjectSelections\}/);
   assert.match(styles, /\.object-selection-checkbox \{[^}]*width: 17px;[^}]*height: 17px;/);
@@ -107,8 +107,8 @@ test("each React to-do card moves that item within its group by one step or to e
   assert.match(appSource, /nextTodoIds\.splice\(targetIndex, 0, todoId\)/);
   assert.match(appSource, /api\(`\/api\/todo-groups\/\$\{groupId\}\/reorder`/);
   assert.match(appSource, /JSON\.stringify\(\{ orderedTodoIds: nextTodoIds \}\)/);
-  assert.match(appSource, /<TodoItem[\s\S]*cardControls=\{group\.groupId != null \? <TodoPriorityControls/);
-  assert.doesNotMatch(appSource, /<TodoGroupCard[\s\S]*details=\{<div className="todo-group-management"><TodoPriorityControls/);
+  assert.match(appSource, /<TodoItem[\s\S]*cardControls=\{group\.groupId != null \? <>[\s\S]*<TodoPriorityControls/);
+  assert.match(appSource, /<TodoGroupCard[\s\S]*details=\{<div className="todo-group-management"><TodoPriorityControls/);
   assert.match(styles, /\.todo-priority-controls/);
   assert.match(styles, /\.todo-priority-button/);
 });

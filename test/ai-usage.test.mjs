@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import fs from "node:fs";
-import vm from "node:vm";
 import { aiEntryCost, normalizePricing, normalizePricingBook, pricingForTier,
   summarizeAiUsage, llmCallCountForUsage, llmCallCountLabel, usageFromTrace } from "../public/ai-usage.js";
 import { Ledger } from "../src/ledger.mjs";
@@ -61,49 +59,6 @@ test("totals count a usage event once and ignore historical cost estimates", () 
   assert.deepEqual(summarizeAiUsage([entry], null), { cost: null, tokens: 1000000 });
   assert.deepEqual(summarizeAiUsage([], null), { cost: null, tokens: 0 });
   assert.deepEqual(summarizeAiUsage([entry, { ...entry, eventSeq: 4 }], prices), { cost: 2, tokens: 2000000 });
-});
-
-test("saving and clearing prices on the screen immediately recalculates response estimates", () => {
-  const app = fs.readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
-  const saved = new Map();
-  const handlers = {};
-  const display = { dataset: { usage: JSON.stringify({ provider: "openai", estimatedCostUsd: 99,
-    tokenUsage: { inputTokens: 1000000, outputTokens: 0, totalTokens: 1000000 } }) } };
-  const elements = {
-    aiPricingForm: { addEventListener: (name, callback) => { handlers.submit = callback; } },
-    resetAiPricing: { addEventListener: (name, callback) => { handlers.clear = callback; } },
-    aiUsageStatus: {}, aiInputPrice: { value: "" }, aiCachedInputPrice: { value: "" },
-    aiCacheWritePrice: { value: "" }, aiOutputPrice: { value: "" },
-  };
-  const context = vm.createContext({
-    normalizePricing, normalizePricingBook, pricingForTier, aiEntryCost, elements, aiPricingStorageKey: "test-prices",
-    localStorage: { getItem: key => saved.get(key) ?? null,
-      setItem: (key, value) => saved.set(key, value), removeItem: key => saved.delete(key) },
-    window: { addEventListener: (name, callback) => { handlers.storage = callback; } },
-    requestNodes: new Map([["request", { querySelector: () => display }]]),
-    setTextContent: (node, text) => { node.textContent = text; }, renderAiUsage() {},
-    formatUsd: value => `$${value.toFixed(2)}`,
-  });
-  vm.runInContext(app.slice(app.indexOf("function requestUsageLabel("), app.indexOf("\nfunction renderRequestSteps(")), context);
-  vm.runInContext(app.slice(app.indexOf("function storedAiPricing("), app.indexOf("\nfunction meteredAiEntry(")), context);
-  vm.runInContext(app.slice(app.indexOf('elements.aiPricingForm.addEventListener("submit",'),
-    app.indexOf('elements.closeTrace.addEventListener')), context);
-  assert.equal(context.storedAiPricing(prices), null, "A fallback rate card must never be used");
-  handlers.submit({ preventDefault() {} });
-  assert.equal(saved.size, 0, "Blank inputs must not be saved as free pricing");
-  elements.aiInputPrice.value = "1";
-  elements.aiCachedInputPrice.value = "0.1";
-  elements.aiCacheWritePrice.value = "2";
-  elements.aiOutputPrice.value = "3";
-  handlers.submit({ preventDefault() {} });
-  assert.deepEqual(JSON.parse(saved.get("test-prices")), { unrecorded: prices });
-  assert.match(display.textContent, /^\$1.00 estimated/);
-  handlers.clear();
-  assert.equal(saved.size, 0);
-  assert.match(display.textContent, /^Set token prices/);
-  assert.doesNotMatch(display.textContent, /\$99|\$0.00/);
-  saved.set("test-prices", "invalid-json");
-  assert.equal(context.storedAiPricing(), null);
 });
 
 test("usage counts round trips, not tool calls or aggregate rows", () => {

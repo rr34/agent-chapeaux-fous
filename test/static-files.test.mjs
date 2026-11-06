@@ -67,8 +67,8 @@ test("content-hashed React assets are served only from the built UI root", async
   assert.equal(response.headers["Cache-Control"], "public, max-age=300");
 });
 
-test("static serving leaves API requests, private files, unknown paths and mutations to the server", async () => {
-  for (const url of ["/api/requests", "/.env", "/src/server.mjs", "/landing/README.md", "/../.env", "/missing"]) {
+test("static serving leaves API requests, retired legacy assets, private files, unknown paths and mutations to the server", async () => {
+  for (const url of ["/api/requests", "/app.js", "/styles.css", "/calendar-grid.js", "/timing-editor.js", "/markdown.js", "/.env", "/src/server.mjs", "/landing/README.md", "/../.env", "/missing"]) {
     const response = await request(url);
     assert.equal(response.handled, false, url);
     assert.equal(response.status, undefined, url);

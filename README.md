@@ -498,7 +498,9 @@ npm start
 The React source lives in `web/`. `npm run build:web` generates
 `public/ui/index.html` and its assets; `public/ui/` is intentionally
 gitignored and therefore must be built separately in every checkout. Local
-`npm start` also runs this build through its `prestart` hook.
+`npm start` also runs this build through its `prestart` hook. This React client
+is the only application interface retained in the repository; the earlier
+standalone browser client and its public asset routes have been removed.
 
 The test suite creates and drops isolated databases. The configured application
 account may do that locally, or `MARIADB_TEST_*` can name a separate
@@ -513,7 +515,13 @@ stores it only in that browser. The same client includes the Agent request
 feed, the calendar, the grouped to-do list, a searchable contacts address book,
 and a grouped personal journal with native entry creation. Contacts support
 people, organizations, and services with tags, birthday, notes, and stacked
-contact methods. Possible duplicates are reviewed and merged explicitly; source records
+contact methods, atomic bulk tag/deletion actions, global tag rename/merge, and
+duplicate review. Calendar event editing includes contact roles, Fastmail
+invitation drafts, archived search, and version-safe permanent deletion. To-do
+groups support creation, ordering, automatic sequence assignment, related
+contacts, and explicit calendar relationships. The Content Library exposes its
+complete group and item lifecycle, while Files supports metadata editing and
+selecting an existing stored file for an Agent request. Possible duplicates are reviewed and merged explicitly; source records
 remain as logically deleted inactive history so existing references are preserved without
 appearing in ordinary agent search, context, or action targets. Stored birthdays
 continue to appear on the calendar. Agent requests may include one PDF, JPEG, PNG,
@@ -888,7 +896,9 @@ controls which exact tool schemas are callable.
   safe replay without source-specific application code.
   The React Journal screen's **Add tracker** action opens a tracker editor for
   the name, canonical unit, and existing or new group; saving creates the
-  tracker without inventing an initial observation.
+  tracker without inventing an initial observation. **Add entry** records an
+  observation against an existing tracker or creates its tracker and group in
+  the same native journal operation.
 - `contact_file_import` parses a complete attached CSV or vCard/VCF directly,
   importing up to 10,000 contacts in one transaction without asking the model
   to reproduce every row. The model maps CSV headers from a bounded preview;
@@ -1166,8 +1176,8 @@ Long generated speech is split into bounded provider calls and reassembled as
 one WAV track. Dialogue is never silently ellipsized: a message over 20,000
 characters or production over 60,000 fails with an explicit error before the
 render begins.
-Server-generated speech is explicitly disclosed as AI-generated in both the
-Video Scripts page and the finished video. The Remotion composition is a
+Server-generated speech is explicitly disclosed as AI-generated in the
+finished video. The Remotion composition is a
 designed reproduction of the actual Agent chat bubbles—not a claim that the
 product captured a screen recording.
 
@@ -1179,14 +1189,10 @@ token indexes. Long-message scrolling follows the spoken token against the
 browser-measured text height so the active final line is not left partially
 below the bubble viewport.
 
-The **Video Scripts** page remains the durable home for the portable script and
-external-generator prompt. It also shows the linked background state, polls
-while work is active, downloads completed MP4s, and can retry failed renders.
-Once an MP4 is complete, its title is a clickable stable reference that places
-the video script, render job, and output-file IDs in the Agent composer. The
-same card's **Add this video to content sequence** action lists active content
-groups and appends the video with the next sequence number in the selected
-group. The UI and Agent-callable `video_content_add` operation share the same
+Video production remains a server/agent capability for retained workflows but
+has no dedicated React navigation surface. Completed output files and content
+items remain available through Files, Content Library, and their stable object
+references. The Agent-callable `video_content_add` operation retains the same
 idempotent application workflow: the content item owns the rendered file and
 exact script, while the video job records the resulting content item.
 

@@ -6,7 +6,8 @@ const appSource = fs.readFileSync(new URL("../web/src/App.tsx", import.meta.url)
 const serverSource = fs.readFileSync(new URL("../src/server.mjs", import.meta.url), "utf8");
 
 test("the React workspace exposes Stripe connection status and invoice history", () => {
-  assert.match(appSource, /\["payments", "Payments"\], \["account", "Account"\],\s*\["video-scripts", "Video Scripts"\]/);
+  assert.match(appSource, /\["payments", "Payments"\], \["account", "Account"\]/);
+  assert.doesNotMatch(appSource, /\["video-scripts", "Video Scripts"\]/);
   assert.match(appSource, /function PaymentsScreen\(\)/);
   assert.match(appSource, /function CreateInvoiceEditor\(/);
   assert.match(appSource, />Create invoice<\/button>/);

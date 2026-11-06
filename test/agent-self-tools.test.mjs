@@ -152,7 +152,8 @@ test("focused self-knowledge returns facts and sources without prepared answer t
   assert.match(video.facts.join("\n"), /portable script/);
   assert.match(video.facts.join("\n"), /dedicated AI video generator/);
   assert.match(video.facts.join("\n"), /two outputs of the same production workflow/);
-  assert.match(videoForUser.facts.join("\n"), /two main clicks/);
+  assert.match(videoForUser.facts.join("\n"), /without a dedicated React navigation item or production screen/);
+  assert.doesNotMatch(videoForUser.facts.join("\n"), /Video Scripts/);
   assert.match(videoForUser.facts.join("\n"), /Background render time is variable/);
   assert.equal(Object.hasOwn(video, "answer"), false);
   assert.doesNotMatch(JSON.stringify([identity, interaction, awareness, takeover, video, videoForUser]), /\b(?:playful|persona)\b/iu);
