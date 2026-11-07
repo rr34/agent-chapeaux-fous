@@ -551,7 +551,9 @@ writable sections when empty.
 On screen, each calendar event owns its linked reusable to-do cards and their
 relationship labels instead of duplicating them in a separate to-do column.
 The paper shows the selected Monday-to-Sunday week followed by the next week.
-The calendar contains only events and retains blank writing space in each day.
+The calendar contains only events. Each seven-day row grows to its busiest day
+and reserves at least three additional event-row heights of blank space below
+it, giving every day in that week matching writing room.
 Below it, a full-width **To-do lists** section contains every distinct task
 linked to an event in the headed week followed by pinned groups, without
 repeating those scheduled tasks inside their pinned groups. The print preview

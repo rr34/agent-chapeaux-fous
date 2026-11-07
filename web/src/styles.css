@@ -712,11 +712,11 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-range { flex: 0 0 auto; text-align: right; }
 .paper-range span { display: block; color: #70776b; font-size: 6.5pt; text-transform: uppercase; letter-spacing: .12em; }
 .paper-range strong { font: 600 10pt "Newsreader", Georgia, serif; }
-.two-week-grid--compact { gap: .035in; margin-bottom: .16in; }
+.two-week-grid--compact { --calendar-three-blank-rows: .54in; gap: .035in; margin-bottom: .16in; }
 .two-week-grid--compact .weekdays, .two-week-grid--compact .calendar-cells { gap: .035in; }
 .two-week-grid--compact .calendar-cells { grid-auto-rows: minmax(1.15in, auto); align-items: stretch; }
 .two-week-grid--compact .weekdays span { padding: 0 .04in .02in; font-size: 5.8pt; }
-.two-week-grid--compact .calendar-cell { min-height: 1.15in; aspect-ratio: auto; overflow: visible; padding: .045in .045in .15in; border-radius: .035in; }
+.two-week-grid--compact .calendar-cell { min-height: 1.15in; aspect-ratio: auto; overflow: visible; padding: .045in .045in calc(.045in + var(--calendar-three-blank-rows)); border-radius: .035in; }
 .two-week-grid--compact .calendar-cell-header { padding-bottom: .025in; }
 .two-week-grid--compact .calendar-cell-header span { font-size: 5.4pt; }
 .two-week-grid--compact .calendar-cell-header strong { font-size: 10pt; }

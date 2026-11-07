@@ -85,7 +85,8 @@ test("screen calendar stays bounded while printable calendar rows grow with thei
   assert.match(styles, /\.two-week-grid--compact \.calendar-cells \{[^}]*grid-auto-rows: minmax\(1\.15in, auto\);[^}]*align-items: stretch;/);
   assert.match(styles, /\.two-week-grid--compact \.calendar-cell \{[^}]*min-height: 1\.15in;/);
   assert.match(styles, /\.two-week-grid--compact \.calendar-cell \{[^}]*aspect-ratio: auto;[^}]*overflow: visible;/);
-  assert.match(styles, /\.two-week-grid--compact \.calendar-cell \{[^}]*padding: \.045in \.045in \.15in;/);
+  assert.match(styles, /\.two-week-grid--compact \{[^}]*--calendar-three-blank-rows: \.54in;/);
+  assert.match(styles, /\.two-week-grid--compact \.calendar-cell \{[^}]*padding: \.045in \.045in calc\(\.045in \+ var\(--calendar-three-blank-rows\)\);/);
   assert.match(calendarSource, /compact \? orderedEvents : orderedEvents\.slice\(0, eventLimit\)/);
   assert.match(calendarSource, /day\.events\.length > visibleEvents\.length/);
 });
