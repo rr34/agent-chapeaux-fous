@@ -669,11 +669,8 @@ type RunLimits = {
 };
 
 type PendingRequestAttachment = {
-  file: File | null;
+  file: File;
   storedFileId: number | null;
-  name: string;
-  size: number;
-  mediaKind: string;
 };
 
 const requestAttachmentAccept = [
@@ -749,8 +746,6 @@ function AgentComposer({
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [pendingRunLimits, setPendingRunLimits] = useState<RunLimits | null>(null);
   const [attachments, setAttachments] = useState<PendingRequestAttachment[]>([]);
-  const { data: storedFileData } = useApi<{ files: Entity[] }>("/api/files?limit=500");
-  const [storedFileId, setStoredFileId] = useState("");
   const [attachmentStatus, setAttachmentStatus] = useState("");
   const [runLimitsOpen, setRunLimitsOpen] = useState(false);
   const [resettingConversation, setResettingConversation] = useState(false);
@@ -1072,7 +1067,7 @@ function AgentComposer({
           referencedRequestId ? [] : [selection],
       );
       let resolvedAttachments = attachments;
-      const pendingUploads = attachments.filter((entry): entry is PendingRequestAttachment & { file: File } => entry.storedFileId === null && entry.file !== null);
+      const pendingUploads = attachments.filter(({ storedFileId }) => storedFileId === null);
       if (pendingUploads.length) {
         setAttachmentStatus(`Uploading ${pendingUploads.length} ${pendingUploads.length === 1 ? "file" : "files"}…`);
         const uploaded = await Promise.all(pendingUploads.map(async ({ file }) => ({
@@ -1089,7 +1084,7 @@ function AgentComposer({
         const uploadedByFile = new Map(uploaded.map(({ file, result }) => [file, result.fileId]));
         resolvedAttachments = attachments.map((entry) => ({
           ...entry,
-          storedFileId: entry.storedFileId ?? (entry.file ? uploadedByFile.get(entry.file) : null) ?? null,
+          storedFileId: entry.storedFileId ?? uploadedByFile.get(entry.file) ?? null,
         }));
         setAttachments(resolvedAttachments);
         setAttachmentStatus(`Uploaded ${attachments.length} ${attachments.length === 1 ? "file" : "files"}. Submitting request…`);
@@ -1165,7 +1160,7 @@ function AgentComposer({
       setSubmitError(new Error("Multiple attachments must all be MP3 files."));
       return;
     }
-    setAttachments(selected.map((file) => ({ file, storedFileId: null, name: file.name, size: file.size, mediaKind: file.name.toLowerCase().endsWith(".mp3") ? "audio" : "other" })));
+    setAttachments(selected.map((file) => ({ file, storedFileId: null })));
     setAttachmentStatus("");
     setSubmitError(null);
   };
@@ -1175,20 +1170,6 @@ function AgentComposer({
     setAttachmentStatus("");
     if (fileInput.current) fileInput.current.value = "";
   };
-  const attachStoredFile = () => {
-    const file = (storedFileData?.files || []).find((candidate) => String(candidate.fileId || candidate.id) === storedFileId);
-    if (!file) return;
-    const mediaKind = textKey(file, "mediaKind") || "document";
-    if (attachments.length && (mediaKind !== "audio" || attachments.some((entry) => entry.mediaKind !== "audio"))) {
-      setSubmitError(new Error("Multiple attachments must all be MP3 audio files."));
-      return;
-    }
-    const id = Number(file.fileId || file.id);
-    setAttachments((current) => [...current.filter((entry) => entry.storedFileId !== id), { file: null, storedFileId: id, name: textKey(file, "title", "originalFilename") || `File ${id}`, size: Number(file.byteSize || 0), mediaKind }]);
-    setAttachmentStatus(`Attached stored file #${id}.`);
-    setSubmitError(null);
-  };
-
   return <><form ref={composer} className={`composer${isRecording ? " recording" : ""}${composerExpanded ? " expanded" : ""}`} onSubmit={submit}>
     {selectionNotice && <div className="composer-feedback" role="status">{selectionNotice}</div>}
     {recordingStatus && <div className="composer-feedback recording-status" role="status">{recordingStatus}</div>}
@@ -1230,14 +1211,12 @@ function AgentComposer({
       </button>
     </div>}
     {!isRecording && attachments.length > 0 && <div className="composer-attachment-summary" role="status">
-      <span title={attachments.map(({ name }) => name).join("\n")}><strong>{attachments.length === 1 ? attachments[0].name : `${attachments.length} MP3 files`}</strong> · {attachmentSize(attachments.reduce((total, { size }) => total + size, 0))}</span>
+      <span title={attachments.map(({ file }) => file.name).join("\n")}><strong>{attachments.length === 1 ? attachments[0].file.name : `${attachments.length} MP3 files`}</strong> · {attachmentSize(attachments.reduce((total, { file }) => total + file.size, 0))}</span>
       <button className="button button--quiet" type="button" disabled={sending} onClick={removeAttachments} aria-label="Remove attached files">Remove</button>
     </div>}
     <div className="composer-input-row">
       {isRecording && <button className="button button--quiet cancel-recording" type="button" onClick={cancelRecording} aria-label="Cancel recording" title="Cancel recording"><span aria-hidden="true">×</span><span>Cancel</span></button>}
       {!isRecording && <>
-        <select className="composer-existing-file" aria-label="Previously stored file" value={storedFileId} onChange={(event) => setStoredFileId(event.target.value)}><option value="">Stored file…</option>{(storedFileData?.files || []).filter((file) => ["document", "image", "audio"].includes(textKey(file, "mediaKind"))).map((file) => <option value={String(file.fileId || file.id)} key={String(file.fileId || file.id)}>#{String(file.fileId || file.id)} {textKey(file, "title", "originalFilename")}</option>)}</select>
-        <button className="button button--quiet" type="button" disabled={!storedFileId || sending} onClick={attachStoredFile}>Attach stored</button>
         <button
           className={`composer-attachment-button${attachments.length ? " selected" : ""}`}
           type="button"

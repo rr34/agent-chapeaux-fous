@@ -54,7 +54,8 @@ test("React Library and Files expose their retained lifecycle operations", () =>
   assert.match(app, /method: "DELETE"/);
   assert.match(app, /Open content/);
   assert.match(app, /FileMetadataEditor/);
-  assert.match(app, /Attach stored/);
+  assert.doesNotMatch(app, /Attach stored/);
+  assert.match(app, /genericEntityIdentity\("files", file\)/);
   assert.match(app, /method: "PATCH"/);
 });
 

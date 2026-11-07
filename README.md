@@ -521,7 +521,7 @@ invitation drafts, archived search, and version-safe permanent deletion. To-do
 groups support creation, ordering, automatic sequence assignment, related
 contacts, and explicit calendar relationships. The Content Library exposes its
 complete group and item lifecycle, while Files supports metadata editing and
-selecting an existing stored file for an Agent request. Possible duplicates are reviewed and merged explicitly; source records
+stable Agent references from its file cards. Possible duplicates are reviewed and merged explicitly; source records
 remain as logically deleted inactive history so existing references are preserved without
 appearing in ordinary agent search, context, or action targets. Stored birthdays
 continue to appear on the calendar. Agent requests may include one PDF, JPEG, PNG,
