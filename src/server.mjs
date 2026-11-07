@@ -921,7 +921,7 @@ const server = http.createServer(async (request, response) => {
       const snapshotId = url.searchParams.get("snapshot");
       const snapshot = snapshotId ? dailyPaper.renderSnapshot(snapshotId) : null;
       if (snapshotId && !snapshot) {
-        sendJson(response, 404, { error: "Daily paper render snapshot is unavailable or expired" });
+        sendJson(response, 404, { error: "Weekly paper render snapshot is unavailable or expired" });
         return;
       }
       sendJson(response, 200, snapshot ?? await dailyPaper.buildWithWeather({
@@ -944,7 +944,7 @@ const server = http.createServer(async (request, response) => {
         date: generated.model.date,
         timeZone: generated.model.timeZone,
         paperSize: generated.model.paperSize,
-        eventCount: generated.model.todayEvents.length,
+        eventCount: generated.model.printCalendarDays.reduce((count, day) => count + day.events.length, 0),
         todoCount: generated.model.scheduledTodos.length + generated.model.printableTodoGroups.reduce(
           (count, group) => count + group.todos.length, 0,
         ),

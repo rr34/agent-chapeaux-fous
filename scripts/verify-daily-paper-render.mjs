@@ -51,9 +51,13 @@ const model = {
   timeZone: "America/New_York",
   paperSize: "letter",
   includeCompletedTodos: false,
-  heading: "Sunday, October 4, 2026",
+  heading: "Week 40: 28 Sep - 4 Oct 2026",
   rangeHeading: "Sep 28–Oct 11, 2026",
+  weekStartDate: "2026-09-28",
+  weekEndDate: "2026-10-04",
+  weekHeading: "Week 40: 28 Sep - 4 Oct 2026",
   calendarDays: dates,
+  printCalendarDays: dates.slice(0, 7),
   todayEvents: events,
   scheduledTodos: [
     {
@@ -198,79 +202,28 @@ try {
   if (await page.locator(".paper-todo-empty-lines").count() !== 1) {
     throw new Error("Expected one empty pinned to-do group checklist");
   }
-  if (await page.locator(".paper-calendar-event-card .calendar-event-expanded-details li").count() !== 4) {
-    throw new Error("Expected four event-owned to-dos inside their reusable calendar cards");
+  const calendarTodoCount = await page.locator(".calendar-chip-todos > span").count();
+  if (calendarTodoCount !== 14) {
+    throw new Error(`Expected every event-owned to-do beneath its weekly calendar event; received ${calendarTodoCount}`);
   }
   if (await page.locator(".paper-pinned-todos .paper-todo-card").count() !== 1) {
-    throw new Error("Expected one pinned-only to-do after the day plan");
+    throw new Error("Expected one pinned-only to-do after the scheduled weekly list");
   }
   const pinnedText = await page.locator(".paper-pinned-todos").allTextContents();
   if (pinnedText.some((text) => text.includes("Bring the annotated draft"))) {
     throw new Error("A scheduled to-do was duplicated in the pinned appendage");
   }
-  if (await page.locator(".paper-calendar-event-card").count() !== events.length) {
-    throw new Error("Expected every event to use one reusable calendar event card");
+  if (await page.locator(".paper-scheduled-todos .paper-todo-card").count() !== model.scheduledTodos.length) {
+    throw new Error("Expected every scheduled weekly to-do in the full-width list");
   }
-  if (await page.locator(".paper-event-bracket, .paper-event-connector").count() !== 0) {
-    throw new Error("Removed event brackets or connector geometry is still present");
+  if (await page.locator(".two-week-grid--compact .calendar-cell").count() !== 7) {
+    throw new Error("Expected exactly seven days in the printed calendar");
   }
-  if (await page.locator(".paper-weather-hour").count() !== 19) {
-    throw new Error("Expected a fixed hourly weather scale from 05:00 through 23:00");
+  if (await page.locator(".paper-week-page").count() !== 1) {
+    throw new Error("Expected one weekly paper document without a daily-plan page");
   }
-  if (await page.locator(".paper-weather-point").count() !== model.weather.points.length) {
-    throw new Error("Expected every forecast point on the weather timeline");
-  }
-  if (await page.locator(".paper-weather-timeline .paper-calendar-event-card").count() !== 0) {
-    throw new Error("Event cards must remain independent of the weather timeline");
-  }
-  const startTimes = await page.locator(".paper-calendar-event-card .calendar-event-time--start strong").allTextContents();
-  const endTimes = await page.locator(".paper-calendar-event-card .calendar-event-time--end strong").allTextContents();
-  if (startTimes.join("|") !== "08:00|09:00|14:00|18:00|4 Oct · 22:30") {
-    throw new Error(`Unexpected event start labels: ${startTimes.join("|")}`);
-  }
-  if (endTimes.join("|") !== "08:45|10:00|15:30|18:30|5 Oct · 00:30") {
-    throw new Error(`Unexpected event end labels: ${endTimes.join("|")}`);
-  }
-  const misplacedTimes = await page.locator(".paper-calendar-event-card").evaluateAll((cards) => cards
-    .map((card, index) => {
-      const cardBounds = card.getBoundingClientRect();
-      const start = card.querySelector(".calendar-event-time--start")?.getBoundingClientRect();
-      const end = card.querySelector(".calendar-event-time--end")?.getBoundingClientRect();
-      if (!start || !end || start.top < cardBounds.top || end.bottom > cardBounds.bottom || start.bottom >= end.top) {
-        return { index, card: cardBounds.toJSON(), start: start?.toJSON(), end: end?.toJSON() };
-      }
-      return null;
-    })
-    .filter(Boolean));
-  if (misplacedTimes.length) {
-    throw new Error(`Start and end labels were not at opposing card edges: ${JSON.stringify(misplacedTimes)}`);
-  }
-  const weatherText = await page.locator(".paper-weather-timeline").innerText();
-  if (!weatherText.includes("6°C") || !weatherText.includes("15°C") || !weatherText.includes("25%")) {
-    throw new Error(`Unexpected Celsius weather timeline: ${weatherText}`);
-  }
-  const weatherGeometry = await page.locator(".paper-weather-timeline").evaluate((timeline, points) => {
-    const bounds = timeline.getBoundingClientRect();
-    const failures = Array.from(timeline.querySelectorAll(".paper-weather-point")).map((point, index) => {
-      const pointBounds = point.getBoundingClientRect();
-      const hour = points[index].hour;
-      const expected = bounds.top + bounds.height * ((hour - 5) / 18);
-      const actual = hour === 5 ? pointBounds.top : hour === 23 ? pointBounds.bottom : pointBounds.top + pointBounds.height / 2;
-      return Math.abs(actual - expected) > 1.5 ? { hour, actual, expected } : null;
-    }).filter(Boolean);
-    return { failures, right: bounds.right };
-  }, model.weather.points);
-  if (weatherGeometry.failures.length) {
-    throw new Error(`Forecast points did not align to their fixed hours: ${JSON.stringify(weatherGeometry.failures)}`);
-  }
-  const firstCard = await page.locator(".paper-calendar-event-list > li:first-child .paper-calendar-event-card").boundingBox();
-  if (!firstCard || weatherGeometry.right >= firstCard.x) {
-    throw new Error(`Weather timeline was not isolated to the left of the event cards: ${JSON.stringify({ weatherRight: weatherGeometry.right, firstCard })}`);
-  }
-  const firstPage = await page.locator(".paper-plan-page").boundingBox();
-  const finalEventCard = await page.locator(".paper-calendar-event-list > li:last-child .paper-calendar-event-card").boundingBox();
-  if (!firstPage || !finalEventCard || finalEventCard.y + finalEventCard.height > firstPage.y + firstPage.height) {
-    throw new Error(`Event cards escaped the first physical page: ${JSON.stringify({ firstPage, finalEventCard })}`);
+  if ((await page.locator(".paper-masthead h1").textContent()) !== model.weekHeading) {
+    throw new Error("Expected the ISO week heading and compact date range");
   }
   await page.emulateMedia({ media: "print" });
   const calendarOverflow = await page.locator(".two-week-grid--compact .calendar-cell").evaluateAll((cells) => cells
@@ -294,6 +247,8 @@ try {
 const pdf = await fsp.readFile(pdfPath);
 if (!pdf.subarray(0, 5).equals(Buffer.from("%PDF-"))) throw new Error("Chromium did not create a PDF document");
 const pdfDocument = await PDFDocument.load(pdf);
-if (pdfDocument.getPageCount() !== 2) throw new Error(`Expected a two-page PDF; received ${pdfDocument.getPageCount()} pages`);
+if (pdfDocument.getPageCount() < 1 || pdfDocument.getPageCount() > 2) {
+  throw new Error(`Expected a compact one- or two-page weekly PDF; received ${pdfDocument.getPageCount()} pages`);
+}
 if (browserErrors.length) throw new Error(`Browser errors: ${browserErrors.join("; ")}`);
 process.stdout.write(`${JSON.stringify({ pdfPath, screenshotPath, bytes: pdf.length })}\n`);

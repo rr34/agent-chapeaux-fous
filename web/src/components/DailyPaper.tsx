@@ -2,10 +2,8 @@ import type {
   CalendarDay, CalendarEvent, DailyPaperModel, DailyPaperTodoGroup,
   LinkedTodo, ScheduledTracker,
 } from "../types";
-import type { CSSProperties } from "react";
 import { formatDisplayDate, formatDisplayTime, formatLocalDate } from "../date-format";
 import { CalendarEventItem } from "./EditableItems";
-import { CalendarEventCard, calendarEventCardObject } from "./object-cards/CalendarEventCard";
 import { matchesSearch, searchTerms } from "../search-filter";
 import { compareSequenceValuesDescending } from "../sequence-order";
 
@@ -33,6 +31,8 @@ export function CalendarGrid({
   ariaLabel = "Two-week calendar",
   id,
   searchQuery = "",
+  showLinkedTodos = false,
+  includeCompletedTodos = false,
 }: {
   days: CalendarDay[];
   compact?: boolean;
@@ -41,6 +41,8 @@ export function CalendarGrid({
   ariaLabel?: string;
   id?: string;
   searchQuery?: string;
+  showLinkedTodos?: boolean;
+  includeCompletedTodos?: boolean;
 }) {
   const eventLimit = 8;
   const isSearching = searchTerms(searchQuery).length > 0;
@@ -70,6 +72,12 @@ export function CalendarGrid({
                   <span className="calendar-chip-copy">
                     <span className="multiline-item-text">{event.title}</span>
                   </span>
+                  {showLinkedTodos && (event.linkedTodos || []).some((todo) => includeCompletedTodos || todo.status !== "complete") && <span className="calendar-chip-todos">
+                    {(event.linkedTodos || []).filter((todo) => includeCompletedTodos || todo.status !== "complete").map((todo) => <span className={todo.status === "complete" ? "is-complete" : ""} key={todo.todoId}>
+                      <span aria-hidden="true">{todo.status === "complete" ? "☑" : "☐"}</span>
+                      <span>{todoTitle(todo)}</span>
+                    </span>)}
+                  </span>}
                 </span>
               ))}
               {day.events.length > visibleEvents.length && <small>+{day.events.length - visibleEvents.length} more</small>}
@@ -144,79 +152,6 @@ function PrintableTodoCard({ todo, showRelationship = false }: {
   </li>;
 }
 
-function weatherSymbol(code: number) {
-  if (code === 0) return "☀";
-  if (code <= 2) return "◐";
-  if (code === 3) return "☁";
-  if ([45, 48].includes(code)) return "≋";
-  if (code >= 71 && code <= 77 || code >= 85 && code <= 86) return "❄";
-  if (code >= 95) return "ϟ";
-  return "☂";
-}
-
-const WEATHER_TIMELINE_START_HOUR = 5;
-const WEATHER_TIMELINE_END_HOUR = 23;
-const WEATHER_TIMELINE_HOURS = Array.from(
-  { length: WEATHER_TIMELINE_END_HOUR - WEATHER_TIMELINE_START_HOUR + 1 },
-  (_, index) => WEATHER_TIMELINE_START_HOUR + index,
-);
-
-function weatherTimelinePosition(hour: number) {
-  const boundedHour = Math.min(WEATHER_TIMELINE_END_HOUR, Math.max(WEATHER_TIMELINE_START_HOUR, hour));
-  return ((boundedHour - WEATHER_TIMELINE_START_HOUR) / (WEATHER_TIMELINE_END_HOUR - WEATHER_TIMELINE_START_HOUR)) * 100;
-}
-
-function PrintableEventCards({ events, timeZone, includeCompletedTodos }: {
-  events: CalendarEvent[];
-  timeZone: string;
-  includeCompletedTodos: boolean;
-}) {
-  if (!events.length) return <p className="paper-empty">No events scheduled. The day is yours.</p>;
-  return <ol className="paper-calendar-event-list">
-    {events.map((event) => {
-      const printableEvent = {
-        ...event,
-        linkedTodos: (event.linkedTodos || []).filter((todo) => includeCompletedTodos || todo.status !== "complete"),
-      };
-      return <li key={`${event.id}-${event.startsAtUtc}`}>
-        <CalendarEventCard
-          event={printableEvent}
-          timeZone={timeZone}
-          object={calendarEventCardObject(printableEvent)}
-          className="paper-calendar-event-card"
-        />
-      </li>;
-    })}
-  </ol>;
-}
-
-function PrintableWeatherTimeline({ weather }: { weather: DailyPaperModel["weather"] }) {
-  const points = weather?.status === "available"
-    ? weather.points.filter(({ hour }) => hour >= WEATHER_TIMELINE_START_HOUR && hour <= WEATHER_TIMELINE_END_HOUR)
-    : [];
-  return <aside className="paper-weather-timeline" aria-label="Weather timeline from 05:00 through 23:00">
-    {WEATHER_TIMELINE_HOURS.map((hour) => <div
-      className="paper-weather-hour"
-      style={{ "--weather-position": `${weatherTimelinePosition(hour)}%` } as CSSProperties}
-      key={hour}
-    >
-      <time dateTime={`${String(hour).padStart(2, "0")}:00`}>{String(hour).padStart(2, "0")}</time>
-      <span aria-hidden="true" />
-    </div>)}
-    {points.map((point) => <div
-      className={`paper-weather-point${point.hour === WEATHER_TIMELINE_START_HOUR ? " is-first" : ""}${point.hour === WEATHER_TIMELINE_END_HOUR ? " is-last" : ""}`}
-      style={{ "--weather-position": `${weatherTimelinePosition(point.hour)}%` } as CSSProperties}
-      aria-label={`${String(point.hour).padStart(2, "0")}:00, ${Math.round(point.temperature)} degrees Celsius, ${Math.round(point.precipitationProbability)} percent precipitation`}
-      key={point.time}
-    >
-      <span aria-hidden="true">{weatherSymbol(point.weatherCode)}</span>
-      <strong>{Math.round(point.temperature)}°C</strong>
-      <small>{Math.round(point.precipitationProbability)}%</small>
-    </div>)}
-    {weather?.status === "unavailable" && <small className="paper-weather-unavailable">Weather unavailable</small>}
-  </aside>;
-}
-
 function trackerCadenceLabel(tracker: ScheduledTracker) {
   if (tracker.frequency === "scheduled") return "Scheduled";
   if (tracker.interval === 1) return tracker.frequency[0].toUpperCase() + tracker.frequency.slice(1);
@@ -250,7 +185,7 @@ function PrintablePinnedTodoGroups({ groups }: { groups: DailyPaperTodoGroup[] }
   return <section className="paper-pinned-todos">
     <header className="paper-append-heading">
       <h3>Pinned to-do groups</h3>
-      <small>Appended after today’s plan</small>
+      <small>Always on the weekly printout</small>
     </header>
     <div className="paper-todo-groups">{groups.map((group) => <section className="paper-todo-group" key={group.id}>
       <h3>{group.name}</h3>
@@ -263,77 +198,55 @@ function PrintablePinnedTodoGroups({ groups }: { groups: DailyPaperTodoGroup[] }
   </section>;
 }
 
+function PrintableScheduledTodos({ todos }: { todos: LinkedTodo[] }) {
+  return <section className="paper-scheduled-todos">
+    <header className="paper-append-heading">
+      <h3>Scheduled this week</h3>
+      <small>{todos.length} {todos.length === 1 ? "item" : "items"}</small>
+    </header>
+    {todos.length ? <ul className="paper-todo-cards">
+      {[...todos].sort(compareTodoOrder).map((todo) => <PrintableTodoCard todo={todo} showRelationship key={todo.todoId} />)}
+    </ul> : <div className="paper-todo-empty-lines" aria-label="Blank weekly checklist">
+      {Array.from({ length: 4 }, (_, index) => <span key={index} />)}
+    </div>}
+  </section>;
+}
+
 export function DailyPaper({ model, preview = false }: { model: DailyPaperModel; preview?: boolean }) {
-  const availableWeather = model.weather?.status === "available" ? model.weather : null;
   return (
     <div className="daily-paper-document">
-    <article className={`daily-paper paper-plan-page paper-${model.paperSize} ${preview ? "daily-paper--preview" : ""}`}>
+    <article
+      className={`daily-paper paper-week-page paper-${model.paperSize} ${preview ? "daily-paper--preview" : ""}`}
+      contentEditable={preview}
+      suppressContentEditableWarning
+      title={preview ? "Editable print copy; changes are temporary" : undefined}
+    >
       <header className="paper-masthead">
         <div>
-          <p className="paper-kicker">Time v3 Agent · Daily paper</p>
-          <h1>{model.heading}</h1>
-        </div>
-        <div className="paper-range">
-          <span>Two weeks</span>
-          <strong>{model.rangeHeading}</strong>
+          <p className="paper-kicker">Time v3 Agent · Weekly paper</p>
+          <h1>{model.weekHeading}</h1>
         </div>
       </header>
 
-      <CalendarGrid days={model.calendarDays} compact />
+      <CalendarGrid
+        days={model.printCalendarDays}
+        compact
+        showLinkedTodos
+        includeCompletedTodos={model.includeCompletedTodos}
+        ariaLabel="Weekly printable calendar"
+      />
 
-      <section className="paper-section paper-today paper-day-card-section">
+      <section className="paper-section paper-weekly-todos">
         <header className="paper-section-heading">
-          <span>01</span><h2>Today’s plan</h2><small>{model.timeZone.replaceAll("_", " ")}</small>
+          <span>01</span><h2>To-do lists</h2><small>Scheduled this week and pinned</small>
         </header>
-        <div className="paper-plan-body">
-          <PrintableWeatherTimeline weather={model.weather} />
-          <div className="paper-plan-events">
-            <PrintableEventCards
-              events={model.todayEvents}
-              timeZone={model.timeZone}
-              includeCompletedTodos={model.includeCompletedTodos}
-            />
-          </div>
-        </div>
-      </section>
-
-      <footer className="paper-footer">
-        <span>{availableWeather
-          ? <>Weather (°C): <a href={availableWeather.attributionUrl}>{availableWeather.provider}</a> · {availableWeather.location}</>
-          : `Printed ${formatDisplayDate(model.generatedAtUtc, { timeZone: model.timeZone })}`}</span>
-        <span>For {formatLocalDate(model.date)}</span>
-      </footer>
-    </article>
-
-    <article className={`daily-paper paper-details-page paper-${model.paperSize} ${preview ? "daily-paper--preview" : ""}`}>
-      <header className="paper-details-masthead">
-        <div><p className="paper-kicker">Daily paper · Follow-through</p><h1>{model.heading}</h1></div>
-        <small>Trackers, pinned groups, and notes</small>
-      </header>
-
-      <section className="paper-section paper-today-details">
-        <header className="paper-section-heading">
-          <span>02</span><h2>Follow-through</h2><small>After today’s plan</small>
-        </header>
-        {model.scheduledTrackers.length > 0 && <section className="paper-today-trackers">
-          <header className="paper-append-heading"><h3>Trackers</h3><small>{model.scheduledTrackers.length} scheduled</small></header>
-          <ScheduledTrackers trackers={model.scheduledTrackers} />
-        </section>}
+        <PrintableScheduledTodos todos={model.scheduledTodos} />
         <PrintablePinnedTodoGroups groups={model.printableTodoGroups} />
-      </section>
-
-      <section className="paper-section paper-notes">
-        <header className="paper-section-heading">
-          <span>03</span><h2>Notes</h2><small>Make it yours</small>
-        </header>
-        <div className="writing-lines" aria-label="Blank ruled writing area">
-          {Array.from({ length: 9 }, (_, index) => <span key={index} />)}
-        </div>
       </section>
 
       <footer className="paper-footer">
         <span>Printed {formatDisplayDate(model.generatedAtUtc, { timeZone: model.timeZone })}</span>
-        <span>For {formatLocalDate(model.date)}</span>
+        <span>{model.weekHeading}</span>
       </footer>
     </article>
     </div>

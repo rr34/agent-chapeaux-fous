@@ -56,7 +56,7 @@ function events() {
   ];
 }
 
-test("daily paper starts its two-week grid on Monday and selects today's timeline and to-dos", () => {
+test("weekly paper keeps the screen range and builds the selected Monday-to-Sunday print week", () => {
   let calendarRange;
   let trackerRequest;
   const service = new DailyPaperService({
@@ -89,7 +89,13 @@ test("daily paper starts its two-week grid on Monday and selects today's timelin
   assert.equal(model.calendarDays[0].localDate, "2026-09-28");
   assert.equal(model.calendarDays.at(-1).localDate, "2026-10-11");
   assert.equal(model.calendarDays.filter(({ isToday }) => isToday).length, 1);
-  assert.equal(model.heading, "Sun, 4 Oct 2026");
+  assert.equal(model.heading, "Week 40: 28 Sep - 4 Oct 2026");
+  assert.equal(model.weekHeading, "Week 40: 28 Sep - 4 Oct 2026");
+  assert.equal(model.weekStartDate, "2026-09-28");
+  assert.equal(model.weekEndDate, "2026-10-04");
+  assert.equal(model.printCalendarDays.length, 7);
+  assert.equal(model.printCalendarDays[0].localDate, "2026-09-28");
+  assert.equal(model.printCalendarDays.at(-1).localDate, "2026-10-04");
   assert.equal(model.rangeHeading, "28 Sep - 11 Oct 2026");
   assert.deepEqual(model.todayEvents.map(({ id }) => id), [1, 2]);
   assert.deepEqual(model.todayEvents[0].linkedContacts, [{
@@ -246,9 +252,13 @@ test("daily paper can move its visible range without changing the selected day",
   assert.equal(model.calendarDays[0].localDate, "2026-10-19");
   assert.equal(model.calendarDays.at(-1).localDate, "2026-11-01");
   assert.deepEqual(model.todayEvents.map(({ id }) => id), [1, 2]);
-  assert.equal(ranges.length, 2);
+  assert.equal(ranges.length, 3);
   assert.deepEqual(ranges[1], {
     from: "2026-10-04T04:00:00.000Z",
+    to: "2026-10-05T04:00:00.000Z",
+  });
+  assert.deepEqual(ranges[2], {
+    from: "2026-09-28T04:00:00.000Z",
     to: "2026-10-05T04:00:00.000Z",
   });
 });
@@ -295,7 +305,7 @@ test("PDF generation registers the rendered document and its provenance", async 
   assert.equal(activity[0].type, "daily-paper.generated");
   assert.equal(activity[0].primaryFileId, 91);
   assert.deepEqual(result.file.sourceEventSeqs, [452]);
-  assert.equal(registrations[0].originalFilename, "cf-clipboard-app-2026-10-04.pdf");
+  assert.equal(registrations[0].originalFilename, "cf-weekly-planner-2026-09-28.pdf");
   assert.equal(result.file.ref, "agent-slayer://files/91");
   assert.equal(result.file.downloadUrl, "/api/files/91/download");
   const snapshotId = new URL(renderInput.url).searchParams.get("snapshot");

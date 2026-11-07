@@ -543,20 +543,22 @@ applied. It renders those groups and tasks in their current display order as a
 printable checklist, stores the PDF as a durable file, and downloads it. It
 does not independently query or add hidden to-dos while printing.
 
-The **Calendar** screen composes a shared React daily-paper component from the
-authoritative two-week calendar, the selected day's timeline, to-dos linked
-to those events, and active to-do groups pinned to the daily paper. Pinned
-groups contribute all open tasks and remain as writable sections when empty.
+The **Calendar** screen composes a shared React weekly-paper component from the
+authoritative two-week calendar, the Monday-to-Sunday week containing the
+selected date, to-dos linked to that week's events, and active to-do groups
+pinned to the paper. Pinned groups contribute all open tasks and remain as
+writable sections when empty.
 On screen, each calendar event owns its linked reusable to-do cards and their
 relationship labels instead of duplicating them in a separate to-do column.
-The paper has one **Today’s stuff** section: linked to-dos sit inside their
-calendar events, trackers remain in the same section, and pinned to-do groups
-are appended at the bottom without duplicating scheduled tasks. Its compact
-tracker list uses tracker asking RRULEs and marks periods that already contain
-an observation. Choose Letter or A4 and click
-**Download daily PDF** to render, store, and download a printable document with
-ruled handwriting space. The
-agent can invoke the same behavior through `daily_paper_generate`. Chromium is
+The paper uses a one-week calendar: linked to-dos sit directly under their
+events, each day retains blank writing space, and a full-width **To-do lists**
+section contains every distinct task scheduled for the week followed by pinned
+groups without repeating scheduled tasks inside those groups. The print preview
+is a transient editable copy for browser printing; source calendar and to-do
+records remain unchanged. Choose Letter or A4 and click **Download weekly PDF**
+to render, store, and download the current weekly snapshot. The agent can invoke
+the same behavior through the compatibility tool identity
+`daily_paper_generate`. Chromium is
 required only on the server and can be overridden with
 `SLAYER_PDF_BROWSER_EXECUTABLE` when a system browser is preferred.
 

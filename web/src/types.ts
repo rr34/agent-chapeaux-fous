@@ -111,7 +111,11 @@ export interface DailyPaperModel {
   includeCompletedTodos: boolean;
   heading: string;
   rangeHeading: string;
+  weekStartDate: string;
+  weekEndDate: string;
+  weekHeading: string;
   calendarDays: CalendarDay[];
+  printCalendarDays: CalendarDay[];
   todayEvents: CalendarEvent[];
   scheduledTodos: LinkedTodo[];
   printableTodoGroups: DailyPaperTodoGroup[];

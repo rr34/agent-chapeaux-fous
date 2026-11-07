@@ -4,9 +4,9 @@ export function registerDailyPaperTools(registry, service) {
   registry = registry.withCapability?.("daily-paper") ?? registry;
   registry.register({
     name: "daily_paper_generate",
-    title: "Generate daily paper",
+    title: "Generate weekly paper",
     metadata: toolMetadataWithDescription(null, {
-      summary: "Generate and store one printable daily PDF with reusable calendar event cards, intrinsic start/end labels, Celsius forecast when available, linked work, pinned to-do groups, and scheduled trackers. This creates a snapshot; it does not update source records.",
+      summary: "Generate and store one printable Monday-to-Sunday PDF with each day's events, event-linked work, all to-dos scheduled for the week, and pinned to-do groups. This creates a snapshot; it does not update source records.",
       actionClasses: ["CREATE"],
       effectClassifications: ["MUTATING"],
     }),
@@ -16,7 +16,7 @@ export function registerDailyPaperTools(registry, service) {
       idempotentHint: false,
       openWorldHint: true,
     },
-    description: "Generate and durably store one printable PDF for an exact local calendar date. Read the authoritative Monday-to-Sunday two-week calendar range, the selected day's events, to-dos linked to those events, every active to-do group pinned to the daily paper with all of its open tasks, and active journal trackers whose asking RRULE has a logging period containing that date. The first page uses the reusable calendar event cards, with start at the top and end at the bottom. Same-day events show only times; events crossing a local-day boundary also show dates. When the active default location resolves and the date is inside the forecast window, plot the Celsius Open-Meteo forecast on a narrow fixed 05:00–23:00 weather timeline to the left of the independently flowing event cards; that timeline does not position or connect to events. The following page preserves trackers, pinned groups, and handwriting space. Preserve empty pinned groups as writable checklist sections and deduplicate tasks by stable ID. Mark a tracker logged when an observation exists in its period. Exclude completed linked to-dos unless includeCompletedTodos is true; pinning does not include completed group history. Forecast failure or an unsupported forecast date omits or marks weather without blocking the document. On success, status is complete and file is the stored first-class PDF binding with its download path; the counts describe the included events, distinct printed to-dos, and trackers. The operation does not change calendar, to-do, or journal data. Validation, rendering, or storage failure returns an error and no successful generation result.",
+    description: "Generate and durably store one printable PDF for the Monday-to-Sunday week containing an exact local calendar date. Read the authoritative two-week calendar range, render the selected week's daily event timelines, place each event's linked open to-dos directly beneath that event, and append one full-width list of all distinct open to-dos scheduled anywhere in the week plus every active pinned group and its remaining open tasks. Preserve empty pinned groups as writable checklist sections and deduplicate tasks by stable ID. Exclude completed linked to-dos unless includeCompletedTodos is true; pinning does not include completed group history. The selected date identifies the week and does not create a separate daily-plan section. On success, status is complete and file is the stored first-class PDF binding with its download path; the counts describe the included weekly events, distinct printed to-dos, and trackers queried for compatibility. The operation does not change calendar, to-do, or journal data. Validation, rendering, or storage failure returns an error and no successful generation result.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -24,7 +24,7 @@ export function registerDailyPaperTools(registry, service) {
         date: {
           type: "string",
           pattern: "^\\d{4}-\\d{2}-\\d{2}$",
-          description: "Exact local calendar date to print, formatted YYYY-MM-DD.",
+          description: "Exact local calendar date whose Monday-to-Sunday week will be printed, formatted YYYY-MM-DD.",
         },
         timeZone: {
           type: "string",
@@ -52,7 +52,7 @@ export function registerDailyPaperTools(registry, service) {
           type: "string", const: "complete",
           description: "Complete means the PDF was rendered and registered as a durable native file.",
         },
-        date: { type: "string", description: "Exact local date represented by the daily timeline." },
+        date: { type: "string", description: "Exact local date used to select the printed week." },
         timeZone: { type: "string", description: "IANA time zone used to determine the local day." },
         paperSize: {
           type: "string", enum: ["letter", "a4"],
@@ -60,11 +60,11 @@ export function registerDailyPaperTools(registry, service) {
         },
         eventCount: {
           type: "integer", minimum: 0,
-          description: "Number of events included in the selected day's timeline.",
+          description: "Number of event appearances included across the printed week.",
         },
         todoCount: {
           type: "integer", minimum: 0,
-          description: "Number of distinct to-dos included from the selected day and pinned groups.",
+          description: "Number of distinct to-dos included from the selected week and pinned groups.",
         },
         trackerCount: {
           type: "integer", minimum: 0,
@@ -104,7 +104,7 @@ export function registerDailyPaperTools(registry, service) {
         date: result.model.date,
         timeZone: result.model.timeZone,
         paperSize: result.model.paperSize,
-        eventCount: result.model.todayEvents.length,
+        eventCount: result.model.printCalendarDays.reduce((count, day) => count + day.events.length, 0),
         todoCount: result.model.scheduledTodos.length + result.model.printableTodoGroups.reduce(
           (count, group) => count + group.todos.length, 0,
         ),

@@ -1,21 +1,20 @@
-Select `daily_paper_generate` when the user asks for a printable day sheet or
-daily PDF. Do not reconstruct an equivalent document through generic reads.
-The document automatically includes every active to-do group pinned to the
-daily paper, all open tasks in those groups, and an empty writable section when
-a pinned group has no open tasks. Its first page uses the reusable calendar
-event cards. Each card owns its start and end labels; same-day events show only
-times, while events crossing a local-day boundary also show dates. When the
-active default location can be resolved and the selected date is within the
-forecast window, the Celsius Open-Meteo forecast is plotted against a narrow
-fixed 05:00–23:00 weather timeline
-to the left of the independently flowing event cards; the timeline does not
-position or connect to events. Weather is optional enrichment and its absence
-must not block the document.
+Select `daily_paper_generate` when the user asks for a printable weekly planner
+or weekly calendar PDF. The stable tool name is retained for compatibility; it
+prints the Monday-to-Sunday week containing the supplied date. Do not
+reconstruct an equivalent document through generic reads.
 
-Resolve relative dates such as “today” in the user's IANA time zone and pass the
-exact local date. Exclude completed to-dos unless the user asks to include them.
-Use `letter` unless the user requests A4 or a durable profile fact establishes
-A4 as the preference.
+The document automatically includes every active to-do group pinned to the
+paper, all open tasks in those groups, and an empty writable section when a
+pinned group has no open tasks. Each day's events retain their time labels, and
+open linked to-dos sit directly beneath their event. The full-width to-do
+section includes every distinct open to-do linked anywhere in the selected
+week, followed by pinned groups with scheduled items removed from those group
+lists.
+
+Resolve relative dates such as “this week” in the user's IANA time zone and
+pass any exact local date within that week. Exclude completed to-dos unless the
+user asks to include them. Use `letter` unless the user requests A4 or a durable
+profile fact establishes A4 as the preference.
 
 If the user also requests calendar or to-do changes, perform those through their
 owning capabilities first and generate the paper from the confirmed new state.

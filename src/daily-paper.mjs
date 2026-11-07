@@ -7,10 +7,7 @@ import {
   localDateForInstant,
   localDateUtcBounds,
 } from "./temporal-consistency.mjs";
-import {
-  formatLocalDate as formatPresentationLocalDate,
-  formatLocalDateRange,
-} from "../public/presentation-format.js";
+import { formatLocalDateRange } from "../public/presentation-format.js";
 
 const DAY_MS = 86_400_000;
 const PAPER_SIZES = new Set(["letter", "a4"]);
@@ -37,6 +34,31 @@ function mondayOnOrBefore(localDate) {
   const instant = dateParts(localDate);
   const offset = (instant.getUTCDay() + 6) % 7;
   return addLocalDays(localDate, -offset);
+}
+
+function isoWeekNumber(localDate) {
+  const instant = dateParts(localDate);
+  instant.setUTCDate(instant.getUTCDate() + 4 - (instant.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(instant.getUTCFullYear(), 0, 1));
+  return Math.ceil((((instant - yearStart) / DAY_MS) + 1) / 7);
+}
+
+function weekHeading(startDate, endDate) {
+  const start = dateParts(startDate);
+  const end = dateParts(endDate);
+  const day = (instant) => String(instant.getUTCDate());
+  const month = (instant) => new Intl.DateTimeFormat("en-US", {
+    month: "short", timeZone: "UTC",
+  }).format(instant);
+  let range;
+  if (start.getUTCFullYear() !== end.getUTCFullYear()) {
+    range = `${day(start)} ${month(start)} ${start.getUTCFullYear()} - ${day(end)} ${month(end)} ${end.getUTCFullYear()}`;
+  } else if (start.getUTCMonth() !== end.getUTCMonth()) {
+    range = `${day(start)} ${month(start)} - ${day(end)} ${month(end)} ${end.getUTCFullYear()}`;
+  } else {
+    range = `${day(start)}-${day(end)} ${month(end)} ${end.getUTCFullYear()}`;
+  }
+  return `Week ${isoWeekNumber(startDate)}: ${range}`;
 }
 
 function validTimeZone(value) {
@@ -166,7 +188,7 @@ async function defaultRenderPdf({ url, filename, accessToken, format, browserExe
     const navigation = await page.goto(url, { waitUntil: "networkidle", timeout: 60_000 });
     if (!navigation?.ok()) {
       throw Object.assign(new Error(
-        `Daily paper render page returned HTTP ${navigation?.status() ?? "unknown"}`,
+        `Weekly paper render page returned HTTP ${navigation?.status() ?? "unknown"}`,
       ), { statusCode: 502 });
     }
     await page.waitForFunction(() => window.__DAILY_PAPER_READY__ === true, null, {
@@ -252,12 +274,31 @@ export class DailyPaperService {
       }).map(compactEvent);
     const todayEvents = selectedEvents.filter((event) => eventOverlaps(event, todayBounds, selected.date))
       .sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc));
+    const weekStartDate = mondayOnOrBefore(selected.date);
+    const weekEndDate = addLocalDays(weekStartDate, 6);
+    const printDates = Array.from({ length: 7 }, (_, index) => addLocalDays(weekStartDate, index));
+    const selectedWeekIsVisible = weekStartDate >= dates[0] && weekEndDate <= dates.at(-1);
+    const weekEvents = selectedWeekIsVisible ? rangeEvents : this.organizer.listCalendar({
+      from: localDateUtcBounds({ localDate: weekStartDate, timeZone: selected.timeZone }).startsAtUtc,
+      to: localDateUtcBounds({ localDate: addLocalDays(weekEndDate, 1), timeZone: selected.timeZone }).startsAtUtc,
+    }).map(compactEvent);
+    const printCalendarDays = printDates.map((localDate) => {
+      const bounds = localDateUtcBounds({ localDate, timeZone: selected.timeZone });
+      return {
+        localDate,
+        weekday: formatLocalDate(localDate, { weekday: "short" }),
+        dayNumber: Number(localDate.slice(-2)),
+        month: formatLocalDate(localDate, { month: "short" }),
+        isToday: localDate === selected.date,
+        events: weekEvents.filter((event) => eventOverlaps(event, bounds, localDate)),
+      };
+    });
     const scheduledTrackers = this.trackerSchedule?.scheduledTrackersForDay({
       localDate: selected.date,
       timeZone: selected.timeZone,
     }) ?? [];
     const todoMap = new Map();
-    for (const event of todayEvents) {
+    for (const event of weekEvents) {
       for (const todo of event.linkedTodos) {
         if (!selected.includeCompletedTodos && todo.status === "complete") continue;
         const current = todoMap.get(Number(todo.todoId)) ?? {
@@ -290,9 +331,13 @@ export class DailyPaperService {
       version: 1,
       generatedAtUtc: new Date().toISOString(),
       ...selected,
-      heading: formatPresentationLocalDate(selected.date),
+      heading: weekHeading(weekStartDate, weekEndDate),
       rangeHeading: formatLocalDateRange(dates[0], dates.at(-1)),
+      weekStartDate,
+      weekEndDate,
+      weekHeading: weekHeading(weekStartDate, weekEndDate),
       calendarDays,
+      printCalendarDays,
       todayEvents,
       scheduledTodos,
       printableTodoGroups,
@@ -349,12 +394,12 @@ export class DailyPaperService {
       });
       const bytes = await fsp.readFile(filename);
       const storagePath = path.posix.join("media", ...relativeDirectory.split(path.sep), storedName);
-      const title = `Daily paper — ${model.heading}`;
+      const title = `Weekly paper — ${model.weekHeading}`;
       const file = this.ledger.registerFile({
         storagePath,
-        originalFilename: `cf-clipboard-app-${model.date}.pdf`,
+        originalFilename: `cf-weekly-planner-${model.weekStartDate}.pdf`,
         title,
-        description: `Printable daily calendar, timeline, scheduled to-dos, and journal tracking periods for ${model.heading}.`,
+        description: `Printable weekly calendar and to-do lists for ${model.weekHeading}.`,
         mediaKind: "document",
         mimeType: "application/pdf",
         sha256: createHash("sha256").update(bytes).digest("hex"),
@@ -378,7 +423,7 @@ export class DailyPaperService {
           timeZone: model.timeZone,
           paperSize: model.paperSize,
           includeCompletedTodos: model.includeCompletedTodos,
-          eventCount: model.todayEvents.length,
+          eventCount: model.printCalendarDays.reduce((count, day) => count + day.events.length, 0),
           todoCount: model.scheduledTodos.length
             + model.printableTodoGroups.reduce((count, group) => count + group.todos.length, 0),
           trackerCount: model.scheduledTrackers.length,

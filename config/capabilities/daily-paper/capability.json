@@ -3,15 +3,15 @@
   "protocol": "agent-slayer.capability",
   "version": 1,
   "id": "daily-paper",
-  "title": "Printable daily paper",
-  "summary": "Generate a durable printable PDF with a proportional daily timeline, available local weather, the authoritative calendar, linked to-dos, pinned groups, and scheduled trackers.",
+  "title": "Printable weekly paper",
+  "summary": "Generate a durable Monday-to-Sunday printable PDF with daily event timelines, linked and scheduled to-dos, pinned groups, and writable calendar space.",
   "aliases": [
-    "daily paper",
-    "daily sheet",
-    "print my day",
-    "print today",
+    "weekly paper",
+    "weekly planner",
+    "print my week",
+    "print this week",
     "printable calendar",
-    "daily pdf"
+    "weekly pdf"
   ],
   "guidance": "guidance.md"
 }

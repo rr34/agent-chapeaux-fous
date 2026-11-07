@@ -17,6 +17,7 @@ const generated = {
     timeZone: "America/New_York",
     paperSize: "letter",
     todayEvents: [{ id: 1 }],
+    printCalendarDays: [{ events: [{ id: 1 }, { id: 5 }] }],
     scheduledTodos: [{ todoId: 2 }],
     printableTodoGroups: [{
       id: 7, name: "Shopping", sortPosition: 1, dailyPaperPinned: true,
@@ -55,7 +56,7 @@ test("daily paper publishes all deferred Tool Description layers from its owning
   const definition = registry.toolDefinitions()[0];
   const selection = definition.metadata[toolDescriptionMetadataKey];
   assert.equal(definition.name, "daily_paper_generate");
-  assert.equal(definition.title, "Generate daily paper");
+  assert.equal(definition.title, "Generate weekly paper");
   assert.deepEqual(selection.actionClasses, ["CREATE"]);
   assert.deepEqual(selection.effectClassifications, ["MUTATING"]);
   assert.equal(definition.annotations.readOnlyHint, false);
@@ -103,7 +104,7 @@ test("daily paper guidance is selected from its capability manifest", async () =
   });
   const compiled = await compiler.compile({
     tools: registry.toolDefinitions(),
-    text: "Print my daily paper for today.",
+    text: "Print my weekly planner for this week.",
   });
   assert.deepEqual(compiled.capabilities, ["daily-paper"]);
   assert.deepEqual(compiled.tools.map(({ name }) => name), ["daily_paper_generate"]);

@@ -525,6 +525,14 @@ function printableTodoGroupsForPreview(
     .sort((left, right) => left.sortPosition - right.sortPosition || left.name.localeCompare(right.name));
 }
 
+function mondayOnOrBeforeForPreview(localDate: string) {
+  const [year, month, day] = localDate.split("-").map(Number);
+  const instant = new Date(Date.UTC(year, month - 1, day));
+  const offset = (instant.getUTCDay() + 6) % 7;
+  instant.setUTCDate(instant.getUTCDate() - offset);
+  return instant.toISOString().slice(0, 10);
+}
+
 function TokenGate({ children }: { children: ReactNode }) {
   const [token, update] = useState(getAccessToken());
   const [draft, setDraft] = useState(token);
@@ -1477,23 +1485,30 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
     () => [...(selectedDay?.events || data?.todayEvents || [])].sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc)),
     [data?.todayEvents, selectedDay],
   );
-  const selectedTodos = useMemo(() => linkedTodosForEvents(selectedEvents), [selectedEvents]);
   const previewModel = useMemo<DailyPaperModel | null>(() => {
     if (!data) return null;
+    const weekStartDate = mondayOnOrBeforeForPreview(selectedDate);
+    const weekEndDate = shiftLocalDate(weekStartDate, 6);
+    const printCalendarDays = data.calendarDays.filter((day) => (
+      day.localDate >= weekStartDate && day.localDate <= weekEndDate
+    ));
+    const weekTodos = linkedTodosForEvents(printCalendarDays.flatMap((day) => day.events));
     return {
       ...data,
       date: selectedDate,
-      heading: formatLocalDate(selectedDate),
+      weekStartDate,
+      weekEndDate,
+      printCalendarDays: printCalendarDays.length === 7 ? printCalendarDays : data.printCalendarDays,
       calendarDays: data.calendarDays.map((day) => ({
         ...day,
         isToday: day.localDate === selectedDate,
       })),
       todayEvents: selectedEvents,
-      scheduledTodos: selectedTodos,
-      printableTodoGroups: printableTodoGroupsForPreview(data.printableTodoGroups, selectedTodos),
+      scheduledTodos: weekTodos,
+      printableTodoGroups: printableTodoGroupsForPreview(data.printableTodoGroups, weekTodos),
       weather: data.date === selectedDate ? data.weather : null,
     };
-  }, [data, selectedDate, selectedEvents, selectedTodos]);
+  }, [data, selectedDate, selectedEvents]);
   const visibleCalendarSearchEvents = (calendarSearchData?.events || [])
     .filter((event) => matchesSearch(event, filterQuery));
   const matchingEventCount = serverQuery ? visibleCalendarSearchEvents.length : (data?.calendarDays || [])
@@ -1511,13 +1526,13 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
     setGenerating(true);
     try {
       const result = await api<{ file: StoredFileBinding }>("/api/daily-paper/pdf", { method: "POST", body: JSON.stringify({ date: selectedDate, timeZone, paperSize: "letter", includeCompletedTodos: false }) });
-      await downloadAuthenticated(result.file.downloadUrl, result.file.originalFilename || `cf-clipboard-app-${selectedDate}.pdf`);
+      await downloadAuthenticated(result.file.downloadUrl, result.file.originalFilename || `cf-weekly-planner-${mondayOnOrBeforeForPreview(selectedDate)}.pdf`);
     } catch (caught) { setGenerationError(caught); }
     finally { setGenerating(false); }
   };
   return <>
     <PageHeading eyebrow="Authoritative calendar" title="Calendar" detail="A shared React view for the screen and the page." actions={
-      <><button className="button" type="button" onClick={() => setAddingEvent(true)}>Add calendar event</button><button className="button button--quiet" onClick={() => void generate()} disabled={generating || !data}>{generating ? "Making PDF…" : "Download daily PDF"}</button></>
+      <><button className="button" type="button" onClick={() => setAddingEvent(true)}>Add calendar event</button><button className="button button--quiet" onClick={() => void generate()} disabled={generating || !data}>{generating ? "Making PDF…" : "Download weekly PDF"}</button></>
     } />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchCalendar} searching={loading || calendarSearchLoading} count={matchingEventCount} noun="event" controls={<>
       <SectionSelectFilter label="Year" value={displayYear} onChange={(year) => setDisplayDate(calendarMonthAnchor(year, displayMonth))} disabled={loading}>
@@ -1551,7 +1566,8 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
       </section>
       <section className="surface calendar-day-plan"><p className="eyebrow">{formatLocalDate(selectedDate)}</p><h2>Selected day’s plan</h2><p className="calendar-day-plan-intro">Events are expanded by default so notes, contacts, and linked to-dos are visible.</p><DayTimeline events={selectedEvents} timeZone={data.timeZone} defaultExpanded onChanged={reload} /></section>
       <details className="paper-preview surface">
-        <summary>Preview the printed page</summary>
+        <summary>Preview and edit the printed week</summary>
+        <p className="paper-preview-hint">The preview is an editable print copy. Changes here are temporary; use Print browser view to print them.</p>
         {previewModel ? <DailyPaper model={previewModel} preview /> : <Loading label="Refreshing preview" />}
       </details>
     </div>}
@@ -3324,7 +3340,7 @@ function DailyPaperRoute() {
     : new URLSearchParams({ date: parameters.get("date") || localToday(timeZone), timeZone, paperSize: parameters.get("paperSize") || "letter", includeCompletedTodos: parameters.get("includeCompletedTodos") || "false" });
   const { data, error, loading } = useApi<DailyPaperModel>(`/api/daily-paper?${query}`);
   useEffect(() => { if (!data) return; void document.fonts.ready.then(() => { window.__DAILY_PAPER_READY__ = true; }); }, [data]);
-  if (loading) return <Loading label="Laying out daily paper" />;
+  if (loading) return <Loading label="Laying out weekly paper" />;
   if (error) return <ErrorState error={error} />;
   return data ? <DailyPaper model={data} /> : null;
 }

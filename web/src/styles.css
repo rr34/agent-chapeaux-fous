@@ -431,6 +431,7 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-empty { color: var(--muted); font-style: italic; }
 .paper-preview summary { cursor: pointer; font-weight: 700; }
 .paper-preview[open] summary { margin-bottom: 24px; }
+.paper-preview-hint { margin: -12px 0 18px; color: var(--muted); font-size: 12px; }
 
 .section-heading-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; }
 .section-select-filter { display: grid; grid-template-columns: auto minmax(140px, 190px); align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap; }
@@ -701,21 +702,21 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .daily-paper-document { width: max-content; max-width: 100%; margin: 0 auto; }
 .daily-paper { box-sizing: border-box; width: 8.5in; min-height: 11in; margin: 20px auto; padding: .36in .42in .28in; display: flex; flex-direction: column; color: #161a14; background: #fffefa; box-shadow: 0 18px 70px rgba(25, 31, 21, .18); font-family: Inter, Arial, sans-serif; page: letter; }
 .daily-paper.paper-a4 { width: 8.27in; min-height: 11.69in; page: a4; }
-.paper-plan-page { min-height: 11in; break-after: page; }
-.paper-plan-page.paper-a4 { min-height: 11.69in; }
+.paper-week-page { min-height: 11in; }
+.paper-week-page.paper-a4 { min-height: 11.69in; }
 .paper-details-page { break-after: auto; }
 .daily-paper--preview { max-width: 100%; width: 8.5in; box-shadow: 0 8px 28px rgba(25, 31, 21, .12); transform-origin: top left; }
 .paper-masthead { min-height: .66in; display: flex; justify-content: space-between; align-items: end; gap: .3in; border-bottom: 2px solid #252b22; padding-bottom: .11in; margin-bottom: .13in; }
-.paper-masthead h1 { margin: .02in 0 0; font: 600 25pt/.95 "Newsreader", Georgia, serif; letter-spacing: -.02em; }
+.paper-masthead h1 { margin: .02in 0 0; font: 600 20pt/1 "Newsreader", Georgia, serif; letter-spacing: -.02em; }
 .paper-kicker { color: #5b674e; font-size: 7pt; }
 .paper-range { flex: 0 0 auto; text-align: right; }
 .paper-range span { display: block; color: #70776b; font-size: 6.5pt; text-transform: uppercase; letter-spacing: .12em; }
 .paper-range strong { font: 600 10pt "Newsreader", Georgia, serif; }
 .two-week-grid--compact { gap: .035in; margin-bottom: .16in; }
 .two-week-grid--compact .weekdays, .two-week-grid--compact .calendar-cells { gap: .035in; }
-.two-week-grid--compact .calendar-cells { grid-auto-rows: minmax(.70in, auto); align-items: stretch; }
+.two-week-grid--compact .calendar-cells { grid-auto-rows: minmax(1.15in, auto); align-items: stretch; }
 .two-week-grid--compact .weekdays span { padding: 0 .04in .02in; font-size: 5.8pt; }
-.two-week-grid--compact .calendar-cell { min-height: .70in; aspect-ratio: auto; overflow: visible; padding: .045in; border-radius: .035in; }
+.two-week-grid--compact .calendar-cell { min-height: 1.15in; aspect-ratio: auto; overflow: visible; padding: .045in .045in .15in; border-radius: .035in; }
 .two-week-grid--compact .calendar-cell-header { padding-bottom: .025in; }
 .two-week-grid--compact .calendar-cell-header span { font-size: 5.4pt; }
 .two-week-grid--compact .calendar-cell-header strong { font-size: 10pt; }
@@ -724,6 +725,9 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .two-week-grid--compact .calendar-chip-copy { overflow: visible; }
 .two-week-grid--compact .calendar-chip time { width: 100%; overflow: visible; font-size: 4.8pt; text-align: right; white-space: nowrap; }
 .two-week-grid--compact .calendar-cell-events small { font-size: 5pt; }
+.two-week-grid--compact .calendar-chip-todos { grid-column: 1 / -1; display: grid; gap: .012in; margin: .02in 0 .018in .025in; padding: .025in 0 0 .035in; border-top: 1px solid #d5d8d0; }
+.two-week-grid--compact .calendar-chip-todos > span { display: grid; grid-template-columns: .09in minmax(0, 1fr); gap: .025in; align-items: start; font-size: 4.9pt; line-height: 1.18; }
+.two-week-grid--compact .calendar-chip-todos > .is-complete { color: #73796e; text-decoration: line-through; }
 .paper-section { page-break-inside: avoid; break-inside: avoid-page; }
 .paper-today { border-top: 1px solid #272c24; padding-top: .12in; break-inside: auto; }
 .paper-day-card-section { min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
@@ -784,6 +788,8 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-append-heading h3 { margin: 0; color: #252b22; font: 700 6.5pt/1.1 Inter, Arial, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
 .paper-append-heading small { color: #72796d; font-size: 5.4pt; }
 .paper-today-trackers, .paper-pinned-todos { margin-top: .11in; padding-top: .075in; border-top: 1px solid #b8bdb2; }
+.paper-weekly-todos { flex: 1 1 auto; border-top: 1px solid #272c24; padding-top: .12in; page-break-inside: auto; break-inside: auto; }
+.paper-scheduled-todos { margin-top: .11in; }
 .paper-today-trackers { page-break-inside: avoid; break-inside: avoid-page; }
 .paper-details-masthead { min-height: .55in; display: flex; align-items: end; justify-content: space-between; gap: .3in; border-bottom: 2px solid #252b22; padding-bottom: .11in; margin-bottom: .14in; }
 .paper-details-masthead h1 { margin: .02in 0 0; font: 600 20pt/.95 "Newsreader", Georgia, serif; }
@@ -810,6 +816,8 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-todo-relationships { grid-column: 2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .paper-handwriting-space { min-height: .13in; flex: 1 1 auto; position: relative; margin-top: .015in; border-bottom: 1px solid #d5d8d0; }
 .paper-handwriting-space > span { position: absolute; left: 0; bottom: -.01in; color: #a4492e; font: 400 15pt/.72 "Newsreader", Georgia, serif; transform: scaleX(.72); transform-origin: left bottom; }
+.daily-paper--preview[contenteditable="true"] { outline: 1px dashed transparent; outline-offset: 4px; }
+.daily-paper--preview[contenteditable="true"]:focus { outline-color: #9ba593; }
 
 @page letter { size: Letter; margin: 0; }
 @page a4 { size: A4; margin: 0; }
