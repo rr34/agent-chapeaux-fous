@@ -276,11 +276,12 @@ export class DailyPaperService {
       .sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc));
     const weekStartDate = mondayOnOrBefore(selected.date);
     const weekEndDate = addLocalDays(weekStartDate, 6);
-    const printDates = Array.from({ length: 7 }, (_, index) => addLocalDays(weekStartDate, index));
-    const selectedWeekIsVisible = weekStartDate >= dates[0] && weekEndDate <= dates.at(-1);
-    const weekEvents = selectedWeekIsVisible ? rangeEvents : this.organizer.listCalendar({
+    const printEndDate = addLocalDays(weekStartDate, 13);
+    const printDates = Array.from({ length: 14 }, (_, index) => addLocalDays(weekStartDate, index));
+    const printRangeIsVisible = weekStartDate >= dates[0] && printEndDate <= dates.at(-1);
+    const printEvents = printRangeIsVisible ? rangeEvents : this.organizer.listCalendar({
       from: localDateUtcBounds({ localDate: weekStartDate, timeZone: selected.timeZone }).startsAtUtc,
-      to: localDateUtcBounds({ localDate: addLocalDays(weekEndDate, 1), timeZone: selected.timeZone }).startsAtUtc,
+      to: localDateUtcBounds({ localDate: addLocalDays(printEndDate, 1), timeZone: selected.timeZone }).startsAtUtc,
     }).map(compactEvent);
     const printCalendarDays = printDates.map((localDate) => {
       const bounds = localDateUtcBounds({ localDate, timeZone: selected.timeZone });
@@ -290,15 +291,18 @@ export class DailyPaperService {
         dayNumber: Number(localDate.slice(-2)),
         month: formatLocalDate(localDate, { month: "short" }),
         isToday: localDate === selected.date,
-        events: weekEvents.filter((event) => eventOverlaps(event, bounds, localDate)),
+        events: printEvents.filter((event) => eventOverlaps(event, bounds, localDate)),
       };
     });
+    const currentWeekEvents = [...new Map(printCalendarDays.slice(0, 7)
+      .flatMap(({ events }) => events)
+      .map((event) => [`${event.id}:${event.startsAtUtc}`, event])).values()];
     const scheduledTrackers = this.trackerSchedule?.scheduledTrackersForDay({
       localDate: selected.date,
       timeZone: selected.timeZone,
     }) ?? [];
     const todoMap = new Map();
-    for (const event of weekEvents) {
+    for (const event of currentWeekEvents) {
       for (const todo of event.linkedTodos) {
         if (!selected.includeCompletedTodos && todo.status === "complete") continue;
         const current = todoMap.get(Number(todo.todoId)) ?? {

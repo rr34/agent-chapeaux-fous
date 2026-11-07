@@ -19,7 +19,7 @@ test("calendar days select the detailed timeline and linked to-dos", () => {
   assert.match(calendarSource, /onClick=\{\(\) => onSelect\(day\.localDate\)\}/);
   assert.match(calendarSource, /aria-pressed=\{isSelected\}/);
   assert.match(appSource, /events=\{selectedEvents\}/);
-  assert.match(appSource, /const weekTodos = linkedTodosForEvents\(printCalendarDays\.flatMap\(\(day\) => day\.events\)\)/);
+  assert.match(appSource, /const weekTodos = linkedTodosForEvents\(printCalendarDays\.slice\(0, 7\)\.flatMap\(\(day\) => day\.events\)\)/);
 });
 
 test("screen calendar nests scheduled to-dos beneath their linked events", () => {
@@ -71,7 +71,8 @@ test("print preview follows the selected week while the selected-day UI remains"
   assert.match(appSource, /date: selectedDate/);
   assert.match(appSource, /const weekStartDate = mondayOnOrBeforeForPreview\(selectedDate\)/);
   assert.match(appSource, /const weekEndDate = shiftLocalDate\(weekStartDate, 6\)/);
-  assert.match(appSource, /printCalendarDays: printCalendarDays\.length === 7/);
+  assert.match(appSource, /const printEndDate = shiftLocalDate\(weekStartDate, 13\)/);
+  assert.match(appSource, /printCalendarDays: printCalendarDays\.length === 14/);
   assert.match(appSource, /todayEvents: selectedEvents/);
   assert.match(appSource, /scheduledTodos: weekTodos/);
   assert.match(appSource, /<DailyPaper model=\{previewModel\} preview \/>/);

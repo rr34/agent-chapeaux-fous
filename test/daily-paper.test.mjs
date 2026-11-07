@@ -93,9 +93,9 @@ test("weekly paper keeps the screen range and builds the selected Monday-to-Sund
   assert.equal(model.weekHeading, "Week 40: 28 Sep - 4 Oct 2026");
   assert.equal(model.weekStartDate, "2026-09-28");
   assert.equal(model.weekEndDate, "2026-10-04");
-  assert.equal(model.printCalendarDays.length, 7);
+  assert.equal(model.printCalendarDays.length, 14);
   assert.equal(model.printCalendarDays[0].localDate, "2026-09-28");
-  assert.equal(model.printCalendarDays.at(-1).localDate, "2026-10-04");
+  assert.equal(model.printCalendarDays.at(-1).localDate, "2026-10-11");
   assert.equal(model.rangeHeading, "28 Sep - 11 Oct 2026");
   assert.deepEqual(model.todayEvents.map(({ id }) => id), [1, 2]);
   assert.deepEqual(model.todayEvents[0].linkedContacts, [{
@@ -259,7 +259,7 @@ test("daily paper can move its visible range without changing the selected day",
   });
   assert.deepEqual(ranges[2], {
     from: "2026-09-28T04:00:00.000Z",
-    to: "2026-10-05T04:00:00.000Z",
+    to: "2026-10-12T04:00:00.000Z",
   });
 });
 

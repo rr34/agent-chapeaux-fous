@@ -1489,16 +1489,17 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
     if (!data) return null;
     const weekStartDate = mondayOnOrBeforeForPreview(selectedDate);
     const weekEndDate = shiftLocalDate(weekStartDate, 6);
+    const printEndDate = shiftLocalDate(weekStartDate, 13);
     const printCalendarDays = data.calendarDays.filter((day) => (
-      day.localDate >= weekStartDate && day.localDate <= weekEndDate
+      day.localDate >= weekStartDate && day.localDate <= printEndDate
     ));
-    const weekTodos = linkedTodosForEvents(printCalendarDays.flatMap((day) => day.events));
+    const weekTodos = linkedTodosForEvents(printCalendarDays.slice(0, 7).flatMap((day) => day.events));
     return {
       ...data,
       date: selectedDate,
       weekStartDate,
       weekEndDate,
-      printCalendarDays: printCalendarDays.length === 7 ? printCalendarDays : data.printCalendarDays,
+      printCalendarDays: printCalendarDays.length === 14 ? printCalendarDays : data.printCalendarDays,
       calendarDays: data.calendarDays.map((day) => ({
         ...day,
         isToday: day.localDate === selectedDate,

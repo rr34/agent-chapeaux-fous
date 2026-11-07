@@ -57,7 +57,7 @@ const model = {
   weekEndDate: "2026-10-04",
   weekHeading: "Week 40: 28 Sep - 4 Oct 2026",
   calendarDays: dates,
-  printCalendarDays: dates.slice(0, 7),
+  printCalendarDays: dates,
   todayEvents: events,
   scheduledTodos: [
     {
@@ -216,8 +216,8 @@ try {
   if (await page.locator(".paper-scheduled-todos .paper-todo-card").count() !== model.scheduledTodos.length) {
     throw new Error("Expected every scheduled weekly to-do in the full-width list");
   }
-  if (await page.locator(".two-week-grid--compact .calendar-cell").count() !== 7) {
-    throw new Error("Expected exactly seven days in the printed calendar");
+  if (await page.locator(".two-week-grid--compact .calendar-cell").count() !== 14) {
+    throw new Error("Expected the headed week followed by the next week in the printed calendar");
   }
   if (await page.locator(".paper-week-page").count() !== 1) {
     throw new Error("Expected one weekly paper document without a daily-plan page");
@@ -247,8 +247,8 @@ try {
 const pdf = await fsp.readFile(pdfPath);
 if (!pdf.subarray(0, 5).equals(Buffer.from("%PDF-"))) throw new Error("Chromium did not create a PDF document");
 const pdfDocument = await PDFDocument.load(pdf);
-if (pdfDocument.getPageCount() < 1 || pdfDocument.getPageCount() > 2) {
-  throw new Error(`Expected a compact one- or two-page weekly PDF; received ${pdfDocument.getPageCount()} pages`);
+if (pdfDocument.getPageCount() < 1 || pdfDocument.getPageCount() > 3) {
+  throw new Error(`Expected a compact one- to three-page weekly PDF; received ${pdfDocument.getPageCount()} pages`);
 }
 if (browserErrors.length) throw new Error(`Browser errors: ${browserErrors.join("; ")}`);
 process.stdout.write(`${JSON.stringify({ pdfPath, screenshotPath, bytes: pdf.length })}\n`);

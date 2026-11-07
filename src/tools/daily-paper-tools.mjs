@@ -6,7 +6,7 @@ export function registerDailyPaperTools(registry, service) {
     name: "daily_paper_generate",
     title: "Generate weekly paper",
     metadata: toolMetadataWithDescription(null, {
-      summary: "Generate and store one printable Monday-to-Sunday PDF with each day's events, event-linked work, all to-dos scheduled for the week, and pinned to-do groups. This creates a snapshot; it does not update source records.",
+      summary: "Generate and store one printable PDF showing a selected Monday-to-Sunday week followed by the next week, with event-linked work, current-week scheduled to-dos, and pinned groups. This creates a snapshot; it does not update source records.",
       actionClasses: ["CREATE"],
       effectClassifications: ["MUTATING"],
     }),
@@ -16,7 +16,7 @@ export function registerDailyPaperTools(registry, service) {
       idempotentHint: false,
       openWorldHint: true,
     },
-    description: "Generate and durably store one printable PDF for the Monday-to-Sunday week containing an exact local calendar date. Read the authoritative two-week calendar range, render the selected week's daily event timelines, place each event's linked open to-dos directly beneath that event, and append one full-width list of all distinct open to-dos scheduled anywhere in the week plus every active pinned group and its remaining open tasks. Preserve empty pinned groups as writable checklist sections and deduplicate tasks by stable ID. Exclude completed linked to-dos unless includeCompletedTodos is true; pinning does not include completed group history. The selected date identifies the week and does not create a separate daily-plan section. On success, status is complete and file is the stored first-class PDF binding with its download path; the counts describe the included weekly events, distinct printed to-dos, and trackers queried for compatibility. The operation does not change calendar, to-do, or journal data. Validation, rendering, or storage failure returns an error and no successful generation result.",
+    description: "Generate and durably store one printable PDF headed for the Monday-to-Sunday week containing an exact local calendar date. Read and render that week followed by the next week, place each event's linked open to-dos directly beneath that event, and append one full-width list of all distinct open to-dos scheduled in the headed week plus every active pinned group and its remaining open tasks. Preserve empty pinned groups as writable checklist sections and deduplicate tasks by stable ID. Exclude completed linked to-dos unless includeCompletedTodos is true; pinning does not include completed group history. The selected date identifies the headed week and does not create a separate daily-plan section. On success, status is complete and file is the stored first-class PDF binding with its download path; the counts describe both displayed weeks' event appearances, distinct printed to-dos, and trackers queried for compatibility. The operation does not change calendar, to-do, or journal data. Validation, rendering, or storage failure returns an error and no successful generation result.",
     parameters: {
       type: "object",
       additionalProperties: false,

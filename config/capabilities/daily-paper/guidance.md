@@ -1,15 +1,16 @@
 Select `daily_paper_generate` when the user asks for a printable weekly planner
 or weekly calendar PDF. The stable tool name is retained for compatibility; it
-prints the Monday-to-Sunday week containing the supplied date. Do not
+heads the document with the Monday-to-Sunday week containing the supplied date
+and shows that week followed by the next week. Do not
 reconstruct an equivalent document through generic reads.
 
 The document automatically includes every active to-do group pinned to the
 paper, all open tasks in those groups, and an empty writable section when a
 pinned group has no open tasks. Each day's events retain their time labels, and
-open linked to-dos sit directly beneath their event. The full-width to-do
-section includes every distinct open to-do linked anywhere in the selected
-week, followed by pinned groups with scheduled items removed from those group
-lists.
+open linked to-dos sit directly beneath their event in both displayed weeks.
+The full-width to-do section includes every distinct open to-do linked in the
+headed week, followed by pinned groups with those current-week scheduled items
+removed from the group lists.
 
 Resolve relative dates such as “this week” in the user's IANA time zone and
 pass any exact local date within that week. Exclude completed to-dos unless the
