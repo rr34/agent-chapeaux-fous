@@ -14,7 +14,7 @@ const supportedTypes = new Set([
   "contacts.contact", "todos.todo_group", "todos.personal_task", "payments.invoice",
   "journal.group", "journal.tracker", "journal.entry", "calendar.event", "calendar.routine",
   "files.file", "profile.fact", "correspondence.item", "video.script", "video.content_group",
-  "video.content_item",
+  "video.content_item", "things.physical_item_group", "things.physical_item",
 ]);
 const editableTypes = new Set([
   "contacts.contact", "todos.personal_task", "calendar.event", "calendar.routine",
@@ -43,6 +43,21 @@ function selectionOf(object: NetworkObject): SelectedObjectCandidate {
     ref: object.ref,
     display: object.display,
     label: object.label,
+  };
+}
+
+function previewOf(object: NetworkObject | SelectedObjectCandidate): NetworkObject {
+  if ("attributes" in object) return object;
+  return {
+    type: object.type,
+    source: object.source,
+    id: Number(object.id),
+    ref: object.ref,
+    display: object.display,
+    label: object.label,
+    respondable: true,
+    body: object.detail || null,
+    attributes: [],
   };
 }
 
@@ -138,6 +153,7 @@ function ObjectNetworkExplorer({ initial, onClose }: {
   onClose: () => void;
 }) {
   const [graph, setGraph] = useState<ObjectNetworkGraph | null>(null);
+  const [previewFocus, setPreviewFocus] = useState<NetworkObject>(() => previewOf(initial));
   const [history, setHistory] = useState<NetworkObject[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -151,6 +167,7 @@ function ObjectNetworkExplorer({ initial, onClose }: {
   const load = async (object: NetworkObject | SelectedObjectCandidate) => {
     setLoading(true);
     setError("");
+    setPreviewFocus(previewOf(object));
     setGraph(null);
     try {
       setGraph(await api<ObjectNetworkGraph>(graphUrl(object)));
@@ -274,18 +291,18 @@ function ObjectNetworkExplorer({ initial, onClose }: {
       <header className="network-heading">
         <div className="network-heading-object">
           {history.length > 0 && <button className="network-back-button" type="button" onClick={goBack} aria-label="Back">←</button>}
-          {graph && <NetworkCard
-            object={graph.focus}
+          <NetworkCard
+            object={graph?.focus ?? previewFocus}
             focus
-            onToggleComplete={graph.focus.type === "todos.personal_task" ? () => void toggleTodo(graph.focus) : undefined}
-            onEdit={editableTypes.has(graph.focus.type) ? () => setEditingObject(graph.focus) : undefined}
-            onDownload={graph.focus.type === "files.file" ? () => downloadFile(graph.focus) : undefined}
-            busy={changingRef === graph.focus.ref}
-          />}
+            onToggleComplete={graph?.focus.type === "todos.personal_task" && graph ? () => void toggleTodo(graph.focus) : undefined}
+            onEdit={graph && editableTypes.has(graph.focus.type) ? () => setEditingObject(graph.focus) : undefined}
+            onDownload={graph?.focus.type === "files.file" && graph ? () => downloadFile(graph.focus) : undefined}
+            busy={loading || changingRef === (graph?.focus.ref ?? previewFocus.ref)}
+          />
         </div>
         <button className="button button--quiet" type="button" onClick={onClose}>Close</button>
       </header>
-      {loading && !graph && <p className="object-editor-state">Opening object…</p>}
+      {loading && !graph && <p className="object-editor-state">Loading connections…</p>}
       {error && <p className="inline-error" role="alert">{error}</p>}
       {graph && <>
         <div className="network-rail" aria-label="Connected objects">

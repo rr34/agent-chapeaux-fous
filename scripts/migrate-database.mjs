@@ -13,6 +13,9 @@ import {
   splitMariaDbStatements,
   validatePendingMigrations,
 } from "./database-migrations.mjs";
+import {
+  objectRelationshipEdgeEndpointTables, objectRelationshipEdgeSourceTables,
+} from "./object-relationship-edge-triggers.mjs";
 
 export const migrationsFilename = path.join(repositoryRoot, "db/migrations.sql");
 export const migrationLockTimeoutSeconds = 30;
@@ -375,6 +378,92 @@ async function assertVersion32Integrity(connection, databaseName) {
 export async function assertMigrationSpecificIntegrity(
   connection, migration, databaseName, schemaVersion = migration.version,
 ) {
+  if (migration.version === 65) {
+    const [objects] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (
+        'object_relationship_edge_index', 'object_relationship_edges', 'object_relationship_edges_source'
+      )`, [databaseName]);
+    const types = new Map(objects.map((row) => [row.TABLE_NAME, row.TABLE_TYPE]));
+    if (types.get("object_relationship_edge_index") !== "BASE TABLE"
+        || types.get("object_relationship_edges") !== "VIEW"
+        || types.get("object_relationship_edges_source") !== "VIEW") {
+      throw new Error("Migration 0065 did not establish the indexed relationship projection and both read-only views");
+    }
+    const [indexes] = await connection.query(`SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX
+      FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'object_relationship_edge_index'
+      ORDER BY INDEX_NAME, SEQ_IN_INDEX`, [databaseName]);
+    const lookup = indexes.filter((row) => row.INDEX_NAME === "object_relationship_edge_lookup")
+      .map((row) => row.COLUMN_NAME);
+    if (JSON.stringify(lookup) !== JSON.stringify(["from_type", "from_id", "to_type", "to_id"])) {
+      throw new Error("Migration 0065 did not establish the directed relationship lookup index");
+    }
+    const [views] = await connection.query(`SELECT TABLE_NAME, VIEW_DEFINITION, SECURITY_TYPE
+      FROM information_schema.VIEWS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ('object_relationship_edges', 'object_relationship_edges_source')`, [databaseName]);
+    const publicView = views.find((row) => row.TABLE_NAME === "object_relationship_edges");
+    const sourceView = views.find((row) => row.TABLE_NAME === "object_relationship_edges_source");
+    if (publicView?.SECURITY_TYPE !== "INVOKER"
+        || !String(publicView?.VIEW_DEFINITION ?? "").includes("object_relationship_edge_index")
+        || sourceView?.SECURITY_TYPE !== "INVOKER") {
+      throw new Error("Migration 0065 did not preserve invoker-secured relationship view ownership");
+    }
+    const [triggers] = await connection.query(`SELECT TRIGGER_NAME, EVENT_OBJECT_TABLE, EVENT_MANIPULATION
+      FROM information_schema.TRIGGERS
+      WHERE TRIGGER_SCHEMA = ? AND TRIGGER_NAME LIKE 'ore\\_%'`, [databaseName]);
+    for (const table of objectRelationshipEdgeSourceTables) {
+      for (const [event, suffix] of [["INSERT", "ai"], ["UPDATE", "au"], ["DELETE", "ad"]]) {
+        if (!triggers.some((row) => row.TRIGGER_NAME === `ore_${table}_${suffix}`
+          && row.EVENT_OBJECT_TABLE === table && row.EVENT_MANIPULATION === event)) {
+          throw new Error(`Migration 0065 did not establish ${event.toLowerCase()} projection maintenance for ${table}`);
+        }
+      }
+    }
+    for (const table of Object.keys(objectRelationshipEdgeEndpointTables)) {
+      if (!triggers.some((row) => row.TRIGGER_NAME === `ore_cleanup_${table}_bd`
+        && row.EVENT_OBJECT_TABLE === table && row.EVENT_MANIPULATION === "DELETE")) {
+        throw new Error(`Migration 0065 did not establish projection cleanup for deleted ${table} objects`);
+      }
+    }
+    for (const [name, table, event] of [
+      ["ore_payment_invoice_lines_receipts_au", "payment_invoice_lines", "UPDATE"],
+      ["ore_jmap_email_mailboxes_au", "jmap_email_mailboxes", "UPDATE"],
+      ["ore_jmap_email_mailboxes_bd", "jmap_email_mailboxes", "DELETE"],
+    ]) {
+      if (!triggers.some((row) => row.TRIGGER_NAME === name
+        && row.EVENT_OBJECT_TABLE === table && row.EVENT_MANIPULATION === event)) {
+        throw new Error(`Migration 0065 did not establish dependent projection maintenance trigger ${name}`);
+      }
+    }
+    const [parity] = await connection.query(`SELECT
+        (SELECT COUNT(*) FROM object_relationship_edge_index) AS indexed_count,
+        (SELECT COUNT(*) FROM object_relationship_edges_source) AS source_count,
+        EXISTS (
+          SELECT 1
+          FROM object_relationship_edges_source source_edge
+          LEFT JOIN object_relationship_edge_index indexed_edge
+            ON indexed_edge.source_table = source_edge.source_table
+           AND indexed_edge.source_key_sha256 = UNHEX(SHA2(CAST(source_edge.source_key_json AS CHAR), 256))
+           AND indexed_edge.relationship_type = source_edge.relationship_type
+           AND indexed_edge.from_type = source_edge.from_type
+           AND indexed_edge.to_type = source_edge.to_type
+           AND indexed_edge.is_reverse = source_edge.is_reverse
+          WHERE indexed_edge.source_table IS NULL
+             OR indexed_edge.from_id <> source_edge.from_id
+             OR indexed_edge.to_id <> source_edge.to_id
+             OR indexed_edge.relationship_family <> source_edge.relationship_family
+             OR NOT (indexed_edge.created_at_utc <=> source_edge.created_at_utc)
+             OR NOT (indexed_edge.relationship_qualifier <=> source_edge.relationship_qualifier)
+             OR NOT (indexed_edge.sort_order <=> source_edge.sort_order)
+             OR indexed_edge.attributes_json <> source_edge.attributes_json
+          LIMIT 1
+        ) AS has_mismatch`);
+    if (Number(parity[0]?.indexed_count) !== Number(parity[0]?.source_count)
+        || Number(parity[0]?.has_mismatch) !== 0) {
+      throw new Error("Migration 0065 indexed relationship projection does not match its canonical source");
+    }
+  }
   if (migration.version === 64) {
     const [columns] = await connection.query(`SELECT COLUMN_NAME, COLUMN_TYPE, COLUMN_DEFAULT
       FROM information_schema.COLUMNS

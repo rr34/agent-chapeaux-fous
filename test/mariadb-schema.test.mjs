@@ -10,6 +10,10 @@ import {
 } from "../scripts/mariadb-schema.mjs";
 import { readMigrationLedger, splitMariaDbStatements } from "../scripts/database-migrations.mjs";
 import { relationshipEdgeViewColumns, relationshipJoinTables } from "../scripts/migrate-database.mjs";
+import {
+  baselineObjectRelationshipEdgeTriggers,
+  migrationObjectRelationshipEdgeTriggers,
+} from "../scripts/object-relationship-edge-triggers.mjs";
 import { requiredDatabaseSchemaVersion, requiredEnumColumns } from "../src/database.mjs";
 import { baselineBeforeJournalLevels } from "./helpers.mjs";
 
@@ -69,15 +73,15 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 64", () => {
+test("the authoritative MariaDB baseline is complete at schema version 65", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
-  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 48);
-  assert.equal(statements.filter((statement) => /^CREATE (?:SQL SECURITY INVOKER )?VIEW\b/iu.test(statement)).length, 8);
-  assert.equal(statements.filter((statement) => /^CREATE TRIGGER\b/iu.test(statement)).length, 7);
+  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 49);
+  assert.equal(statements.filter((statement) => /^CREATE (?:SQL SECURITY INVOKER )?VIEW\b/iu.test(statement)).length, 9);
+  assert.equal(statements.filter((statement) => /\bCREATE TRIGGER\b/iu.test(statement)).length, 105);
   assert.equal(source.match(/\bENUM\(/gu)?.length, 36);
-  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 68);
-  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 94);
+  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 69);
+  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 95);
   assert.doesNotMatch(source, /\b(?:[A-Za-z_][A-Za-z0-9_]*_at_utc|ask_after|resolved_at|routine_occurrence_key)\s+VARCHAR\(/u);
   assert.equal(
     Object.values(requiredEnumColumns).reduce((count, fields) => count + Object.keys(fields).length, 0),
@@ -184,20 +188,34 @@ test("the authoritative MariaDB baseline is complete at schema version 64", () =
   assert.match(contactSourceAliases, /REFERENCES activity_events\(event_id\) ON DELETE SET NULL/u);
   assert.doesNotMatch(source, /CREATE TABLE (?:payment_invoice_line_receipts|correspondence_participants)\s*\(/u);
   const relationshipView = statements.find((statement) => statement.startsWith("CREATE SQL SECURITY INVOKER VIEW object_relationship_edges "));
+  const relationshipSourceView = statements.find((statement) => statement.startsWith("CREATE SQL SECURITY INVOKER VIEW object_relationship_edges_source "));
   assert.ok(relationshipView);
-  for (const tableName of relationshipJoinTables) assert.match(relationshipView, new RegExp(`\\b${tableName}\\b`, "u"));
+  assert.match(relationshipView, /FROM object_relationship_edge_index/u);
+  for (const tableName of relationshipJoinTables) assert.match(relationshipSourceView, new RegExp(`\\b${tableName}\\b`, "u"));
   for (const columnName of relationshipEdgeViewColumns) assert.match(relationshipView, new RegExp(`\\b${columnName}\\b`, "u"));
+  const contactCleanup = statements.find((statement) => statement.startsWith("CREATE TRIGGER ore_cleanup_contacts_bd\n"));
+  const invoiceCleanup = statements.find((statement) => statement.startsWith("CREATE TRIGGER ore_cleanup_payment_invoices_bd\n"));
+  assert.match(contactCleanup, /FROM contact_methods[\s\S]*WHERE contact_id = OLD[.]contact_id/u);
+  assert.match(invoiceCleanup, /FROM payment_invoice_lines[\s\S]*WHERE payment_invoice_id = OLD[.]payment_invoice_id/u);
   for (const retired of ["todo_routine_id", "scheduled_at_utc", "due_at_utc", "is_all_day", "duration_minutes"]) {
     assert.doesNotMatch(todoTable, new RegExp(`\\b${retired}\\b`, "u"));
   }
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 64, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 65, 'Chapeaux Fous MariaDB database'\)$/);
   assert.equal(
     requiredDatabaseSchemaVersion,
     readMigrationLedger(path.join(root, "db", "migrations.sql")).at(-1).version,
   );
+});
+
+test("relationship edge trigger DDL stays synchronized with its canonical generator", () => {
+  const baseline = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 65);
+  assert.ok(baseline.includes(baselineObjectRelationshipEdgeTriggers(baseline)));
+  assert.ok(migration.sql.includes(migrationObjectRelationshipEdgeTriggers(baseline)));
 });
 
 test("the physical Things migration adds constrained tables and expands the bidirectional edge view", () => {
@@ -218,7 +236,7 @@ test("the physical Things migration adds constrained tables and expands the bidi
   }
   const migratedView = splitMariaDbStatements(migration.sql)
     .find((statement) => statement.startsWith("CREATE OR REPLACE SQL SECURITY INVOKER VIEW object_relationship_edges "));
-  assert.match(baseline, /correspondence_email_mailboxes_join/u);
+  assert.match(fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8"), /correspondence_email_mailboxes_join/u);
   assert.doesNotMatch(migratedView, /correspondence_email_mailboxes_join/u);
   for (const columnName of relationshipEdgeViewColumns) assert.match(migratedView, new RegExp(`\\b${columnName}\\b`, "u"));
 });

@@ -16,6 +16,3867 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0065: indexed-object-relationship-projection
+-- writer downtime: required while the complete relationship projection is
+-- copied, its public view is redirected, and source-table maintenance triggers
+-- are installed. No authoritative relationship or domain row is changed.
+-- locking: creating and populating the derived index reads every relationship
+-- source and writes two directed projection rows per canonical relationship.
+-- Trigger creation and view replacement take metadata locks on their source
+-- tables. The derived index may require substantial temporary disk space.
+-- recovery: MariaDB DDL commits implicitly. Keep writers stopped and rerun the
+-- complete migration after a partial commit. Replay clears and rebuilds only
+-- the derived index, replaces both views, and recreates every maintenance
+-- trigger before the schema version can advance.
+
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW object_relationship_edges_source AS
+-- Complete recomputation source over all sixteen physical _join
+-- tables plus the direct native relationships used by the interactive object
+-- network. Each canonical relationship is emitted in both directions. The
+-- owning tables remain authoritative, attributes_json preserves domain
+-- qualifiers without interpreting them, and consumers still decide which
+-- endpoint types are first-class and hydrate exact bindings through their
+-- owning reads. This deliberately expensive projection supports initial
+-- population, verification, and repair of the indexed read model; ordinary
+-- interactive reads use object_relationship_edges and never scan this view.
+-- sourceOfTruth: false
+-- derivedFrom: ["activity_event_files_join", "contacts_tags_join", "calendar_event_contacts_join", "payment_invoice_line_receipts_join", "calendar_events_todo_join", "todo_content_join", "physical_items_todo_join", "physical_items_content_join", "physical_items_files_join", "physical_items_contacts_join", "video_script_sources_join", "todo_correspondence_join", "calendar_events_correspondence_join", "correspondence_files_join", "correspondence_participants_join", "correspondence_email_mailboxes_join", "todo_personal", "physical_items", "payment_invoices", "payment_invoice_lines", "journal2_trackers", "journal3_entries", "calendar_events", "content_items", "video_jobs"]
+-- from_type: Domain-qualified type of the lookup endpoint for this directed row.
+-- from_id: Text-preserving local or provider identifier of the lookup endpoint; first-class consumers restore the declared scalar type during hydration.
+-- relationship_type: Stable application relationship name shared by both directions of one edge.
+-- to_type: Domain-qualified type of the related endpoint.
+-- to_id: Text-preserving local or provider identifier of the related endpoint.
+-- relationship_family: Broad structural family such as membership, attachment, participation, provenance, or billing.
+-- source_table: Authoritative table containing the relationship or the direct foreign key from which it is projected.
+-- source_key_json: Compact JSON object identifying the exact authoritative source row.
+-- created_at_utc: Relationship creation time only when the owning source records that exact fact; otherwise null.
+-- relationship_qualifier: Compact owning-domain role or kind needed for bounded filtering and simple-connection behavior.
+-- sort_order: Owning-domain ordering value when the relationship has one; otherwise null.
+-- attributes_json: Owning-domain relationship metadata retained without interpretation. Format: JSON object encoded as text.
+-- is_reverse: 0 for the canonical source-table direction and 1 for the generated inverse lookup row.
+WITH canonical_edges AS (
+  SELECT
+    'activity.event' AS left_type,
+    CAST(link.event_id AS CHAR) AS left_id,
+    'activity-file' AS relationship_type,
+    'files.file' AS right_type,
+    CAST(link.file_id AS CHAR) AS right_id,
+    'attachment' AS relationship_family,
+    'activity_event_files_join' AS source_table,
+    JSON_OBJECT('event_id', link.event_id, 'file_id', link.file_id) AS source_key_json,
+    NULL AS created_at_utc,
+    link.file_role AS relationship_qualifier,
+    link.ordinal AS sort_order,
+    JSON_OBJECT('file_role', link.file_role, 'ordinal', link.ordinal) AS attributes_json
+  FROM activity_event_files_join AS link
+
+  UNION ALL
+  SELECT
+    CASE WHEN link.record_type = 'contact' THEN 'contacts.contact'
+         ELSE CONCAT('record.', link.record_type) END,
+    link.record_id,
+    'record-tag',
+    'contacts.tag',
+    CAST(link.tag_id AS CHAR),
+    'classification',
+    'contacts_tags_join',
+    JSON_OBJECT('tag_id', link.tag_id, 'record_type', link.record_type, 'record_id', link.record_id),
+    link.created_at_utc,
+    link.record_type,
+    NULL,
+    JSON_OBJECT('record_type', link.record_type)
+  FROM contacts_tags_join AS link
+
+  UNION ALL
+  SELECT
+    'calendar.event', CAST(link.calendar_event_id AS CHAR), 'event-contact',
+    'contacts.contact', CAST(link.contact_id AS CHAR), 'participation',
+    'calendar_event_contacts_join',
+    JSON_OBJECT('calendar_event_id', link.calendar_event_id, 'contact_id', link.contact_id,
+                'participant_role', link.participant_role),
+    NULL, link.participant_role, NULL,
+    JSON_OBJECT('participant_role', link.participant_role, 'response_status', link.response_status)
+  FROM calendar_event_contacts_join AS link
+
+  UNION ALL
+  SELECT
+    'payments.invoice_line', CAST(link.payment_invoice_line_id AS CHAR), 'invoice-line-receipt',
+    'files.file', CAST(link.file_id AS CHAR), 'attachment',
+    'payment_invoice_line_receipts_join',
+    JSON_OBJECT('payment_invoice_line_id', link.payment_invoice_line_id, 'file_id', link.file_id),
+    link.created_at_utc, NULL, NULL,
+    JSON_OBJECT('display_name_snapshot', link.display_name_snapshot,
+                'mime_type_snapshot', link.mime_type_snapshot,
+                'sha256_snapshot', link.sha256_snapshot)
+  FROM payment_invoice_line_receipts_join AS link
+
+  UNION ALL
+  SELECT
+    'calendar.event', CAST(link.calendar_event_id AS CHAR), 'todo-event',
+    'todos.personal_task', CAST(link.personal_task_id AS CHAR), 'scheduling',
+    'calendar_events_todo_join',
+    JSON_OBJECT('calendar_event_id', link.calendar_event_id, 'personal_task_id', link.personal_task_id),
+    link.created_at_utc, link.relationship_kind, NULL,
+    JSON_OBJECT('relationship_kind', link.relationship_kind)
+  FROM calendar_events_todo_join AS link
+
+  UNION ALL
+  SELECT
+    'todos.personal_task', CAST(link.personal_task_id AS CHAR), 'todo-content',
+    'video.content_item', CAST(link.content_id AS CHAR), 'association',
+    'todo_content_join',
+    JSON_OBJECT('personal_task_id', link.personal_task_id, 'content_id', link.content_id),
+    link.created_at_utc, NULL, NULL, JSON_OBJECT()
+  FROM todo_content_join AS link
+
+  UNION ALL
+  SELECT
+    'things.physical_item', CAST(link.physical_item_id AS CHAR), 'thing-todo',
+    'todos.personal_task', CAST(link.personal_task_id AS CHAR), 'association',
+    'physical_items_todo_join',
+    JSON_OBJECT('physical_item_id', link.physical_item_id, 'personal_task_id', link.personal_task_id),
+    link.created_at_utc, link.relationship_kind, NULL,
+    JSON_OBJECT('relationship_kind', link.relationship_kind)
+  FROM physical_items_todo_join AS link
+
+  UNION ALL
+  SELECT
+    'things.physical_item', CAST(link.physical_item_id AS CHAR), 'thing-content',
+    'video.content_item', CAST(link.content_id AS CHAR), 'association',
+    'physical_items_content_join',
+    JSON_OBJECT('physical_item_id', link.physical_item_id, 'content_id', link.content_id),
+    link.created_at_utc, link.relationship_kind, NULL,
+    JSON_OBJECT('relationship_kind', link.relationship_kind)
+  FROM physical_items_content_join AS link
+
+  UNION ALL
+  SELECT
+    'things.physical_item', CAST(link.physical_item_id AS CHAR), 'thing-file',
+    'files.file', CAST(link.file_id AS CHAR), 'attachment',
+    'physical_items_files_join',
+    JSON_OBJECT('physical_item_id', link.physical_item_id, 'file_id', link.file_id),
+    link.created_at_utc, link.file_role, link.sort_order,
+    JSON_OBJECT('file_role', link.file_role, 'sort_order', link.sort_order)
+  FROM physical_items_files_join AS link
+
+  UNION ALL
+  SELECT
+    'things.physical_item', CAST(link.physical_item_id AS CHAR), 'thing-contact',
+    'contacts.contact', CAST(link.contact_id AS CHAR), 'association',
+    'physical_items_contacts_join',
+    JSON_OBJECT('physical_item_id', link.physical_item_id, 'contact_id', link.contact_id),
+    link.created_at_utc, link.relationship_kind, NULL,
+    JSON_OBJECT('relationship_kind', link.relationship_kind)
+  FROM physical_items_contacts_join AS link
+
+  UNION ALL
+  SELECT
+    'video.script', CAST(link.video_script_id AS CHAR), 'script-source',
+    'activity.event', CAST(link.request_event_id AS CHAR), 'provenance',
+    'video_script_sources_join',
+    JSON_OBJECT('video_script_id', link.video_script_id, 'request_event_id', link.request_event_id),
+    NULL, NULL, link.source_order,
+    JSON_OBJECT('source_order', link.source_order)
+  FROM video_script_sources_join AS link
+
+  UNION ALL
+  SELECT
+    'todos.personal_task', CAST(link.personal_task_id AS CHAR), 'todo-correspondence',
+    'correspondence.item', CAST(link.correspondence_id AS CHAR), 'correspondence',
+    'todo_correspondence_join',
+    JSON_OBJECT('personal_task_id', link.personal_task_id, 'correspondence_id', link.correspondence_id),
+    link.created_at_utc, NULL, NULL, JSON_OBJECT()
+  FROM todo_correspondence_join AS link
+
+  UNION ALL
+  SELECT
+    'calendar.event', CAST(link.calendar_event_id AS CHAR), 'event-correspondence',
+    'correspondence.item', CAST(link.correspondence_id AS CHAR), 'correspondence',
+    'calendar_events_correspondence_join',
+    JSON_OBJECT('calendar_event_id', link.calendar_event_id, 'correspondence_id', link.correspondence_id),
+    link.created_at_utc, NULL, NULL, JSON_OBJECT()
+  FROM calendar_events_correspondence_join AS link
+
+  UNION ALL
+  SELECT
+    'correspondence.item', CAST(link.correspondence_id AS CHAR), 'correspondence-file',
+    'files.file', CAST(link.file_id AS CHAR), 'attachment',
+    'correspondence_files_join',
+    JSON_OBJECT('correspondence_id', link.correspondence_id, 'file_id', link.file_id),
+    NULL, link.attachment_role, NULL,
+    JSON_OBJECT('attachment_role', link.attachment_role)
+  FROM correspondence_files_join AS link
+
+  UNION ALL
+  SELECT
+    'correspondence.item', CAST(link.correspondence_id AS CHAR), 'correspondence-contact',
+    'contacts.contact', CAST(link.contact_id AS CHAR), 'participation',
+    'correspondence_participants_join',
+    JSON_OBJECT('correspondence_id', link.correspondence_id, 'participant_role', link.participant_role,
+                'address_value', link.address_value),
+    NULL, link.participant_role, NULL,
+    JSON_OBJECT('participant_role', link.participant_role, 'contact_method_id', link.contact_method_id,
+                'address_value', link.address_value, 'display_name', link.display_name)
+  FROM correspondence_participants_join AS link
+  WHERE link.contact_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'correspondence.item', CAST(link.correspondence_id AS CHAR), 'correspondence-contact-method',
+    'contacts.contact_method', CAST(link.contact_method_id AS CHAR), 'participation',
+    'correspondence_participants_join',
+    JSON_OBJECT('correspondence_id', link.correspondence_id, 'participant_role', link.participant_role,
+                'address_value', link.address_value),
+    NULL, link.participant_role, NULL,
+    JSON_OBJECT('participant_role', link.participant_role, 'contact_id', link.contact_id,
+                'address_value', link.address_value, 'display_name', link.display_name)
+  FROM correspondence_participants_join AS link
+  WHERE link.contact_method_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'correspondence.item', CAST(link.correspondence_id AS CHAR), 'correspondence-email-mailbox',
+    'email.mailbox', link.mailbox_id, 'membership',
+    'correspondence_email_mailboxes_join',
+    JSON_OBJECT('correspondence_id', link.correspondence_id,
+                'source_account_key', link.source_account_key, 'mailbox_id', link.mailbox_id),
+    link.created_at_utc, mailbox.role, mailbox.sort_order,
+    JSON_OBJECT('source_account_key', link.source_account_key, 'mailbox_name', mailbox.name,
+                'mailbox_role', mailbox.role)
+  FROM correspondence_email_mailboxes_join AS link
+  JOIN jmap_email_mailboxes AS mailbox
+    ON mailbox.source_account_key = link.source_account_key AND mailbox.mailbox_id = link.mailbox_id
+
+  UNION ALL
+  SELECT
+    'todos.todo_group', CAST(task.todo_group_id AS CHAR), 'todo-group',
+    'todos.personal_task', CAST(task.personal_task_id AS CHAR), 'membership',
+    'todo_personal', JSON_OBJECT('personal_task_id', task.personal_task_id),
+    NULL, NULL, task.sort_position, JSON_OBJECT()
+  FROM todo_personal AS task
+
+  UNION ALL
+  SELECT
+    'things.physical_item_group', CAST(item.physical_item_group_id AS CHAR), 'physical-item-group',
+    'things.physical_item', CAST(item.physical_item_id AS CHAR), 'membership',
+    'physical_items', JSON_OBJECT('physical_item_id', item.physical_item_id),
+    item.created_at_utc, NULL, item.sort_position, JSON_OBJECT()
+  FROM physical_items AS item
+
+  UNION ALL
+  SELECT
+    'todos.personal_task', CAST(task.personal_task_id AS CHAR), 'todo-contact',
+    'contacts.contact', CAST(task.related_contact_id AS CHAR), 'association',
+    'todo_personal', JSON_OBJECT('personal_task_id', task.personal_task_id),
+    NULL, NULL, NULL, JSON_OBJECT()
+  FROM todo_personal AS task
+  WHERE task.related_contact_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'payments.invoice', CAST(invoice.payment_invoice_id AS CHAR), 'invoice-payer',
+    'contacts.contact', CAST(invoice.payer_contact_id AS CHAR), 'billing',
+    'payment_invoices', JSON_OBJECT('payment_invoice_id', invoice.payment_invoice_id),
+    NULL, NULL, NULL, JSON_OBJECT()
+  FROM payment_invoices AS invoice
+  WHERE invoice.payer_contact_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'payments.invoice', CAST(line.payment_invoice_id AS CHAR), 'invoice-line',
+    'todos.personal_task', CAST(line.personal_task_id AS CHAR), 'billing',
+    'payment_invoice_lines', JSON_OBJECT('payment_invoice_line_id', line.payment_invoice_line_id),
+    line.created_at_utc, line.line_source, line.line_position,
+    JSON_OBJECT('payment_invoice_line_id', line.payment_invoice_line_id,
+                'line_source', line.line_source, 'line_position', line.line_position)
+  FROM payment_invoice_lines AS line
+  WHERE line.personal_task_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'payments.invoice', CAST(line.payment_invoice_id AS CHAR), 'invoice-line-receipt',
+    'files.file', CAST(receipt.file_id AS CHAR), 'attachment',
+    'payment_invoice_line_receipts_join',
+    JSON_OBJECT('payment_invoice_line_id', receipt.payment_invoice_line_id, 'file_id', receipt.file_id),
+    receipt.created_at_utc, NULL, line.line_position,
+    JSON_OBJECT('payment_invoice_line_id', receipt.payment_invoice_line_id,
+                'line_position', line.line_position,
+                'display_name_snapshot', receipt.display_name_snapshot,
+                'mime_type_snapshot', receipt.mime_type_snapshot,
+                'sha256_snapshot', receipt.sha256_snapshot)
+  FROM payment_invoice_line_receipts_join AS receipt
+  JOIN payment_invoice_lines AS line USING (payment_invoice_line_id)
+
+  UNION ALL
+  SELECT
+    'journal.group', CAST(tracker.journal_group_id AS CHAR), 'journal-group',
+    'journal.tracker', CAST(tracker.tracker_id AS CHAR), 'membership',
+    'journal2_trackers', JSON_OBJECT('tracker_id', tracker.tracker_id),
+    NULL, NULL, NULL, JSON_OBJECT()
+  FROM journal2_trackers AS tracker
+
+  UNION ALL
+  SELECT
+    'journal.tracker', CAST(entry.tracker_id AS CHAR), 'tracker-entry',
+    'journal.entry', CAST(entry.journal_entry_id AS CHAR), 'membership',
+    'journal3_entries', JSON_OBJECT('journal_entry_id', entry.journal_entry_id),
+    entry.created_at_utc, NULL, NULL,
+    JSON_OBJECT('occurred_at_utc', entry.occurred_at_utc)
+  FROM journal3_entries AS entry
+
+  UNION ALL
+  SELECT
+    'calendar.routine', CAST(event.calendar_routine_id AS CHAR), 'routine-event',
+    'calendar.event', CAST(event.calendar_event_id AS CHAR), 'generation',
+    'calendar_events', JSON_OBJECT('calendar_event_id', event.calendar_event_id),
+    event.created_at_utc, NULL, NULL,
+    JSON_OBJECT('routine_occurrence_key', event.routine_occurrence_key)
+  FROM calendar_events AS event
+  WHERE event.calendar_routine_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'video.content_group', CAST(content.content_group_id AS CHAR), 'content-group',
+    'video.content_item', CAST(content.content_id AS CHAR), 'membership',
+    'content_items', JSON_OBJECT('content_id', content.content_id),
+    content.created_at_utc, NULL, content.sequence, JSON_OBJECT()
+  FROM content_items AS content
+
+  UNION ALL
+  SELECT
+    'video.content_item', CAST(content.content_id AS CHAR), 'content-file',
+    'files.file', CAST(content.primary_file_id AS CHAR), 'attachment',
+    'content_items', JSON_OBJECT('content_id', content.content_id),
+    NULL, NULL, NULL, JSON_OBJECT()
+  FROM content_items AS content
+  WHERE content.primary_file_id IS NOT NULL
+
+  UNION ALL
+  SELECT
+    'video.script', CAST(job.video_script_id AS CHAR), 'script-content',
+    'video.content_item', CAST(job.content_id AS CHAR), 'production',
+    'video_jobs', JSON_OBJECT('video_job_id', job.video_job_id),
+    job.created_at_utc, NULL, NULL,
+    JSON_OBJECT('video_job_id', job.video_job_id, 'status', job.status)
+  FROM video_jobs AS job
+  WHERE job.video_script_id IS NOT NULL AND job.content_id IS NOT NULL
+)
+SELECT
+  left_type AS from_type,
+  left_id AS from_id,
+  relationship_type,
+  right_type AS to_type,
+  right_id AS to_id,
+  relationship_family,
+  source_table,
+  source_key_json,
+  created_at_utc,
+  relationship_qualifier,
+  sort_order,
+  attributes_json,
+  0 AS is_reverse
+FROM canonical_edges
+UNION ALL
+SELECT
+  right_type AS from_type,
+  right_id AS from_id,
+  relationship_type,
+  left_type AS to_type,
+  left_id AS to_id,
+  relationship_family,
+  source_table,
+  source_key_json,
+  created_at_utc,
+  relationship_qualifier,
+  sort_order,
+  attributes_json,
+  1 AS is_reverse
+FROM canonical_edges;
+
+CREATE TABLE IF NOT EXISTS object_relationship_edge_index (
+    from_type VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Domain-qualified type of the directed lookup endpoint.',
+    from_id VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Text-preserving local or provider identifier of the directed lookup endpoint.',
+    relationship_type VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Stable application relationship name shared by both directions of one edge.',
+    to_type VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Domain-qualified type of the related endpoint.',
+    to_id VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Text-preserving local or provider identifier of the related endpoint.',
+    relationship_family VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Broad structural relationship family.',
+    source_table VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Authoritative table containing the relationship or direct foreign key.',
+    source_key_json JSON NOT NULL COMMENT 'Compact identity of the exact authoritative source row.',
+    source_key_sha256 BINARY(32) NOT NULL COMMENT 'Deterministic digest of source_key_json used only for indexed maintenance and uniqueness.',
+    created_at_utc DATETIME(3) COMMENT 'Relationship creation instant when the authoritative source records that exact fact.',
+    relationship_qualifier VARCHAR(255) COMMENT 'Compact owning-domain role or kind used by bounded filtering and simple-connection behavior.',
+    sort_order BIGINT COMMENT 'Owning-domain ordering value when the relationship has one.',
+    attributes_json JSON NOT NULL COMMENT 'Owning-domain relationship metadata retained without interpretation.',
+    is_reverse TINYINT NOT NULL COMMENT '0 for the canonical source direction and 1 for its inverse lookup row.',
+    PRIMARY KEY (source_table, source_key_sha256, relationship_type, from_type, to_type, is_reverse),
+    KEY object_relationship_edge_lookup (from_type, from_id, to_type, to_id),
+    KEY object_relationship_edge_target (to_type, to_id, from_type, from_id),
+    CONSTRAINT object_relationship_edge_direction CHECK (is_reverse IN (0, 1))
+) ENGINE=InnoDB COMMENT='Transactionally maintained indexed read model for the complete native object relationship projection. Authoritative domain tables and join tables remain the source of truth; database triggers maintain both directed lookup rows for each current relationship. The public object_relationship_edges view is the only ordinary consumer surface. Sensitivity: Contains private object identifiers and relationship metadata copied from native domain tables.';
+
+DELETE FROM object_relationship_edge_index;
+
+INSERT INTO object_relationship_edge_index (
+  from_type, from_id, relationship_type, to_type, to_id,
+  relationship_family, source_table, source_key_json, source_key_sha256,
+  created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+)
+SELECT from_type, from_id, relationship_type, to_type, to_id,
+       relationship_family, source_table, source_key_json,
+       UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)),
+       created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+FROM object_relationship_edges_source;
+
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW object_relationship_edges AS
+-- Indexed read-only consumer surface for current native relationship edges.
+-- The owning domain tables remain authoritative; object_relationship_edge_index
+-- is maintained transactionally by database triggers and can be rebuilt from
+-- object_relationship_edges_source.
+SELECT from_type, from_id, relationship_type, to_type, to_id,
+       relationship_family, source_table, source_key_json, created_at_utc,
+       relationship_qualifier, sort_order, attributes_json, is_reverse
+FROM object_relationship_edge_index;
+
+DROP TRIGGER IF EXISTS ore_activity_event_files_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_activity_event_files_join_ai AFTER INSERT ON activity_event_files_join FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''activity.event'' AS left_type,
+      CAST(NEW.event_id AS CHAR) AS left_id,
+      ''activity-file'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''activity_event_files_join'' AS source_table,
+      JSON_OBJECT(''event_id'', NEW.event_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.file_role AS relationship_qualifier,
+      NEW.ordinal AS sort_order,
+      JSON_OBJECT(''file_role'', NEW.file_role, ''ordinal'', NEW.ordinal) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''activity.event'' AS left_type,
+      CAST(NEW.event_id AS CHAR) AS left_id,
+      ''activity-file'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''activity_event_files_join'' AS source_table,
+      JSON_OBJECT(''event_id'', NEW.event_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.file_role AS relationship_qualifier,
+      NEW.ordinal AS sort_order,
+      JSON_OBJECT(''file_role'', NEW.file_role, ''ordinal'', NEW.ordinal) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_activity_event_files_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_activity_event_files_join_au AFTER UPDATE ON activity_event_files_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''activity_event_files_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''event_id'', OLD.event_id, ''file_id'', OLD.file_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''activity.event'' AS left_type,
+      CAST(NEW.event_id AS CHAR) AS left_id,
+      ''activity-file'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''activity_event_files_join'' AS source_table,
+      JSON_OBJECT(''event_id'', NEW.event_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.file_role AS relationship_qualifier,
+      NEW.ordinal AS sort_order,
+      JSON_OBJECT(''file_role'', NEW.file_role, ''ordinal'', NEW.ordinal) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''activity.event'' AS left_type,
+      CAST(NEW.event_id AS CHAR) AS left_id,
+      ''activity-file'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''activity_event_files_join'' AS source_table,
+      JSON_OBJECT(''event_id'', NEW.event_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.file_role AS relationship_qualifier,
+      NEW.ordinal AS sort_order,
+      JSON_OBJECT(''file_role'', NEW.file_role, ''ordinal'', NEW.ordinal) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_activity_event_files_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_activity_event_files_join_ad AFTER DELETE ON activity_event_files_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''activity_event_files_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''event_id'', OLD.event_id, ''file_id'', OLD.file_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_contacts_tags_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_contacts_tags_join_ai AFTER INSERT ON contacts_tags_join FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      CASE WHEN NEW.record_type = ''contact'' THEN ''contacts.contact''
+         ELSE CONCAT(''record.'', NEW.record_type) END AS left_type,
+      NEW.record_id AS left_id,
+      ''record-tag'' AS relationship_type,
+      ''contacts.tag'' AS right_type,
+      CAST(NEW.tag_id AS CHAR) AS right_id,
+      ''classification'' AS relationship_family,
+      ''contacts_tags_join'' AS source_table,
+      JSON_OBJECT(''tag_id'', NEW.tag_id, ''record_type'', NEW.record_type, ''record_id'', NEW.record_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.record_type AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''record_type'', NEW.record_type) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      CASE WHEN NEW.record_type = ''contact'' THEN ''contacts.contact''
+         ELSE CONCAT(''record.'', NEW.record_type) END AS left_type,
+      NEW.record_id AS left_id,
+      ''record-tag'' AS relationship_type,
+      ''contacts.tag'' AS right_type,
+      CAST(NEW.tag_id AS CHAR) AS right_id,
+      ''classification'' AS relationship_family,
+      ''contacts_tags_join'' AS source_table,
+      JSON_OBJECT(''tag_id'', NEW.tag_id, ''record_type'', NEW.record_type, ''record_id'', NEW.record_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.record_type AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''record_type'', NEW.record_type) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_contacts_tags_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_contacts_tags_join_au AFTER UPDATE ON contacts_tags_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''contacts_tags_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''tag_id'', OLD.tag_id, ''record_type'', OLD.record_type, ''record_id'', OLD.record_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      CASE WHEN NEW.record_type = ''contact'' THEN ''contacts.contact''
+         ELSE CONCAT(''record.'', NEW.record_type) END AS left_type,
+      NEW.record_id AS left_id,
+      ''record-tag'' AS relationship_type,
+      ''contacts.tag'' AS right_type,
+      CAST(NEW.tag_id AS CHAR) AS right_id,
+      ''classification'' AS relationship_family,
+      ''contacts_tags_join'' AS source_table,
+      JSON_OBJECT(''tag_id'', NEW.tag_id, ''record_type'', NEW.record_type, ''record_id'', NEW.record_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.record_type AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''record_type'', NEW.record_type) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      CASE WHEN NEW.record_type = ''contact'' THEN ''contacts.contact''
+         ELSE CONCAT(''record.'', NEW.record_type) END AS left_type,
+      NEW.record_id AS left_id,
+      ''record-tag'' AS relationship_type,
+      ''contacts.tag'' AS right_type,
+      CAST(NEW.tag_id AS CHAR) AS right_id,
+      ''classification'' AS relationship_family,
+      ''contacts_tags_join'' AS source_table,
+      JSON_OBJECT(''tag_id'', NEW.tag_id, ''record_type'', NEW.record_type, ''record_id'', NEW.record_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.record_type AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''record_type'', NEW.record_type) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_contacts_tags_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_contacts_tags_join_ad AFTER DELETE ON contacts_tags_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''contacts_tags_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''tag_id'', OLD.tag_id, ''record_type'', OLD.record_type, ''record_id'', OLD.record_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_event_contacts_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_event_contacts_join_ai AFTER INSERT ON calendar_event_contacts_join FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''calendar.event'' AS left_type,
+      CAST(NEW.calendar_event_id AS CHAR) AS left_id,
+      ''event-contact'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.contact_id AS CHAR) AS right_id,
+      ''participation'' AS relationship_family,
+      ''calendar_event_contacts_join'' AS source_table,
+      JSON_OBJECT(''calendar_event_id'', NEW.calendar_event_id, ''contact_id'', NEW.contact_id,
+                ''participant_role'', NEW.participant_role) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.participant_role AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''participant_role'', NEW.participant_role, ''response_status'', NEW.response_status) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''calendar.event'' AS left_type,
+      CAST(NEW.calendar_event_id AS CHAR) AS left_id,
+      ''event-contact'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.contact_id AS CHAR) AS right_id,
+      ''participation'' AS relationship_family,
+      ''calendar_event_contacts_join'' AS source_table,
+      JSON_OBJECT(''calendar_event_id'', NEW.calendar_event_id, ''contact_id'', NEW.contact_id,
+                ''participant_role'', NEW.participant_role) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.participant_role AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''participant_role'', NEW.participant_role, ''response_status'', NEW.response_status) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_event_contacts_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_event_contacts_join_au AFTER UPDATE ON calendar_event_contacts_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''calendar_event_contacts_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''calendar_event_id'', OLD.calendar_event_id, ''contact_id'', OLD.contact_id,
+                ''participant_role'', OLD.participant_role) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''calendar.event'' AS left_type,
+      CAST(NEW.calendar_event_id AS CHAR) AS left_id,
+      ''event-contact'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.contact_id AS CHAR) AS right_id,
+      ''participation'' AS relationship_family,
+      ''calendar_event_contacts_join'' AS source_table,
+      JSON_OBJECT(''calendar_event_id'', NEW.calendar_event_id, ''contact_id'', NEW.contact_id,
+                ''participant_role'', NEW.participant_role) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.participant_role AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''participant_role'', NEW.participant_role, ''response_status'', NEW.response_status) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''calendar.event'' AS left_type,
+      CAST(NEW.calendar_event_id AS CHAR) AS left_id,
+      ''event-contact'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.contact_id AS CHAR) AS right_id,
+      ''participation'' AS relationship_family,
+      ''calendar_event_contacts_join'' AS source_table,
+      JSON_OBJECT(''calendar_event_id'', NEW.calendar_event_id, ''contact_id'', NEW.contact_id,
+                ''participant_role'', NEW.participant_role) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.participant_role AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''participant_role'', NEW.participant_role, ''response_status'', NEW.response_status) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_event_contacts_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_event_contacts_join_ad AFTER DELETE ON calendar_event_contacts_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''calendar_event_contacts_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''calendar_event_id'', OLD.calendar_event_id, ''contact_id'', OLD.contact_id,
+                ''participant_role'', OLD.participant_role) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_payment_invoice_line_receipts_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_payment_invoice_line_receipts_join_ai AFTER INSERT ON payment_invoice_line_receipts_join FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''payments.invoice_line'' AS left_type,
+      CAST(NEW.payment_invoice_line_id AS CHAR) AS left_id,
+      ''invoice-line-receipt'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''payment_invoice_line_receipts_join'' AS source_table,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''display_name_snapshot'', NEW.display_name_snapshot,
+                ''mime_type_snapshot'', NEW.mime_type_snapshot,
+                ''sha256_snapshot'', NEW.sha256_snapshot) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''payments.invoice_line'' AS left_type,
+      CAST(NEW.payment_invoice_line_id AS CHAR) AS left_id,
+      ''invoice-line-receipt'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''payment_invoice_line_receipts_join'' AS source_table,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''display_name_snapshot'', NEW.display_name_snapshot,
+                ''mime_type_snapshot'', NEW.mime_type_snapshot,
+                ''sha256_snapshot'', NEW.sha256_snapshot) AS attributes_json) AS edge;
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''payments.invoice'' AS left_type,
+      CAST(line.payment_invoice_id AS CHAR) AS left_id,
+      ''invoice-line-receipt'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''payment_invoice_line_receipts_join'' AS source_table,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      line.line_position AS sort_order,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id,
+                ''line_position'', line.line_position,
+                ''display_name_snapshot'', NEW.display_name_snapshot,
+                ''mime_type_snapshot'', NEW.mime_type_snapshot,
+                ''sha256_snapshot'', NEW.sha256_snapshot) AS attributes_json
+    FROM payment_invoice_lines AS line WHERE line.payment_invoice_line_id = NEW.payment_invoice_line_id) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''payments.invoice'' AS left_type,
+      CAST(line.payment_invoice_id AS CHAR) AS left_id,
+      ''invoice-line-receipt'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''payment_invoice_line_receipts_join'' AS source_table,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      line.line_position AS sort_order,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id,
+                ''line_position'', line.line_position,
+                ''display_name_snapshot'', NEW.display_name_snapshot,
+                ''mime_type_snapshot'', NEW.mime_type_snapshot,
+                ''sha256_snapshot'', NEW.sha256_snapshot) AS attributes_json
+    FROM payment_invoice_lines AS line WHERE line.payment_invoice_line_id = NEW.payment_invoice_line_id) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_payment_invoice_line_receipts_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_payment_invoice_line_receipts_join_au AFTER UPDATE ON payment_invoice_line_receipts_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''payment_invoice_line_receipts_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''payment_invoice_line_id'', OLD.payment_invoice_line_id, ''file_id'', OLD.file_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''payments.invoice_line'' AS left_type,
+      CAST(NEW.payment_invoice_line_id AS CHAR) AS left_id,
+      ''invoice-line-receipt'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''payment_invoice_line_receipts_join'' AS source_table,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''display_name_snapshot'', NEW.display_name_snapshot,
+                ''mime_type_snapshot'', NEW.mime_type_snapshot,
+                ''sha256_snapshot'', NEW.sha256_snapshot) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''payments.invoice_line'' AS left_type,
+      CAST(NEW.payment_invoice_line_id AS CHAR) AS left_id,
+      ''invoice-line-receipt'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''payment_invoice_line_receipts_join'' AS source_table,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''display_name_snapshot'', NEW.display_name_snapshot,
+                ''mime_type_snapshot'', NEW.mime_type_snapshot,
+                ''sha256_snapshot'', NEW.sha256_snapshot) AS attributes_json) AS edge;
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''payments.invoice'' AS left_type,
+      CAST(line.payment_invoice_id AS CHAR) AS left_id,
+      ''invoice-line-receipt'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''payment_invoice_line_receipts_join'' AS source_table,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      line.line_position AS sort_order,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id,
+                ''line_position'', line.line_position,
+                ''display_name_snapshot'', NEW.display_name_snapshot,
+                ''mime_type_snapshot'', NEW.mime_type_snapshot,
+                ''sha256_snapshot'', NEW.sha256_snapshot) AS attributes_json
+    FROM payment_invoice_lines AS line WHERE line.payment_invoice_line_id = NEW.payment_invoice_line_id) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''payments.invoice'' AS left_type,
+      CAST(line.payment_invoice_id AS CHAR) AS left_id,
+      ''invoice-line-receipt'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''payment_invoice_line_receipts_join'' AS source_table,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      line.line_position AS sort_order,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id,
+                ''line_position'', line.line_position,
+                ''display_name_snapshot'', NEW.display_name_snapshot,
+                ''mime_type_snapshot'', NEW.mime_type_snapshot,
+                ''sha256_snapshot'', NEW.sha256_snapshot) AS attributes_json
+    FROM payment_invoice_lines AS line WHERE line.payment_invoice_line_id = NEW.payment_invoice_line_id) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_payment_invoice_line_receipts_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_payment_invoice_line_receipts_join_ad AFTER DELETE ON payment_invoice_line_receipts_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''payment_invoice_line_receipts_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''payment_invoice_line_id'', OLD.payment_invoice_line_id, ''file_id'', OLD.file_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_events_todo_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_events_todo_join_ai AFTER INSERT ON calendar_events_todo_join FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''calendar.event'' AS left_type,
+      CAST(NEW.calendar_event_id AS CHAR) AS left_id,
+      ''todo-event'' AS relationship_type,
+      ''todos.personal_task'' AS right_type,
+      CAST(NEW.personal_task_id AS CHAR) AS right_id,
+      ''scheduling'' AS relationship_family,
+      ''calendar_events_todo_join'' AS source_table,
+      JSON_OBJECT(''calendar_event_id'', NEW.calendar_event_id, ''personal_task_id'', NEW.personal_task_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.relationship_kind AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''relationship_kind'', NEW.relationship_kind) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''calendar.event'' AS left_type,
+      CAST(NEW.calendar_event_id AS CHAR) AS left_id,
+      ''todo-event'' AS relationship_type,
+      ''todos.personal_task'' AS right_type,
+      CAST(NEW.personal_task_id AS CHAR) AS right_id,
+      ''scheduling'' AS relationship_family,
+      ''calendar_events_todo_join'' AS source_table,
+      JSON_OBJECT(''calendar_event_id'', NEW.calendar_event_id, ''personal_task_id'', NEW.personal_task_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.relationship_kind AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''relationship_kind'', NEW.relationship_kind) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_events_todo_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_events_todo_join_au AFTER UPDATE ON calendar_events_todo_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''calendar_events_todo_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''calendar_event_id'', OLD.calendar_event_id, ''personal_task_id'', OLD.personal_task_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''calendar.event'' AS left_type,
+      CAST(NEW.calendar_event_id AS CHAR) AS left_id,
+      ''todo-event'' AS relationship_type,
+      ''todos.personal_task'' AS right_type,
+      CAST(NEW.personal_task_id AS CHAR) AS right_id,
+      ''scheduling'' AS relationship_family,
+      ''calendar_events_todo_join'' AS source_table,
+      JSON_OBJECT(''calendar_event_id'', NEW.calendar_event_id, ''personal_task_id'', NEW.personal_task_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.relationship_kind AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''relationship_kind'', NEW.relationship_kind) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''calendar.event'' AS left_type,
+      CAST(NEW.calendar_event_id AS CHAR) AS left_id,
+      ''todo-event'' AS relationship_type,
+      ''todos.personal_task'' AS right_type,
+      CAST(NEW.personal_task_id AS CHAR) AS right_id,
+      ''scheduling'' AS relationship_family,
+      ''calendar_events_todo_join'' AS source_table,
+      JSON_OBJECT(''calendar_event_id'', NEW.calendar_event_id, ''personal_task_id'', NEW.personal_task_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.relationship_kind AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''relationship_kind'', NEW.relationship_kind) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_events_todo_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_events_todo_join_ad AFTER DELETE ON calendar_events_todo_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''calendar_events_todo_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''calendar_event_id'', OLD.calendar_event_id, ''personal_task_id'', OLD.personal_task_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_todo_content_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_todo_content_join_ai AFTER INSERT ON todo_content_join FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''todos.personal_task'' AS left_type,
+      CAST(NEW.personal_task_id AS CHAR) AS left_id,
+      ''todo-content'' AS relationship_type,
+      ''video.content_item'' AS right_type,
+      CAST(NEW.content_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''todo_content_join'' AS source_table,
+      JSON_OBJECT(''personal_task_id'', NEW.personal_task_id, ''content_id'', NEW.content_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''todos.personal_task'' AS left_type,
+      CAST(NEW.personal_task_id AS CHAR) AS left_id,
+      ''todo-content'' AS relationship_type,
+      ''video.content_item'' AS right_type,
+      CAST(NEW.content_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''todo_content_join'' AS source_table,
+      JSON_OBJECT(''personal_task_id'', NEW.personal_task_id, ''content_id'', NEW.content_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_todo_content_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_todo_content_join_au AFTER UPDATE ON todo_content_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''todo_content_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''personal_task_id'', OLD.personal_task_id, ''content_id'', OLD.content_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''todos.personal_task'' AS left_type,
+      CAST(NEW.personal_task_id AS CHAR) AS left_id,
+      ''todo-content'' AS relationship_type,
+      ''video.content_item'' AS right_type,
+      CAST(NEW.content_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''todo_content_join'' AS source_table,
+      JSON_OBJECT(''personal_task_id'', NEW.personal_task_id, ''content_id'', NEW.content_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''todos.personal_task'' AS left_type,
+      CAST(NEW.personal_task_id AS CHAR) AS left_id,
+      ''todo-content'' AS relationship_type,
+      ''video.content_item'' AS right_type,
+      CAST(NEW.content_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''todo_content_join'' AS source_table,
+      JSON_OBJECT(''personal_task_id'', NEW.personal_task_id, ''content_id'', NEW.content_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_todo_content_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_todo_content_join_ad AFTER DELETE ON todo_content_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''todo_content_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''personal_task_id'', OLD.personal_task_id, ''content_id'', OLD.content_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_todo_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_todo_join_ai AFTER INSERT ON physical_items_todo_join FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''things.physical_item'' AS left_type,
+      CAST(NEW.physical_item_id AS CHAR) AS left_id,
+      ''thing-todo'' AS relationship_type,
+      ''todos.personal_task'' AS right_type,
+      CAST(NEW.personal_task_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''physical_items_todo_join'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id, ''personal_task_id'', NEW.personal_task_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.relationship_kind AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''relationship_kind'', NEW.relationship_kind) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''things.physical_item'' AS left_type,
+      CAST(NEW.physical_item_id AS CHAR) AS left_id,
+      ''thing-todo'' AS relationship_type,
+      ''todos.personal_task'' AS right_type,
+      CAST(NEW.personal_task_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''physical_items_todo_join'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id, ''personal_task_id'', NEW.personal_task_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.relationship_kind AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''relationship_kind'', NEW.relationship_kind) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_todo_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_todo_join_au AFTER UPDATE ON physical_items_todo_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''physical_items_todo_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''physical_item_id'', OLD.physical_item_id, ''personal_task_id'', OLD.personal_task_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''things.physical_item'' AS left_type,
+      CAST(NEW.physical_item_id AS CHAR) AS left_id,
+      ''thing-todo'' AS relationship_type,
+      ''todos.personal_task'' AS right_type,
+      CAST(NEW.personal_task_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''physical_items_todo_join'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id, ''personal_task_id'', NEW.personal_task_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.relationship_kind AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''relationship_kind'', NEW.relationship_kind) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''things.physical_item'' AS left_type,
+      CAST(NEW.physical_item_id AS CHAR) AS left_id,
+      ''thing-todo'' AS relationship_type,
+      ''todos.personal_task'' AS right_type,
+      CAST(NEW.personal_task_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''physical_items_todo_join'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id, ''personal_task_id'', NEW.personal_task_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.relationship_kind AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''relationship_kind'', NEW.relationship_kind) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_todo_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_todo_join_ad AFTER DELETE ON physical_items_todo_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''physical_items_todo_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''physical_item_id'', OLD.physical_item_id, ''personal_task_id'', OLD.personal_task_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_content_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_content_join_ai AFTER INSERT ON physical_items_content_join FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''things.physical_item'' AS left_type,
+      CAST(NEW.physical_item_id AS CHAR) AS left_id,
+      ''thing-content'' AS relationship_type,
+      ''video.content_item'' AS right_type,
+      CAST(NEW.content_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''physical_items_content_join'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id, ''content_id'', NEW.content_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.relationship_kind AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''relationship_kind'', NEW.relationship_kind) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''things.physical_item'' AS left_type,
+      CAST(NEW.physical_item_id AS CHAR) AS left_id,
+      ''thing-content'' AS relationship_type,
+      ''video.content_item'' AS right_type,
+      CAST(NEW.content_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''physical_items_content_join'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id, ''content_id'', NEW.content_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.relationship_kind AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''relationship_kind'', NEW.relationship_kind) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_content_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_content_join_au AFTER UPDATE ON physical_items_content_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''physical_items_content_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''physical_item_id'', OLD.physical_item_id, ''content_id'', OLD.content_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''things.physical_item'' AS left_type,
+      CAST(NEW.physical_item_id AS CHAR) AS left_id,
+      ''thing-content'' AS relationship_type,
+      ''video.content_item'' AS right_type,
+      CAST(NEW.content_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''physical_items_content_join'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id, ''content_id'', NEW.content_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.relationship_kind AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''relationship_kind'', NEW.relationship_kind) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''things.physical_item'' AS left_type,
+      CAST(NEW.physical_item_id AS CHAR) AS left_id,
+      ''thing-content'' AS relationship_type,
+      ''video.content_item'' AS right_type,
+      CAST(NEW.content_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''physical_items_content_join'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id, ''content_id'', NEW.content_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.relationship_kind AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''relationship_kind'', NEW.relationship_kind) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_content_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_content_join_ad AFTER DELETE ON physical_items_content_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''physical_items_content_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''physical_item_id'', OLD.physical_item_id, ''content_id'', OLD.content_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_files_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_files_join_ai AFTER INSERT ON physical_items_files_join FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''things.physical_item'' AS left_type,
+      CAST(NEW.physical_item_id AS CHAR) AS left_id,
+      ''thing-file'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''physical_items_files_join'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.file_role AS relationship_qualifier,
+      NEW.sort_order AS sort_order,
+      JSON_OBJECT(''file_role'', NEW.file_role, ''sort_order'', NEW.sort_order) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''things.physical_item'' AS left_type,
+      CAST(NEW.physical_item_id AS CHAR) AS left_id,
+      ''thing-file'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''physical_items_files_join'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.file_role AS relationship_qualifier,
+      NEW.sort_order AS sort_order,
+      JSON_OBJECT(''file_role'', NEW.file_role, ''sort_order'', NEW.sort_order) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_files_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_files_join_au AFTER UPDATE ON physical_items_files_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''physical_items_files_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''physical_item_id'', OLD.physical_item_id, ''file_id'', OLD.file_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''things.physical_item'' AS left_type,
+      CAST(NEW.physical_item_id AS CHAR) AS left_id,
+      ''thing-file'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''physical_items_files_join'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.file_role AS relationship_qualifier,
+      NEW.sort_order AS sort_order,
+      JSON_OBJECT(''file_role'', NEW.file_role, ''sort_order'', NEW.sort_order) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''things.physical_item'' AS left_type,
+      CAST(NEW.physical_item_id AS CHAR) AS left_id,
+      ''thing-file'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''physical_items_files_join'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.file_role AS relationship_qualifier,
+      NEW.sort_order AS sort_order,
+      JSON_OBJECT(''file_role'', NEW.file_role, ''sort_order'', NEW.sort_order) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_files_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_files_join_ad AFTER DELETE ON physical_items_files_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''physical_items_files_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''physical_item_id'', OLD.physical_item_id, ''file_id'', OLD.file_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_contacts_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_contacts_join_ai AFTER INSERT ON physical_items_contacts_join FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''things.physical_item'' AS left_type,
+      CAST(NEW.physical_item_id AS CHAR) AS left_id,
+      ''thing-contact'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.contact_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''physical_items_contacts_join'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id, ''contact_id'', NEW.contact_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.relationship_kind AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''relationship_kind'', NEW.relationship_kind) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''things.physical_item'' AS left_type,
+      CAST(NEW.physical_item_id AS CHAR) AS left_id,
+      ''thing-contact'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.contact_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''physical_items_contacts_join'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id, ''contact_id'', NEW.contact_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.relationship_kind AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''relationship_kind'', NEW.relationship_kind) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_contacts_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_contacts_join_au AFTER UPDATE ON physical_items_contacts_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''physical_items_contacts_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''physical_item_id'', OLD.physical_item_id, ''contact_id'', OLD.contact_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''things.physical_item'' AS left_type,
+      CAST(NEW.physical_item_id AS CHAR) AS left_id,
+      ''thing-contact'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.contact_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''physical_items_contacts_join'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id, ''contact_id'', NEW.contact_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.relationship_kind AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''relationship_kind'', NEW.relationship_kind) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''things.physical_item'' AS left_type,
+      CAST(NEW.physical_item_id AS CHAR) AS left_id,
+      ''thing-contact'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.contact_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''physical_items_contacts_join'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id, ''contact_id'', NEW.contact_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.relationship_kind AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''relationship_kind'', NEW.relationship_kind) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_contacts_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_contacts_join_ad AFTER DELETE ON physical_items_contacts_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''physical_items_contacts_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''physical_item_id'', OLD.physical_item_id, ''contact_id'', OLD.contact_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_video_script_sources_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_video_script_sources_join_ai AFTER INSERT ON video_script_sources_join FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''video.script'' AS left_type,
+      CAST(NEW.video_script_id AS CHAR) AS left_id,
+      ''script-source'' AS relationship_type,
+      ''activity.event'' AS right_type,
+      CAST(NEW.request_event_id AS CHAR) AS right_id,
+      ''provenance'' AS relationship_family,
+      ''video_script_sources_join'' AS source_table,
+      JSON_OBJECT(''video_script_id'', NEW.video_script_id, ''request_event_id'', NEW.request_event_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NEW.source_order AS sort_order,
+      JSON_OBJECT(''source_order'', NEW.source_order) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''video.script'' AS left_type,
+      CAST(NEW.video_script_id AS CHAR) AS left_id,
+      ''script-source'' AS relationship_type,
+      ''activity.event'' AS right_type,
+      CAST(NEW.request_event_id AS CHAR) AS right_id,
+      ''provenance'' AS relationship_family,
+      ''video_script_sources_join'' AS source_table,
+      JSON_OBJECT(''video_script_id'', NEW.video_script_id, ''request_event_id'', NEW.request_event_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NEW.source_order AS sort_order,
+      JSON_OBJECT(''source_order'', NEW.source_order) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_video_script_sources_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_video_script_sources_join_au AFTER UPDATE ON video_script_sources_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''video_script_sources_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''video_script_id'', OLD.video_script_id, ''request_event_id'', OLD.request_event_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''video.script'' AS left_type,
+      CAST(NEW.video_script_id AS CHAR) AS left_id,
+      ''script-source'' AS relationship_type,
+      ''activity.event'' AS right_type,
+      CAST(NEW.request_event_id AS CHAR) AS right_id,
+      ''provenance'' AS relationship_family,
+      ''video_script_sources_join'' AS source_table,
+      JSON_OBJECT(''video_script_id'', NEW.video_script_id, ''request_event_id'', NEW.request_event_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NEW.source_order AS sort_order,
+      JSON_OBJECT(''source_order'', NEW.source_order) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''video.script'' AS left_type,
+      CAST(NEW.video_script_id AS CHAR) AS left_id,
+      ''script-source'' AS relationship_type,
+      ''activity.event'' AS right_type,
+      CAST(NEW.request_event_id AS CHAR) AS right_id,
+      ''provenance'' AS relationship_family,
+      ''video_script_sources_join'' AS source_table,
+      JSON_OBJECT(''video_script_id'', NEW.video_script_id, ''request_event_id'', NEW.request_event_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NEW.source_order AS sort_order,
+      JSON_OBJECT(''source_order'', NEW.source_order) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_video_script_sources_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_video_script_sources_join_ad AFTER DELETE ON video_script_sources_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''video_script_sources_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''video_script_id'', OLD.video_script_id, ''request_event_id'', OLD.request_event_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_todo_correspondence_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_todo_correspondence_join_ai AFTER INSERT ON todo_correspondence_join FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''todos.personal_task'' AS left_type,
+      CAST(NEW.personal_task_id AS CHAR) AS left_id,
+      ''todo-correspondence'' AS relationship_type,
+      ''correspondence.item'' AS right_type,
+      CAST(NEW.correspondence_id AS CHAR) AS right_id,
+      ''correspondence'' AS relationship_family,
+      ''todo_correspondence_join'' AS source_table,
+      JSON_OBJECT(''personal_task_id'', NEW.personal_task_id, ''correspondence_id'', NEW.correspondence_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''todos.personal_task'' AS left_type,
+      CAST(NEW.personal_task_id AS CHAR) AS left_id,
+      ''todo-correspondence'' AS relationship_type,
+      ''correspondence.item'' AS right_type,
+      CAST(NEW.correspondence_id AS CHAR) AS right_id,
+      ''correspondence'' AS relationship_family,
+      ''todo_correspondence_join'' AS source_table,
+      JSON_OBJECT(''personal_task_id'', NEW.personal_task_id, ''correspondence_id'', NEW.correspondence_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_todo_correspondence_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_todo_correspondence_join_au AFTER UPDATE ON todo_correspondence_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''todo_correspondence_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''personal_task_id'', OLD.personal_task_id, ''correspondence_id'', OLD.correspondence_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''todos.personal_task'' AS left_type,
+      CAST(NEW.personal_task_id AS CHAR) AS left_id,
+      ''todo-correspondence'' AS relationship_type,
+      ''correspondence.item'' AS right_type,
+      CAST(NEW.correspondence_id AS CHAR) AS right_id,
+      ''correspondence'' AS relationship_family,
+      ''todo_correspondence_join'' AS source_table,
+      JSON_OBJECT(''personal_task_id'', NEW.personal_task_id, ''correspondence_id'', NEW.correspondence_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''todos.personal_task'' AS left_type,
+      CAST(NEW.personal_task_id AS CHAR) AS left_id,
+      ''todo-correspondence'' AS relationship_type,
+      ''correspondence.item'' AS right_type,
+      CAST(NEW.correspondence_id AS CHAR) AS right_id,
+      ''correspondence'' AS relationship_family,
+      ''todo_correspondence_join'' AS source_table,
+      JSON_OBJECT(''personal_task_id'', NEW.personal_task_id, ''correspondence_id'', NEW.correspondence_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_todo_correspondence_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_todo_correspondence_join_ad AFTER DELETE ON todo_correspondence_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''todo_correspondence_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''personal_task_id'', OLD.personal_task_id, ''correspondence_id'', OLD.correspondence_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_events_correspondence_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_events_correspondence_join_ai AFTER INSERT ON calendar_events_correspondence_join FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''calendar.event'' AS left_type,
+      CAST(NEW.calendar_event_id AS CHAR) AS left_id,
+      ''event-correspondence'' AS relationship_type,
+      ''correspondence.item'' AS right_type,
+      CAST(NEW.correspondence_id AS CHAR) AS right_id,
+      ''correspondence'' AS relationship_family,
+      ''calendar_events_correspondence_join'' AS source_table,
+      JSON_OBJECT(''calendar_event_id'', NEW.calendar_event_id, ''correspondence_id'', NEW.correspondence_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''calendar.event'' AS left_type,
+      CAST(NEW.calendar_event_id AS CHAR) AS left_id,
+      ''event-correspondence'' AS relationship_type,
+      ''correspondence.item'' AS right_type,
+      CAST(NEW.correspondence_id AS CHAR) AS right_id,
+      ''correspondence'' AS relationship_family,
+      ''calendar_events_correspondence_join'' AS source_table,
+      JSON_OBJECT(''calendar_event_id'', NEW.calendar_event_id, ''correspondence_id'', NEW.correspondence_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_events_correspondence_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_events_correspondence_join_au AFTER UPDATE ON calendar_events_correspondence_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''calendar_events_correspondence_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''calendar_event_id'', OLD.calendar_event_id, ''correspondence_id'', OLD.correspondence_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''calendar.event'' AS left_type,
+      CAST(NEW.calendar_event_id AS CHAR) AS left_id,
+      ''event-correspondence'' AS relationship_type,
+      ''correspondence.item'' AS right_type,
+      CAST(NEW.correspondence_id AS CHAR) AS right_id,
+      ''correspondence'' AS relationship_family,
+      ''calendar_events_correspondence_join'' AS source_table,
+      JSON_OBJECT(''calendar_event_id'', NEW.calendar_event_id, ''correspondence_id'', NEW.correspondence_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''calendar.event'' AS left_type,
+      CAST(NEW.calendar_event_id AS CHAR) AS left_id,
+      ''event-correspondence'' AS relationship_type,
+      ''correspondence.item'' AS right_type,
+      CAST(NEW.correspondence_id AS CHAR) AS right_id,
+      ''correspondence'' AS relationship_family,
+      ''calendar_events_correspondence_join'' AS source_table,
+      JSON_OBJECT(''calendar_event_id'', NEW.calendar_event_id, ''correspondence_id'', NEW.correspondence_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_events_correspondence_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_events_correspondence_join_ad AFTER DELETE ON calendar_events_correspondence_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''calendar_events_correspondence_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''calendar_event_id'', OLD.calendar_event_id, ''correspondence_id'', OLD.correspondence_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_correspondence_files_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_correspondence_files_join_ai AFTER INSERT ON correspondence_files_join FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''correspondence.item'' AS left_type,
+      CAST(NEW.correspondence_id AS CHAR) AS left_id,
+      ''correspondence-file'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''correspondence_files_join'' AS source_table,
+      JSON_OBJECT(''correspondence_id'', NEW.correspondence_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.attachment_role AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''attachment_role'', NEW.attachment_role) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''correspondence.item'' AS left_type,
+      CAST(NEW.correspondence_id AS CHAR) AS left_id,
+      ''correspondence-file'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''correspondence_files_join'' AS source_table,
+      JSON_OBJECT(''correspondence_id'', NEW.correspondence_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.attachment_role AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''attachment_role'', NEW.attachment_role) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_correspondence_files_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_correspondence_files_join_au AFTER UPDATE ON correspondence_files_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''correspondence_files_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''correspondence_id'', OLD.correspondence_id, ''file_id'', OLD.file_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''correspondence.item'' AS left_type,
+      CAST(NEW.correspondence_id AS CHAR) AS left_id,
+      ''correspondence-file'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''correspondence_files_join'' AS source_table,
+      JSON_OBJECT(''correspondence_id'', NEW.correspondence_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.attachment_role AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''attachment_role'', NEW.attachment_role) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''correspondence.item'' AS left_type,
+      CAST(NEW.correspondence_id AS CHAR) AS left_id,
+      ''correspondence-file'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''correspondence_files_join'' AS source_table,
+      JSON_OBJECT(''correspondence_id'', NEW.correspondence_id, ''file_id'', NEW.file_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.attachment_role AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''attachment_role'', NEW.attachment_role) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_correspondence_files_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_correspondence_files_join_ad AFTER DELETE ON correspondence_files_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''correspondence_files_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''correspondence_id'', OLD.correspondence_id, ''file_id'', OLD.file_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_correspondence_participants_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_correspondence_participants_join_ai AFTER INSERT ON correspondence_participants_join FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''correspondence.item'' AS left_type,
+      CAST(NEW.correspondence_id AS CHAR) AS left_id,
+      ''correspondence-contact'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.contact_id AS CHAR) AS right_id,
+      ''participation'' AS relationship_family,
+      ''correspondence_participants_join'' AS source_table,
+      JSON_OBJECT(''correspondence_id'', NEW.correspondence_id, ''participant_role'', NEW.participant_role,
+                ''address_value'', NEW.address_value) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.participant_role AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''participant_role'', NEW.participant_role, ''contact_method_id'', NEW.contact_method_id,
+                ''address_value'', NEW.address_value, ''display_name'', NEW.display_name) AS attributes_json
+    WHERE NEW.contact_id IS NOT NULL) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''correspondence.item'' AS left_type,
+      CAST(NEW.correspondence_id AS CHAR) AS left_id,
+      ''correspondence-contact'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.contact_id AS CHAR) AS right_id,
+      ''participation'' AS relationship_family,
+      ''correspondence_participants_join'' AS source_table,
+      JSON_OBJECT(''correspondence_id'', NEW.correspondence_id, ''participant_role'', NEW.participant_role,
+                ''address_value'', NEW.address_value) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.participant_role AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''participant_role'', NEW.participant_role, ''contact_method_id'', NEW.contact_method_id,
+                ''address_value'', NEW.address_value, ''display_name'', NEW.display_name) AS attributes_json
+    WHERE NEW.contact_id IS NOT NULL) AS edge;
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''correspondence.item'' AS left_type,
+      CAST(NEW.correspondence_id AS CHAR) AS left_id,
+      ''correspondence-contact-method'' AS relationship_type,
+      ''contacts.contact_method'' AS right_type,
+      CAST(NEW.contact_method_id AS CHAR) AS right_id,
+      ''participation'' AS relationship_family,
+      ''correspondence_participants_join'' AS source_table,
+      JSON_OBJECT(''correspondence_id'', NEW.correspondence_id, ''participant_role'', NEW.participant_role,
+                ''address_value'', NEW.address_value) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.participant_role AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''participant_role'', NEW.participant_role, ''contact_id'', NEW.contact_id,
+                ''address_value'', NEW.address_value, ''display_name'', NEW.display_name) AS attributes_json
+    WHERE NEW.contact_method_id IS NOT NULL) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''correspondence.item'' AS left_type,
+      CAST(NEW.correspondence_id AS CHAR) AS left_id,
+      ''correspondence-contact-method'' AS relationship_type,
+      ''contacts.contact_method'' AS right_type,
+      CAST(NEW.contact_method_id AS CHAR) AS right_id,
+      ''participation'' AS relationship_family,
+      ''correspondence_participants_join'' AS source_table,
+      JSON_OBJECT(''correspondence_id'', NEW.correspondence_id, ''participant_role'', NEW.participant_role,
+                ''address_value'', NEW.address_value) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.participant_role AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''participant_role'', NEW.participant_role, ''contact_id'', NEW.contact_id,
+                ''address_value'', NEW.address_value, ''display_name'', NEW.display_name) AS attributes_json
+    WHERE NEW.contact_method_id IS NOT NULL) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_correspondence_participants_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_correspondence_participants_join_au AFTER UPDATE ON correspondence_participants_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''correspondence_participants_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''correspondence_id'', OLD.correspondence_id, ''participant_role'', OLD.participant_role,
+                ''address_value'', OLD.address_value) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''correspondence.item'' AS left_type,
+      CAST(NEW.correspondence_id AS CHAR) AS left_id,
+      ''correspondence-contact'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.contact_id AS CHAR) AS right_id,
+      ''participation'' AS relationship_family,
+      ''correspondence_participants_join'' AS source_table,
+      JSON_OBJECT(''correspondence_id'', NEW.correspondence_id, ''participant_role'', NEW.participant_role,
+                ''address_value'', NEW.address_value) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.participant_role AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''participant_role'', NEW.participant_role, ''contact_method_id'', NEW.contact_method_id,
+                ''address_value'', NEW.address_value, ''display_name'', NEW.display_name) AS attributes_json
+    WHERE NEW.contact_id IS NOT NULL) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''correspondence.item'' AS left_type,
+      CAST(NEW.correspondence_id AS CHAR) AS left_id,
+      ''correspondence-contact'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.contact_id AS CHAR) AS right_id,
+      ''participation'' AS relationship_family,
+      ''correspondence_participants_join'' AS source_table,
+      JSON_OBJECT(''correspondence_id'', NEW.correspondence_id, ''participant_role'', NEW.participant_role,
+                ''address_value'', NEW.address_value) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.participant_role AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''participant_role'', NEW.participant_role, ''contact_method_id'', NEW.contact_method_id,
+                ''address_value'', NEW.address_value, ''display_name'', NEW.display_name) AS attributes_json
+    WHERE NEW.contact_id IS NOT NULL) AS edge;
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''correspondence.item'' AS left_type,
+      CAST(NEW.correspondence_id AS CHAR) AS left_id,
+      ''correspondence-contact-method'' AS relationship_type,
+      ''contacts.contact_method'' AS right_type,
+      CAST(NEW.contact_method_id AS CHAR) AS right_id,
+      ''participation'' AS relationship_family,
+      ''correspondence_participants_join'' AS source_table,
+      JSON_OBJECT(''correspondence_id'', NEW.correspondence_id, ''participant_role'', NEW.participant_role,
+                ''address_value'', NEW.address_value) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.participant_role AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''participant_role'', NEW.participant_role, ''contact_id'', NEW.contact_id,
+                ''address_value'', NEW.address_value, ''display_name'', NEW.display_name) AS attributes_json
+    WHERE NEW.contact_method_id IS NOT NULL) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''correspondence.item'' AS left_type,
+      CAST(NEW.correspondence_id AS CHAR) AS left_id,
+      ''correspondence-contact-method'' AS relationship_type,
+      ''contacts.contact_method'' AS right_type,
+      CAST(NEW.contact_method_id AS CHAR) AS right_id,
+      ''participation'' AS relationship_family,
+      ''correspondence_participants_join'' AS source_table,
+      JSON_OBJECT(''correspondence_id'', NEW.correspondence_id, ''participant_role'', NEW.participant_role,
+                ''address_value'', NEW.address_value) AS source_key_json,
+      NULL AS created_at_utc,
+      NEW.participant_role AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''participant_role'', NEW.participant_role, ''contact_id'', NEW.contact_id,
+                ''address_value'', NEW.address_value, ''display_name'', NEW.display_name) AS attributes_json
+    WHERE NEW.contact_method_id IS NOT NULL) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_correspondence_participants_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_correspondence_participants_join_ad AFTER DELETE ON correspondence_participants_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''correspondence_participants_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''correspondence_id'', OLD.correspondence_id, ''participant_role'', OLD.participant_role,
+                ''address_value'', OLD.address_value) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_correspondence_email_mailboxes_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_correspondence_email_mailboxes_join_ai AFTER INSERT ON correspondence_email_mailboxes_join FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''correspondence.item'' AS left_type,
+      CAST(NEW.correspondence_id AS CHAR) AS left_id,
+      ''correspondence-email-mailbox'' AS relationship_type,
+      ''email.mailbox'' AS right_type,
+      NEW.mailbox_id AS right_id,
+      ''membership'' AS relationship_family,
+      ''correspondence_email_mailboxes_join'' AS source_table,
+      JSON_OBJECT(''correspondence_id'', NEW.correspondence_id,
+                ''source_account_key'', NEW.source_account_key, ''mailbox_id'', NEW.mailbox_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      mailbox.role AS relationship_qualifier,
+      mailbox.sort_order AS sort_order,
+      JSON_OBJECT(''source_account_key'', NEW.source_account_key, ''mailbox_name'', mailbox.name,
+                ''mailbox_role'', mailbox.role) AS attributes_json
+    FROM jmap_email_mailboxes AS mailbox WHERE mailbox.source_account_key = NEW.source_account_key AND mailbox.mailbox_id = NEW.mailbox_id) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''correspondence.item'' AS left_type,
+      CAST(NEW.correspondence_id AS CHAR) AS left_id,
+      ''correspondence-email-mailbox'' AS relationship_type,
+      ''email.mailbox'' AS right_type,
+      NEW.mailbox_id AS right_id,
+      ''membership'' AS relationship_family,
+      ''correspondence_email_mailboxes_join'' AS source_table,
+      JSON_OBJECT(''correspondence_id'', NEW.correspondence_id,
+                ''source_account_key'', NEW.source_account_key, ''mailbox_id'', NEW.mailbox_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      mailbox.role AS relationship_qualifier,
+      mailbox.sort_order AS sort_order,
+      JSON_OBJECT(''source_account_key'', NEW.source_account_key, ''mailbox_name'', mailbox.name,
+                ''mailbox_role'', mailbox.role) AS attributes_json
+    FROM jmap_email_mailboxes AS mailbox WHERE mailbox.source_account_key = NEW.source_account_key AND mailbox.mailbox_id = NEW.mailbox_id) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_correspondence_email_mailboxes_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_correspondence_email_mailboxes_join_au AFTER UPDATE ON correspondence_email_mailboxes_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''correspondence_email_mailboxes_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''correspondence_id'', OLD.correspondence_id,
+                ''source_account_key'', OLD.source_account_key, ''mailbox_id'', OLD.mailbox_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''correspondence.item'' AS left_type,
+      CAST(NEW.correspondence_id AS CHAR) AS left_id,
+      ''correspondence-email-mailbox'' AS relationship_type,
+      ''email.mailbox'' AS right_type,
+      NEW.mailbox_id AS right_id,
+      ''membership'' AS relationship_family,
+      ''correspondence_email_mailboxes_join'' AS source_table,
+      JSON_OBJECT(''correspondence_id'', NEW.correspondence_id,
+                ''source_account_key'', NEW.source_account_key, ''mailbox_id'', NEW.mailbox_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      mailbox.role AS relationship_qualifier,
+      mailbox.sort_order AS sort_order,
+      JSON_OBJECT(''source_account_key'', NEW.source_account_key, ''mailbox_name'', mailbox.name,
+                ''mailbox_role'', mailbox.role) AS attributes_json
+    FROM jmap_email_mailboxes AS mailbox WHERE mailbox.source_account_key = NEW.source_account_key AND mailbox.mailbox_id = NEW.mailbox_id) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''correspondence.item'' AS left_type,
+      CAST(NEW.correspondence_id AS CHAR) AS left_id,
+      ''correspondence-email-mailbox'' AS relationship_type,
+      ''email.mailbox'' AS right_type,
+      NEW.mailbox_id AS right_id,
+      ''membership'' AS relationship_family,
+      ''correspondence_email_mailboxes_join'' AS source_table,
+      JSON_OBJECT(''correspondence_id'', NEW.correspondence_id,
+                ''source_account_key'', NEW.source_account_key, ''mailbox_id'', NEW.mailbox_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      mailbox.role AS relationship_qualifier,
+      mailbox.sort_order AS sort_order,
+      JSON_OBJECT(''source_account_key'', NEW.source_account_key, ''mailbox_name'', mailbox.name,
+                ''mailbox_role'', mailbox.role) AS attributes_json
+    FROM jmap_email_mailboxes AS mailbox WHERE mailbox.source_account_key = NEW.source_account_key AND mailbox.mailbox_id = NEW.mailbox_id) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_correspondence_email_mailboxes_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_correspondence_email_mailboxes_join_ad AFTER DELETE ON correspondence_email_mailboxes_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''correspondence_email_mailboxes_join''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''correspondence_id'', OLD.correspondence_id,
+                ''source_account_key'', OLD.source_account_key, ''mailbox_id'', OLD.mailbox_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_todo_personal_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_todo_personal_ai AFTER INSERT ON todo_personal FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''todos.todo_group'' AS left_type,
+      CAST(NEW.todo_group_id AS CHAR) AS left_id,
+      ''todo-group'' AS relationship_type,
+      ''todos.personal_task'' AS right_type,
+      CAST(NEW.personal_task_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''todo_personal'' AS source_table,
+      JSON_OBJECT(''personal_task_id'', NEW.personal_task_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NEW.sort_position AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''todos.todo_group'' AS left_type,
+      CAST(NEW.todo_group_id AS CHAR) AS left_id,
+      ''todo-group'' AS relationship_type,
+      ''todos.personal_task'' AS right_type,
+      CAST(NEW.personal_task_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''todo_personal'' AS source_table,
+      JSON_OBJECT(''personal_task_id'', NEW.personal_task_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NEW.sort_position AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge;
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''todos.personal_task'' AS left_type,
+      CAST(NEW.personal_task_id AS CHAR) AS left_id,
+      ''todo-contact'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.related_contact_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''todo_personal'' AS source_table,
+      JSON_OBJECT(''personal_task_id'', NEW.personal_task_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json
+    WHERE NEW.related_contact_id IS NOT NULL) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''todos.personal_task'' AS left_type,
+      CAST(NEW.personal_task_id AS CHAR) AS left_id,
+      ''todo-contact'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.related_contact_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''todo_personal'' AS source_table,
+      JSON_OBJECT(''personal_task_id'', NEW.personal_task_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json
+    WHERE NEW.related_contact_id IS NOT NULL) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_todo_personal_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_todo_personal_au AFTER UPDATE ON todo_personal FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''todo_personal''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''personal_task_id'', OLD.personal_task_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''todos.todo_group'' AS left_type,
+      CAST(NEW.todo_group_id AS CHAR) AS left_id,
+      ''todo-group'' AS relationship_type,
+      ''todos.personal_task'' AS right_type,
+      CAST(NEW.personal_task_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''todo_personal'' AS source_table,
+      JSON_OBJECT(''personal_task_id'', NEW.personal_task_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NEW.sort_position AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''todos.todo_group'' AS left_type,
+      CAST(NEW.todo_group_id AS CHAR) AS left_id,
+      ''todo-group'' AS relationship_type,
+      ''todos.personal_task'' AS right_type,
+      CAST(NEW.personal_task_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''todo_personal'' AS source_table,
+      JSON_OBJECT(''personal_task_id'', NEW.personal_task_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NEW.sort_position AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge;
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''todos.personal_task'' AS left_type,
+      CAST(NEW.personal_task_id AS CHAR) AS left_id,
+      ''todo-contact'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.related_contact_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''todo_personal'' AS source_table,
+      JSON_OBJECT(''personal_task_id'', NEW.personal_task_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json
+    WHERE NEW.related_contact_id IS NOT NULL) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''todos.personal_task'' AS left_type,
+      CAST(NEW.personal_task_id AS CHAR) AS left_id,
+      ''todo-contact'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.related_contact_id AS CHAR) AS right_id,
+      ''association'' AS relationship_family,
+      ''todo_personal'' AS source_table,
+      JSON_OBJECT(''personal_task_id'', NEW.personal_task_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json
+    WHERE NEW.related_contact_id IS NOT NULL) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_todo_personal_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_todo_personal_ad AFTER DELETE ON todo_personal FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''todo_personal''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''personal_task_id'', OLD.personal_task_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_ai AFTER INSERT ON physical_items FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''things.physical_item_group'' AS left_type,
+      CAST(NEW.physical_item_group_id AS CHAR) AS left_id,
+      ''physical-item-group'' AS relationship_type,
+      ''things.physical_item'' AS right_type,
+      CAST(NEW.physical_item_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''physical_items'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NEW.sort_position AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''things.physical_item_group'' AS left_type,
+      CAST(NEW.physical_item_group_id AS CHAR) AS left_id,
+      ''physical-item-group'' AS relationship_type,
+      ''things.physical_item'' AS right_type,
+      CAST(NEW.physical_item_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''physical_items'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NEW.sort_position AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_au AFTER UPDATE ON physical_items FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''physical_items''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''physical_item_id'', OLD.physical_item_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''things.physical_item_group'' AS left_type,
+      CAST(NEW.physical_item_group_id AS CHAR) AS left_id,
+      ''physical-item-group'' AS relationship_type,
+      ''things.physical_item'' AS right_type,
+      CAST(NEW.physical_item_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''physical_items'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NEW.sort_position AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''things.physical_item_group'' AS left_type,
+      CAST(NEW.physical_item_group_id AS CHAR) AS left_id,
+      ''physical-item-group'' AS relationship_type,
+      ''things.physical_item'' AS right_type,
+      CAST(NEW.physical_item_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''physical_items'' AS source_table,
+      JSON_OBJECT(''physical_item_id'', NEW.physical_item_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NEW.sort_position AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_ad AFTER DELETE ON physical_items FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''physical_items''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''physical_item_id'', OLD.physical_item_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_payment_invoices_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_payment_invoices_ai AFTER INSERT ON payment_invoices FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''payments.invoice'' AS left_type,
+      CAST(NEW.payment_invoice_id AS CHAR) AS left_id,
+      ''invoice-payer'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.payer_contact_id AS CHAR) AS right_id,
+      ''billing'' AS relationship_family,
+      ''payment_invoices'' AS source_table,
+      JSON_OBJECT(''payment_invoice_id'', NEW.payment_invoice_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json
+    WHERE NEW.payer_contact_id IS NOT NULL) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''payments.invoice'' AS left_type,
+      CAST(NEW.payment_invoice_id AS CHAR) AS left_id,
+      ''invoice-payer'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.payer_contact_id AS CHAR) AS right_id,
+      ''billing'' AS relationship_family,
+      ''payment_invoices'' AS source_table,
+      JSON_OBJECT(''payment_invoice_id'', NEW.payment_invoice_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json
+    WHERE NEW.payer_contact_id IS NOT NULL) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_payment_invoices_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_payment_invoices_au AFTER UPDATE ON payment_invoices FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''payment_invoices''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''payment_invoice_id'', OLD.payment_invoice_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''payments.invoice'' AS left_type,
+      CAST(NEW.payment_invoice_id AS CHAR) AS left_id,
+      ''invoice-payer'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.payer_contact_id AS CHAR) AS right_id,
+      ''billing'' AS relationship_family,
+      ''payment_invoices'' AS source_table,
+      JSON_OBJECT(''payment_invoice_id'', NEW.payment_invoice_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json
+    WHERE NEW.payer_contact_id IS NOT NULL) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''payments.invoice'' AS left_type,
+      CAST(NEW.payment_invoice_id AS CHAR) AS left_id,
+      ''invoice-payer'' AS relationship_type,
+      ''contacts.contact'' AS right_type,
+      CAST(NEW.payer_contact_id AS CHAR) AS right_id,
+      ''billing'' AS relationship_family,
+      ''payment_invoices'' AS source_table,
+      JSON_OBJECT(''payment_invoice_id'', NEW.payment_invoice_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json
+    WHERE NEW.payer_contact_id IS NOT NULL) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_payment_invoices_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_payment_invoices_ad AFTER DELETE ON payment_invoices FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''payment_invoices''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''payment_invoice_id'', OLD.payment_invoice_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_payment_invoice_lines_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_payment_invoice_lines_ai AFTER INSERT ON payment_invoice_lines FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''payments.invoice'' AS left_type,
+      CAST(NEW.payment_invoice_id AS CHAR) AS left_id,
+      ''invoice-line'' AS relationship_type,
+      ''todos.personal_task'' AS right_type,
+      CAST(NEW.personal_task_id AS CHAR) AS right_id,
+      ''billing'' AS relationship_family,
+      ''payment_invoice_lines'' AS source_table,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.line_source AS relationship_qualifier,
+      NEW.line_position AS sort_order,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id,
+                ''line_source'', NEW.line_source, ''line_position'', NEW.line_position) AS attributes_json
+    WHERE NEW.personal_task_id IS NOT NULL) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''payments.invoice'' AS left_type,
+      CAST(NEW.payment_invoice_id AS CHAR) AS left_id,
+      ''invoice-line'' AS relationship_type,
+      ''todos.personal_task'' AS right_type,
+      CAST(NEW.personal_task_id AS CHAR) AS right_id,
+      ''billing'' AS relationship_family,
+      ''payment_invoice_lines'' AS source_table,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.line_source AS relationship_qualifier,
+      NEW.line_position AS sort_order,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id,
+                ''line_source'', NEW.line_source, ''line_position'', NEW.line_position) AS attributes_json
+    WHERE NEW.personal_task_id IS NOT NULL) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_payment_invoice_lines_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_payment_invoice_lines_au AFTER UPDATE ON payment_invoice_lines FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''payment_invoice_lines''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''payment_invoice_line_id'', OLD.payment_invoice_line_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''payments.invoice'' AS left_type,
+      CAST(NEW.payment_invoice_id AS CHAR) AS left_id,
+      ''invoice-line'' AS relationship_type,
+      ''todos.personal_task'' AS right_type,
+      CAST(NEW.personal_task_id AS CHAR) AS right_id,
+      ''billing'' AS relationship_family,
+      ''payment_invoice_lines'' AS source_table,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.line_source AS relationship_qualifier,
+      NEW.line_position AS sort_order,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id,
+                ''line_source'', NEW.line_source, ''line_position'', NEW.line_position) AS attributes_json
+    WHERE NEW.personal_task_id IS NOT NULL) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''payments.invoice'' AS left_type,
+      CAST(NEW.payment_invoice_id AS CHAR) AS left_id,
+      ''invoice-line'' AS relationship_type,
+      ''todos.personal_task'' AS right_type,
+      CAST(NEW.personal_task_id AS CHAR) AS right_id,
+      ''billing'' AS relationship_family,
+      ''payment_invoice_lines'' AS source_table,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NEW.line_source AS relationship_qualifier,
+      NEW.line_position AS sort_order,
+      JSON_OBJECT(''payment_invoice_line_id'', NEW.payment_invoice_line_id,
+                ''line_source'', NEW.line_source, ''line_position'', NEW.line_position) AS attributes_json
+    WHERE NEW.personal_task_id IS NOT NULL) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_payment_invoice_lines_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_payment_invoice_lines_ad AFTER DELETE ON payment_invoice_lines FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''payment_invoice_lines''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''payment_invoice_line_id'', OLD.payment_invoice_line_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_journal2_trackers_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_journal2_trackers_ai AFTER INSERT ON journal2_trackers FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''journal.group'' AS left_type,
+      CAST(NEW.journal_group_id AS CHAR) AS left_id,
+      ''journal-group'' AS relationship_type,
+      ''journal.tracker'' AS right_type,
+      CAST(NEW.tracker_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''journal2_trackers'' AS source_table,
+      JSON_OBJECT(''tracker_id'', NEW.tracker_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''journal.group'' AS left_type,
+      CAST(NEW.journal_group_id AS CHAR) AS left_id,
+      ''journal-group'' AS relationship_type,
+      ''journal.tracker'' AS right_type,
+      CAST(NEW.tracker_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''journal2_trackers'' AS source_table,
+      JSON_OBJECT(''tracker_id'', NEW.tracker_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_journal2_trackers_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_journal2_trackers_au AFTER UPDATE ON journal2_trackers FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''journal2_trackers''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''tracker_id'', OLD.tracker_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''journal.group'' AS left_type,
+      CAST(NEW.journal_group_id AS CHAR) AS left_id,
+      ''journal-group'' AS relationship_type,
+      ''journal.tracker'' AS right_type,
+      CAST(NEW.tracker_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''journal2_trackers'' AS source_table,
+      JSON_OBJECT(''tracker_id'', NEW.tracker_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''journal.group'' AS left_type,
+      CAST(NEW.journal_group_id AS CHAR) AS left_id,
+      ''journal-group'' AS relationship_type,
+      ''journal.tracker'' AS right_type,
+      CAST(NEW.tracker_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''journal2_trackers'' AS source_table,
+      JSON_OBJECT(''tracker_id'', NEW.tracker_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_journal2_trackers_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_journal2_trackers_ad AFTER DELETE ON journal2_trackers FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''journal2_trackers''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''tracker_id'', OLD.tracker_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_journal3_entries_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_journal3_entries_ai AFTER INSERT ON journal3_entries FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''journal.tracker'' AS left_type,
+      CAST(NEW.tracker_id AS CHAR) AS left_id,
+      ''tracker-entry'' AS relationship_type,
+      ''journal.entry'' AS right_type,
+      CAST(NEW.journal_entry_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''journal3_entries'' AS source_table,
+      JSON_OBJECT(''journal_entry_id'', NEW.journal_entry_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''occurred_at_utc'', NEW.occurred_at_utc) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''journal.tracker'' AS left_type,
+      CAST(NEW.tracker_id AS CHAR) AS left_id,
+      ''tracker-entry'' AS relationship_type,
+      ''journal.entry'' AS right_type,
+      CAST(NEW.journal_entry_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''journal3_entries'' AS source_table,
+      JSON_OBJECT(''journal_entry_id'', NEW.journal_entry_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''occurred_at_utc'', NEW.occurred_at_utc) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_journal3_entries_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_journal3_entries_au AFTER UPDATE ON journal3_entries FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''journal3_entries''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''journal_entry_id'', OLD.journal_entry_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''journal.tracker'' AS left_type,
+      CAST(NEW.tracker_id AS CHAR) AS left_id,
+      ''tracker-entry'' AS relationship_type,
+      ''journal.entry'' AS right_type,
+      CAST(NEW.journal_entry_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''journal3_entries'' AS source_table,
+      JSON_OBJECT(''journal_entry_id'', NEW.journal_entry_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''occurred_at_utc'', NEW.occurred_at_utc) AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''journal.tracker'' AS left_type,
+      CAST(NEW.tracker_id AS CHAR) AS left_id,
+      ''tracker-entry'' AS relationship_type,
+      ''journal.entry'' AS right_type,
+      CAST(NEW.journal_entry_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''journal3_entries'' AS source_table,
+      JSON_OBJECT(''journal_entry_id'', NEW.journal_entry_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''occurred_at_utc'', NEW.occurred_at_utc) AS attributes_json) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_journal3_entries_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_journal3_entries_ad AFTER DELETE ON journal3_entries FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''journal3_entries''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''journal_entry_id'', OLD.journal_entry_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_events_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_events_ai AFTER INSERT ON calendar_events FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''calendar.routine'' AS left_type,
+      CAST(NEW.calendar_routine_id AS CHAR) AS left_id,
+      ''routine-event'' AS relationship_type,
+      ''calendar.event'' AS right_type,
+      CAST(NEW.calendar_event_id AS CHAR) AS right_id,
+      ''generation'' AS relationship_family,
+      ''calendar_events'' AS source_table,
+      JSON_OBJECT(''calendar_event_id'', NEW.calendar_event_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''routine_occurrence_key'', NEW.routine_occurrence_key) AS attributes_json
+    WHERE NEW.calendar_routine_id IS NOT NULL) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''calendar.routine'' AS left_type,
+      CAST(NEW.calendar_routine_id AS CHAR) AS left_id,
+      ''routine-event'' AS relationship_type,
+      ''calendar.event'' AS right_type,
+      CAST(NEW.calendar_event_id AS CHAR) AS right_id,
+      ''generation'' AS relationship_family,
+      ''calendar_events'' AS source_table,
+      JSON_OBJECT(''calendar_event_id'', NEW.calendar_event_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''routine_occurrence_key'', NEW.routine_occurrence_key) AS attributes_json
+    WHERE NEW.calendar_routine_id IS NOT NULL) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_events_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_events_au AFTER UPDATE ON calendar_events FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''calendar_events''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''calendar_event_id'', OLD.calendar_event_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''calendar.routine'' AS left_type,
+      CAST(NEW.calendar_routine_id AS CHAR) AS left_id,
+      ''routine-event'' AS relationship_type,
+      ''calendar.event'' AS right_type,
+      CAST(NEW.calendar_event_id AS CHAR) AS right_id,
+      ''generation'' AS relationship_family,
+      ''calendar_events'' AS source_table,
+      JSON_OBJECT(''calendar_event_id'', NEW.calendar_event_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''routine_occurrence_key'', NEW.routine_occurrence_key) AS attributes_json
+    WHERE NEW.calendar_routine_id IS NOT NULL) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''calendar.routine'' AS left_type,
+      CAST(NEW.calendar_routine_id AS CHAR) AS left_id,
+      ''routine-event'' AS relationship_type,
+      ''calendar.event'' AS right_type,
+      CAST(NEW.calendar_event_id AS CHAR) AS right_id,
+      ''generation'' AS relationship_family,
+      ''calendar_events'' AS source_table,
+      JSON_OBJECT(''calendar_event_id'', NEW.calendar_event_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''routine_occurrence_key'', NEW.routine_occurrence_key) AS attributes_json
+    WHERE NEW.calendar_routine_id IS NOT NULL) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_events_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_events_ad AFTER DELETE ON calendar_events FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''calendar_events''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''calendar_event_id'', OLD.calendar_event_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_content_items_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_content_items_ai AFTER INSERT ON content_items FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''video.content_group'' AS left_type,
+      CAST(NEW.content_group_id AS CHAR) AS left_id,
+      ''content-group'' AS relationship_type,
+      ''video.content_item'' AS right_type,
+      CAST(NEW.content_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''content_items'' AS source_table,
+      JSON_OBJECT(''content_id'', NEW.content_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NEW.sequence AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''video.content_group'' AS left_type,
+      CAST(NEW.content_group_id AS CHAR) AS left_id,
+      ''content-group'' AS relationship_type,
+      ''video.content_item'' AS right_type,
+      CAST(NEW.content_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''content_items'' AS source_table,
+      JSON_OBJECT(''content_id'', NEW.content_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NEW.sequence AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge;
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''video.content_item'' AS left_type,
+      CAST(NEW.content_id AS CHAR) AS left_id,
+      ''content-file'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.primary_file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''content_items'' AS source_table,
+      JSON_OBJECT(''content_id'', NEW.content_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json
+    WHERE NEW.primary_file_id IS NOT NULL) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''video.content_item'' AS left_type,
+      CAST(NEW.content_id AS CHAR) AS left_id,
+      ''content-file'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.primary_file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''content_items'' AS source_table,
+      JSON_OBJECT(''content_id'', NEW.content_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json
+    WHERE NEW.primary_file_id IS NOT NULL) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_content_items_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_content_items_au AFTER UPDATE ON content_items FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''content_items''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''content_id'', OLD.content_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''video.content_group'' AS left_type,
+      CAST(NEW.content_group_id AS CHAR) AS left_id,
+      ''content-group'' AS relationship_type,
+      ''video.content_item'' AS right_type,
+      CAST(NEW.content_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''content_items'' AS source_table,
+      JSON_OBJECT(''content_id'', NEW.content_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NEW.sequence AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''video.content_group'' AS left_type,
+      CAST(NEW.content_group_id AS CHAR) AS left_id,
+      ''content-group'' AS relationship_type,
+      ''video.content_item'' AS right_type,
+      CAST(NEW.content_id AS CHAR) AS right_id,
+      ''membership'' AS relationship_family,
+      ''content_items'' AS source_table,
+      JSON_OBJECT(''content_id'', NEW.content_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NEW.sequence AS sort_order,
+      JSON_OBJECT() AS attributes_json) AS edge;
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''video.content_item'' AS left_type,
+      CAST(NEW.content_id AS CHAR) AS left_id,
+      ''content-file'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.primary_file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''content_items'' AS source_table,
+      JSON_OBJECT(''content_id'', NEW.content_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json
+    WHERE NEW.primary_file_id IS NOT NULL) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''video.content_item'' AS left_type,
+      CAST(NEW.content_id AS CHAR) AS left_id,
+      ''content-file'' AS relationship_type,
+      ''files.file'' AS right_type,
+      CAST(NEW.primary_file_id AS CHAR) AS right_id,
+      ''attachment'' AS relationship_family,
+      ''content_items'' AS source_table,
+      JSON_OBJECT(''content_id'', NEW.content_id) AS source_key_json,
+      NULL AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT() AS attributes_json
+    WHERE NEW.primary_file_id IS NOT NULL) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_content_items_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_content_items_ad AFTER DELETE ON content_items FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''content_items''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''content_id'', OLD.content_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_video_jobs_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_video_jobs_ai AFTER INSERT ON video_jobs FOR EACH ROW BEGIN
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''video.script'' AS left_type,
+      CAST(NEW.video_script_id AS CHAR) AS left_id,
+      ''script-content'' AS relationship_type,
+      ''video.content_item'' AS right_type,
+      CAST(NEW.content_id AS CHAR) AS right_id,
+      ''production'' AS relationship_family,
+      ''video_jobs'' AS source_table,
+      JSON_OBJECT(''video_job_id'', NEW.video_job_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''video_job_id'', NEW.video_job_id, ''status'', NEW.status) AS attributes_json
+    WHERE NEW.video_script_id IS NOT NULL AND NEW.content_id IS NOT NULL) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''video.script'' AS left_type,
+      CAST(NEW.video_script_id AS CHAR) AS left_id,
+      ''script-content'' AS relationship_type,
+      ''video.content_item'' AS right_type,
+      CAST(NEW.content_id AS CHAR) AS right_id,
+      ''production'' AS relationship_family,
+      ''video_jobs'' AS source_table,
+      JSON_OBJECT(''video_job_id'', NEW.video_job_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''video_job_id'', NEW.video_job_id, ''status'', NEW.status) AS attributes_json
+    WHERE NEW.video_script_id IS NOT NULL AND NEW.content_id IS NOT NULL) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_video_jobs_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_video_jobs_au AFTER UPDATE ON video_jobs FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''video_jobs''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''video_job_id'', OLD.video_job_id) AS CHAR), 256));
+  INSERT INTO object_relationship_edge_index (
+      from_type, from_id, relationship_type, to_type, to_id,
+      relationship_family, source_table, source_key_json, source_key_sha256,
+      created_at_utc, relationship_qualifier, sort_order, attributes_json, is_reverse
+    )
+    SELECT left_type, left_id, relationship_type, right_type, right_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 0
+    FROM (SELECT
+      ''video.script'' AS left_type,
+      CAST(NEW.video_script_id AS CHAR) AS left_id,
+      ''script-content'' AS relationship_type,
+      ''video.content_item'' AS right_type,
+      CAST(NEW.content_id AS CHAR) AS right_id,
+      ''production'' AS relationship_family,
+      ''video_jobs'' AS source_table,
+      JSON_OBJECT(''video_job_id'', NEW.video_job_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''video_job_id'', NEW.video_job_id, ''status'', NEW.status) AS attributes_json
+    WHERE NEW.video_script_id IS NOT NULL AND NEW.content_id IS NOT NULL) AS edge
+    UNION ALL
+    SELECT right_type, right_id, relationship_type, left_type, left_id,
+      relationship_family, source_table, source_key_json,
+      UNHEX(SHA2(CAST(source_key_json AS CHAR), 256)), created_at_utc,
+      relationship_qualifier, sort_order, attributes_json, 1
+    FROM (SELECT
+      ''video.script'' AS left_type,
+      CAST(NEW.video_script_id AS CHAR) AS left_id,
+      ''script-content'' AS relationship_type,
+      ''video.content_item'' AS right_type,
+      CAST(NEW.content_id AS CHAR) AS right_id,
+      ''production'' AS relationship_family,
+      ''video_jobs'' AS source_table,
+      JSON_OBJECT(''video_job_id'', NEW.video_job_id) AS source_key_json,
+      NEW.created_at_utc AS created_at_utc,
+      NULL AS relationship_qualifier,
+      NULL AS sort_order,
+      JSON_OBJECT(''video_job_id'', NEW.video_job_id, ''status'', NEW.status) AS attributes_json
+    WHERE NEW.video_script_id IS NOT NULL AND NEW.content_id IS NOT NULL) AS edge;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_video_jobs_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_video_jobs_ad AFTER DELETE ON video_jobs FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE source_table = ''video_jobs''
+      AND source_key_sha256 = UNHEX(SHA2(CAST(JSON_OBJECT(''video_job_id'', OLD.video_job_id) AS CHAR), 256));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_activity_events_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_activity_events_bd
+BEFORE DELETE ON activity_events
+FOR EACH ROW
+BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''activity.event'' AND from_id = CAST(OLD.event_id AS CHAR))
+       OR (to_type = ''activity.event'' AND to_id = CAST(OLD.event_id AS CHAR));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_files_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_files_bd
+BEFORE DELETE ON files
+FOR EACH ROW
+BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''files.file'' AND from_id = CAST(OLD.file_id AS CHAR))
+       OR (to_type = ''files.file'' AND to_id = CAST(OLD.file_id AS CHAR));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_contacts_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_contacts_bd
+BEFORE DELETE ON contacts
+FOR EACH ROW
+BEGIN
+  UPDATE object_relationship_edge_index
+    SET attributes_json = JSON_SET(attributes_json, ''$.contact_id'', NULL)
+    WHERE source_table = ''correspondence_participants_join''
+      AND relationship_type = ''correspondence-contact-method''
+      AND JSON_VALUE(attributes_json, ''$.contact_id'') = OLD.contact_id;
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''contacts.contact'' AND from_id = CAST(OLD.contact_id AS CHAR))
+       OR (to_type = ''contacts.contact'' AND to_id = CAST(OLD.contact_id AS CHAR))
+      OR ((from_type = ''contacts.contact_method'' AND from_id IN (
+        SELECT CAST(contact_method_id AS CHAR) FROM contact_methods
+        WHERE contact_id = OLD.contact_id
+      )) OR (to_type = ''contacts.contact_method'' AND to_id IN (
+        SELECT CAST(contact_method_id AS CHAR) FROM contact_methods
+        WHERE contact_id = OLD.contact_id
+      )));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_tags_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_tags_bd
+BEFORE DELETE ON tags
+FOR EACH ROW
+BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''contacts.tag'' AND from_id = CAST(OLD.tag_id AS CHAR))
+       OR (to_type = ''contacts.tag'' AND to_id = CAST(OLD.tag_id AS CHAR));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_contact_methods_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_contact_methods_bd
+BEFORE DELETE ON contact_methods
+FOR EACH ROW
+BEGIN
+  UPDATE object_relationship_edge_index
+    SET attributes_json = JSON_SET(attributes_json, ''$.contact_method_id'', NULL)
+    WHERE source_table = ''correspondence_participants_join''
+      AND relationship_type = ''correspondence-contact''
+      AND JSON_VALUE(attributes_json, ''$.contact_method_id'') = OLD.contact_method_id;
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''contacts.contact_method'' AND from_id = CAST(OLD.contact_method_id AS CHAR))
+       OR (to_type = ''contacts.contact_method'' AND to_id = CAST(OLD.contact_method_id AS CHAR));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_calendar_events_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_calendar_events_bd
+BEFORE DELETE ON calendar_events
+FOR EACH ROW
+BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''calendar.event'' AND from_id = CAST(OLD.calendar_event_id AS CHAR))
+       OR (to_type = ''calendar.event'' AND to_id = CAST(OLD.calendar_event_id AS CHAR));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_calendar_routines_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_calendar_routines_bd
+BEFORE DELETE ON calendar_routines
+FOR EACH ROW
+BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''calendar.routine'' AND from_id = CAST(OLD.calendar_routine_id AS CHAR))
+       OR (to_type = ''calendar.routine'' AND to_id = CAST(OLD.calendar_routine_id AS CHAR));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_todo_groups_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_todo_groups_bd
+BEFORE DELETE ON todo_groups
+FOR EACH ROW
+BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''todos.todo_group'' AND from_id = CAST(OLD.todo_group_id AS CHAR))
+       OR (to_type = ''todos.todo_group'' AND to_id = CAST(OLD.todo_group_id AS CHAR));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_todo_personal_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_todo_personal_bd
+BEFORE DELETE ON todo_personal
+FOR EACH ROW
+BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''todos.personal_task'' AND from_id = CAST(OLD.personal_task_id AS CHAR))
+       OR (to_type = ''todos.personal_task'' AND to_id = CAST(OLD.personal_task_id AS CHAR));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_payment_invoices_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_payment_invoices_bd
+BEFORE DELETE ON payment_invoices
+FOR EACH ROW
+BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''payments.invoice'' AND from_id = CAST(OLD.payment_invoice_id AS CHAR))
+       OR (to_type = ''payments.invoice'' AND to_id = CAST(OLD.payment_invoice_id AS CHAR))
+      OR ((from_type = ''payments.invoice_line'' AND from_id IN (
+        SELECT CAST(payment_invoice_line_id AS CHAR) FROM payment_invoice_lines
+        WHERE payment_invoice_id = OLD.payment_invoice_id
+      )) OR (to_type = ''payments.invoice_line'' AND to_id IN (
+        SELECT CAST(payment_invoice_line_id AS CHAR) FROM payment_invoice_lines
+        WHERE payment_invoice_id = OLD.payment_invoice_id
+      )));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_payment_invoice_lines_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_payment_invoice_lines_bd
+BEFORE DELETE ON payment_invoice_lines
+FOR EACH ROW
+BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''payments.invoice_line'' AND from_id = CAST(OLD.payment_invoice_line_id AS CHAR))
+       OR (to_type = ''payments.invoice_line'' AND to_id = CAST(OLD.payment_invoice_line_id AS CHAR))
+      OR (source_table = ''payment_invoice_line_receipts_join''
+        AND JSON_VALUE(source_key_json, ''$.payment_invoice_line_id'') = OLD.payment_invoice_line_id);
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_journal1_groups_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_journal1_groups_bd
+BEFORE DELETE ON journal1_groups
+FOR EACH ROW
+BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''journal.group'' AND from_id = CAST(OLD.journal_group_id AS CHAR))
+       OR (to_type = ''journal.group'' AND to_id = CAST(OLD.journal_group_id AS CHAR));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_journal2_trackers_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_journal2_trackers_bd
+BEFORE DELETE ON journal2_trackers
+FOR EACH ROW
+BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''journal.tracker'' AND from_id = CAST(OLD.tracker_id AS CHAR))
+       OR (to_type = ''journal.tracker'' AND to_id = CAST(OLD.tracker_id AS CHAR));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_journal3_entries_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_journal3_entries_bd
+BEFORE DELETE ON journal3_entries
+FOR EACH ROW
+BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''journal.entry'' AND from_id = CAST(OLD.journal_entry_id AS CHAR))
+       OR (to_type = ''journal.entry'' AND to_id = CAST(OLD.journal_entry_id AS CHAR));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_content_groups_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_content_groups_bd
+BEFORE DELETE ON content_groups
+FOR EACH ROW
+BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''video.content_group'' AND from_id = CAST(OLD.content_group_id AS CHAR))
+       OR (to_type = ''video.content_group'' AND to_id = CAST(OLD.content_group_id AS CHAR));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_content_items_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_content_items_bd
+BEFORE DELETE ON content_items
+FOR EACH ROW
+BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''video.content_item'' AND from_id = CAST(OLD.content_id AS CHAR))
+       OR (to_type = ''video.content_item'' AND to_id = CAST(OLD.content_id AS CHAR));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_physical_item_groups_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_physical_item_groups_bd
+BEFORE DELETE ON physical_item_groups
+FOR EACH ROW
+BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''things.physical_item_group'' AND from_id = CAST(OLD.physical_item_group_id AS CHAR))
+       OR (to_type = ''things.physical_item_group'' AND to_id = CAST(OLD.physical_item_group_id AS CHAR));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_physical_items_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_physical_items_bd
+BEFORE DELETE ON physical_items
+FOR EACH ROW
+BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''things.physical_item'' AND from_id = CAST(OLD.physical_item_id AS CHAR))
+       OR (to_type = ''things.physical_item'' AND to_id = CAST(OLD.physical_item_id AS CHAR));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_video_scripts_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_video_scripts_bd
+BEFORE DELETE ON video_scripts
+FOR EACH ROW
+BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''video.script'' AND from_id = CAST(OLD.video_script_id AS CHAR))
+       OR (to_type = ''video.script'' AND to_id = CAST(OLD.video_script_id AS CHAR));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_correspondence_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_correspondence_bd
+BEFORE DELETE ON correspondence
+FOR EACH ROW
+BEGIN
+  DELETE FROM object_relationship_edge_index
+    WHERE (from_type = ''correspondence.item'' AND from_id = CAST(OLD.correspondence_id AS CHAR))
+       OR (to_type = ''correspondence.item'' AND to_id = CAST(OLD.correspondence_id AS CHAR));
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_payment_invoice_lines_receipts_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_payment_invoice_lines_receipts_au
+AFTER UPDATE ON payment_invoice_lines
+FOR EACH ROW
+BEGIN
+  UPDATE object_relationship_edge_index
+  SET from_id = CASE WHEN from_type = ''payments.invoice'' THEN CAST(NEW.payment_invoice_id AS CHAR) ELSE from_id END,
+      to_id = CASE WHEN to_type = ''payments.invoice'' THEN CAST(NEW.payment_invoice_id AS CHAR) ELSE to_id END,
+      sort_order = NEW.line_position,
+      attributes_json = JSON_SET(attributes_json, ''$.line_position'', NEW.line_position)
+  WHERE source_table = ''payment_invoice_line_receipts_join''
+    AND relationship_type = ''invoice-line-receipt''
+    AND (from_type = ''payments.invoice'' OR to_type = ''payments.invoice'')
+    AND JSON_VALUE(source_key_json, ''$.payment_invoice_line_id'') = NEW.payment_invoice_line_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_jmap_email_mailboxes_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_jmap_email_mailboxes_au
+AFTER UPDATE ON jmap_email_mailboxes
+FOR EACH ROW
+BEGIN
+  UPDATE object_relationship_edge_index
+  SET relationship_qualifier = NEW.role,
+      sort_order = NEW.sort_order,
+      attributes_json = JSON_OBJECT(''source_account_key'', NEW.source_account_key,
+        ''mailbox_name'', NEW.name, ''mailbox_role'', NEW.role)
+  WHERE source_table = ''correspondence_email_mailboxes_join''
+    AND JSON_VALUE(source_key_json, ''$.source_account_key'') = NEW.source_account_key
+    AND JSON_VALUE(source_key_json, ''$.mailbox_id'') = NEW.mailbox_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_jmap_email_mailboxes_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_jmap_email_mailboxes_bd
+BEFORE DELETE ON jmap_email_mailboxes
+FOR EACH ROW
+BEGIN
+  DELETE FROM object_relationship_edge_index
+  WHERE source_table = ''correspondence_email_mailboxes_join''
+    AND JSON_VALUE(source_key_json, ''$.source_account_key'') = OLD.source_account_key
+    AND JSON_VALUE(source_key_json, ''$.mailbox_id'') = OLD.mailbox_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+-- end migration 0065
+
 -- migration 0064: content-lifecycle-and-format-vocabulary
 -- writer downtime: required while every content writer, validator, and user
 -- interface moves to the new lifecycle and format vocabulary together.

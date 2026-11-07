@@ -56,6 +56,16 @@ function fixture({ relationshipKind = null } = {}) {
         throw new Error(`Unexpected get: ${sql} ${parameters}`);
       },
       all() {
+        if (/FROM todo_groups WHERE todo_group_id IN/u.test(sql)) return [{
+          todo_group_id: 3, name: "Construction", uses_sequence: 0,
+          daily_paper_pinned: 0, archived_at_utc: null,
+        }];
+        if (/FROM calendar_events WHERE calendar_event_id IN/u.test(sql)) return [{
+          calendar_event_id: 9, title: "Kitchen walk-through", description: null,
+          location_text: "Home", starts_at_utc: "2026-10-06 13:00:00.000",
+          ends_at_utc: null, time_zone: "America/New_York", is_all_day: 0,
+          status: "confirmed", recurrence_rule: null,
+        }];
         if (/FROM object_relationship_edges/u.test(sql)) return [
           { type: "todos.todo_group", id: "3", kind: "todo-group", removable: 0 },
           ...(kind ? [{
@@ -102,6 +112,39 @@ test("the object network keeps exact bindings and presents real connected object
     /does not match its owning source/u);
 });
 
+test("the object network batch-hydrates every connected object type", () => {
+  let eventReads = 0;
+  const database = { prepare(sql) {
+    return {
+      get() {
+        if (/FROM todo_personal WHERE personal_task_id =/u.test(sql)) return {
+          personal_task_id: 7, text: "Call the electrician", status: "todo", sequence: null,
+          billable_amount_minor: null, billable_currency: null,
+        };
+        throw new Error(`Unexpected get: ${sql}`);
+      },
+      all() {
+        if (/FROM object_relationship_edges/u.test(sql)) return [9, 10, 11].map((id) => ({
+          type: "calendar.event", id: String(id), kind: "todo-event", removable: 1,
+        }));
+        if (/FROM calendar_events WHERE calendar_event_id IN \(\?, \?, \?\)/u.test(sql)) {
+          eventReads += 1;
+          return [9, 10, 11].map((calendar_event_id) => ({
+            calendar_event_id, title: `Event ${calendar_event_id}`, description: null,
+            location_text: null, starts_at_utc: "2026-11-07T12:00:00.000Z",
+            ends_at_utc: null, time_zone: "America/New_York", is_all_day: 0,
+            status: "confirmed", recurrence_rule: null,
+          }));
+        }
+        throw new Error(`Unexpected all: ${sql}`);
+      },
+    };
+  } };
+  const graph = new ObjectNetworkService({ database, organizer: {}, registry: {} }).graph(todoIdentity);
+  assert.equal(eventReads, 1);
+  assert.deepEqual(graph.connections.map(({ object }) => object.id), [9, 10, 11]);
+});
+
 test("a one-click task/event connection uses the calendar domain's context relationship", async () => {
   const { service, calls } = fixture();
   const graph = await service.setConnection({ from: todoIdentity, to: eventIdentity, linked: true });
@@ -129,6 +172,11 @@ test("a one-click correspondence/event connection uses the correspondence domain
         throw new Error(`Unexpected get: ${sql}`);
       },
       all() {
+        if (/FROM correspondence WHERE correspondence_id IN/u.test(sql)) return [{
+          correspondence_id: 15, medium: "email", direction: "inbound", subject: "Walk-through notes",
+          body: null, delivery_status: "delivered", call_disposition: null,
+          occurred_at_utc: "2026-10-05 12:00:00.000",
+        }];
         if (/FROM object_relationship_edges/u.test(sql)) return linked
           ? [{ type: "correspondence.item", id: "15", kind: "event-correspondence", removable: 1 }]
           : [];

@@ -21,7 +21,9 @@ test("first-class object controls expose one lazy visual network without editing
   assert.match(component, /\/api\/object-network\?/u);
   assert.match(component, /\/api\/object-network\/connections/u);
   assert.match(component, /className="network-rail"/u);
-  assert.match(component, /<NetworkCard\s+object=\{graph\.focus\}\s+focus/u);
+  assert.match(component, /object=\{graph\?\.focus \?\? previewFocus\}/u);
+  assert.match(component, /Loading connections…/u);
+  assert.match(component, /setPreviewFocus\(previewOf\(object\)\)/u);
   assert.doesNotMatch(component, /<h2>Object network<\/h2>/u);
   assert.match(component, /<ObjectCard/u);
   assert.equal(component.match(/mode="compact"/gu)?.length, 2);

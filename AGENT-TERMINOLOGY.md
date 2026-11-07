@@ -284,13 +284,14 @@ against the current exact object bindings. It does not query source domains,
 accept arbitrary HTML or remote assets, or replace purpose-built document
 workflows such as Daily Paper and Payments invoices.
 
-**60. Object relationship-edge view** — The read-only non-materialized MariaDB
-projection `object_relationship_edges`. It normalizes all physical `_join`
-tables and the reviewed direct native relationships used by the interactive
-object network, emitting each current edge in both directions with typed
-endpoints and source evidence. It is a live adjacency read, not an authority,
-mutation path, recursive graph traversal, first-class-object declaration, or
-immutable relationship reference set.
+**60. Object relationship-edge view** — The read-only indexed MariaDB consumer
+surface `object_relationship_edges`. Its transactionally maintained derived
+table normalizes all physical `_join` tables and the reviewed direct native
+relationships used by the interactive object network, emitting each current
+edge in both directions with typed endpoints and source evidence. The complete
+`object_relationship_edges_source` computation owns rebuild and parity audit.
+Neither surface is an authority, mutation path, recursive graph traversal,
+first-class-object declaration, or immutable relationship reference set.
 
 **61. Physical item** — One authoritative native record of a physical
 possession, or a counted set of equivalent possessions, shown in the product's

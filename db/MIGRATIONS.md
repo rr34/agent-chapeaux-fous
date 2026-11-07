@@ -11,6 +11,25 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 65: Indexed object relationship projection
+
+Adds `object_relationship_edge_index`, populates it from the complete canonical
+relationship computation, and redirects the existing read-only
+`object_relationship_edges` consumer view to that indexed table. The former
+full computation remains available as `object_relationship_edges_source` for
+rebuild and parity verification. Database triggers maintain both directed edge
+rows in the same transaction as every authoritative relationship-source
+insert, update, or delete, while endpoint cleanup covers foreign-key cascades.
+The owning domain tables and tools remain authoritative.
+
+Apply with writers stopped and a verified backup. Initial population reads all
+relationship sources and writes two derived rows per canonical relationship;
+on the current correspondence volume this is expected to be the long-running
+part. Migration replay deletes and rebuilds only the derived index and safely
+recreates its views and triggers. The runner compares the final index with the
+canonical source before recording schema version 65. Do not start the matching
+application unless that parity check and `npm run db:verify` both succeed.
+
 ## Version 64: Content lifecycle and format vocabulary
 
 Replaces the Content Library lifecycle with `draft`, `uploaded_unlisted`,

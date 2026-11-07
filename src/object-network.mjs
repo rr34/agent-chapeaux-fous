@@ -13,6 +13,41 @@ const definitions = new Map(nativeFirstClassObjectTypes
   .filter(({ id }) => supportedTypes.has(id))
   .map((definition) => [definition.id, definition]));
 
+const objectReaderSql = Object.freeze({
+  "contacts.contact": ["contact_id", `SELECT contact_id, display_name, contact_kind, organization_name,
+    status, birth_date, notes FROM contacts`],
+  "todos.todo_group": ["todo_group_id", `SELECT todo_group_id, name, uses_sequence, daily_paper_pinned,
+    archived_at_utc FROM todo_groups`],
+  "todos.personal_task": ["personal_task_id", `SELECT personal_task_id, text, status, sequence,
+    billable_amount_minor, billable_currency FROM todo_personal`],
+  "things.physical_item_group": ["physical_item_group_id", `SELECT physical_item_group_id, name,
+    sort_position, archived_at_utc FROM physical_item_groups`],
+  "things.physical_item": ["physical_item_id", `SELECT physical_item_id, name, description, personal_notes,
+    quantity, location_text, item_condition, status, manufacturer, model_number,
+    serial_number, acquired_on FROM physical_items`],
+  "payments.invoice": ["payment_invoice_id", `SELECT payment_invoice_id, status, currency, amount_minor,
+    due_on, description FROM payment_invoices`],
+  "journal.group": ["journal_group_id", "SELECT journal_group_id, name, archived_at_utc FROM journal1_groups"],
+  "journal.tracker": ["tracker_id", `SELECT tracker_id, name, unit, asking_starts_at_utc,
+    asking_recurrence_rule, archived_at_utc FROM journal2_trackers`],
+  "journal.entry": ["journal_entry_id", `SELECT journal_entry_id, content_text, occurred_at_utc,
+    number_value FROM journal3_entries`],
+  "calendar.event": ["calendar_event_id", `SELECT calendar_event_id, title, description, location_text,
+    starts_at_utc, ends_at_utc, time_zone, is_all_day, status, recurrence_rule FROM calendar_events`],
+  "calendar.routine": ["calendar_routine_id", `SELECT calendar_routine_id, title, description, location_text,
+    first_starts_at_utc, first_ends_at_utc, time_zone, recurrence_rule, disabled_at_utc FROM calendar_routines`],
+  "files.file": ["file_id", `SELECT file_id, COALESCE(title, original_filename) AS display,
+    description, original_filename, media_kind, mime_type, byte_size FROM files`],
+  "profile.fact": ["profile_fact_id", "SELECT profile_fact_id, fact_text, fact_type, fact_status FROM profile_facts"],
+  "correspondence.item": ["correspondence_id", `SELECT correspondence_id, medium, direction, subject, body,
+    delivery_status, call_disposition, occurred_at_utc FROM correspondence`],
+  "video.script": ["video_script_id", "SELECT video_script_id, title, status, version FROM video_scripts"],
+  "video.content_group": ["content_group_id", `SELECT content_group_id, name, sort_position,
+    archived_at_utc FROM content_groups`],
+  "video.content_item": ["content_id", `SELECT content_id, title, description, sequence, content_type,
+    content_status, content_host, content_url, relationship_to_user, personal_notes FROM content_items`],
+});
+
 const connectableTypes = Object.freeze({
   "contacts.contact": ["todos.personal_task", "calendar.event", "things.physical_item"],
   "todos.personal_task": ["contacts.contact", "calendar.event", "video.content_item", "things.physical_item", "correspondence.item"],
@@ -125,15 +160,55 @@ export class ObjectNetworkService {
   }
 
   #readObject(identity) {
-    const { type, id } = identity;
+    const reader = objectReaderSql[identity.type];
+    if (!reader) return null;
+    const [idColumn, sql] = reader;
+    const id = positiveId(identity.id);
+    const row = this.database.prepare(`${sql} WHERE ${idColumn} = ?`).get(id);
+    if (!row) return null;
+    const methods = identity.type === "contacts.contact"
+      ? this.database.prepare(`SELECT method_kind, label, value FROM contact_methods
+        WHERE contact_id = ? ORDER BY is_primary DESC, contact_method_id`).all(id)
+      : [];
+    return this.#objectFromRow(identity.type, row, methods);
+  }
+
+  #readObjects(identities) {
+    const grouped = new Map();
+    for (const identity of identities) {
+      if (!grouped.has(identity.type)) grouped.set(identity.type, []);
+      grouped.get(identity.type).push(identity);
+    }
+    const objects = new Map();
+    for (const [type, selected] of grouped) {
+      const reader = objectReaderSql[type];
+      if (!reader) continue;
+      const [idColumn, sql] = reader;
+      const ids = [...new Set(selected.map(({ id }) => positiveId(id)))];
+      const placeholders = ids.map(() => "?").join(", ");
+      const rows = this.database.prepare(`${sql} WHERE ${idColumn} IN (${placeholders})`).all(...ids);
+      let methodsByContact = new Map();
+      if (type === "contacts.contact" && rows.length) {
+        methodsByContact = new Map(rows.map(({ contact_id }) => [Number(contact_id), []]));
+        const methods = this.database.prepare(`SELECT contact_id, method_kind, label, value
+          FROM contact_methods WHERE contact_id IN (${placeholders})
+          ORDER BY contact_id, is_primary DESC, contact_method_id`).all(...ids);
+        for (const method of methods) methodsByContact.get(Number(method.contact_id))?.push(method);
+      }
+      for (const row of rows) {
+        const object = this.#objectFromRow(type, row, methodsByContact.get(Number(row[idColumn])) ?? []);
+        if (object) objects.set(object.ref, object);
+      }
+    }
+    return objects;
+  }
+
+  #objectFromRow(type, row, methods = []) {
+    const idColumn = objectReaderSql[type]?.[0];
+    const id = Number(row?.[idColumn]);
     const definition = definitions.get(type);
-    let row;
+    if (!definition || !Number.isSafeInteger(id)) return null;
     if (type === "contacts.contact") {
-      row = this.database.prepare(`SELECT contact_id, display_name, contact_kind, organization_name,
-        status, birth_date, notes FROM contacts WHERE contact_id = ?`).get(id);
-      if (!row) return null;
-      const methods = this.database.prepare(`SELECT method_kind, label, value FROM contact_methods
-        WHERE contact_id = ? ORDER BY is_primary DESC, contact_method_id`).all(id);
       const methodSummary = methods
         .map((method) => [method.label, method.value].filter(Boolean).join(": ")).join(" · ");
       return this.#card(definition, id, row.display_name, { body: row.notes, attributes: [
@@ -143,9 +218,6 @@ export class ObjectNetworkService {
       ], links: contactLinks(methods) });
     }
     if (type === "todos.todo_group") {
-      row = this.database.prepare(`SELECT todo_group_id, name, uses_sequence, daily_paper_pinned,
-        archived_at_utc FROM todo_groups WHERE todo_group_id = ?`).get(id);
-      if (!row) return null;
       return this.#card(definition, id, row.name, { attributes: [
         attribute("Numbered", row.uses_sequence ? "Yes" : "No"),
         attribute("Daily paper", row.daily_paper_pinned ? "Pinned" : null),
@@ -153,29 +225,18 @@ export class ObjectNetworkService {
       ] });
     }
     if (type === "todos.personal_task") {
-      row = this.database.prepare(`SELECT personal_task_id, text, status, sequence,
-        billable_amount_minor, billable_currency
-        FROM todo_personal WHERE personal_task_id = ?`).get(id);
-      if (!row) return null;
       return this.#card(definition, id, row.text, { attributes: [
         attribute("Status", row.status), attribute("Sequence", row.sequence),
         attribute("Billable", money(row.billable_amount_minor, row.billable_currency)),
       ] });
     }
     if (type === "things.physical_item_group") {
-      row = this.database.prepare(`SELECT physical_item_group_id, name, sort_position, archived_at_utc
-        FROM physical_item_groups WHERE physical_item_group_id = ?`).get(id);
-      if (!row) return null;
       return this.#card(definition, id, row.name, { attributes: [
         attribute("Position", row.sort_position),
         attribute("Status", row.archived_at_utc ? "Archived" : "Active"),
       ] });
     }
     if (type === "things.physical_item") {
-      row = this.database.prepare(`SELECT physical_item_id, name, description, personal_notes,
-        quantity, location_text, item_condition, status, manufacturer, model_number,
-        serial_number, acquired_on FROM physical_items WHERE physical_item_id = ?`).get(id);
-      if (!row) return null;
       return this.#card(definition, id, row.name, { body: row.description || row.personal_notes, attributes: [
         attribute("Quantity", row.quantity), attribute("Location", row.location_text),
         attribute("Condition", row.item_condition), attribute("Status", row.status),
@@ -184,25 +245,16 @@ export class ObjectNetworkService {
       ] });
     }
     if (type === "payments.invoice") {
-      row = this.database.prepare(`SELECT payment_invoice_id, status, currency, amount_minor,
-        due_on, description FROM payment_invoices WHERE payment_invoice_id = ?`).get(id);
-      if (!row) return null;
       return this.#card(definition, id, `Invoice ${id} · ${money(row.amount_minor, row.currency)}`, {
         body: row.description, attributes: [attribute("Status", row.status), attribute("Due", row.due_on)],
       });
     }
     if (type === "journal.group") {
-      row = this.database.prepare(`SELECT journal_group_id, name, archived_at_utc
-        FROM journal1_groups WHERE journal_group_id = ?`).get(id);
-      if (!row) return null;
       return this.#card(definition, id, row.name, { attributes: [
         attribute("Status", row.archived_at_utc ? "Archived" : "Active"),
       ] });
     }
     if (type === "journal.tracker") {
-      row = this.database.prepare(`SELECT tracker_id, name, unit, asking_starts_at_utc,
-        asking_recurrence_rule, archived_at_utc FROM journal2_trackers WHERE tracker_id = ?`).get(id);
-      if (!row) return null;
       return this.#card(definition, id, row.name, { attributes: [
         attribute("Unit", row.unit), attribute("Schedule", row.asking_recurrence_rule),
         attribute("Starts", row.asking_starts_at_utc),
@@ -210,18 +262,11 @@ export class ObjectNetworkService {
       ] });
     }
     if (type === "journal.entry") {
-      row = this.database.prepare(`SELECT journal_entry_id, content_text, occurred_at_utc,
-        number_value FROM journal3_entries WHERE journal_entry_id = ?`).get(id);
-      if (!row) return null;
       return this.#card(definition, id, row.content_text, { attributes: [
         attribute("Occurred", row.occurred_at_utc), attribute("Value", row.number_value),
       ] });
     }
     if (type === "calendar.event") {
-      row = this.database.prepare(`SELECT calendar_event_id, title, description, location_text,
-        starts_at_utc, ends_at_utc, time_zone, is_all_day, status, recurrence_rule
-        FROM calendar_events WHERE calendar_event_id = ?`).get(id);
-      if (!row) return null;
       return this.#card(definition, id, row.title, { body: row.description, attributes: [
         attribute("Starts", row.starts_at_utc), attribute("Ends", row.ends_at_utc),
         attribute("Time zone", row.time_zone), attribute("Where", row.location_text),
@@ -229,10 +274,6 @@ export class ObjectNetworkService {
       ] });
     }
     if (type === "calendar.routine") {
-      row = this.database.prepare(`SELECT calendar_routine_id, title, description, location_text,
-        first_starts_at_utc, first_ends_at_utc, time_zone, recurrence_rule, disabled_at_utc
-        FROM calendar_routines WHERE calendar_routine_id = ?`).get(id);
-      if (!row) return null;
       return this.#card(definition, id, row.title, { body: row.description, attributes: [
         attribute("Starts", row.first_starts_at_utc), attribute("Ends", row.first_ends_at_utc),
         attribute("Time zone", row.time_zone), attribute("Where", row.location_text),
@@ -241,28 +282,17 @@ export class ObjectNetworkService {
       ] });
     }
     if (type === "files.file") {
-      row = this.database.prepare(`SELECT file_id, COALESCE(title, original_filename) AS display,
-        description, original_filename, media_kind, mime_type, byte_size
-        FROM files WHERE file_id = ?`).get(id);
-      if (!row) return null;
       return this.#card(definition, id, row.display, { body: row.description, attributes: [
         attribute("Filename", row.original_filename), attribute("Kind", row.media_kind),
         attribute("Type", row.mime_type), attribute("Bytes", row.byte_size),
       ] });
     }
     if (type === "profile.fact") {
-      row = this.database.prepare(`SELECT profile_fact_id, fact_text, fact_type, fact_status
-        FROM profile_facts WHERE profile_fact_id = ?`).get(id);
-      if (!row) return null;
       return this.#card(definition, id, row.fact_text, { attributes: [
         attribute("Kind", row.fact_type), attribute("Status", row.fact_status),
       ] });
     }
     if (type === "correspondence.item") {
-      row = this.database.prepare(`SELECT correspondence_id, medium, direction, subject, body,
-        delivery_status, call_disposition, occurred_at_utc
-        FROM correspondence WHERE correspondence_id = ?`).get(id);
-      if (!row) return null;
       return this.#card(definition, id, row.subject || `${row.medium} ${row.direction}`, { body: row.body, attributes: [
         attribute("Medium", row.medium), attribute("Direction", row.direction),
         attribute("Call disposition", row.call_disposition),
@@ -270,27 +300,17 @@ export class ObjectNetworkService {
       ] });
     }
     if (type === "video.script") {
-      row = this.database.prepare(`SELECT video_script_id, title, status, version
-        FROM video_scripts WHERE video_script_id = ?`).get(id);
-      if (!row) return null;
       return this.#card(definition, id, row.title, { attributes: [
         attribute("Status", row.status), attribute("Version", row.version),
       ] });
     }
     if (type === "video.content_group") {
-      row = this.database.prepare(`SELECT content_group_id, name, sort_position, archived_at_utc
-        FROM content_groups WHERE content_group_id = ?`).get(id);
-      if (!row) return null;
       return this.#card(definition, id, row.name, { attributes: [
         attribute("Position", row.sort_position),
         attribute("Status", row.archived_at_utc ? "Archived" : "Active"),
       ] });
     }
     if (type === "video.content_item") {
-      row = this.database.prepare(`SELECT content_id, title, description, sequence, content_type,
-        content_status, content_host, content_url, relationship_to_user, personal_notes
-        FROM content_items WHERE content_id = ?`).get(id);
-      if (!row) return null;
       return this.#card(definition, id, row.title, { body: row.description || row.personal_notes, attributes: [
         attribute("Status", row.content_status), attribute("Type", row.content_type),
         attribute("Sequence", row.sequence), attribute("Host", row.content_host),
@@ -338,13 +358,16 @@ export class ObjectNetworkService {
         : connection);
     }
     const all = [...deduplicated.values()];
-    const connections = all.slice(0, maximumConnections).flatMap((connection) => {
-      const object = this.#readObject(exactIdentity({
+    const bounded = all.slice(0, maximumConnections);
+    const identities = bounded.map((connection) => exactIdentity({
         type: connection.type,
         source: definitions.get(connection.type)?.source,
         id: connection.id,
         ref: `${definitions.get(connection.type)?.refPrefix}${connection.id}`,
       }));
+    const hydrated = this.#readObjects(identities);
+    const connections = bounded.flatMap((connection, index) => {
+      const object = hydrated.get(identities[index].ref);
       return object ? [{ object, removable: connection.removable }] : [];
     });
     return {

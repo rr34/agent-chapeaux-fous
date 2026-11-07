@@ -21,11 +21,63 @@ import {
   relationshipTableRenames,
 } from "../scripts/migrate-database.mjs";
 import { requiredEnumColumns } from "../src/database.mjs";
+import {
+  objectRelationshipEdgeEndpointTables, objectRelationshipEdgeSourceTables,
+} from "../scripts/object-relationship-edge-triggers.mjs";
 
 const block = (version, name = `migration-${version}`, sql = `SELECT ${version};`) => {
   const label = String(version).padStart(4, "0");
   return `-- migration ${label}: ${name}\n${sql}\n-- end migration ${label}\n`;
 };
+
+test("indexed relationship projection integrity requires its table, lookup key, views, and source triggers", async () => {
+  const objects = [
+    { TABLE_NAME: "object_relationship_edge_index", TABLE_TYPE: "BASE TABLE" },
+    { TABLE_NAME: "object_relationship_edges", TABLE_TYPE: "VIEW" },
+    { TABLE_NAME: "object_relationship_edges_source", TABLE_TYPE: "VIEW" },
+  ];
+  const indexes = ["from_type", "from_id", "to_type", "to_id"].map((COLUMN_NAME, index) => ({
+    INDEX_NAME: "object_relationship_edge_lookup", COLUMN_NAME, SEQ_IN_INDEX: index + 1,
+  }));
+  const views = [
+    { TABLE_NAME: "object_relationship_edges", VIEW_DEFINITION: "select * from object_relationship_edge_index", SECURITY_TYPE: "INVOKER" },
+    { TABLE_NAME: "object_relationship_edges_source", VIEW_DEFINITION: "select * from every_source", SECURITY_TYPE: "INVOKER" },
+  ];
+  const triggers = objectRelationshipEdgeSourceTables.flatMap((table) => [
+    ["INSERT", "ai"], ["UPDATE", "au"], ["DELETE", "ad"],
+  ].map(([EVENT_MANIPULATION, suffix]) => ({
+    TRIGGER_NAME: `ore_${table}_${suffix}`, EVENT_OBJECT_TABLE: table, EVENT_MANIPULATION,
+  }))).concat(
+    Object.keys(objectRelationshipEdgeEndpointTables).map((table) => ({
+      TRIGGER_NAME: `ore_cleanup_${table}_bd`, EVENT_OBJECT_TABLE: table, EVENT_MANIPULATION: "DELETE",
+    })),
+    [
+      { TRIGGER_NAME: "ore_payment_invoice_lines_receipts_au", EVENT_OBJECT_TABLE: "payment_invoice_lines", EVENT_MANIPULATION: "UPDATE" },
+      { TRIGGER_NAME: "ore_jmap_email_mailboxes_au", EVENT_OBJECT_TABLE: "jmap_email_mailboxes", EVENT_MANIPULATION: "UPDATE" },
+      { TRIGGER_NAME: "ore_jmap_email_mailboxes_bd", EVENT_OBJECT_TABLE: "jmap_email_mailboxes", EVENT_MANIPULATION: "DELETE" },
+    ],
+  );
+  const connection = ({ selectedObjects = objects, selectedIndexes = indexes,
+    selectedViews = views, selectedTriggers = triggers } = {}) => ({ async query(sql) {
+    if (sql.includes("information_schema.TABLES")) return [selectedObjects];
+    if (sql.includes("information_schema.STATISTICS")) return [selectedIndexes];
+    if (sql.includes("information_schema.VIEWS")) return [selectedViews];
+    if (sql.includes("information_schema.TRIGGERS")) return [selectedTriggers];
+    if (sql.includes("object_relationship_edges_source source_edge")) {
+      return [[{ indexed_count: 10, source_count: 10, has_mismatch: 0 }]];
+    }
+    throw new Error(`Unexpected SQL: ${sql}`);
+  } });
+  await assertMigrationSpecificIntegrity(connection(), { version: 65 }, "test_database");
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ selectedObjects: objects.slice(1) }), { version: 65 }, "test_database"),
+    /indexed relationship projection/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ selectedTriggers: triggers.slice(1) }), { version: 65 }, "test_database"),
+    /projection maintenance/u,
+  );
+});
 
 test("Google Messages metadata integrity requires JSON columns and the complete alias medium vocabulary", async () => {
   const completeMedium = `enum(${requiredEnumColumns.correspondence_source_aliases.medium
@@ -785,11 +837,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64]);
-  for (let current = 29; current <= 64; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65]);
+  for (let current = 29; current <= 65; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 64 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 65 - current }, (_, index) => current + index + 1),
     );
   }
 });

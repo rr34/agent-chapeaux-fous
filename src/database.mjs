@@ -1,6 +1,6 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 
-export const requiredDatabaseSchemaVersion = 64;
+export const requiredDatabaseSchemaVersion = 65;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -129,6 +129,11 @@ export const requiredDatabaseShape = {
     "payment_invoice_line_id", "file_id", "display_name_snapshot", "mime_type_snapshot",
     "sha256_snapshot", "created_at_utc",
   ],
+  object_relationship_edge_index: [
+    "from_type", "from_id", "relationship_type", "to_type", "to_id",
+    "relationship_family", "source_table", "source_key_json", "source_key_sha256",
+    "created_at_utc", "relationship_qualifier", "sort_order", "attributes_json", "is_reverse",
+  ],
   journal1_groups: ["journal_group_id", "name", "archived_at_utc"],
   journal2_trackers: ["tracker_id", "journal_group_id", "name", "unit", "archived_at_utc", "asking_starts_at_utc", "asking_recurrence_rule", "asking_time_zone"],
   journal3_entries: [
@@ -144,6 +149,11 @@ export const requiredDatabaseShape = {
 
 export const requiredDatabaseViewShape = {
   object_relationship_edges: [
+    "from_type", "from_id", "relationship_type", "to_type", "to_id",
+    "relationship_family", "source_table", "source_key_json", "created_at_utc",
+    "relationship_qualifier", "sort_order", "attributes_json", "is_reverse",
+  ],
+  object_relationship_edges_source: [
     "from_type", "from_id", "relationship_type", "to_type", "to_id",
     "relationship_family", "source_table", "source_key_json", "created_at_utc",
     "relationship_qualifier", "sort_order", "attributes_json", "is_reverse",

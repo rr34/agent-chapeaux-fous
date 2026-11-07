@@ -823,13 +823,19 @@ view descriptions live beside their definitions in the baseline SQL. Explicit
 `database_schema` calls can read live comments. Ordinary results carry no extra
 schema-description payload and no generated schema file is required.
 
-The interactive object network reads one-hop local adjacency from the
-non-materialized `object_relationship_edges` view. The view projects all eleven
-`_join` tables and the reviewed direct native relationships in both directions,
-while the owning tables remain authoritative and all changes continue through
-their domain tools. Application code applies the first-class object catalog,
-bounded hydration, and simple-connection rules; the live view is not a saved
-relationship set or a recursive traversal engine.
+The interactive object network reads one-hop local adjacency from the read-only
+`object_relationship_edges` view. That stable consumer surface reads the
+indexed `object_relationship_edge_index` projection instead of recomputing all
+sixteen `_join` tables and reviewed direct native relationships on every click.
+Database triggers update both directed projection rows in the same transaction
+as each authoritative source change. The owning domain tables remain
+authoritative and all changes continue through their domain tools; the index is
+never a mutation path. The complete `object_relationship_edges_source` view is
+the deliberately slower rebuild and parity-audit definition. Migration and
+database verification refuse completion when that canonical computation and
+the indexed projection differ. Application code applies the first-class object
+catalog, hard result bound, batched type-owned hydration, and
+simple-connection rules; neither view is a recursive traversal engine.
 
 Native discovery has one in-process search coordinator shared by agent
 `global_search`, the user-facing Search screen and `/api/global-search`, and the
