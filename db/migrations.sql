@@ -16,6 +16,27 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0063: retire-todo-planning-prompts
+-- writer downtime: required while every application surface and the personal
+-- to-do schema stop exposing the retired field together. Existing planning
+-- prompt values are intentionally discarded.
+-- locking: ALTER TABLE takes a metadata lock on todo_personal while it removes
+-- one check constraint and one nullable TEXT column. Replacing the derived view
+-- does not materialize or rewrite task rows.
+-- recovery: MariaDB DDL commits implicitly. The destructive DDL is guarded and
+-- the view replacement is idempotent. Keep writers stopped and rerun the whole
+-- migration after a partial commit, then run npm run db:verify.
+
+ALTER TABLE todo_personal
+  DROP CONSTRAINT IF EXISTS todo_personal_prompt,
+  DROP COLUMN IF EXISTS planning_prompt_text;
+
+CREATE OR REPLACE VIEW open_todo_personal AS
+SELECT * FROM todo_personal
+WHERE status IN ('todo', 'ai_suggested');
+
+-- end migration 0063
+
 -- migration 0062: google-messages-web-source-metadata
 -- writer downtime: required while the correspondence importer, source-alias
 -- vocabulary, and provider-metadata columns move together. Existing message

@@ -801,7 +801,6 @@ function publicTodo(row) {
     relatedContactStatus: row.related_contact_status ?? null,
     text: row.text,
     status: row.status,
-    planningPromptText: row.planning_prompt_text ?? null,
     billableAmountMinor: row.billable_amount_minor == null ? null : Number(row.billable_amount_minor),
     billableCurrency: row.billable_currency ?? null,
     sortPosition: row.sort_position,
@@ -2544,7 +2543,7 @@ export class OrganizerStore {
         : [];
     const values = [];
     appendTermSearch(conditions, values, searchPatterns(query), [
-      "task.text", "task.status", "task.planning_prompt_text", "CAST(task.sequence AS CHAR)",
+      "task.text", "task.status", "CAST(task.sequence AS CHAR)",
       "todo_group.name", "related_contact.display_name",
     ]);
     return this.database.prepare(`
@@ -5139,7 +5138,6 @@ export class OrganizerStore {
         : identifier(input.relatedContactId, "related contact id"),
       text: requiredText(input?.text, "text", 10_000),
       status: enumValue(input?.status, todoStatuses, "status", "todo"),
-      planningPromptText: optionalText(input?.planningPromptText, "planningPromptText", 10_000),
       billableAmountMinor: price.amount,
       billableCurrency: price.currency,
     };
@@ -5161,13 +5159,12 @@ export class OrganizerStore {
       const result = this.database.prepare(`
         INSERT INTO todo_personal (
           todo_group_id, sequence, related_contact_id, text,
-          status, sort_position, completed_at_utc, planning_prompt_text,
-          billable_amount_minor, billable_currency, source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'tailnet_web')
+          status, sort_position, completed_at_utc, billable_amount_minor,
+          billable_currency, source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'tailnet_web')
       `).run(
         groupId, todo.sequence, todo.relatedContactId, todo.text,
-        todo.status, sortPosition, completedAtUtc, todo.planningPromptText,
-        todo.billableAmountMinor, todo.billableCurrency,
+        todo.status, sortPosition, completedAtUtc, todo.billableAmountMinor, todo.billableCurrency,
       );
       const id = Number(result.lastInsertRowid);
       const created = this.getTodo(id);
@@ -5337,9 +5334,6 @@ export class OrganizerStore {
       sortPosition: input.sortPosition === undefined
         ? before.sortPosition
         : integer(input.sortPosition, "sortPosition", { minimum: -1_000_000_000, maximum: 1_000_000_000 }),
-      planningPromptText: input.planningPromptText === undefined
-        ? before.planningPromptText
-        : optionalText(input.planningPromptText, "planningPromptText", 10_000),
       billableAmountMinor: price.amount,
       billableCurrency: price.currency,
     };
@@ -5354,8 +5348,7 @@ export class OrganizerStore {
     if (after.status !== "complete" && before.status === "complete") after.completedAtUtc = null;
     const changes = changedFields(before, after, [
       "groupId", "sequence", "relatedContactId", "text", "status", "sortPosition",
-      "completedAtUtc", "planningPromptText",
-      "billableAmountMinor", "billableCurrency",
+      "completedAtUtc", "billableAmountMinor", "billableCurrency",
     ]);
     if (Object.keys(changes).length === 0) return before;
     const updatedAt = new Date().toISOString();
@@ -5366,15 +5359,13 @@ export class OrganizerStore {
         UPDATE todo_personal
         SET todo_group_id = ?, sequence = ?, related_contact_id = ?,
             text = ?, status = ?, sort_position = ?, completed_at_utc = ?,
-            planning_prompt_text = ?, billable_amount_minor = ?, billable_currency = ?,
-            updated_at_utc = ?
+            billable_amount_minor = ?, billable_currency = ?, updated_at_utc = ?
         WHERE personal_task_id = ?
           AND COALESCE(updated_at_utc, created_at_utc) = ?
       `).run(
         after.groupId, after.sequence, after.relatedContactId,
         after.text, after.status, after.sortPosition, after.completedAtUtc,
-        after.planningPromptText, after.billableAmountMinor, after.billableCurrency,
-        updatedAt, id, before.version,
+        after.billableAmountMinor, after.billableCurrency, updatedAt, id, before.version,
       );
       if (result.changes !== 1) {
         throw new OrganizerInputError("This todo changed while you were saving it. Refresh and try again.", 409);

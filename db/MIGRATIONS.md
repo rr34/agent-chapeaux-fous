@@ -11,6 +11,19 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 63: Retire to-do planning prompts
+
+Drops `todo_personal.planning_prompt_text` and its check constraint, then
+refreshes `open_todo_personal`. The matching application removes the field from
+agent tools, web APIs, search, object cards, and the to-do editor. Existing
+values are intentionally discarded; the task `text` field remains the complete
+place for wording, instructions, and exact references.
+
+Apply with writers stopped because the application and schema must stop using
+the field together. The table alteration takes a metadata lock. Its destructive
+clauses are guarded and the derived-view replacement is idempotent, so the
+complete migration can be replayed after a partial MariaDB DDL commit.
+
 ## Version 61: Resumable bounded JMAP email baselines
 
 Adds the clearly operational `jmap_email_sync_work` checkpoint table and

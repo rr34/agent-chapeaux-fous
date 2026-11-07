@@ -1346,7 +1346,8 @@ schedules use that date's weekday and monthly schedules use its day of month;
 the browser's IANA time zone preserves local period boundaries.
 Turning off the asking schedule preserves the tracker and its observations.
 
-Check-in and calendar planning prompts were retired in schema version 59.
+Check-in and calendar planning prompts were retired in schema version 59, and
+the remaining personal to-do planning-prompt field was retired in version 63.
 Journal scheduling remains ordinary calendar-period infrastructure and does not
 generate a separate queue of questions or phone notifications.
 

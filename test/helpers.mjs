@@ -13,8 +13,22 @@ import {
 
 const schemaSource = fs.readFileSync(baselineFilename, "utf8");
 
-export function baselineBeforeRetiredCheckIn(source) {
+export function baselineBeforeTodoPlanningPromptRemoval(source) {
   return source
+    .replace(
+      "    billable_amount_minor BIGINT UNSIGNED COMMENT 'Optional fixed amount currently assigned to this work item, expressed in the smallest unit of billable_currency. Null means the task is not currently priced. Issued invoices retain their own immutable line snapshot when this value later changes.',",
+      "    planning_prompt_text TEXT COMMENT 'Optional question the agent should proactively ask to help turn this task into a concrete plan. Format: Plain text question. Null means the task has no stored planning question. The field may be present on any task status and does not itself change the status.',\n    billable_amount_minor BIGINT UNSIGNED COMMENT 'Optional fixed amount currently assigned to this work item, expressed in the smallest unit of billable_currency. Null means the task is not currently priced. Issued invoices retain their own immutable line snapshot when this value later changes.',",
+    )
+    .replace(
+      "    CONSTRAINT todo_personal_billable CHECK (",
+      "    CONSTRAINT todo_personal_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000),\n    CONSTRAINT todo_personal_billable CHECK (",
+    )
+    .replace("Target: MariaDB 10.11, schema version 63.", "Target: MariaDB 10.11, schema version 62.")
+    .replace("VALUES (1, 63,", "VALUES (1, 62,");
+}
+
+export function baselineBeforeRetiredCheckIn(source) {
+  return baselineBeforeTodoPlanningPromptRemoval(source)
     .replace(/^    source_metadata_json JSON[^\n]+\n/gmu, "")
     .replace(
       "dedupe_fingerprint CHAR(64) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Nullable versioned-algorithm SHA-256 used only to find conservative cross-source duplicate candidates. A matching digest is never sufficient when multiple canonical rows match.',",

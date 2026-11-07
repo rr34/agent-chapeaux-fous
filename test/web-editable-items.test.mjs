@@ -119,7 +119,8 @@ test("calendar creation and routines share structured recurrence controls", () =
   assert.match(recurrence, /Weekday pattern/);
   assert.match(items, /<label>Event title<input/);
   assert.match(items, /<label>Notes \(optional\)<textarea/);
-  assert.match(items, /<label>Planning prompt<textarea/);
+  assert.match(items, /<label>Task<textarea autoFocus required rows=\{8\}/);
+  assert.doesNotMatch(items, /Planning prompt|planningPromptText/);
 });
 
 test("calendar event timing keeps start, duration, and end synchronized", () => {

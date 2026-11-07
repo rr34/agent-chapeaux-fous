@@ -1,6 +1,6 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 
-export const requiredDatabaseSchemaVersion = 62;
+export const requiredDatabaseSchemaVersion = 63;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -108,8 +108,7 @@ export const requiredDatabaseShape = {
   ],
   todo_personal: [
     "personal_task_id", "todo_group_id", "text", "status", "sort_position",
-    "completed_at_utc", "source_event_id", "planning_prompt_text",
-    "billable_amount_minor", "billable_currency",
+    "completed_at_utc", "source_event_id", "billable_amount_minor", "billable_currency",
   ],
   payment_provider_accounts: [
     "provider", "connected_account_id", "account_status", "charges_enabled",

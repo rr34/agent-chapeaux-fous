@@ -145,6 +145,30 @@ test("Check-in retirement integrity requires the table, calendar columns, and vi
   );
 });
 
+test("to-do planning-prompt retirement removes the field, constraint, and stale view projection", async () => {
+  const connection = ({ columns = [], constraints = [], views = [{ VIEW_DEFINITION: "select `text` from `todo_personal`" }] } = {}) => ({
+    async query(sql) {
+      if (sql.includes("information_schema.COLUMNS")) return [columns];
+      if (sql.includes("information_schema.TABLE_CONSTRAINTS")) return [constraints];
+      if (sql.includes("information_schema.VIEWS")) return [views];
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  });
+  await assertMigrationSpecificIntegrity(connection(), { version: 63 }, "test_database");
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ columns: [{ TABLE_NAME: "todo_personal", COLUMN_NAME: "planning_prompt_text" }] }), { version: 63 }, "test_database"),
+    /to-do planning prompts/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ constraints: [{ CONSTRAINT_NAME: "todo_personal_prompt" }] }), { version: 63 }, "test_database"),
+    /planning-prompt constraint/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ views: [{ VIEW_DEFINITION: "select planning_prompt_text from todo_personal" }] }), { version: 63 }, "test_database"),
+    /refresh open_todo_personal/u,
+  );
+});
+
 test("Android contact source alias integrity requires identity, chronology, and provenance", async () => {
   const requiredColumns = [
     "contact_source_alias_id", "contact_id", "source", "external_id",
@@ -712,11 +736,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62]);
-  for (let current = 29; current <= 62; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63]);
+  for (let current = 29; current <= 63; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 62 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 63 - current }, (_, index) => current + index + 1),
     );
   }
 });

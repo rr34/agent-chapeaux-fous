@@ -68,7 +68,7 @@ test("to-dos can be created, listed, and completed without calendar fields", asy
   const created = await registry.execute("todo_add", {
     text: "Bathe Ruby", todo_group_id: 1, status: "todo",
     related_contact_id: null,
-    planning_prompt_text: null, position: null,
+    position: null,
   }, toolContext);
   assert.equal(created.task.text, "Bathe Ruby");
   for (const retired of ["scheduled_at_utc", "due_at_utc", "is_all_day", "duration_minutes", "todo_routine_id"]) {
@@ -76,7 +76,7 @@ test("to-dos can be created, listed, and completed without calendar fields", asy
   }
   const newer = await registry.execute("todo_add", {
     text: "Call the groomer", todo_group_id: 1, status: "todo",
-    related_contact_id: null, planning_prompt_text: null, position: null,
+    related_contact_id: null, position: null,
   }, toolContext);
   const listed = await registry.execute("todo_list", { queries: [{
     query_id: "open", group: null, status: "todo", limit: 20,
@@ -104,7 +104,7 @@ test("todo_add connects an active contact in one call and rejects inactive targe
   `).get().contact_id);
   const created = await registry.execute("todo_add", {
     text: "Customer task", todo_group_id: 1, status: "todo",
-    related_contact_id: activeId, planning_prompt_text: null, position: null,
+    related_contact_id: activeId, position: null,
   }, toolContext);
   assert.equal(created.task.related_contact_id, activeId);
   assert.deepEqual(created.task.related_contact, {
@@ -120,7 +120,7 @@ test("todo_add connects an active contact in one call and rejects inactive targe
   }] }, toolContext), /does not exist/u);
   await assert.rejects(registry.execute("todo_add", {
     text: "Deleted customer task", todo_group_id: 1, status: "todo",
-    related_contact_id: inactiveId, planning_prompt_text: null, position: null,
+    related_contact_id: inactiveId, position: null,
   }, toolContext), /does not exist/u);
   assert.equal(database.prepare(`
     SELECT related_contact_id FROM todo_personal WHERE personal_task_id = ?
@@ -140,11 +140,11 @@ test("to-do reads return complete connected-contact identities for the batch", a
   `).get().contact_id);
   const first = await registry.execute("todo_add", {
     text: "Call first", todo_group_id: 1, status: "todo",
-    related_contact_id: firstContactId, planning_prompt_text: null, position: null,
+    related_contact_id: firstContactId, position: null,
   }, toolContext);
   const second = await registry.execute("todo_add", {
     text: "Call second", todo_group_id: 1, status: "todo",
-    related_contact_id: secondContactId, planning_prompt_text: null, position: null,
+    related_contact_id: secondContactId, position: null,
   }, toolContext);
 
   const listed = await registry.execute("todo_list", { queries: [{
@@ -169,7 +169,7 @@ test("to-do text lookup returns an exact terminal task instead of an open-task d
   const { registry, toolContext } = harness(context);
   const created = await registry.execute("todo_add", {
     text: "Lucas Trench", todo_group_id: 1, status: "todo",
-    related_contact_id: null, planning_prompt_text: null, position: null,
+    related_contact_id: null, position: null,
   }, toolContext);
   await registry.execute("todo_update", { updates: [{
     personal_task_id: created.task.personal_task_id, status: "complete",
@@ -192,7 +192,7 @@ test("to-dos can link and unlink exact content-library items idempotently", asyn
   const { store, registry, toolContext } = harness(context);
   const created = await registry.execute("todo_add", {
     text: "Review launch tutorial", todo_group_id: 1, status: "todo",
-    related_contact_id: null, planning_prompt_text: null, position: null,
+    related_contact_id: null, position: null,
   }, toolContext);
   const database = store.requireReady();
   const content = database.prepare(`
@@ -242,7 +242,7 @@ test("to-do update batches stay atomic", async (context) => {
   const { registry, toolContext } = harness(context);
   const first = await registry.execute("todo_add", {
     text: "First", todo_group_id: 1, status: "todo", related_contact_id: null,
-    planning_prompt_text: null, position: null,
+    position: null,
   }, toolContext);
   await assert.rejects(registry.execute("todo_update", { updates: [
     { personal_task_id: first.task.personal_task_id, text: "Changed" },
@@ -267,7 +267,7 @@ test("one group-update tool renames groups and deletes emptied mistaken groups",
   const mistaken = await registry.execute("todo_group_create", { name: "217 Oakland" }, toolContext);
   const task = await registry.execute("todo_add", {
     text: "Frame kitchen ceiling", todo_group_id: mistaken.group.todo_group_id,
-    status: "todo", related_contact_id: null, planning_prompt_text: null, position: null,
+    status: "todo", related_contact_id: null, position: null,
   }, toolContext);
 
   await assert.rejects(registry.execute("todo_group_update", { updates: [{
@@ -302,7 +302,7 @@ test("group-update batches roll back every change when one deletion is invalid",
   const active = await registry.execute("todo_group_create", { name: "Active group" }, toolContext);
   await registry.execute("todo_add", {
     text: "Still here", todo_group_id: active.group.todo_group_id,
-    status: "todo", related_contact_id: null, planning_prompt_text: null, position: null,
+    status: "todo", related_contact_id: null, position: null,
   }, toolContext);
 
   await assert.rejects(registry.execute("todo_group_update", { updates: [{

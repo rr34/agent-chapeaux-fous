@@ -11,8 +11,9 @@ prepared or otherwise exact group binding, call `todo_group_list` and choose
 the best clear existing bound group. Do not target a group by name alone or
 invent a group; use Inbox only when no existing group reasonably fits. New user-authored work uses status `todo`;
 `ai_suggested` is reserved for agent-proposed work that the user has not
-accepted or dismissed. Preserve an exact user-supplied planning question in
-`planning_prompt_text`; the prompt and lifecycle status remain independent.
+accepted or dismissed. Preserve the user's complete task wording in the to-do's
+`text`, including exact request IDs, other identifiers, or reference lines they
+asked to retain.
 When creating a to-do for an exact active contact, pass that retained contact's
 `contact_id` as `todo_add.related_contact_id`. That single call atomically
 creates the task and its contact connection; do not follow it with

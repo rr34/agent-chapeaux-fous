@@ -154,13 +154,12 @@ export class ObjectNetworkService {
     }
     if (type === "todos.personal_task") {
       row = this.database.prepare(`SELECT personal_task_id, text, status, sequence,
-        planning_prompt_text, billable_amount_minor, billable_currency
+        billable_amount_minor, billable_currency
         FROM todo_personal WHERE personal_task_id = ?`).get(id);
       if (!row) return null;
       return this.#card(definition, id, row.text, { attributes: [
         attribute("Status", row.status), attribute("Sequence", row.sequence),
         attribute("Billable", money(row.billable_amount_minor, row.billable_currency)),
-        attribute("Planning prompt", row.planning_prompt_text),
       ] });
     }
     if (type === "things.physical_item_group") {

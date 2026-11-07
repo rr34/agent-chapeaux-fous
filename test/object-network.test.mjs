@@ -35,7 +35,7 @@ function fixture({ relationshipKind = null } = {}) {
       get(...parameters) {
         if (/SELECT personal_task_id, text, status/u.test(sql)) return {
           personal_task_id: 7, text: "Call the electrician", status: "todo", sequence: null,
-          planning_prompt_text: null, billable_amount_minor: null, billable_currency: null,
+          billable_amount_minor: null, billable_currency: null,
         };
         if (/SELECT todo_group_id, related_contact_id/u.test(sql)) return {
           todo_group_id: 3, related_contact_id: null,

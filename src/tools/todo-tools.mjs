@@ -8,7 +8,7 @@ import {
 } from "../todo-list-queries.mjs";
 
 const toolDescriptions = Object.freeze({
-  "todo_add": { "summary": "Create one non-temporal native personal to-do in an exact stable-ID group, with optional planning prompt, position, fixed billable price, and an optional contact connection established atomically in the same call." },
+  "todo_add": { "summary": "Create one non-temporal native personal to-do in an exact stable-ID group, with optional position, fixed billable price, and an optional contact connection established atomically in the same call." },
   "todo_content_link_set": { "summary": "Atomically link or unlink up to 500 exact personal to-do and content-library item pairs." },
   "todo_group_update": { "summary": "Atomically rename or delete up to 100 exact native to-do groups; deletion requires every contained task to be terminal or moved elsewhere." },
   "todo_group_create": { "summary": "Create or reactivate one native to-do group after the user has confirmed it." },
@@ -54,8 +54,7 @@ const optionalText = { type: ["string", "null"] };
 const todoFields = [
   "personal_task_id", "todo_group_id", "sequence",
   "related_contact_id", "text", "status", "sort_position", "completed_at_utc",
-  "planning_prompt_text", "billable_amount_minor", "billable_currency",
-  "source", "external_id", "source_event_id",
+  "billable_amount_minor", "billable_currency", "source", "external_id", "source_event_id",
   "created_at_utc", "updated_at_utc",
 ];
 const groupFields = [
@@ -331,14 +330,16 @@ export function registerTodoTools(registry, store, ledger) {
     description: "Add one non-temporal native personal to-do to an exact group selected by stable ID. When related_contact_id is supplied, this same call atomically creates the to-do with its optional connection to that exact active contact; do not make a follow-up relationship call. New items default to the top of their group unless an explicit position is supplied. It may carry a fixed billable amount in minor currency units. To place work or a deadline on the calendar, create a calendar event and link it to the to-do. When the returned task has a non-null sequence, report that group-local sequence together with group_name in the completion response; personal_task_id is a different database identity.",
     outputSchema: { type: "object", properties: { task: todoTaskRecordSchema } },
     parameters: { type: "object", additionalProperties: false, properties: {
-      text: { type: "string", minLength: 1, maxLength: 10000 },
+      text: {
+        type: "string", minLength: 1, maxLength: 10000,
+        description: "Complete task wording. Include exact request IDs, other identifiers, and reference lines the user asked to retain.",
+      },
       status: { type: "string", enum: todoStatuses },
       todo_group_id: { type: "integer", minimum: 1 },
       related_contact_id: {
         type: ["integer", "null"], minimum: 1,
         description: "Existing active contact to connect while creating the to-do. The connection is stored atomically in this call; null or omission creates the to-do without one.",
       },
-      planning_prompt_text: optionalText,
       billable_amount_minor: { type: ["integer", "null"], minimum: 1 },
       billable_currency: { type: ["string", "null"], pattern: "^[A-Z]{3}$" },
       position: { type: ["integer", "null"], minimum: 1, maximum: 1_000_000_000, description: "Optional final one-based position in the group. Null places the new task at the top." },
@@ -358,13 +359,13 @@ export function registerTodoTools(registry, store, ledger) {
         const inserted = database.prepare(`
           INSERT INTO todo_personal (
             todo_group_id, related_contact_id, text, status,
-            sort_position, completed_at_utc, planning_prompt_text, source, source_event_id,
+            sort_position, completed_at_utc, source, source_event_id,
             billable_amount_minor, billable_currency
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'agent-slayer', ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, 'agent-slayer', ?, ?, ?)
           RETURNING personal_task_id
         `).get(group.todo_group_id, input.related_contact_id ?? null,
           text, input.status ?? "todo", position,
-          completed, input.planning_prompt_text?.trim() || null, context.requestEventId || null,
+          completed, context.requestEventId || null,
           input.billable_amount_minor ?? null, input.billable_currency ?? null);
         if (input.position != null) setTodoPosition(database, Number(inserted.personal_task_id), input.position);
         const task = databaseTaskWithRelationships(database, taskWithContext(database, inserted.personal_task_id));
@@ -695,7 +696,6 @@ export function registerTodoTools(registry, store, ledger) {
           todo_group_id: { type: ["integer", "null"], minimum: 1 },
           status: { type: ["string", "null"], enum: [...todoStatuses, null] },
           related_contact_id: { type: ["integer", "null"], minimum: 1 }, clear_related_contact: { type: "boolean" },
-          planning_prompt_text: optionalText, clear_planning_prompt: { type: "boolean" },
           billable_amount_minor: { type: ["integer", "null"], minimum: 1 },
           billable_currency: { type: ["string", "null"], pattern: "^[A-Z]{3}$" },
           clear_billable_price: { type: "boolean" },
@@ -728,8 +728,6 @@ export function registerTodoTools(registry, store, ledger) {
             }
             values.related_contact_id = input.related_contact_id;
           }
-          if (input.clear_planning_prompt) values.planning_prompt_text = null;
-          else if (input.planning_prompt_text != null) values.planning_prompt_text = input.planning_prompt_text.trim() || null;
           if (input.clear_billable_price) {
             values.billable_amount_minor = null;
             values.billable_currency = null;

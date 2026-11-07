@@ -1101,7 +1101,6 @@ export async function toggleTodoCompletion(id: number) {
 
 interface TodoDraft {
   text: string;
-  planningPromptText: string;
   groupId: string;
   sequence: string;
   status: string;
@@ -1172,7 +1171,6 @@ export function TodoEditor({ todoId: id, suppliedGroups, initialGroupId, onClose
         ?? groupBody.groups[0];
       setDraft({
         text: String(current?.text || ""),
-        planningPromptText: String(current?.planningPromptText || ""),
         groupId: String(current?.groupId || selectedGroup?.id || ""),
         sequence: current?.sequence == null ? "" : String(current.sequence),
         status: String(current?.status || "todo"),
@@ -1202,7 +1200,6 @@ export function TodoEditor({ todoId: id, suppliedGroups, initialGroupId, onClose
         body: JSON.stringify({
           ...(todo ? { version: todo.version } : {}),
           text: draft.text,
-          planningPromptText: draft.planningPromptText,
           groupId: Number(draft.groupId),
           sequence: draft.sequence ? Number(draft.sequence) : null,
           status: draft.status,
@@ -1225,8 +1222,7 @@ export function TodoEditor({ todoId: id, suppliedGroups, initialGroupId, onClose
       <header className="object-editor-heading"><div><p className="eyebrow">Personal to-do</p><h2>{editorTitle}</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
       {loading && <p className="object-editor-state">{id == null ? "Preparing new to-do..." : "Loading current to-do..."}</p>}
       {draft && <>
-        <label>Task<textarea autoFocus required rows={4} maxLength={10_000} value={draft.text} onChange={(change) => setDraft({ ...draft, text: change.target.value })} /></label>
-        <label>Planning prompt<textarea rows={3} maxLength={10_000} value={draft.planningPromptText} onChange={(change) => setDraft({ ...draft, planningPromptText: change.target.value })} /></label>
+        <label>Task<textarea autoFocus required rows={8} maxLength={10_000} value={draft.text} onChange={(change) => setDraft({ ...draft, text: change.target.value })} /></label>
         <div className="object-editor-grid">
           <label>Group<select required value={draft.groupId} onChange={(change) => setDraft({ ...draft, groupId: change.target.value })}>{groups.map((group) => <option key={String(group.id)} value={String(group.id)}>{String(group.name)}</option>)}</select></label>
           <label>Sequence<input type="number" min={1} step={1} value={draft.sequence} onChange={(change) => setDraft({ ...draft, sequence: change.target.value })} /></label>

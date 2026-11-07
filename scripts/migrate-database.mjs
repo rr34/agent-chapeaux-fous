@@ -360,6 +360,24 @@ async function assertVersion32Integrity(connection, databaseName) {
 export async function assertMigrationSpecificIntegrity(
   connection, migration, databaseName, schemaVersion = migration.version,
 ) {
+  if (migration.version === 63) {
+    const [columns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ('todo_personal', 'open_todo_personal')
+        AND COLUMN_NAME = 'planning_prompt_text'`, [databaseName]);
+    if (columns.length) throw new Error("Migration 0063 left to-do planning prompts in place");
+    const [constraints] = await connection.query(`SELECT CONSTRAINT_NAME
+      FROM information_schema.TABLE_CONSTRAINTS
+      WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME = 'todo_personal'
+        AND CONSTRAINT_NAME = 'todo_personal_prompt'`, [databaseName]);
+    if (constraints.length) throw new Error("Migration 0063 left the to-do planning-prompt constraint in place");
+    const [views] = await connection.query(`SELECT VIEW_DEFINITION
+      FROM information_schema.VIEWS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'open_todo_personal'`, [databaseName]);
+    if (views.length !== 1 || String(views[0].VIEW_DEFINITION).includes("planning_prompt_text")) {
+      throw new Error("Migration 0063 did not refresh open_todo_personal");
+    }
+  }
   if (migration.version === 62) {
     const [columns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE
       FROM information_schema.COLUMNS

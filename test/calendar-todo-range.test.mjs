@@ -108,36 +108,6 @@ test("calendar routines generate idempotent events and never generate to-dos", (
   }
 });
 
-test("calendar routines copy planning prompts only when each concrete event is generated", () => {
-  const temporary = temporaryDatabase();
-  const organizer = new OrganizerStore(temporary.target);
-  try {
-    const created = organizer.createCalendarRoutine({
-      title: "Planning window",
-      startsAtUtc: "2026-09-13T15:00:00.000Z",
-      endsAtUtc: "2026-09-13T16:00:00.000Z",
-      timeZone: "America/New_York",
-      recurrenceRule: "FREQ=WEEKLY;BYDAY=SU",
-      planningPromptText: "What should happen this week?",
-    }).routine;
-    const first = organizer.generateCalendarRoutines({
-      from: "2026-09-13T00:00:00.000Z", to: "2026-09-20T00:00:00.000Z",
-    }).events[0];
-    organizer.updateCalendarRoutine(created.id, {
-      version: created.version,
-      planningPromptText: "What should happen next week?",
-    });
-    const second = organizer.generateCalendarRoutines({
-      from: "2026-09-20T00:00:00.000Z", to: "2026-09-27T00:00:00.000Z",
-    }).events[0];
-    assert.equal(organizer.getCalendar(first.id).planningPromptText, "What should happen this week?");
-    assert.equal(second.planningPromptText, "What should happen next week?");
-  } finally {
-    organizer.close();
-    temporary.cleanup();
-  }
-});
-
 test("routine generation rolls unfinished work to the earliest usable occurrence only", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.target);

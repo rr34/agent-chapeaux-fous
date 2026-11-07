@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 62.
+-- Target: MariaDB 10.11, schema version 63.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -484,9 +484,6 @@ CREATE TABLE todo_personal (
     -- sourceOfTruth: true
     -- synonyms: ["personal to-dos", "to-do list", "tasks"]
     -- keywords: ["todo", "to-do", "task", "complete", "sequence"]
-    -- planning_prompt_text synonyms: ["planning question"]
-    -- planning_prompt_text keywords: ["plan", "proactive question"]
-    -- planning_prompt_text examples: ["What do we want to do while we have the kids this afternoon?"]
     -- fk:todo_personal_contact_fk meaning: Associates a personal task with the optional contact it concerns without assigning task ownership.
     -- fk:todo_personal_contact_fk cardinality: Each task references zero or one contact; one contact may be referenced by multiple tasks.
     -- fk:todo_personal_contact_fk importantRules: ["Deleting a contact preserves the task and clears this optional reference."]
@@ -511,7 +508,6 @@ CREATE TABLE todo_personal (
     created_at_utc       DATETIME(3) NOT NULL
                          DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this task occurrence was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     updated_at_utc       DATETIME(3) COMMENT 'UTC instant of this task occurrence’s most recent material update; null until first updated. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
-    planning_prompt_text TEXT COMMENT 'Optional question the agent should proactively ask to help turn this task into a concrete plan. Format: Plain text question. Null means the task has no stored planning question. The field may be present on any task status and does not itself change the status.',
     billable_amount_minor BIGINT UNSIGNED COMMENT 'Optional fixed amount currently assigned to this work item, expressed in the smallest unit of billable_currency. Null means the task is not currently priced. Issued invoices retain their own immutable line snapshot when this value later changes.',
     billable_currency     CHAR(3) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Uppercase ISO 4217 currency code for billable_amount_minor. It is null exactly when no billable amount is assigned.',
     PRIMARY KEY (personal_task_id),
@@ -524,7 +520,6 @@ CREATE TABLE todo_personal (
     CONSTRAINT todo_personal_contact_fk FOREIGN KEY (related_contact_id) REFERENCES contacts(contact_id) ON DELETE SET NULL,
     CONSTRAINT todo_personal_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
     CONSTRAINT todo_personal_sequence CHECK (sequence IS NULL OR sequence > 0),
-    CONSTRAINT todo_personal_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000),
     CONSTRAINT todo_personal_billable CHECK (
       (billable_amount_minor IS NULL AND billable_currency IS NULL)
       OR (billable_amount_minor > 0 AND billable_currency REGEXP '^[A-Z]{3}$')
@@ -1748,8 +1743,6 @@ CREATE VIEW open_todo_personal AS
 -- source_event_id inheritsFrom: todo_personal.source_event_id
 -- created_at_utc inheritsFrom: todo_personal.created_at_utc
 -- updated_at_utc inheritsFrom: todo_personal.updated_at_utc
--- planning_prompt_text inheritsFrom: todo_personal.planning_prompt_text
-
 SELECT * FROM todo_personal
 WHERE status IN ('todo', 'ai_suggested');
 
@@ -1885,4 +1878,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 62, 'Chapeaux Fous MariaDB database');
+VALUES (1, 63, 'Chapeaux Fous MariaDB database');

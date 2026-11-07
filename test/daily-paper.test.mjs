@@ -30,7 +30,6 @@ function events() {
       timeZone: "America/New_York",
       isAllDay: false,
       status: "confirmed",
-      planningPromptText: "What should the next experiment be?",
       linkedTodos: [openTodo, { todoId: 18, title: "Finished already", status: "complete" }],
       linkedContacts: [{ contactId: 8, displayName: "Jane Smith", participantRole: "attendee" }],
     },
