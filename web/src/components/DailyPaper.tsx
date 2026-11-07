@@ -31,8 +31,6 @@ export function CalendarGrid({
   ariaLabel = "Two-week calendar",
   id,
   searchQuery = "",
-  showLinkedTodos = false,
-  includeCompletedTodos = false,
 }: {
   days: CalendarDay[];
   compact?: boolean;
@@ -41,8 +39,6 @@ export function CalendarGrid({
   ariaLabel?: string;
   id?: string;
   searchQuery?: string;
-  showLinkedTodos?: boolean;
-  includeCompletedTodos?: boolean;
 }) {
   const eventLimit = 8;
   const isSearching = searchTerms(searchQuery).length > 0;
@@ -72,12 +68,6 @@ export function CalendarGrid({
                   <span className="calendar-chip-copy">
                     <span className="multiline-item-text">{event.title}</span>
                   </span>
-                  {showLinkedTodos && (event.linkedTodos || []).some((todo) => includeCompletedTodos || todo.status !== "complete") && <span className="calendar-chip-todos">
-                    {(event.linkedTodos || []).filter((todo) => includeCompletedTodos || todo.status !== "complete").map((todo) => <span className={todo.status === "complete" ? "is-complete" : ""} key={todo.todoId}>
-                      <span aria-hidden="true">{todo.status === "complete" ? "☑" : "☐"}</span>
-                      <span>{todoTitle(todo)}</span>
-                    </span>)}
-                  </span>}
                 </span>
               ))}
               {day.events.length > visibleEvents.length && <small>+{day.events.length - visibleEvents.length} more</small>}
@@ -231,8 +221,6 @@ export function DailyPaper({ model, preview = false }: { model: DailyPaperModel;
       <CalendarGrid
         days={model.printCalendarDays}
         compact
-        showLinkedTodos
-        includeCompletedTodos={model.includeCompletedTodos}
         ariaLabel="Weekly printable calendar"
       />
 

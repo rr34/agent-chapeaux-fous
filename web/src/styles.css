@@ -725,9 +725,6 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .two-week-grid--compact .calendar-chip-copy { overflow: visible; }
 .two-week-grid--compact .calendar-chip time { width: 100%; overflow: visible; font-size: 4.8pt; text-align: right; white-space: nowrap; }
 .two-week-grid--compact .calendar-cell-events small { font-size: 5pt; }
-.two-week-grid--compact .calendar-chip-todos { grid-column: 1 / -1; display: grid; gap: .012in; margin: .02in 0 .018in .025in; padding: .025in 0 0 .035in; border-top: 1px solid #d5d8d0; }
-.two-week-grid--compact .calendar-chip-todos > span { display: grid; grid-template-columns: .09in minmax(0, 1fr); gap: .025in; align-items: start; font-size: 4.9pt; line-height: 1.18; }
-.two-week-grid--compact .calendar-chip-todos > .is-complete { color: #73796e; text-decoration: line-through; }
 .paper-section { page-break-inside: avoid; break-inside: avoid-page; }
 .paper-today { border-top: 1px solid #272c24; padding-top: .12in; break-inside: auto; }
 .paper-day-card-section { min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; }

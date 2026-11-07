@@ -103,12 +103,12 @@ test("printable calendar renders every event in crowded days", () => {
   assert.match(styles, /\.calendar-event-card\.paper-calendar-event-card > \.first-class-object-content > \.first-class-object-body \{[^}]*grid-column: 2;[^}]*overflow: visible;[^}]*white-space: pre-wrap;[^}]*-webkit-line-clamp: unset;/s);
 });
 
-test("the printed week nests linked to-dos beneath each event at the event width", () => {
-  assert.match(calendarSource, /showLinkedTodos && \(event\.linkedTodos \|\| \[\]\)\.some/);
-  assert.match(calendarSource, /className="calendar-chip-todos"/);
+test("the printed calendar contains only events and keeps to-dos below it", () => {
+  const paperLayout = calendarSource.slice(calendarSource.indexOf("export function DailyPaper"));
   assert.match(calendarSource, /days=\{model\.printCalendarDays\}/);
-  assert.match(calendarSource, /showLinkedTodos/);
-  assert.match(styles, /\.two-week-grid--compact \.calendar-chip-todos \{[^}]*grid-column: 1 \/ -1;/s);
+  assert.doesNotMatch(calendarSource, /calendar-chip-todos|showLinkedTodos/);
+  assert.ok(paperLayout.indexOf("model.printCalendarDays") < paperLayout.indexOf("PrintableScheduledTodos"));
+  assert.match(calendarSource, /<PrintableScheduledTodos todos=\{model\.scheduledTodos\} \/>/);
   assert.doesNotMatch(calendarSource, /PrintableWeatherTimeline|PrintableEventCards|paper-event-bracket|paper-event-connector/);
 });
 

@@ -202,9 +202,9 @@ try {
   if (await page.locator(".paper-todo-empty-lines").count() !== 1) {
     throw new Error("Expected one empty pinned to-do group checklist");
   }
-  const calendarTodoCount = await page.locator(".calendar-chip-todos > span").count();
-  if (calendarTodoCount !== 14) {
-    throw new Error(`Expected every event-owned to-do beneath its weekly calendar event; received ${calendarTodoCount}`);
+  const calendarTodoCount = await page.locator(".calendar-chip-todos").count();
+  if (calendarTodoCount !== 0) {
+    throw new Error(`Expected an event-only calendar; received ${calendarTodoCount} calendar to-do lists`);
   }
   if (await page.locator(".paper-pinned-todos .paper-todo-card").count() !== 1) {
     throw new Error("Expected one pinned-only to-do after the scheduled weekly list");

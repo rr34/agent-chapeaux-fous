@@ -6,11 +6,10 @@ reconstruct an equivalent document through generic reads.
 
 The document automatically includes every active to-do group pinned to the
 paper, all open tasks in those groups, and an empty writable section when a
-pinned group has no open tasks. Each day's events retain their time labels, and
-open linked to-dos sit directly beneath their event in both displayed weeks.
-The full-width to-do section includes every distinct open to-do linked in the
-headed week, followed by pinned groups with those current-week scheduled items
-removed from the group lists.
+pinned group has no open tasks. The two-week calendar contains only events.
+Beneath it, the full-width to-do section contains every distinct open to-do
+linked to an event in the headed week, followed by pinned groups with those
+current-week scheduled items removed from the group lists.
 
 Resolve relative dates such as “this week” in the user's IANA time zone and
 pass any exact local date within that week. Exclude completed to-dos unless the

@@ -550,11 +550,11 @@ pinned to the paper. Pinned groups contribute all open tasks and remain as
 writable sections when empty.
 On screen, each calendar event owns its linked reusable to-do cards and their
 relationship labels instead of duplicating them in a separate to-do column.
-The paper shows the selected Monday-to-Sunday week followed by the next week:
-linked to-dos sit directly under their events, each day retains blank writing
-space, and a full-width **To-do lists**
-section contains every distinct task scheduled for the week followed by pinned
-groups without repeating scheduled tasks inside those groups. The print preview
+The paper shows the selected Monday-to-Sunday week followed by the next week.
+The calendar contains only events and retains blank writing space in each day.
+Below it, a full-width **To-do lists** section contains every distinct task
+linked to an event in the headed week followed by pinned groups, without
+repeating those scheduled tasks inside their pinned groups. The print preview
 is a transient editable copy for browser printing; source calendar and to-do
 records remain unchanged. Choose Letter or A4 and click **Download weekly PDF**
 to render, store, and download the current weekly snapshot. The agent can invoke
