@@ -251,6 +251,8 @@ export function LibraryContentEditor({ content, groups, initialGroupId, onClose,
   const creating = content == null;
   const [draft, setDraft] = useState(() => libraryContentDraft(content, groups, initialGroupId));
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState("");
   const selectedGroup = groups.find((group) => String(group.id) === draft.groupId);
 
@@ -290,6 +292,24 @@ export function LibraryContentEditor({ content, groups, initialGroupId, onClose,
     }
   };
 
+  const deleteContent = async () => {
+    if (!content) return;
+    setDeleting(true);
+    setError("");
+    try {
+      await api(`/api/content-items/${Number(content.id)}`, {
+        method: "DELETE",
+        body: JSON.stringify({ version: content.version }),
+      });
+      await onChanged();
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return <EditorFrame title={creating ? "Add content" : "Edit content"} onClose={onClose}>
     <form onSubmit={(submitEvent) => void save(submitEvent)}>
       <header className="object-editor-heading"><div><p className="eyebrow">Library</p><h2>{creating ? "Add content" : "Edit content"}</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
@@ -315,7 +335,8 @@ export function LibraryContentEditor({ content, groups, initialGroupId, onClose,
       <label>Transcript<textarea rows={10} value={draft.transcript} onChange={(change) => setDraft({ ...draft, transcript: change.target.value })} /></label>
       {error && <p className="inline-error" role="alert">{error}</p>}
       {!groups.length && <p className="inline-error" role="alert">Create a library group before adding content.</p>}
-      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={saving || !groups.length}>{saving ? "Saving..." : creating ? "Add content" : "Save content"}</button></footer>
+      {confirmingDelete && content && <section className="group-delete-confirmation" role="alertdialog" aria-label="Confirm content deletion"><p>Permanently delete {String(content.title || `content #${String(content.id)}`)}? This cannot be undone.</p><div><button className="button button--quiet" type="button" disabled={deleting} onClick={() => setConfirmingDelete(false)}>Cancel</button><button className="button button--danger" type="button" disabled={deleting} onClick={() => void deleteContent()}>{deleting ? "Deleting..." : "Delete permanently"}</button></div></section>}
+      <footer className="object-editor-actions">{!creating && !confirmingDelete && <button className="button button--danger" type="button" disabled={saving || deleting} onClick={() => { setError(""); setConfirmingDelete(true); }}>Delete permanently</button>}<button className="button button--quiet" type="button" disabled={deleting} onClick={onClose}>Cancel</button><button className="button" disabled={saving || deleting || confirmingDelete || !groups.length}>{saving ? "Saving..." : creating ? "Add content" : "Save content"}</button></footer>
     </form>
   </EditorFrame>;
 }

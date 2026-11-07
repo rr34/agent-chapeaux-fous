@@ -2089,7 +2089,6 @@ function LibraryScreen() {
   const [addingContent, setAddingContent] = useState(false);
   const [addingGroup, setAddingGroup] = useState(false);
   const [editingContent, setEditingContent] = useState<Entity | null>(null);
-  const [deletingContent, setDeletingContent] = useState<Entity | null>(null);
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
   const [sequenceError, setSequenceError] = useState("");
   const [changingSequenceGroupId, setChangingSequenceGroupId] = useState<number | null>(null);
@@ -2175,16 +2174,6 @@ function LibraryScreen() {
       setSequenceError(caught instanceof Error ? caught.message : "Could not reorder the Library groups.");
     }
   };
-  const deleteContent = async (entity: Entity) => {
-    setSequenceError("");
-    try {
-      await api(`/api/content-items/${Number(entity.id)}`, { method: "DELETE", body: JSON.stringify({ version: entity.version }) });
-      setDeletingContent(null);
-      await reloadLibrary();
-    } catch (caught) {
-      setSequenceError(caught instanceof Error ? caught.message : "Could not delete the Library item.");
-    }
-  };
   const searchLibrary = () => {
     const nextQuery = filterQuery.trim();
     if (nextQuery === serverQuery) void reload();
@@ -2236,7 +2225,6 @@ function LibraryScreen() {
                 badges: [textKey(entity, "contentType").replaceAll("_", " "), textKey(entity, "contentStatus", "status").replaceAll("_", " ")],
               })}
               onEdit={() => setEditingContent(entity)}
-              actions={[{ key: "delete", label: "Delete permanently", onClick: () => setDeletingContent(entity) }]}
               details={textKey(entity, "transcript") ? <details><summary>Transcript</summary><p>{textKey(entity, "transcript")}</p></details> : undefined}
               controls={<ObjectSelectionControls identity={genericEntityIdentity("content", entity)} subject={`library ${title}`} />}
             />;
@@ -2250,7 +2238,6 @@ function LibraryScreen() {
       onClose={() => setAddingContent(false)}
       onChanged={reloadLibrary}
     />}
-    {deletingContent && <section className="group-delete-confirmation" role="alertdialog" aria-label="Confirm content deletion"><p>Permanently delete {textKey(deletingContent, "title") || `content #${String(deletingContent.id)}`}? This cannot be undone.</p><div><button className="button button--quiet" onClick={() => setDeletingContent(null)}>Cancel</button><button className="button button--danger" onClick={() => void deleteContent(deletingContent)}>Delete permanently</button></div></section>}
     {addingGroup && <NewGroupEditor resource="content-groups" label="Library" onClose={() => setAddingGroup(false)} onChanged={reloadLibrary} />}
     {editingContent && <LibraryContentEditor content={editingContent} groups={groupData?.groups || []} onClose={() => setEditingContent(null)} onChanged={reloadLibrary} />}
     {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={reloadLibrary} deleteAction={{ label: "Archive group", description: "Only empty Library groups can be archived.", confirmation: `Archive the empty ${editingGroup.name} group?`, execute: async () => { await api(`/api/content-groups/${editingGroup.id}/archive`, { method: "POST" }); if (selectedGroupId === String(editingGroup.id)) setSelectedGroupId("all"); } }} />}

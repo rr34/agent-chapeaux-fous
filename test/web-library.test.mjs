@@ -27,13 +27,15 @@ test("the React library renders content as grouped list rows", () => {
   assert.match(styles, /\.first-class-object-card/);
 });
 
-test("the React library creates and edits content with the shared modal and card action", () => {
+test("the React library creates, edits, and permanently deletes content from the shared modal", () => {
   const start = appSource.indexOf("function LibraryScreen");
   const end = appSource.indexOf("\nfunction VideoScriptsScreen", start);
   const librarySource = appSource.slice(start, end);
 
   assert.match(librarySource, /onClick=\{\(\) => setAddingContent\(true\)\}>Add content<\/button>/);
   assert.match(librarySource, /onEdit=\{\(\) => setEditingContent\(entity\)\}/);
+  assert.doesNotMatch(librarySource, /actions=\{\[\{ key: "delete"/);
+  assert.doesNotMatch(librarySource, /setDeletingContent/);
   assert.match(librarySource, /\{addingContent && <LibraryContentEditor/);
   assert.match(librarySource, /\{editingContent && <LibraryContentEditor content=\{editingContent\}/);
   assert.match(libraryCardSource, /props\.onEdit[\s\S]*label: "Edit"/);
@@ -42,6 +44,9 @@ test("the React library creates and edits content with the shared modal and card
   assert.match(editableItemsSource, /method: creating \? "POST" : "PATCH"/);
   assert.match(editableItemsSource, /version: String\(content\.version \|\| ""\)/);
   assert.match(editableItemsSource, /creating \? "Add content" : "Save content"/);
+  assert.match(editableItemsSource, /`\/api\/content-items\/\$\{Number\(content\.id\)\}`[\s\S]*method: "DELETE"/);
+  assert.match(editableItemsSource, /aria-label="Confirm content deletion"/);
+  assert.match(editableItemsSource, /!creating && !confirmingDelete[\s\S]*Delete permanently/);
 });
 
 test("to-do and Library groups share descending numbered-item display order", () => {
