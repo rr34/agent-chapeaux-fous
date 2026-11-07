@@ -150,15 +150,21 @@ test("JMAP mailbox mirror integrity requires metadata, membership, keywords, and
       COLUMN_NAME, REFERENCED_TABLE_NAME: "jmap_email_mailboxes", ORDINAL_POSITION: index + 1,
     })),
   ];
+  const viewQueries = [];
   const connection = ({ selectedTables = tables, selectedColumns = columns,
     definition = "select * from correspondence_email_mailboxes_join" } = {}) => ({ async query(sql) {
     if (sql.includes("information_schema.TABLES")) return [selectedTables];
     if (sql.includes("information_schema.COLUMNS")) return [selectedColumns];
     if (sql.includes("information_schema.KEY_COLUMN_USAGE")) return [keys];
-    if (sql.includes("information_schema.VIEWS")) return [[{ VIEW_DEFINITION: definition, SECURITY_TYPE: "INVOKER" }]];
+    if (sql.includes("information_schema.VIEWS")) {
+      viewQueries.push(sql);
+      return [[{ VIEW_DEFINITION: definition, SECURITY_TYPE: "INVOKER" }]];
+    }
     throw new Error(`Unexpected SQL: ${sql}`);
   } });
   await assertMigrationSpecificIntegrity(connection(), { version: 60 }, "test_database");
+  await assertMigrationSpecificIntegrity(connection(), { version: 60 }, "test_database", 65);
+  assert.match(viewQueries.at(-1), /object_relationship_edges_source/u);
   await assert.rejects(
     assertMigrationSpecificIntegrity(connection({ selectedTables: tables.slice(1) }), { version: 60 }, "test_database"),
     /both JMAP email mailbox tables/u,
@@ -372,6 +378,7 @@ test("explicit content-group sequence integrity requires a non-null boolean sett
 
 test("relationship edge-view integrity requires its contract and all join sources", async () => {
   const completeDefinition = relationshipJoinTables.map((name) => `SELECT * FROM ${name}`).join(" UNION ALL ");
+  const viewQueries = [];
   const connection = ({
     objects = [{ TABLE_NAME: "object_relationship_edges", TABLE_TYPE: "VIEW" }],
     columns = relationshipEdgeViewColumns.map((COLUMN_NAME) => ({ COLUMN_NAME })),
@@ -380,10 +387,15 @@ test("relationship edge-view integrity requires its contract and all join source
     assert.equal(parameters[0], "test_database");
     if (sql.includes("information_schema.TABLES")) return [objects];
     if (sql.includes("information_schema.COLUMNS")) return [columns];
-    if (sql.includes("information_schema.VIEWS")) return [[{ VIEW_DEFINITION: definition, SECURITY_TYPE: "INVOKER" }]];
+    if (sql.includes("information_schema.VIEWS")) {
+      viewQueries.push(sql);
+      return [[{ VIEW_DEFINITION: definition, SECURITY_TYPE: "INVOKER" }]];
+    }
     throw new Error(`Unexpected SQL: ${sql}`);
   } });
   await assertMigrationSpecificIntegrity(connection(), { version: 54 }, "test_database");
+  await assertMigrationSpecificIntegrity(connection(), { version: 54 }, "test_database", 65);
+  assert.match(viewQueries.at(-1), /object_relationship_edges_source/u);
   await assert.rejects(
     assertMigrationSpecificIntegrity(connection({ objects: [] }), { version: 54 }, "test_database"),
     /Migration 0054 must establish/u,

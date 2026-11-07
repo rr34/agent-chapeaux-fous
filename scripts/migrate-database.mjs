@@ -95,6 +95,10 @@ function columnDefaultValue(value) {
   return value.slice(1, -1).replaceAll("''", "'").replaceAll("\\'", "'");
 }
 
+function relationshipDefinitionView(schemaVersion) {
+  return schemaVersion >= 65 ? "object_relationship_edges_source" : "object_relationship_edges";
+}
+
 export function migrationLockName(databaseName) {
   const name = `chapeaux-fous:migrations:${databaseName}`;
   if (name.length > 64) throw new Error("MariaDB migration advisory-lock name exceeds 64 characters");
@@ -592,11 +596,12 @@ export async function assertMigrationSpecificIntegrity(
         throw new Error(`Migration 0060 did not establish mailbox key ${constraint}`);
       }
     }
+    const definitionView = relationshipDefinitionView(schemaVersion);
     const [views] = await connection.query(`SELECT VIEW_DEFINITION, SECURITY_TYPE FROM information_schema.VIEWS
-      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'object_relationship_edges'`, [databaseName]);
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = '${definitionView}'`, [databaseName]);
     if (views.length !== 1 || views[0].SECURITY_TYPE !== "INVOKER"
         || !String(views[0].VIEW_DEFINITION).includes("correspondence_email_mailboxes_join")) {
-      throw new Error("Migration 0060 did not expose mailbox membership through object_relationship_edges");
+      throw new Error(`Migration 0060 did not expose mailbox membership through ${definitionView}`);
     }
   }
   if (migration.version === 59) {
@@ -608,8 +613,9 @@ export async function assertMigrationSpecificIntegrity(
         AND TABLE_NAME IN ('calendar_events', 'calendar_routines')
         AND COLUMN_NAME = 'planning_prompt_text'`, [databaseName]);
     if (retiredColumns.length) throw new Error("Migration 0059 left calendar planning prompts in place");
+    const definitionView = relationshipDefinitionView(schemaVersion);
     const [views] = await connection.query(`SELECT VIEW_DEFINITION FROM information_schema.VIEWS
-      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'object_relationship_edges'`, [databaseName]);
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = '${definitionView}'`, [databaseName]);
     if (views.length !== 1 || /catch_up_questions|catch_up\.question/u.test(views[0].VIEW_DEFINITION)) {
       throw new Error("Migration 0059 did not retire Check-in object-network edges");
     }
@@ -838,11 +844,12 @@ export async function assertMigrationSpecificIntegrity(
     if (JSON.stringify(columns.map((row) => row.COLUMN_NAME)) !== JSON.stringify(relationshipEdgeViewColumns)) {
       throw new Error(`Migration ${label} established an invalid object_relationship_edges column contract`);
     }
+    const definitionView = relationshipDefinitionView(schemaVersion);
     const [views] = await connection.query(`SELECT VIEW_DEFINITION, SECURITY_TYPE
       FROM information_schema.VIEWS
-      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'object_relationship_edges'`, [databaseName]);
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = '${definitionView}'`, [databaseName]);
     if (views.length !== 1 || views[0].SECURITY_TYPE !== "INVOKER") {
-      throw new Error(`Migration ${label} relationship view must use invoker security`);
+      throw new Error(`Migration ${label} relationship definition view must use invoker security`);
     }
     const definition = String(views[0]?.VIEW_DEFINITION ?? "").replaceAll("`", "").toLowerCase();
     const expectedSources = migration.version === 54 ? relationshipJoinTablesV54 : relationshipJoinTablesV55;

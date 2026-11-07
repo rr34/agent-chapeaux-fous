@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import mysql from "mysql2/promise";
 import {
   SlayerDatabase, inspectDatabase, requiredDatabaseSchemaVersion, summarizeDatabaseObjects,
 } from "../src/database.mjs";
@@ -22,14 +23,14 @@ export function databaseSchemaVersionLine(schemaVersion) {
   return `Database schema version: ${schemaVersion ?? "unavailable"} (application requires ${requiredDatabaseSchemaVersion}).`;
 }
 
-export async function verifyDatabase(database) {
+export async function verifyDatabase(database, integrityConnection = null) {
   const inspection = inspectDatabase(database);
   if (!inspection.ready) {
     throw new Error(`Database is not compatible with Agent Slayer:\n- ${inspection.problems.join("\n- ")}`);
   }
   const databaseName = database.prepare("SELECT DATABASE() AS name").get().name;
   const schemaVersion = readDatabaseSchemaVersion(database);
-  const connection = {
+  const connection = integrityConnection ?? {
     query: async (sql, parameters = []) => [database.prepare(sql).all(...parameters)],
   };
   // Reuse reviewed migration postconditions for keys, indexes and trigger guards.
@@ -70,18 +71,28 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 
   const connection = databaseConnectionFromEnvironment();
   const store = new SlayerDatabase({ engine: "mariadb", connection });
+  let integrityConnection = null;
   try {
     const schemaVersion = store.database ? readDatabaseSchemaVersion(store.database) : null;
     console.log(databaseSchemaVersionLine(schemaVersion));
     if (!store.status.ready) throw new Error(store.status.reason);
     const database = store.requireReady();
-    const counts = await verifyDatabase(database);
+    integrityConnection = await mysql.createConnection({
+      ...connection,
+      charset: "utf8mb4",
+      dateStrings: true,
+      supportBigNumbers: true,
+      bigNumberStrings: true,
+      decimalNumbers: true,
+    });
+    const counts = await verifyDatabase(database, integrityConnection);
     console.log(`Agent Slayer MariaDB database is ready: ${connection.database}`);
     console.log(
       `Verified ${counts.applicationTableCount} application tables and ${counts.applicationViewCount} views (${counts.applicationObjectCount} schema objects).`,
     );
     console.log(`Verified ${counts.fullTextIndexCount} FULLTEXT indexes and migration integrity.`);
   } finally {
+    await integrityConnection?.end();
     store.close();
   }
 }
