@@ -174,12 +174,12 @@ test("content vocabulary migration requires the new enums and defaults", async (
     {
       COLUMN_NAME: "content_type",
       COLUMN_TYPE: "enum('video_promo','video_personal','video_tutorial','audio_promo','audio_personal','audio_tutorial','image','other')",
-      COLUMN_DEFAULT: "video_tutorial",
+      COLUMN_DEFAULT: "'video_tutorial'",
     },
     {
       COLUMN_NAME: "content_status",
       COLUMN_TYPE: "enum('draft','uploaded_unlisted','published','unused','obsolete')",
-      COLUMN_DEFAULT: "published",
+      COLUMN_DEFAULT: "'published'",
     },
   ];
   const connection = (columns = expectedColumns) => ({
@@ -196,7 +196,7 @@ test("content vocabulary migration requires the new enums and defaults", async (
   );
   await assert.rejects(
     assertMigrationSpecificIntegrity(connection(expectedColumns.map((column) => (
-      column.COLUMN_NAME === "content_status" ? { ...column, COLUMN_DEFAULT: "draft" } : column
+      column.COLUMN_NAME === "content_status" ? { ...column, COLUMN_DEFAULT: "'draft'" } : column
     ))), { version: 64 }, "test_database"),
     /content_items\.content_status vocabulary and default/u,
   );

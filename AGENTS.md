@@ -37,6 +37,11 @@ to test or simulate them.
   explicitly requests that live-system action.
 - Treat the live MariaDB database as Nate's data. Do not replace, recreate, or
   mutate its schema without explicit approval.
+- Nate personally runs live MariaDB migrations manually on the server. Codex
+  must not execute `npm run db:migrate` or otherwise apply a migration to the
+  configured database. Prepare and validate the migration code, then hand Nate
+  the exact command or runbook. After Nate reports that it completed, Codex may
+  run the read-only `npm run db:verify` check.
 - Run `npm run db:verify` before and after database-dependent changes.
 - The configured test account cannot create or drop the isolated databases used
   by the MariaDB integration suite. For routine verification, run

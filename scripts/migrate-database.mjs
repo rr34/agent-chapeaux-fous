@@ -85,6 +85,13 @@ function enumValues(columnType) {
   return values;
 }
 
+function columnDefaultValue(value) {
+  if (typeof value !== "string" || value.length < 2 || !value.startsWith("'") || !value.endsWith("'")) {
+    return value;
+  }
+  return value.slice(1, -1).replaceAll("''", "'").replaceAll("\\'", "'");
+}
+
 export function migrationLockName(databaseName) {
   const name = `chapeaux-fous:migrations:${databaseName}`;
   if (name.length > 64) throw new Error("MariaDB migration advisory-lock name exceeds 64 characters");
@@ -379,7 +386,7 @@ export async function assertMigrationSpecificIntegrity(
     ]) {
       const column = columns.find((row) => row.COLUMN_NAME === name);
       if (JSON.stringify(enumValues(column?.COLUMN_TYPE)) !== JSON.stringify(expectedValues)
-          || column?.COLUMN_DEFAULT !== expectedDefault) {
+          || columnDefaultValue(column?.COLUMN_DEFAULT) !== expectedDefault) {
         throw new Error(`Migration 0064 did not establish the expected content_items.${name} vocabulary and default`);
       }
     }
