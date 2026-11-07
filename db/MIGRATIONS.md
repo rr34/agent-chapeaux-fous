@@ -11,6 +11,21 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 64: Content lifecycle and format vocabulary
+
+Replaces the Content Library lifecycle with `draft`, `uploaded_unlisted`,
+`published`, `unused`, and `obsolete`, and replaces its format vocabulary with
+the eight medium-and-purpose values used by the application. Existing
+`queued` rows become `draft`, and existing `active` rows become `published`.
+Legacy tutorial formats become `video_tutorial`; legacy advertisement formats
+become `video_promo`; `podcast` becomes `audio_personal`; `unknown` becomes
+`other`; and `image`, `unused`, and `obsolete` retain their meanings.
+
+Apply with writers stopped because the application validators, agent tool
+schemas, web editor, and MariaDB enums must switch together. The migration
+temporarily widens both enums before rewriting rows and narrowing them, making
+the complete block replayable after a partial MariaDB DDL commit.
+
 ## Version 63: Retire to-do planning prompts
 
 Drops `todo_personal.planning_prompt_text` and its check constraint, then

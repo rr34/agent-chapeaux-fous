@@ -1,6 +1,6 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 
-export const requiredDatabaseSchemaVersion = 63;
+export const requiredDatabaseSchemaVersion = 64;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -183,9 +183,9 @@ export const requiredEnumColumns = {
     status: ["pending", "processing", "delivered", "snoozed", "cancelled", "error"],
   },
   content_items: {
-    content_type: ["mobileUGC_tutorial", "mobileUGC_ad", "webUGC_tutorial", "webUGC_ad", "video_ad", "podcast", "image", "unknown"],
+    content_type: ["video_promo", "video_personal", "video_tutorial", "audio_promo", "audio_personal", "audio_tutorial", "image", "other"],
     content_host: ["youtube", "vimeo", "spotify", "mytlomdotcom", "none"],
-    content_status: ["active", "obsolete", "unused", "queued"],
+    content_status: ["draft", "uploaded_unlisted", "published", "unused", "obsolete"],
     relationship_to_user: ["mine", "reference"],
   },
   physical_items: {

@@ -47,6 +47,16 @@ test("the React library creates, edits, and permanently deletes content from the
   assert.match(editableItemsSource, /`\/api\/content-items\/\$\{Number\(content\.id\)\}`[\s\S]*method: "DELETE"/);
   assert.match(editableItemsSource, /aria-label="Confirm content deletion"/);
   assert.match(editableItemsSource, /!creating && !confirmingDelete[\s\S]*Delete permanently/);
+  for (const value of [
+    "video_promo", "video_personal", "video_tutorial", "audio_promo",
+    "audio_personal", "audio_tutorial", "image", "other",
+  ]) assert.match(editableItemsSource, new RegExp(`<option value="${value}">`));
+  for (const value of ["draft", "uploaded_unlisted", "published", "unused", "obsolete"]) {
+    assert.match(editableItemsSource, new RegExp(`<option value="${value}">`));
+  }
+  for (const retired of ["mobileUGC_tutorial", "mobileUGC_ad", "webUGC_tutorial", "webUGC_ad", "video_ad", "podcast", "unknown", "active", "queued"]) {
+    assert.doesNotMatch(editableItemsSource.slice(editableItemsSource.indexOf("interface LibraryContentDraft"), editableItemsSource.indexOf("interface JournalTrackerDraft")), new RegExp(`value="${retired}"`));
+  }
 });
 
 test("to-do and Library groups share descending numbered-item display order", () => {

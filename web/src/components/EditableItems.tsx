@@ -230,13 +230,13 @@ function libraryContentDraft(
   return {
     groupId,
     sequence: content?.sequence == null ? "" : String(content.sequence),
-    contentType: String(content?.contentType || "mobileUGC_tutorial"),
+    contentType: String(content?.contentType || "video_tutorial"),
     title: String(content?.title || ""),
     transcript: String(content?.transcript || ""),
     description: String(content?.description || ""),
     publishedAt: localDateTimeValue(String(content?.publishedAtUtc || new Date().toISOString())),
     contentHost: String(content?.contentHost || "youtube"),
-    contentStatus: String(content?.contentStatus || "active"),
+    contentStatus: String(content?.contentStatus || "published"),
     contentUrl: String(content?.contentUrl || ""),
   };
 }
@@ -320,10 +320,10 @@ export function LibraryContentEditor({ content, groups, initialGroupId, onClose,
         </select></label>
         <label>Sequence<input type="number" min="1" step="1" value={draft.sequence} onChange={(change) => setDraft({ ...draft, sequence: change.target.value })} /><span className="field-hint">{selectedGroup?.usesSequence ? "Assigned the next unique number when left blank." : "Optional while automatic sequencing is disabled for this group."}</span></label>
         <label>Type<select value={draft.contentType} onChange={(change) => setDraft({ ...draft, contentType: change.target.value })}>
-          <option value="mobileUGC_tutorial">Mobile UGC tutorial</option><option value="mobileUGC_ad">Mobile UGC ad</option><option value="webUGC_tutorial">Web UGC tutorial</option><option value="webUGC_ad">Web UGC ad</option><option value="video_ad">Video ad</option><option value="podcast">Podcast</option><option value="image">Image</option><option value="unknown">Unknown</option>
+          <option value="video_promo">Video promo</option><option value="video_personal">Video personal</option><option value="video_tutorial">Video tutorial</option><option value="audio_promo">Audio promo</option><option value="audio_personal">Audio personal</option><option value="audio_tutorial">Audio tutorial</option><option value="image">Image</option><option value="other">Other</option>
         </select></label>
         <label>Status<select value={draft.contentStatus} onChange={(change) => setDraft({ ...draft, contentStatus: change.target.value })}>
-          <option value="active">Active</option><option value="queued">Queued</option><option value="obsolete">Obsolete</option><option value="unused">Unused</option>
+          <option value="draft">Draft</option><option value="uploaded_unlisted">Uploaded unlisted</option><option value="published">Published</option><option value="unused">Unused</option><option value="obsolete">Obsolete</option>
         </select></label>
         <label>Host<select value={draft.contentHost} onChange={(change) => setDraft({ ...draft, contentHost: change.target.value })}>
           <option value="youtube">YouTube</option><option value="vimeo">Vimeo</option><option value="spotify">Spotify</option><option value="mytlomdotcom">mytlom.com</option><option value="none">None</option>

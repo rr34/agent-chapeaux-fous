@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
 import { nativeObjectTypes, normalizeSelectedObjectCandidates, objectSearchTerms, registerNativeObjectContextView, resolveNativeObjectCandidates, searchNativeObjects } from "../src/native-object-search.mjs";
 import { objectReferenceGroupsFromToolResult } from "../src/object-references.mjs";
@@ -118,8 +119,8 @@ test("named to-do group sequences outrank similarly numbered content-library tit
         { id: 244, title: "Ann Clark", given_name: "Ann", family_name: "Clark", contact_kind: "person" },
       ];
       if (sql.includes("FROM content_items AS content")) return [
-        { id: 118, title: "What to Watch 11", parent_id: 3, parent_title: "What to Watch", content_status: "active" },
-        { id: 117, title: "What to Watch 12", parent_id: 3, parent_title: "What to Watch", content_status: "active" },
+        { id: 118, title: "What to Watch 11", parent_id: 3, parent_title: "What to Watch", content_status: "published" },
+        { id: 117, title: "What to Watch 12", parent_id: 3, parent_title: "What to Watch", content_status: "published" },
       ];
       if (sql.includes("FROM todo_personal AS task")) return [
         { id: 356, title: "Link Watch Jobs to contacts", status: "todo", sequence: null,
@@ -455,4 +456,12 @@ test("composer selections are verified by stable ID without ranked-search trunca
   assert.deepEqual(resolveNativeObjectCandidates(database, [{
     ...input[0], display: "Lucas R.", mention: "@Lucas R.",
   }])[0].title, "Lucas Ruffing");
+});
+
+test("content discovery includes every current lifecycle state", () => {
+  const source = fs.readFileSync(new URL("../src/native-object-search.mjs", import.meta.url), "utf8");
+  assert.match(
+    source,
+    /content\.content_status IN \('draft', 'uploaded_unlisted', 'published'\)/u,
+  );
 });

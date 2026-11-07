@@ -169,6 +169,39 @@ test("to-do planning-prompt retirement removes the field, constraint, and stale 
   );
 });
 
+test("content vocabulary migration requires the new enums and defaults", async () => {
+  const expectedColumns = [
+    {
+      COLUMN_NAME: "content_type",
+      COLUMN_TYPE: "enum('video_promo','video_personal','video_tutorial','audio_promo','audio_personal','audio_tutorial','image','other')",
+      COLUMN_DEFAULT: "video_tutorial",
+    },
+    {
+      COLUMN_NAME: "content_status",
+      COLUMN_TYPE: "enum('draft','uploaded_unlisted','published','unused','obsolete')",
+      COLUMN_DEFAULT: "published",
+    },
+  ];
+  const connection = (columns = expectedColumns) => ({
+    async query(sql, parameters) {
+      assert.match(sql, /information_schema\.COLUMNS/u);
+      assert.deepEqual(parameters, ["test_database"]);
+      return [columns];
+    },
+  });
+  await assertMigrationSpecificIntegrity(connection(), { version: 64 }, "test_database");
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection(expectedColumns.slice(1)), { version: 64 }, "test_database"),
+    /content_items\.content_type vocabulary and default/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection(expectedColumns.map((column) => (
+      column.COLUMN_NAME === "content_status" ? { ...column, COLUMN_DEFAULT: "draft" } : column
+    ))), { version: 64 }, "test_database"),
+    /content_items\.content_status vocabulary and default/u,
+  );
+});
+
 test("Android contact source alias integrity requires identity, chronology, and provenance", async () => {
   const requiredColumns = [
     "contact_source_alias_id", "contact_id", "source", "external_id",
@@ -752,11 +785,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63]);
-  for (let current = 29; current <= 63; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64]);
+  for (let current = 29; current <= 64; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 63 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 64 - current }, (_, index) => current + index + 1),
     );
   }
 });

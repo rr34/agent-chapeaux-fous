@@ -1426,13 +1426,13 @@ test("grouped content supports sequence-aware CRUD, filtering, and safe group li
     const first = organizer.createContent({
       groupId: research.id,
       sequence: 1,
-      contentType: "podcast",
+      contentType: "audio_personal",
       title: "Launch interview",
       transcript: "An unabridged conversation about the launch.",
       description: "Long-form founder interview.",
       publishedAtUtc: "2026-08-17T15:00:00.000Z",
       contentHost: "spotify",
-      contentStatus: "active",
+      contentStatus: "published",
       contentUrl: "https://example.test/launch-interview",
     });
     const second = organizer.createContent({
@@ -1443,10 +1443,10 @@ test("grouped content supports sequence-aware CRUD, filtering, and safe group li
       description: "Square social asset.",
       publishedAtUtc: "2026-08-18T15:00:00.000Z",
       contentHost: "none",
-      contentStatus: "queued",
+      contentStatus: "draft",
     });
     assert.deepEqual(organizer.listContent({ groupId: research.id }).map(({ sequence }) => sequence), [2, 1]);
-    assert.deepEqual(organizer.listContent({ status: "active" }).map(({ id }) => id), [first.id]);
+    assert.deepEqual(organizer.listContent({ status: "published" }).map(({ id }) => id), [first.id]);
     assert.deepEqual(organizer.listContent({ query: "unabridged" }).map(({ id }) => id), [first.id]);
     assert.throws(
       () => organizer.createContent({

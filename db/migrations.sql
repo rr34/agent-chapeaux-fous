@@ -16,6 +16,57 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0064: content-lifecycle-and-format-vocabulary
+-- writer downtime: required while every content writer, validator, and user
+-- interface moves to the new lifecycle and format vocabulary together.
+-- locking: both ALTER TABLE operations take metadata locks and may rebuild
+-- content_items. The two bounded UPDATE statements rewrite existing enum
+-- values but do not change content identity, relationships, text, or ordering.
+-- recovery: MariaDB DDL commits implicitly. The temporary union enums make the
+-- block safely replayable after a partial commit. Keep writers stopped, rerun
+-- the complete migration, then run npm run db:verify before restarting.
+
+ALTER TABLE content_items
+  MODIFY content_type ENUM(
+    'mobileUGC_tutorial', 'mobileUGC_ad', 'webUGC_tutorial', 'webUGC_ad',
+    'video_ad', 'podcast', 'unknown',
+    'video_promo', 'video_personal', 'video_tutorial',
+    'audio_promo', 'audio_personal', 'audio_tutorial', 'image', 'other'
+  ) NOT NULL DEFAULT 'video_tutorial',
+  MODIFY content_status ENUM(
+    'active', 'queued', 'draft', 'uploaded_unlisted', 'published', 'unused', 'obsolete'
+  ) NOT NULL DEFAULT 'published';
+
+UPDATE content_items
+SET content_type = CASE content_type
+  WHEN 'mobileUGC_tutorial' THEN 'video_tutorial'
+  WHEN 'webUGC_tutorial' THEN 'video_tutorial'
+  WHEN 'mobileUGC_ad' THEN 'video_promo'
+  WHEN 'webUGC_ad' THEN 'video_promo'
+  WHEN 'video_ad' THEN 'video_promo'
+  WHEN 'podcast' THEN 'audio_personal'
+  WHEN 'unknown' THEN 'other'
+  ELSE content_type
+END;
+
+UPDATE content_items
+SET content_status = CASE content_status
+  WHEN 'queued' THEN 'draft'
+  WHEN 'active' THEN 'published'
+  ELSE content_status
+END;
+
+ALTER TABLE content_items
+  MODIFY content_type ENUM(
+    'video_promo', 'video_personal', 'video_tutorial',
+    'audio_promo', 'audio_personal', 'audio_tutorial', 'image', 'other'
+  ) NOT NULL DEFAULT 'video_tutorial'
+    COMMENT 'Content medium and purpose. video_promo: Promotional video. video_personal: Personal or general-purpose video. video_tutorial: Instructional video. audio_promo: Promotional audio. audio_personal: Personal or general-purpose audio. audio_tutorial: Instructional audio. image: Still image or graphic. other: Content not represented by the named formats.',
+  MODIFY content_status ENUM('draft', 'uploaded_unlisted', 'published', 'unused', 'obsolete') NOT NULL DEFAULT 'published'
+    COMMENT 'Current content lifecycle state. draft: Still being prepared. uploaded_unlisted: Uploaded but not publicly listed. published: Published and current. unused: Retained but not currently used. obsolete: Superseded and no longer current.';
+
+-- end migration 0064
+
 -- migration 0063: retire-todo-planning-prompts
 -- writer downtime: required while every application surface and the personal
 -- to-do schema stop exposing the retired field together. Existing planning

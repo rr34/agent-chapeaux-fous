@@ -644,12 +644,12 @@ export function registerVideoScriptTools(
                 contentType: {
                   type: "string",
                   enum: [
-                    "mobileUGC_tutorial", "mobileUGC_ad", "webUGC_tutorial", "webUGC_ad",
-                    "video_ad", "podcast", "image", "unknown",
+                    "video_promo", "video_personal", "video_tutorial",
+                    "audio_promo", "audio_personal", "audio_tutorial", "image", "other",
                   ],
                 },
                 contentStatus: {
-                  type: "string", enum: ["active", "obsolete", "unused", "queued"],
+                  type: "string", enum: ["draft", "uploaded_unlisted", "published", "unused", "obsolete"],
                 },
                 contentUrl: {
                   type: ["string", "null"], minLength: 1, maxLength: 2048,
@@ -781,12 +781,12 @@ export function registerVideoScriptTools(
                 contentType: {
                   type: "string",
                   enum: [
-                    "mobileUGC_tutorial", "mobileUGC_ad", "webUGC_tutorial", "webUGC_ad",
-                    "video_ad", "podcast", "image", "unknown",
+                    "video_promo", "video_personal", "video_tutorial",
+                    "audio_promo", "audio_personal", "audio_tutorial", "image", "other",
                   ],
                 },
                 contentStatus: {
-                  type: "string", enum: ["active", "obsolete", "unused", "queued"],
+                  type: "string", enum: ["draft", "uploaded_unlisted", "published", "unused", "obsolete"],
                 },
                 contentUrl: {
                   type: "string", minLength: 1, maxLength: 2048,

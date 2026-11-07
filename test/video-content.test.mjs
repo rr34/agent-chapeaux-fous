@@ -56,8 +56,8 @@ test("the Agent can create a library and atomically create ordinary content item
       transcript: null,
       publishedAtUtc: "2020-01-01",
       contentHost: "none",
-      contentType: "unknown",
-      contentStatus: "active",
+      contentType: "other",
+      contentStatus: "published",
       contentUrl: "https://example.com/what-to-watch-today/",
     },
     {
@@ -67,8 +67,8 @@ test("the Agent can create a library and atomically create ordinary content item
       transcript: null,
       publishedAtUtc: "2020-01-02T12:00:00.000Z",
       contentHost: "youtube",
-      contentType: "unknown",
-      contentStatus: "active",
+      contentType: "other",
+      contentStatus: "published",
       contentUrl: "https://youtu.be/example-one",
     },
     {
@@ -77,8 +77,8 @@ test("the Agent can create a library and atomically create ordinary content item
       description: null,
       transcript: null,
       contentHost: "youtube",
-      contentType: "unknown",
-      contentStatus: "active",
+      contentType: "other",
+      contentStatus: "published",
       contentUrl: "https://example.com/patek-display-case",
     },
     {
@@ -88,8 +88,8 @@ test("the Agent can create a library and atomically create ordinary content item
       transcript: null,
       publishedAtUtc: null,
       contentHost: "youtube",
-      contentType: "unknown",
-      contentStatus: "active",
+      contentType: "other",
+      contentStatus: "published",
       contentUrl: "https://example.com/null-publication-time",
     },
   ];
@@ -191,18 +191,18 @@ test("the Agent can atomically update exact content items, including sequence sw
   const group = organizer.createContentGroup({ name: "Sequence corrections" });
   const first = organizer.createContent({
     groupId: group.id, sequence: 1, title: "First old title",
-    publishedAtUtc: "2026-10-01", contentHost: "youtube", contentType: "unknown",
-    contentStatus: "active", contentUrl: "https://example.test/first",
+    publishedAtUtc: "2026-10-01", contentHost: "youtube", contentType: "other",
+    contentStatus: "published", contentUrl: "https://example.test/first",
   });
   const second = organizer.createContent({
     groupId: group.id, sequence: 2, title: "Second old title",
-    publishedAtUtc: "2026-10-02", contentHost: "youtube", contentType: "unknown",
-    contentStatus: "active", contentUrl: "https://example.test/second",
+    publishedAtUtc: "2026-10-02", contentHost: "youtube", contentType: "other",
+    contentStatus: "published", contentUrl: "https://example.test/second",
   });
   const third = organizer.createContent({
     groupId: group.id, sequence: 3, title: "Third unchanged",
-    publishedAtUtc: "2026-10-03", contentHost: "youtube", contentType: "unknown",
-    contentStatus: "active", contentUrl: "https://example.test/third",
+    publishedAtUtc: "2026-10-03", contentHost: "youtube", contentType: "other",
+    contentStatus: "published", contentUrl: "https://example.test/third",
   });
   const registry = registerNativeCapabilities(new ToolRegistry());
   registerVideoScriptTools(registry, videoScripts, { videoContent });
@@ -305,8 +305,8 @@ test("verified source reconciliation updates and creates in one transaction", as
       transcript: null,
       publishedAtUtc: "2024-05-10T00:00:00.000Z",
       contentHost: "youtube",
-      contentType: "unknown",
-      contentStatus: "active",
+      contentType: "other",
+      contentStatus: "published",
       contentUrl: "https://www.youtube.com/watch?v=0dqrgcV80TM",
     }],
   }).items[0];
@@ -451,7 +451,7 @@ test("a completed generated video appends once to an exact content sequence", as
   assert.equal(created.content.sequence, 6);
   assert.equal(created.content.primaryFileId, file.fileId);
   const stored = organizer.getContent(created.content.id);
-  assert.equal(stored.contentType, "video_ad");
+  assert.equal(stored.contentType, "video_promo");
   assert.equal(stored.contentHost, "none");
   assert.equal(stored.transcript, production.script.scriptText);
   assert.equal(videoScripts.get(production.script.id).render.contentId, stored.id);

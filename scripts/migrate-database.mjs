@@ -197,9 +197,16 @@ async function assertVersion30Integrity(connection, databaseName) {
         .find(([, current]) => current === tableName)?.[0];
       const actualValues = actualByName.get(qualifiedName)
         ?? (legacyName ? actualByName.get(`${legacyName}.${fieldName}`) : undefined);
-      const historicallyValidValues = qualifiedName === "todo_personal.status"
-        ? [["unplanned", "todo", "complete", "ignore", "archive", "ai_suggested"], expectedValues]
-        : [expectedValues];
+      const historicalEnumValues = {
+        "content_items.content_type": [
+          "mobileUGC_tutorial", "mobileUGC_ad", "webUGC_tutorial", "webUGC_ad",
+          "video_ad", "podcast", "image", "unknown",
+        ],
+        "content_items.content_status": ["active", "obsolete", "unused", "queued"],
+        "todo_personal.status": ["unplanned", "todo", "complete", "ignore", "archive", "ai_suggested"],
+      };
+      const historicallyValidValues = [expectedValues, ...(historicalEnumValues[qualifiedName]
+        ? [historicalEnumValues[qualifiedName]] : [])];
       if (!historicallyValidValues.some((values) => (
         JSON.stringify(actualValues) === JSON.stringify(values)
       ))) {
@@ -361,6 +368,22 @@ async function assertVersion32Integrity(connection, databaseName) {
 export async function assertMigrationSpecificIntegrity(
   connection, migration, databaseName, schemaVersion = migration.version,
 ) {
+  if (migration.version === 64) {
+    const [columns] = await connection.query(`SELECT COLUMN_NAME, COLUMN_TYPE, COLUMN_DEFAULT
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'content_items'
+        AND COLUMN_NAME IN ('content_type', 'content_status')`, [databaseName]);
+    for (const [name, expectedValues, expectedDefault] of [
+      ["content_type", requiredEnumColumns.content_items.content_type, "video_tutorial"],
+      ["content_status", requiredEnumColumns.content_items.content_status, "published"],
+    ]) {
+      const column = columns.find((row) => row.COLUMN_NAME === name);
+      if (JSON.stringify(enumValues(column?.COLUMN_TYPE)) !== JSON.stringify(expectedValues)
+          || column?.COLUMN_DEFAULT !== expectedDefault) {
+        throw new Error(`Migration 0064 did not establish the expected content_items.${name} vocabulary and default`);
+      }
+    }
+  }
   if (migration.version === 63) {
     const [columns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME
       FROM information_schema.COLUMNS

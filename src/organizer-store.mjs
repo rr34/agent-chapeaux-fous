@@ -25,11 +25,11 @@ const calendarStatuses = new Set(["active", "archived"]);
 const visibleCalendarStorageStatuses = ["tentative", "confirmed"];
 const todoStatuses = new Set(["todo", "complete", "ignore", "archive", "ai_suggested"]);
 const contentTypes = new Set([
-  "mobileUGC_tutorial", "mobileUGC_ad", "webUGC_tutorial", "webUGC_ad",
-  "video_ad", "podcast", "image", "unknown",
+  "video_promo", "video_personal", "video_tutorial",
+  "audio_promo", "audio_personal", "audio_tutorial", "image", "other",
 ]);
 const contentHosts = new Set(["youtube", "vimeo", "spotify", "mytlomdotcom", "none"]);
-const contentStatuses = new Set(["active", "obsolete", "unused", "queued"]);
+const contentStatuses = new Set(["draft", "uploaded_unlisted", "published", "unused", "obsolete"]);
 const contactKinds = new Set(["person", "organization", "service"]);
 const contactStatuses = new Set(["active", "inactive", "blocked", "deceased"]);
 const contactMethodKinds = new Set(["email", "phone", "postal_address", "handle", "url", "other"]);
@@ -3341,7 +3341,7 @@ export class OrganizerStore {
     }
     if (status != null && status !== "") {
       conditions.push("content.content_status = ?");
-      values.push(enumValue(status, contentStatuses, "status", "active"));
+      values.push(enumValue(status, contentStatuses, "status", "published"));
     }
     appendTermSearch(conditions, values, searchPatterns(query), [
       "content.title", "content.description", "content.transcript", "content.content_status",
@@ -3469,13 +3469,13 @@ export class OrganizerStore {
     const item = {
       groupId: identifier(input?.groupId, "content group id"),
       sequence: optionalPositiveInteger(input?.sequence, "sequence"),
-      contentType: enumValue(input?.contentType, contentTypes, "contentType", "mobileUGC_tutorial"),
+      contentType: enumValue(input?.contentType, contentTypes, "contentType", "video_tutorial"),
       title: requiredText(input?.title, "title", 10_000),
       transcript: optionalText(input?.transcript, "transcript", 1_000_000),
       description: optionalText(input?.description, "description", 1_000_000),
       publishedAtUtc: isoDateTime(input?.publishedAtUtc ?? new Date().toISOString(), "publishedAtUtc", { required: true }),
       contentHost: enumValue(input?.contentHost, contentHosts, "contentHost", "youtube"),
-      contentStatus: enumValue(input?.contentStatus, contentStatuses, "contentStatus", "active"),
+      contentStatus: enumValue(input?.contentStatus, contentStatuses, "contentStatus", "published"),
       contentUrl: httpUrl(input?.contentUrl, "contentUrl"),
     };
     const now = new Date().toISOString();
@@ -3533,7 +3533,7 @@ export class OrganizerStore {
       return {
         sequence: optionalPositiveInteger(entry?.sequence, `items[${index}].sequence`),
         contentType: enumValue(
-          entry?.contentType, contentTypes, `items[${index}].contentType`, "unknown",
+          entry?.contentType, contentTypes, `items[${index}].contentType`, "other",
         ),
         title: requiredText(entry?.title, `items[${index}].title`, 10_000),
         transcript: optionalText(entry?.transcript, `items[${index}].transcript`, 50_000),
@@ -3547,7 +3547,7 @@ export class OrganizerStore {
           entry?.contentHost, contentHosts, `items[${index}].contentHost`, "none",
         ),
         contentStatus: enumValue(
-          entry?.contentStatus, contentStatuses, `items[${index}].contentStatus`, "active",
+          entry?.contentStatus, contentStatuses, `items[${index}].contentStatus`, "published",
         ),
         contentUrl,
       };
@@ -4002,7 +4002,7 @@ export class OrganizerStore {
           content_group_id, sequence, content_type, title, transcript, description,
           published_at_utc, content_host, content_status, content_url,
           primary_file_id, created_at_utc
-        ) VALUES (?, ?, 'video_ad', ?, ?, ?, ?, 'none', 'active', NULL, ?, ?)
+        ) VALUES (?, ?, 'video_promo', ?, ?, ?, ?, 'none', 'published', NULL, ?, ?)
       `).run(
         item.groupId, sequence, item.title, item.transcript, item.description,
         item.publishedAtUtc, item.primaryFileId, now,

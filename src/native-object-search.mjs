@@ -306,7 +306,7 @@ function readCandidates(database, tokens, selectedTypes = null, query = "") {
       content.content_status, content.content_type, content.content_group_id AS parent_id,
       content_group.name AS parent_title`,
     "content_items AS content JOIN content_groups AS content_group USING (content_group_id)",
-    "content.content_status IN ('active', 'queued') AND content_group.archived_at_utc IS NULL",
+    "content.content_status IN ('draft', 'uploaded_unlisted', 'published') AND content_group.archived_at_utc IS NULL",
     ["content.title", "content.description", "content.personal_notes", "content_group.name"], [],
     "content.content_id DESC");
   read("payments.invoice", `invoice.payment_invoice_id AS id,

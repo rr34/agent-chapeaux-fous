@@ -81,11 +81,11 @@ test("content creation tools publish compact identified mutation results", async
     id: 31,
     groupId: 7,
     sequence: null,
-    contentType: "unknown",
+    contentType: "other",
     title: "What to Watch Today",
     publishedAtUtc: "2020-01-01T12:00:00.000Z",
     contentHost: "none",
-    contentStatus: "active",
+    contentStatus: "published",
     contentUrl: "https://example.com/what-to-watch-today/",
   };
   const updatedContent = {
@@ -183,8 +183,8 @@ test("content creation tools publish compact identified mutation results", async
     description: null,
     transcript: null,
     contentHost: "youtube",
-    contentType: "unknown",
-    contentStatus: "active",
+    contentType: "other",
+    contentStatus: "published",
     contentUrl: null,
   };
   assert.equal(schemaProblem({

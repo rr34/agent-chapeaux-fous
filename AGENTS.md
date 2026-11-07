@@ -38,5 +38,11 @@ to test or simulate them.
 - Treat the live MariaDB database as Nate's data. Do not replace, recreate, or
   mutate its schema without explicit approval.
 - Run `npm run db:verify` before and after database-dependent changes.
+- The configured test account cannot create or drop the isolated databases used
+  by the MariaDB integration suite. For routine verification, run
+  `npm run test:unit` and relevant non-database checks; omit `npm test` and
+  `npm run test:integration` unless Nate explicitly requests them or confirms
+  that a suitably privileged `MARIADB_TEST_*` account is available. Do not
+  repeatedly report this known environment limitation as a test failure.
 - Keep observability linear and literal. Product users should not need to know
   internal lifecycle terminology to understand a trace.

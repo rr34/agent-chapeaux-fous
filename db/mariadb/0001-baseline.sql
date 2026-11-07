@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 63.
+-- Target: MariaDB 10.11, schema version 64.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -733,14 +733,14 @@ CREATE TABLE content_items (
     content_id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for this content item.',
     content_group_id      BIGINT UNSIGNED NOT NULL COMMENT 'Content group that owns and organizes this item.',
     sequence              BIGINT COMMENT 'Stable positive number identifying this content item within its group when numbered organization is used. Units: sequence number. Unique within content_group_id when present; unlike content_group.sort_position, it identifies an item rather than presentation placement.',
-    content_type          ENUM('mobileUGC_tutorial', 'mobileUGC_ad', 'webUGC_tutorial', 'webUGC_ad', 'video_ad', 'podcast', 'image', 'unknown') NOT NULL DEFAULT 'mobileUGC_tutorial' COMMENT 'Action-content format and production surface for this item. mobileUGC_tutorial: Mobile-app user-generated-style tutorial. mobileUGC_ad: Mobile-app user-generated-style advertisement. webUGC_tutorial: Web-app user-generated-style tutorial. webUGC_ad: Web-app user-generated-style advertisement. video_ad: Video advertisement outside the mobile or web UGC-specific formats. podcast: Podcast or spoken-audio content. image: Still image or graphic content. unknown: Content whose production format has not been identified.',
+    content_type          ENUM('video_promo', 'video_personal', 'video_tutorial', 'audio_promo', 'audio_personal', 'audio_tutorial', 'image', 'other') NOT NULL DEFAULT 'video_tutorial' COMMENT 'Content medium and purpose. video_promo: Promotional video. video_personal: Personal or general-purpose video. video_tutorial: Instructional video. audio_promo: Promotional audio. audio_personal: Personal or general-purpose audio. audio_tutorial: Instructional audio. image: Still image or graphic. other: Content not represented by the named formats.',
     title                 TEXT NOT NULL COMMENT 'Human-readable title of the work or source item.',
     transcript            LONGTEXT COMMENT 'Source speech or text transcribed or extracted from the content itself.',
     description           LONGTEXT COMMENT 'Summary or description of what the content is about.',
     published_at_utc      DATETIME(3) NOT NULL
                           DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC publication time reported for the content when known. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     content_host          ENUM('youtube', 'vimeo', 'spotify', 'mytlomdotcom', 'none') NOT NULL DEFAULT 'youtube' COMMENT 'Platform or service that hosts the published content. youtube: Hosted on YouTube. vimeo: Hosted on Vimeo. spotify: Hosted on Spotify. mytlomdotcom: Hosted on mytlom.com. none: The content has no external host.',
-    content_status        ENUM('active', 'obsolete', 'unused', 'queued') NOT NULL DEFAULT 'active' COMMENT 'Current action-content lifecycle state. active: Content is current and available for use. obsolete: Content has been superseded and should not guide current work. unused: Content is retained but not currently used. queued: Content is awaiting production or publication.',
+    content_status        ENUM('draft', 'uploaded_unlisted', 'published', 'unused', 'obsolete') NOT NULL DEFAULT 'published' COMMENT 'Current content lifecycle state. draft: Still being prepared. uploaded_unlisted: Uploaded but not publicly listed. published: Published and current. unused: Retained but not currently used. obsolete: Superseded and no longer current.',
     content_url           TEXT COMMENT 'Canonical public or hosted URL for the content when one exists. Format: URL.',
     relationship_to_user  ENUM('mine', 'reference') NOT NULL DEFAULT 'mine' COMMENT 'Whether the item is the user''s authored or planned work or reference material from elsewhere. mine: the user''s authored, owned, planned, or produced content. reference: Material from another creator kept as a source or reference.',
     creator_contact_id    BIGINT UNSIGNED COMMENT 'Known person, organization, or service that created the content.',
@@ -1878,4 +1878,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 63, 'Chapeaux Fous MariaDB database');
+VALUES (1, 64, 'Chapeaux Fous MariaDB database');
