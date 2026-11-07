@@ -583,7 +583,7 @@ test("the notes removal integrity check rejects a surviving table and scopes its
   await assertMigrationSpecificIntegrity(connection, { version: 33 }, "test_database");
 });
 
-test("historical integrity checks accept fields intentionally superseded by version 40", async () => {
+test("historical integrity checks accept fields intentionally superseded by later schemas", async () => {
   const version31 = {
     async query(sql) {
       if (sql.includes("information_schema.COLUMNS")) return [[]];
@@ -601,6 +601,22 @@ test("historical integrity checks accept fields intentionally superseded by vers
     },
   };
   await assertMigrationSpecificIntegrity(version31, { version: 31 }, "test_database");
+
+  const version63WithoutRetiredPrompt = {
+    async query(sql) {
+      const [rows] = await version31.query(sql);
+      return [rows.filter(({ CONSTRAINT_NAME }) => CONSTRAINT_NAME !== "todo_personal_prompt")];
+    },
+  };
+  await assertMigrationSpecificIntegrity(
+    version63WithoutRetiredPrompt, { version: 31 }, "test_database", 63,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(
+      version63WithoutRetiredPrompt, { version: 31 }, "test_database", 62,
+    ),
+    /todo_personal_prompt/u,
+  );
 
   const version39 = {
     async query(sql) {

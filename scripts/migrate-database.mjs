@@ -222,7 +222,7 @@ async function assertVersion30Integrity(connection, databaseName) {
   }
 }
 
-async function assertVersion31Integrity(connection, databaseName) {
+async function assertVersion31Integrity(connection, databaseName, schemaVersion) {
   const [columnRows] = await connection.query(
     `SELECT COLUMN_NAME
        FROM information_schema.COLUMNS
@@ -235,6 +235,7 @@ async function assertVersion31Integrity(connection, databaseName) {
     ...(!currentColumns.has("todo_routine_id") ? ["todo_personal_routine"] : []),
     ...(!currentColumns.has("is_all_day") ? ["todo_personal_all_day"] : []),
     ...(!currentColumns.has("duration_minutes") ? ["todo_personal_duration"] : []),
+    ...(schemaVersion >= 63 ? ["todo_personal_prompt"] : []),
   ]);
   const relevantConstraintNames = [
     ...version31RequiredConstraints.keys(),
@@ -1194,7 +1195,7 @@ export async function assertMigrationSpecificIntegrity(
     }
   }
   if (migration.version === 30) await assertVersion30Integrity(connection, databaseName);
-  if (migration.version === 31) await assertVersion31Integrity(connection, databaseName);
+  if (migration.version === 31) await assertVersion31Integrity(connection, databaseName, schemaVersion);
   if (migration.version === 32) await assertVersion32Integrity(connection, databaseName);
   if (migration.version === 33) {
     const [rows] = await connection.query(
