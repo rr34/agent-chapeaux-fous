@@ -23,8 +23,8 @@ export function baselineBeforeTodoPlanningPromptRemoval(source) {
       "    CONSTRAINT todo_personal_billable CHECK (",
       "    CONSTRAINT todo_personal_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000),\n    CONSTRAINT todo_personal_billable CHECK (",
     )
-    .replace("Target: MariaDB 10.11, schema version 65.", "Target: MariaDB 10.11, schema version 62.")
-    .replace("VALUES (1, 65,", "VALUES (1, 62,")
+    .replace("Target: MariaDB 10.11, schema version 66.", "Target: MariaDB 10.11, schema version 62.")
+    .replace("VALUES (1, 66,", "VALUES (1, 62,")
     .replace(
       "content_type          ENUM('video_promo', 'video_personal', 'video_tutorial', 'audio_promo', 'audio_personal', 'audio_tutorial', 'image', 'other') NOT NULL DEFAULT 'video_tutorial' COMMENT 'Content medium and purpose. video_promo: Promotional video. video_personal: Personal or general-purpose video. video_tutorial: Instructional video. audio_promo: Promotional audio. audio_personal: Personal or general-purpose audio. audio_tutorial: Instructional audio. image: Still image or graphic. other: Content not represented by the named formats.',",
       "content_type          ENUM('mobileUGC_tutorial', 'mobileUGC_ad', 'webUGC_tutorial', 'webUGC_ad', 'video_ad', 'podcast', 'image', 'unknown') NOT NULL DEFAULT 'mobileUGC_tutorial' COMMENT 'Action-content format and production surface for this item.',",
@@ -37,7 +37,7 @@ export function baselineBeforeTodoPlanningPromptRemoval(source) {
 
 export function baselineBeforeRetiredCheckIn(source) {
   return baselineBeforeTodoPlanningPromptRemoval(source)
-    .replace(/^    source_metadata_json JSON[^\n]+\n/gmu, "")
+    .replace(/^    source_metadata_json\s+[^\n]+\n/gmu, "")
     .replace(
       "dedupe_fingerprint CHAR(64) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Nullable versioned-algorithm SHA-256 used only to find conservative cross-source duplicate candidates. A matching digest is never sufficient when multiple canonical rows match.',",
       "dedupe_fingerprint CHAR(64) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Nullable versioned-algorithm SHA-256 used only to find conservative cross-device duplicate candidates for Android SMS, MMS, and calls. A matching digest is never sufficient when multiple canonical rows match.',",

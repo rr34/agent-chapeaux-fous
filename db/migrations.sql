@@ -16,6 +16,53 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0066: store-json-shaped-values-as-text
+-- writer downtime: required while MariaDB removes JSON-validity constraints
+-- and changes the five JSON aliases to explicit LONGTEXT columns. The matching
+-- application no longer relies on database-side JSON validation.
+-- locking: each ALTER TABLE takes a metadata lock. MariaDB already implements
+-- JSON as LONGTEXT, so the column changes are storage-compatible and do not
+-- intentionally rewrite any value.
+-- recovery: MariaDB DDL commits implicitly. Every constraint drop, constraint
+-- add, and column modification is replayable. Keep writers stopped and rerun
+-- the complete migration after a partial commit, then verify before restart.
+
+ALTER TABLE activity_events
+  DROP CONSTRAINT IF EXISTS activity_events_payload_json;
+
+ALTER TABLE video_scripts
+  DROP CONSTRAINT IF EXISTS video_scripts_json;
+
+ALTER TABLE video_scripts
+  ADD CONSTRAINT IF NOT EXISTS video_scripts_script_json_length
+    CHECK (CHAR_LENGTH(script_json) <= 500000);
+
+ALTER TABLE video_jobs
+  DROP CONSTRAINT IF EXISTS video_jobs_json;
+
+ALTER TABLE correspondence
+  DROP CONSTRAINT IF EXISTS email_keywords_json,
+  DROP CONSTRAINT IF EXISTS source_metadata_json,
+  MODIFY COLUMN email_keywords_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin
+    COMMENT 'Sorted JSON array of active provider-owned JMAP email keywords such as $seen, $flagged, $answered, and $draft. Stored as text and null for non-email correspondence.',
+  MODIFY COLUMN source_metadata_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin
+    COMMENT 'Bounded provider observation metadata not represented by canonical correspondence columns, such as Google Messages transport evidence, reactions, attachment descriptors, timestamp precision, and thread presentation. Stored as text and contains no authentication credentials or attachment bytes.';
+
+ALTER TABLE correspondence_source_aliases
+  DROP CONSTRAINT IF EXISTS source_metadata_json,
+  MODIFY COLUMN source_metadata_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin
+    COMMENT 'Bounded provider observation metadata retained for this additional source identity, including transport evidence, reactions, attachment descriptors, and timestamp precision. Stored as text and contains no authentication credentials or attachment bytes.';
+
+ALTER TABLE object_relationship_edge_index
+  DROP CONSTRAINT IF EXISTS source_key_json,
+  DROP CONSTRAINT IF EXISTS attributes_json,
+  MODIFY COLUMN source_key_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL
+    COMMENT 'Compact identity of the exact authoritative source row. Format: JSON object encoded as text.',
+  MODIFY COLUMN attributes_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL
+    COMMENT 'Owning-domain relationship metadata retained without interpretation. Format: JSON object encoded as text.';
+
+-- end migration 0066
+
 -- migration 0065: indexed-object-relationship-projection
 -- writer downtime: required while the complete relationship projection is
 -- copied, its public view is redirected, and source-table maintenance triggers

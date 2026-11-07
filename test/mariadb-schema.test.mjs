@@ -73,14 +73,14 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 65", () => {
+test("the authoritative MariaDB baseline is complete at schema version 66", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
   assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 49);
   assert.equal(statements.filter((statement) => /^CREATE (?:SQL SECURITY INVOKER )?VIEW\b/iu.test(statement)).length, 9);
   assert.equal(statements.filter((statement) => /\bCREATE TRIGGER\b/iu.test(statement)).length, 105);
   assert.equal(source.match(/\bENUM\(/gu)?.length, 36);
-  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 69);
+  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 67);
   assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 95);
   assert.doesNotMatch(source, /\b(?:[A-Za-z_][A-Za-z0-9_]*_at_utc|ask_after|resolved_at|routine_occurrence_key)\s+VARCHAR\(/u);
   assert.equal(
@@ -175,6 +175,15 @@ test("the authoritative MariaDB baseline is complete at schema version 65", () =
   assert.match(invoiceLineReceiptsTable, /KEY payment_invoice_line_receipts_file \(file_id, payment_invoice_line_id\)/u);
   assert.match(invoiceLineReceiptsTable, /REFERENCES files\(file_id\) ON DELETE RESTRICT/u);
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE correspondence_participants_join ")));
+  assert.doesNotMatch(source, /\bJSON_VALID\s*\(/iu);
+  assert.doesNotMatch(source, /^\s*[A-Za-z_][A-Za-z0-9_]*\s+JSON(?:\s|,)/imu);
+  for (const declaration of [
+    /email_keywords_json\s+LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin/u,
+    /source_metadata_json\s+LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin/u,
+    /source_key_json\s+LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL/u,
+    /attributes_json\s+LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL/u,
+  ]) assert.match(source, declaration);
+  assert.match(source, /video_scripts_script_json_length CHECK \(CHAR_LENGTH\(script_json\) <= 500000\)/u);
   const sourceAliases = statements.find((statement) => statement.startsWith("CREATE TABLE correspondence_source_aliases "));
   assert.ok(sourceAliases);
   assert.match(sourceAliases, /UNIQUE KEY correspondence_source_alias_identity \(medium, source_account_key, external_id\)/u);
@@ -203,11 +212,25 @@ test("the authoritative MariaDB baseline is complete at schema version 65", () =
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 65, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 66, 'Chapeaux Fous MariaDB database'\)$/);
   assert.equal(
     requiredDatabaseSchemaVersion,
     readMigrationLedger(path.join(root, "db", "migrations.sql")).at(-1).version,
   );
+});
+
+test("migration 66 removes MariaDB JSON verification while preserving text limits", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 66);
+  assert.equal(migration.label, "0066:store-json-shaped-values-as-text");
+  assert.match(migration.sql, /DROP CONSTRAINT IF EXISTS activity_events_payload_json/u);
+  assert.match(migration.sql, /DROP CONSTRAINT IF EXISTS video_scripts_json/u);
+  assert.match(migration.sql, /DROP CONSTRAINT IF EXISTS video_jobs_json/u);
+  for (const column of ["email_keywords_json", "source_metadata_json", "source_key_json", "attributes_json"]) {
+    assert.match(migration.sql, new RegExp(`MODIFY COLUMN ${column} LONGTEXT`, "u"));
+  }
+  assert.match(migration.sql, /video_scripts_script_json_length[\s\S]*CHAR_LENGTH\(script_json\) <= 500000/u);
+  assert.doesNotMatch(migration.sql, /JSON_VALID\s*\(/iu);
 });
 
 test("relationship edge trigger DDL stays synchronized with its canonical generator", () => {

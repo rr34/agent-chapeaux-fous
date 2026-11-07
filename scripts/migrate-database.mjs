@@ -382,6 +382,40 @@ async function assertVersion32Integrity(connection, databaseName) {
 export async function assertMigrationSpecificIntegrity(
   connection, migration, databaseName, schemaVersion = migration.version,
 ) {
+  if (migration.version === 66) {
+    const [columns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE,
+        CHARACTER_SET_NAME, COLLATION_NAME, IS_NULLABLE
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND (
+        (TABLE_NAME = 'correspondence' AND COLUMN_NAME IN ('email_keywords_json','source_metadata_json'))
+        OR (TABLE_NAME = 'correspondence_source_aliases' AND COLUMN_NAME = 'source_metadata_json')
+        OR (TABLE_NAME = 'object_relationship_edge_index' AND COLUMN_NAME IN ('source_key_json','attributes_json'))
+      )`, [databaseName]);
+    const byName = new Map(columns.map((row) => [`${row.TABLE_NAME}.${row.COLUMN_NAME}`, row]));
+    for (const [name, nullable] of [
+      ["correspondence.email_keywords_json", "YES"],
+      ["correspondence.source_metadata_json", "YES"],
+      ["correspondence_source_aliases.source_metadata_json", "YES"],
+      ["object_relationship_edge_index.source_key_json", "NO"],
+      ["object_relationship_edge_index.attributes_json", "NO"],
+    ]) {
+      const column = byName.get(name);
+      if (column?.DATA_TYPE !== "longtext" || column.CHARACTER_SET_NAME !== "utf8mb4"
+          || column.COLLATION_NAME !== "utf8mb4_bin" || column.IS_NULLABLE !== nullable) {
+        throw new Error(`Migration 0066 must store ${name} as explicit utf8mb4_bin LONGTEXT`);
+      }
+    }
+    const [checks] = await connection.query(`SELECT CONSTRAINT_NAME, CHECK_CLAUSE
+      FROM information_schema.CHECK_CONSTRAINTS
+      WHERE CONSTRAINT_SCHEMA = ?`, [databaseName]);
+    if (checks.some((row) => /\bJSON_VALID\s*\(/iu.test(String(row.CHECK_CLAUSE ?? "")))) {
+      throw new Error("Migration 0066 must remove every MariaDB JSON-validity constraint");
+    }
+    const videoLength = checks.find((row) => row.CONSTRAINT_NAME === "video_scripts_script_json_length");
+    if (!/CHAR_LENGTH\s*\(\s*`?script_json`?\s*\)\s*<=\s*500000/iu.test(String(videoLength?.CHECK_CLAUSE ?? ""))) {
+      throw new Error("Migration 0066 must preserve the video script JSON-text length limit");
+    }
+  }
   if (migration.version === 65) {
     const [objects] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE
       FROM information_schema.TABLES
@@ -514,7 +548,7 @@ export async function assertMigrationSpecificIntegrity(
       const column = columns.find((row) => row.TABLE_NAME === tableName
         && row.COLUMN_NAME === "source_metadata_json");
       if (column?.COLUMN_TYPE !== "longtext" || column.IS_NULLABLE !== "YES") {
-        throw new Error(`Migration 0062 did not establish nullable ${tableName}.source_metadata_json JSON storage`);
+        throw new Error(`Migration 0062 did not establish nullable ${tableName}.source_metadata_json text storage`);
       }
     }
     const medium = columns.find((row) => row.TABLE_NAME === "correspondence_source_aliases"
@@ -578,7 +612,7 @@ export async function assertMigrationSpecificIntegrity(
     if (missingColumns.length) throw new Error(`Migration 0060 is missing mailbox columns: ${missingColumns.join(", ")}`);
     const keywordColumn = columns.find((row) => row.TABLE_NAME === "correspondence" && row.COLUMN_NAME === "email_keywords_json");
     if (keywordColumn?.COLUMN_TYPE !== "longtext" || keywordColumn.IS_NULLABLE !== "YES") {
-      throw new Error("Migration 0060 did not establish nullable correspondence.email_keywords_json JSON storage");
+      throw new Error("Migration 0060 did not establish nullable correspondence.email_keywords_json text storage");
     }
     const [keys] = await connection.query(`SELECT TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME,
         REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME, ORDINAL_POSITION

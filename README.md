@@ -1125,9 +1125,14 @@ already-applied block is skipped. See `db/MIGRATIONS.md` for the required
 backup, downtime, verification, and recovery procedure.
 
 Closed vocabularies are native MariaDB `ENUM` columns. `CHECK` constraints are
-reserved for booleans, ranges, JSON validity, and rules involving more than one
-value. Application database sessions require a strict SQL mode so invalid enum
-input fails instead of being coerced to MariaDB's special empty enum value.
+reserved for booleans, ranges, and rules involving more than one value.
+JSON-shaped values use explicit `LONGTEXT`; MariaDB does not validate their JSON
+syntax, and owning application boundaries serialize, parse, and validate them.
+Do not use MariaDB's `JSON` alias, add `JSON_VALID` constraints, or ask MariaDB
+to verify JSON syntax in read queries. SQL may extract known fields from
+JSON-shaped text when useful, but JSON acceptance remains application-owned.
+Application database sessions require a strict SQL mode so invalid enum input
+fails instead of being coerced to MariaDB's special empty enum value.
 
 `profile_facts` is the authoritative store for durable user facts. Multiple
 active rows may share a broad type such as `vehicle`; their text identifies the

@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 65.
+-- Target: MariaDB 10.11, schema version 66.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -106,8 +106,7 @@ CREATE TABLE activity_events (
     KEY activity_events_type (event_type, occurred_at_ms),
     FULLTEXT KEY activity_events_fulltext (name, content_text, source),
     CONSTRAINT activity_events_primary_file
-      FOREIGN KEY (primary_file_id) REFERENCES files(file_id) ON DELETE SET NULL,
-    CONSTRAINT activity_events_payload_json CHECK (JSON_VALID(payload_json))
+      FOREIGN KEY (primary_file_id) REFERENCES files(file_id) ON DELETE SET NULL
 ) ENGINE=InnoDB COMMENT='Preserves a chronological, searchable record of activity visible at the boundaries between users, agents, models, tools, services, and external systems. One row represents one observed event, such as a request arriving, a model call starting, a tool returning a result, a response being produced, or an error occurring. Treat rows as append-oriented historical evidence; corrections should normally be recorded as later events rather than rewriting prior observations. Use event_seq for exact local insertion order and occurred_at_ms for source-event chronology. Sensitivity: May contain private user content, tool arguments, model-visible data, errors, and operational identifiers.';
 
 CREATE TABLE activity_event_files_join (
@@ -897,7 +896,7 @@ CREATE TABLE video_scripts (
     CONSTRAINT video_scripts_event FOREIGN KEY (created_by_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
     CONSTRAINT video_scripts_title CHECK (CHAR_LENGTH(TRIM(title)) BETWEEN 1 AND 200),
     CONSTRAINT video_scripts_schema CHECK (schema_version = 1),
-    CONSTRAINT video_scripts_json CHECK (CHAR_LENGTH(script_json) <= 500000 AND JSON_VALID(script_json)),
+    CONSTRAINT video_scripts_script_json_length CHECK (CHAR_LENGTH(script_json) <= 500000),
     CONSTRAINT video_scripts_text CHECK (CHAR_LENGTH(TRIM(script_text)) BETWEEN 1 AND 500000),
     CONSTRAINT video_scripts_version CHECK (version > 0),
     CONSTRAINT video_scripts_archive_state CHECK ((status = 'draft' AND archived_at_utc IS NULL) OR (status = 'archived' AND archived_at_utc IS NOT NULL))
@@ -971,8 +970,7 @@ CREATE TABLE video_jobs (
     CONSTRAINT video_jobs_content FOREIGN KEY (content_id) REFERENCES content_items(content_id) ON DELETE SET NULL,
     CONSTRAINT video_jobs_file FOREIGN KEY (output_file_id) REFERENCES files(file_id) ON DELETE SET NULL,
     CONSTRAINT video_jobs_task FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE SET NULL,
-    CONSTRAINT video_jobs_script FOREIGN KEY (video_script_id) REFERENCES video_scripts(video_script_id) ON DELETE SET NULL,
-    CONSTRAINT video_jobs_json CHECK (JSON_VALID(input_json))
+    CONSTRAINT video_jobs_script FOREIGN KEY (video_script_id) REFERENCES video_scripts(video_script_id) ON DELETE SET NULL
 ) ENGINE=InnoDB COMMENT='Tracks background execution attempts for script-driven video productions and any retained legacy render jobs. One row represents one attempt to render one video using one renderer, template, input package, and eventual output or error. A script-driven video job is subordinate execution state and never replaces its authoritative video_scripts record. At most one queued, preparing, or rendering job may exist for one linked script. Every meaningful state transition should also be observable in activity_events. Sensitivity: May contain private source interactions, render inputs, output paths, and errors.';
 
 CREATE TABLE profile_facts (
@@ -1037,8 +1035,8 @@ CREATE TABLE correspondence (
     call_disposition  ENUM('answered', 'missed') COMMENT 'Whether a call was answered. Every call normalizes all unanswered outcomes to missed. Null for non-call rows.',
     call_duration_seconds BIGINT UNSIGNED COMMENT 'Elapsed connected or reported call duration in whole seconds when supplied by the source. Null when unavailable and for non-call rows.',
     provider_status   VARCHAR(64) COMMENT 'Unmodified provider-specific state retained when it conveys detail not represented by delivery_status or call_disposition.',
-    email_keywords_json JSON COMMENT 'Sorted JSON array of active provider-owned JMAP email keywords such as $seen, $flagged, $answered, and $draft. Null for non-email correspondence.',
-    source_metadata_json JSON COMMENT 'Bounded provider observation metadata not represented by canonical correspondence columns, such as Google Messages transport evidence, reactions, attachment descriptors, timestamp precision, and thread presentation. It contains no authentication credentials or attachment bytes.',
+    email_keywords_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin COMMENT 'Sorted JSON array of active provider-owned JMAP email keywords such as $seen, $flagged, $answered, and $draft. Stored as text and null for non-email correspondence.',
+    source_metadata_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin COMMENT 'Bounded provider observation metadata not represented by canonical correspondence columns, such as Google Messages transport evidence, reactions, attachment descriptors, timestamp precision, and thread presentation. Stored as text and contains no authentication credentials or attachment bytes.',
     occurred_at_utc   DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'Primary source-reported instant used to order this communication. For calls this is the call start; for messages it is the best available sent or received instant. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     sent_at_utc       DATETIME(3) COMMENT 'UTC instant when the message was sent, when known. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     received_at_utc   DATETIME(3) COMMENT 'UTC instant when the message was received, when known. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
@@ -1070,7 +1068,7 @@ CREATE TABLE correspondence_source_aliases (
     thread_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Source-local conversation identifier observed on this additional device.',
     external_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Provider-assigned identifier on this additional source device.',
     provider_status VARCHAR(64) COMMENT 'Latest source-specific status observed through this alias when it contains detail not retained canonically.',
-    source_metadata_json JSON COMMENT 'Bounded provider observation metadata retained for this additional source identity, including transport evidence, reactions, attachment descriptors, and timestamp precision. It contains no authentication credentials or attachment bytes.',
+    source_metadata_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin COMMENT 'Bounded provider observation metadata retained for this additional source identity, including transport evidence, reactions, attachment descriptors, and timestamp precision. Stored as text and contains no authentication credentials or attachment bytes.',
     source_event_id VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Synchronization event that first established this additional source identity.',
     first_observed_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this additional source identity was first synchronized.',
     last_observed_at_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when this additional source identity was most recently synchronized.',
@@ -1225,12 +1223,12 @@ CREATE TABLE object_relationship_edge_index (
     to_id VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Text-preserving local or provider identifier of the related endpoint.',
     relationship_family VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Broad structural relationship family.',
     source_table VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Authoritative table containing the relationship or direct foreign key.',
-    source_key_json JSON NOT NULL COMMENT 'Compact identity of the exact authoritative source row.',
+    source_key_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL COMMENT 'Compact identity of the exact authoritative source row. Format: JSON object encoded as text.',
     source_key_sha256 BINARY(32) NOT NULL COMMENT 'Deterministic digest of source_key_json used only for indexed maintenance and uniqueness.',
     created_at_utc DATETIME(3) COMMENT 'Relationship creation instant when the authoritative source records that exact fact.',
     relationship_qualifier VARCHAR(255) COMMENT 'Compact owning-domain role or kind used by bounded filtering and simple-connection behavior.',
     sort_order BIGINT COMMENT 'Owning-domain ordering value when the relationship has one.',
-    attributes_json JSON NOT NULL COMMENT 'Owning-domain relationship metadata retained without interpretation.',
+    attributes_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL COMMENT 'Owning-domain relationship metadata retained without interpretation. Format: JSON object encoded as text.',
     is_reverse TINYINT NOT NULL COMMENT '0 for the canonical source direction and 1 for its inverse lookup row.',
     PRIMARY KEY (source_table, source_key_sha256, relationship_type, from_type, to_type, is_reverse),
     KEY object_relationship_edge_lookup (from_type, from_id, to_type, to_id),
@@ -4969,4 +4967,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 65, 'Chapeaux Fous MariaDB database');
+VALUES (1, 66, 'Chapeaux Fous MariaDB database');

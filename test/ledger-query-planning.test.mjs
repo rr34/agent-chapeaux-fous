@@ -212,14 +212,17 @@ test("file listing searches every query term across durable server metadata", ()
   ]);
 });
 
-test("music file listing filters structured metadata before applying its limit", () => {
+test("music file listing validates JSON-shaped text in application code", () => {
   const calls = [];
   const database = {
     prepare(sql) {
       return {
         all(...parameters) {
           calls.push({ sql, parameters });
-          return [];
+          return [
+            { file_id: 1, media_kind: "audio", description: "ordinary text", created_at_utc: "2026-01-02" },
+            { file_id: 2, media_kind: "audio", description: JSON.stringify({ schemaVersion: 2 }), created_at_utc: "2026-01-01" },
+          ];
         },
       };
     },
@@ -231,9 +234,6 @@ test("music file listing filters structured metadata before applying its limit",
   assert.equal(result.musicMetadataOnly, true);
   assert.equal(calls.length, 1);
   assert.match(calls[0].sql, /file\.media_kind = \?/u);
-  assert.match(calls[0].sql, /JSON_VALID\(file\.description\) = 1/u);
-  assert.match(calls[0].sql, /JSON_EXTRACT\(file\.description, '\$\.schemaVersion'\)/u);
-  assert.match(calls[0].sql, /IN \('1', '2'\)/u);
-  assert.ok(calls[0].sql.indexOf("JSON_VALID") < calls[0].sql.indexOf("LIMIT ?"));
-  assert.deepEqual(calls[0].parameters, ["audio", 500]);
+  assert.doesNotMatch(calls[0].sql, /JSON_(?:EXTRACT|VALID)/u);
+  assert.deepEqual(calls[0].parameters, ["audio", 500, 0]);
 });

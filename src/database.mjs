@@ -1,6 +1,6 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 
-export const requiredDatabaseSchemaVersion = 65;
+export const requiredDatabaseSchemaVersion = 66;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],

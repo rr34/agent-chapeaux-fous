@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { activeDeferredActionReferences } from "./deferred-actions.mjs";
 import { safeJson } from "./redaction.mjs";
 import { requestCallCounts } from "./request-metrics.mjs";
+import { parseMusicMetadataDescription } from "./music-metadata.mjs";
 import { llmCallCountForUsage } from "../public/ai-usage.js";
 import {
   mergeObjectReferenceGroups,
@@ -1856,12 +1857,6 @@ export class Ledger {
       conditions.push("file.media_kind = ?");
       values.push(selectedMediaKind);
     }
-    if (musicMetadataOnly) {
-      conditions.push(`(
-        JSON_VALID(file.description) = 1
-        AND JSON_UNQUOTE(JSON_EXTRACT(file.description, '$.schemaVersion')) IN ('1', '2')
-      )`);
-    }
     for (const pattern of searchPatterns(selectedQuery)) {
       conditions.push(`(
         file.title LIKE ? ESCAPE '\\\\'
@@ -1871,13 +1866,31 @@ export class Ledger {
       )`);
       values.push(pattern, pattern, pattern, pattern);
     }
-    const rows = this.store.requireReady().prepare(`
+    const database = this.store.requireReady();
+    const sql = `
       SELECT file.*
       FROM files AS file
       ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
       ORDER BY file.created_at_utc DESC, file.file_id DESC
-      LIMIT ?
-    `).all(...values, bounded).map(publicFile);
+      LIMIT ?${musicMetadataOnly ? " OFFSET ?" : ""}
+    `;
+    if (!musicMetadataOnly) {
+      const rows = database.prepare(sql).all(...values, bounded).map(publicFile);
+      return { query: selectedQuery || null, mediaKind, musicMetadataOnly, count: rows.length, files: rows };
+    }
+    const statement = database.prepare(sql);
+    const rows = [];
+    const pageSize = 500;
+    let offset = 0;
+    while (rows.length < bounded) {
+      const page = statement.all(...values, pageSize, offset).map(publicFile);
+      for (const file of page) {
+        if (parseMusicMetadataDescription(file.description).metadata) rows.push(file);
+        if (rows.length === bounded) break;
+      }
+      offset += page.length;
+      if (page.length < pageSize) break;
+    }
     return { query: selectedQuery || null, mediaKind, musicMetadataOnly, count: rows.length, files: rows };
   }
 

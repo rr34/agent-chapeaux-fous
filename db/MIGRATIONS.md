@@ -11,6 +11,23 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 66: Store JSON-shaped values as text
+
+Removes every MariaDB JSON-validity constraint, changes the five columns that
+used MariaDB's `JSON` alias to explicit UTF-8 `LONGTEXT`, and preserves the
+independent size limit on video-script plans. JSON serialization, parsing, and
+schema validation remain application responsibilities. SQL may still extract
+known fields from JSON-shaped text where that supports a bounded read, but the
+database no longer certifies JSON syntax on writes or reads.
+
+Apply with writers stopped because the migration changes columns and
+constraints on active application tables. Each `ALTER TABLE` takes a metadata
+lock. MariaDB implements its `JSON` alias as `LONGTEXT`, so the type changes are
+storage-compatible and do not intentionally rewrite stored values. Every DDL
+operation is guarded or idempotent; after a partial implicit commit, keep
+writers stopped, replay the complete migration, and run `npm run db:verify`
+before restart.
+
 ## Version 65: Indexed object relationship projection
 
 Adds `object_relationship_edge_index`, populates it from the complete canonical

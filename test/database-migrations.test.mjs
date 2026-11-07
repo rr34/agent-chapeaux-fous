@@ -30,6 +30,44 @@ const block = (version, name = `migration-${version}`, sql = `SELECT ${version};
   return `-- migration ${label}: ${name}\n${sql}\n-- end migration ${label}\n`;
 };
 
+test("JSON-shaped storage integrity requires text columns and no MariaDB JSON validation", async () => {
+  const columns = [
+    ["correspondence", "email_keywords_json", "YES"],
+    ["correspondence", "source_metadata_json", "YES"],
+    ["correspondence_source_aliases", "source_metadata_json", "YES"],
+    ["object_relationship_edge_index", "source_key_json", "NO"],
+    ["object_relationship_edge_index", "attributes_json", "NO"],
+  ].map(([TABLE_NAME, COLUMN_NAME, IS_NULLABLE]) => ({
+    TABLE_NAME, COLUMN_NAME, IS_NULLABLE,
+    DATA_TYPE: "longtext", CHARACTER_SET_NAME: "utf8mb4", COLLATION_NAME: "utf8mb4_bin",
+  }));
+  const lengthCheck = {
+    CONSTRAINT_NAME: "video_scripts_script_json_length",
+    CHECK_CLAUSE: "char_length(`script_json`) <= 500000",
+  };
+  const connection = ({ selectedColumns = columns, checks = [lengthCheck] } = {}) => ({ async query(sql) {
+    if (sql.includes("information_schema.COLUMNS")) return [selectedColumns];
+    if (sql.includes("information_schema.CHECK_CONSTRAINTS")) return [checks];
+    throw new Error(`Unexpected SQL: ${sql}`);
+  } });
+  await assertMigrationSpecificIntegrity(connection(), { version: 66 }, "test_database");
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ selectedColumns: columns.slice(1) }), { version: 66 }, "test_database"),
+    /explicit utf8mb4_bin LONGTEXT/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ checks: [
+      lengthCheck,
+      { CONSTRAINT_NAME: "payload_json", CHECK_CLAUSE: "json_valid(`payload_json`)" },
+    ] }), { version: 66 }, "test_database"),
+    /remove every MariaDB JSON-validity constraint/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ checks: [] }), { version: 66 }, "test_database"),
+    /preserve the video script JSON-text length limit/u,
+  );
+});
+
 test("indexed relationship projection integrity requires its table, lookup key, views, and source triggers", async () => {
   const objects = [
     { TABLE_NAME: "object_relationship_edge_index", TABLE_TYPE: "BASE TABLE" },
@@ -79,7 +117,7 @@ test("indexed relationship projection integrity requires its table, lookup key, 
   );
 });
 
-test("Google Messages metadata integrity requires JSON columns and the complete alias medium vocabulary", async () => {
+test("Google Messages metadata integrity requires text columns and the complete alias medium vocabulary", async () => {
   const completeMedium = `enum(${requiredEnumColumns.correspondence_source_aliases.medium
     .map((value) => `'${value}'`).join(",")})`;
   const columns = [
@@ -849,11 +887,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65]);
-  for (let current = 29; current <= 65; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66]);
+  for (let current = 29; current <= 66; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 65 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 66 - current }, (_, index) => current + index + 1),
     );
   }
 });
