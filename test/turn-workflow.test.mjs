@@ -132,6 +132,124 @@ test("prior receipt evidence requires an actual operational continuation", () =>
   assert.equal(needsPriorOperationalEvidence("Resume the existing accounting import.", [], []), true);
   assert.equal(needsPriorOperationalEvidence("Can you apply that now?", [], []), true);
   assert.equal(needsPriorOperationalEvidence("You can connect the remaining records.", [], []), true);
+  assert.equal(needsPriorOperationalEvidence("I want to see the description of the job.", [], []), true);
+});
+
+test("a definite job follow-up keeps the native task primary key and owning capability", async () => {
+  const requests = [];
+  const taskRef = "agent-slayer://todos/471";
+  const ledger = fakeLedger({
+    conversation: [{
+      eventSeq: 53998,
+      requestId: "request-update-watch-job",
+      role: "assistant",
+      content: "Updated Watch Jobs item 172 for Jim Frohlich.",
+      objectReferences: [{
+        mention: "To-do returned by todo_update",
+        role: "subject",
+        type: "todos.personal_task",
+        source: "native:todos",
+        objects: [{
+          id: 471,
+          ref: taskRef,
+          display: "Watch Job — Jim Frohlich — six watches",
+        }],
+        sourceEventSeqs: [53997],
+      }],
+    }],
+  });
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  registry.withCapability("todos", {}, {
+    todo_list: { allowUnboundInputs: true, objectTypes: ["todos.personal_task"] },
+  }).register({
+    name: "todo_list",
+    description: "Read exact native personal to-dos by their database primary IDs.",
+    annotations: { readOnlyHint: true, destructiveHint: false },
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        personal_task_ids: {
+          type: "array", items: { type: "integer", minimum: 1 },
+        },
+      },
+      required: ["personal_task_ids"],
+    },
+    outputSchema: { type: "object", properties: { tasks: { type: "array" } } },
+    readResultCollectionPaths: ["/tasks"],
+    async execute({ personal_task_ids }) {
+      assert.deepEqual(personal_task_ids, [471]);
+      return { tasks: [{
+        personal_task_id: 471,
+        todo_group_id: 10,
+        sequence: 172,
+        group_name: "Watch Jobs",
+        text: "Watch Job — Jim Frohlich — six watches",
+        status: "todo",
+        ref: taskRef,
+      }] };
+    },
+  });
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    toolSelectionRunTurn: async (payload) => {
+      const available = payload.outputSchema.properties.selectedTools.items.enum;
+      assert.ok(available.includes("todo_list"),
+        "the exact selected native task must make its owning read capability callable");
+      return completed(JSON.stringify({
+        version: 1,
+        summary: "Read the exact native personal to-do.",
+        selectedTools: ["todo_list"],
+      }));
+    },
+    runTurn: async (payload, index) => {
+      if (index === 0) {
+        assert.match(payload.developerInstructions, /"personal_task_id":\s*471/u);
+        assert.doesNotMatch(payload.developerInstructions, /"personal_task_id":\s*172/u);
+        return completed(JSON.stringify(core({
+          mode: "answer",
+          objective: "Show the description of the previously updated watch job.",
+          conversationSummary: "The user means the native Watch Jobs task just updated.",
+          actions: [{
+            instruction: "Read the previously updated watch job.",
+            targetRefs: [taskRef],
+          }],
+          // Simulate omission of the semantic capability. The exact selected
+          // object still deterministically contributes its owning capability.
+          capabilities: [],
+        })));
+      }
+      assert.equal(index, 1);
+      const result = await payload.onToolCall({
+        callId: "read-watch-job-471",
+        tool: "todo_list",
+        arguments: {
+          personal_task_ids: [471],
+          result_filter: {
+            collection_path: null,
+            query: null,
+            match_mode: "all_terms",
+            include_fields: [],
+            exclude_fields: [],
+            max_items: 1,
+            max_characters: 5_000,
+          },
+        },
+      });
+      assert.equal(result.ok, true, result.error);
+      return completed("Watch Job — Jim Frohlich — six watches", 30);
+    },
+  });
+
+  assert.equal(await runtime.run({
+    requestId: "request-watch-job-description",
+    requestEventId: "event-current",
+    text: "I want to see the description of the job.",
+  }), "Watch Job — Jim Frohlich — six watches");
+  assert.equal(requests.length, 2);
 });
 
 function workflowConfig() {

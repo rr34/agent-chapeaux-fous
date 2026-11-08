@@ -134,6 +134,7 @@ function selectedObjectCandidateGroups(candidates, sourceEventSeq) {
 const explicitOperationalContinuationCue = /(?:^\s*you\s+can\b|\b(?:again|approve|confirm|continue|go\s+ahead|proceed|resume)\b|\b(?:earlier|previous(?:ly)?|prior)\s+(?:action|attempt|import|interaction|operation|request|response|result|search|tool|work)\b|\b(?:the\s+same|same\s+one|as\s+before)\b)/iu;
 const leadingOperationalReferenceCue = /^\s*(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:that|this|it|those|them|what\s+happened|tell\s+me\s+more|why\s+(?:did|was|is)|how\s+about|what\s+about)\b/iu;
 const actionOperationalReferenceCue = /\b(?:apply|archive|approve|change|connect|continue|delete|do|email|find|forward|move|open|read|remove|reply\s+to|restore|resume|send|show|trash|update|use)\s+(?:that|this|it|those|them)\b/iu;
+const definiteObjectContinuationCue = /\b(?:the|this|that)\s+(?:(?:current|recent|updated)\s+)?(?:(?:description|details?|status|text)\s+(?:of|for)\s+(?:the|this|that)\s+)?(?:appointment|contact|event|file|group|invoice|item|job|record|routine|task|to[ -]?do)\b/iu;
 const localCalendarCue = /(?:\b(?:today|tomorrow|yesterday|tonight|morning|afternoon|evening|sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b|\b(?:this|next|last)\s+(?:day|week|month|year|weekend)\b|\b\d{4}-\d{2}-\d{2}\b)/iu;
 
 export function needsPriorOperationalEvidence(requestText, selectedObjectCandidates, referencedExchanges) {
@@ -145,7 +146,12 @@ export function needsPriorOperationalEvidence(requestText, selectedObjectCandida
   const text = String(requestText ?? "");
   return explicitOperationalContinuationCue.test(text)
     || leadingOperationalReferenceCue.test(text)
-    || actionOperationalReferenceCue.test(text);
+    || actionOperationalReferenceCue.test(text)
+    // Definite singular object phrases are ordinary follow-up references even
+    // when they are embedded in a sentence rather than led by "it" or "that".
+    // The relevance filter still decides which exact recent binding, if any,
+    // has literal support in the active conversation.
+    || definiteObjectContinuationCue.test(text);
 }
 
 function needsLocalCalendar(requestText) {
@@ -1476,6 +1482,9 @@ export class SlayerRuntime {
     const selectedObjectCapabilities = selectedObjectCandidates
       .map(selectedObjectCapability)
       .filter(Boolean);
+    const selectedReferenceCapabilities = flatObjectReferences(selectedObjectReferences)
+      .map(selectedObjectCapability)
+      .filter(Boolean);
     const confirmedToolCapabilities = confirmedActionReferences
       .map(({ targetTool }) => availableTools.find(({ name }) => name === targetTool))
       .filter(Boolean)
@@ -1485,6 +1494,7 @@ export class SlayerRuntime {
       ...directlyRoutedCapabilities,
       ...explicitHatCapabilities,
       ...selectedObjectCapabilities,
+      ...selectedReferenceCapabilities,
       ...confirmedToolCapabilities,
     ])];
     const receiptReader = recentToolReceipts.length

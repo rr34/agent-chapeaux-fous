@@ -1276,7 +1276,7 @@ consumer tests for discovery, orientation, exact schema selection, tool-result
 return, and third-party compatibility. A provider change to these contracts
 must update and pass its provider tests and the relevant agent consumer cases.
 
-Native calendar, contact, to-do, journal, email, profile, file, guide, search, and
+Native calendar, contact, to-do, journal, email, profile, file, search, and
 video tools use the same domain services as their HTTP and UI adapters. Generic
 database mutation is limited to an explicit allowlist of transitional tables
 whose mutation ownership has been deliberately assigned.
