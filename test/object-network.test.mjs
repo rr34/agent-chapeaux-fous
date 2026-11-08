@@ -67,10 +67,10 @@ function fixture({ relationshipKind = null } = {}) {
           status: "confirmed", recurrence_rule: null,
         }];
         if (/FROM object_relationship_edges/u.test(sql)) return [
-          { type: "todos.todo_group", id: "3", kind: "todo-group", removable: 0 },
+          { relationship_type: "todo-group", related_id: "3", is_reverse: 1 },
           ...(kind ? [{
-            type: "calendar.event", id: "9", kind: "todo-event",
-            removable: kind === "context" ? 1 : 0,
+            relationship_type: kind === "context" ? "todo-event" : "todo-event-owned",
+            related_id: "9", is_reverse: 1,
           }] : []),
         ];
         throw new Error(`Unexpected all: ${sql}`);
@@ -101,9 +101,9 @@ test("the object network keeps exact bindings and presents real connected object
   assert.deepEqual(graph.connections.map(({ object, removable }) => ({
     ref: object.ref, display: object.display, removable,
   })), [{
-    ref: "agent-slayer://todo-groups/3", display: "Construction", removable: false,
-  }, {
     ref: "agent-slayer://calendar-events/9", display: "Kitchen walk-through", removable: true,
+  }, {
+    ref: "agent-slayer://todo-groups/3", display: "Construction", removable: false,
   }]);
   assert.deepEqual(graph.connectableTypes,
     ["contacts.contact", "calendar.event", "video.content_item", "things.physical_item", "correspondence.item"]);
@@ -125,7 +125,7 @@ test("the object network batch-hydrates every connected object type", () => {
       },
       all() {
         if (/FROM object_relationship_edges/u.test(sql)) return [9, 10, 11].map((id) => ({
-          type: "calendar.event", id: String(id), kind: "todo-event", removable: 1,
+          relationship_type: "todo-event", related_id: String(id), is_reverse: 1,
         }));
         if (/FROM calendar_events WHERE calendar_event_id IN \(\?, \?, \?\)/u.test(sql)) {
           eventReads += 1;
@@ -178,7 +178,7 @@ test("a one-click correspondence/event connection uses the correspondence domain
           occurred_at_utc: "2026-10-05 12:00:00.000",
         }];
         if (/FROM object_relationship_edges/u.test(sql)) return linked
-          ? [{ type: "correspondence.item", id: "15", kind: "event-correspondence", removable: 1 }]
+          ? [{ relationship_type: "event-correspondence", related_id: "15", is_reverse: 0 }]
           : [];
         throw new Error(`Unexpected all: ${sql}`);
       },
@@ -244,12 +244,14 @@ test("the simple network control preserves specialized physical-item meanings", 
           original_filename: "drill-warranty.pdf", media_kind: "document",
           mime_type: "application/pdf", byte_size: 400,
         };
-        if (/SELECT relationship_qualifier FROM object_relationship_edges/u.test(sql)) {
-          return { relationship_qualifier: "warranty" };
-        }
         throw new Error(`Unexpected get: ${sql}`);
       },
-      all() { throw new Error(`Unexpected all: ${sql}`); },
+      all() {
+        if (/SELECT relationship_type FROM object_relationship_edges/u.test(sql)) {
+          return [{ relationship_type: "thing-file-owned" }];
+        }
+        throw new Error(`Unexpected all: ${sql}`);
+      },
     };
   } };
   const service = new ObjectNetworkService({

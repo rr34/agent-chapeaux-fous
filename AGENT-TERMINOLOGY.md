@@ -286,12 +286,14 @@ workflows such as Daily Paper and Payments invoices.
 
 **60. Object relationship-edge view** — The read-only indexed MariaDB consumer
 surface `object_relationship_edges`. Its transactionally maintained derived
-table normalizes all physical `_join` tables and the reviewed direct native
-relationships used by the interactive object network, emitting each current
-edge in both directions with typed endpoints and source evidence. The complete
-`object_relationship_edges_source` computation owns rebuild and parity audit.
-Neither surface is an authority, mutation path, recursive graph traversal,
-first-class-object declaration, or immutable relationship reference set.
+table stores one canonical enum-and-two-ID existence tuple for each distinct
+reviewed connection between first-class native objects. The enum contract fixes
+the ordered endpoint types; separate forward and reverse indexes support either
+lookup direction without duplicating the relationship. The compact
+`object_relationship_edges_source` computation owns rebuild and exact parity
+audit. Neither surface is an authority, mutation path, recursive graph
+traversal, first-class-object declaration, source-evidence replica, or
+immutable relationship reference set.
 
 **61. Physical item** — One authoritative native record of a physical
 possession, or a counted set of equivalent possessions, shown in the product's

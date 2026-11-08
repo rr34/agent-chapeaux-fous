@@ -16,6 +16,1027 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0067: compact-first-class-object-adjacency
+-- writer downtime: required while the obsolete wide projection, its views,
+-- and maintenance triggers are replaced. Authoritative domain relationships
+-- are not changed. The matching application requires the compact view shape.
+-- locking: dropping the derived table and replacing views and triggers takes
+-- metadata locks. Population reads only reviewed first-class relationship
+-- sources and writes one small canonical row per distinct logical edge.
+-- recovery: MariaDB DDL commits implicitly. Keep writers stopped after any
+-- failure and replay this complete block. It drops and rebuilds only derived
+-- relationship-index state and recreates all compact maintenance triggers.
+
+DROP VIEW IF EXISTS object_relationship_edges;
+DROP VIEW IF EXISTS object_relationship_edges_source;
+
+DROP TRIGGER IF EXISTS ore_activity_event_files_join_ai;
+DROP TRIGGER IF EXISTS ore_activity_event_files_join_au;
+DROP TRIGGER IF EXISTS ore_activity_event_files_join_ad;
+DROP TRIGGER IF EXISTS ore_contacts_tags_join_ai;
+DROP TRIGGER IF EXISTS ore_contacts_tags_join_au;
+DROP TRIGGER IF EXISTS ore_contacts_tags_join_ad;
+DROP TRIGGER IF EXISTS ore_calendar_event_contacts_join_ai;
+DROP TRIGGER IF EXISTS ore_calendar_event_contacts_join_au;
+DROP TRIGGER IF EXISTS ore_calendar_event_contacts_join_ad;
+DROP TRIGGER IF EXISTS ore_payment_invoice_line_receipts_join_ai;
+DROP TRIGGER IF EXISTS ore_payment_invoice_line_receipts_join_au;
+DROP TRIGGER IF EXISTS ore_payment_invoice_line_receipts_join_ad;
+DROP TRIGGER IF EXISTS ore_calendar_events_todo_join_ai;
+DROP TRIGGER IF EXISTS ore_calendar_events_todo_join_au;
+DROP TRIGGER IF EXISTS ore_calendar_events_todo_join_ad;
+DROP TRIGGER IF EXISTS ore_todo_content_join_ai;
+DROP TRIGGER IF EXISTS ore_todo_content_join_au;
+DROP TRIGGER IF EXISTS ore_todo_content_join_ad;
+DROP TRIGGER IF EXISTS ore_physical_items_todo_join_ai;
+DROP TRIGGER IF EXISTS ore_physical_items_todo_join_au;
+DROP TRIGGER IF EXISTS ore_physical_items_todo_join_ad;
+DROP TRIGGER IF EXISTS ore_physical_items_content_join_ai;
+DROP TRIGGER IF EXISTS ore_physical_items_content_join_au;
+DROP TRIGGER IF EXISTS ore_physical_items_content_join_ad;
+DROP TRIGGER IF EXISTS ore_physical_items_files_join_ai;
+DROP TRIGGER IF EXISTS ore_physical_items_files_join_au;
+DROP TRIGGER IF EXISTS ore_physical_items_files_join_ad;
+DROP TRIGGER IF EXISTS ore_physical_items_contacts_join_ai;
+DROP TRIGGER IF EXISTS ore_physical_items_contacts_join_au;
+DROP TRIGGER IF EXISTS ore_physical_items_contacts_join_ad;
+DROP TRIGGER IF EXISTS ore_video_script_sources_join_ai;
+DROP TRIGGER IF EXISTS ore_video_script_sources_join_au;
+DROP TRIGGER IF EXISTS ore_video_script_sources_join_ad;
+DROP TRIGGER IF EXISTS ore_todo_correspondence_join_ai;
+DROP TRIGGER IF EXISTS ore_todo_correspondence_join_au;
+DROP TRIGGER IF EXISTS ore_todo_correspondence_join_ad;
+DROP TRIGGER IF EXISTS ore_calendar_events_correspondence_join_ai;
+DROP TRIGGER IF EXISTS ore_calendar_events_correspondence_join_au;
+DROP TRIGGER IF EXISTS ore_calendar_events_correspondence_join_ad;
+DROP TRIGGER IF EXISTS ore_correspondence_files_join_ai;
+DROP TRIGGER IF EXISTS ore_correspondence_files_join_au;
+DROP TRIGGER IF EXISTS ore_correspondence_files_join_ad;
+DROP TRIGGER IF EXISTS ore_correspondence_participants_join_ai;
+DROP TRIGGER IF EXISTS ore_correspondence_participants_join_au;
+DROP TRIGGER IF EXISTS ore_correspondence_participants_join_ad;
+DROP TRIGGER IF EXISTS ore_correspondence_email_mailboxes_join_ai;
+DROP TRIGGER IF EXISTS ore_correspondence_email_mailboxes_join_au;
+DROP TRIGGER IF EXISTS ore_correspondence_email_mailboxes_join_ad;
+DROP TRIGGER IF EXISTS ore_todo_personal_ai;
+DROP TRIGGER IF EXISTS ore_todo_personal_au;
+DROP TRIGGER IF EXISTS ore_todo_personal_ad;
+DROP TRIGGER IF EXISTS ore_physical_items_ai;
+DROP TRIGGER IF EXISTS ore_physical_items_au;
+DROP TRIGGER IF EXISTS ore_physical_items_ad;
+DROP TRIGGER IF EXISTS ore_payment_invoices_ai;
+DROP TRIGGER IF EXISTS ore_payment_invoices_au;
+DROP TRIGGER IF EXISTS ore_payment_invoices_ad;
+DROP TRIGGER IF EXISTS ore_payment_invoice_lines_ai;
+DROP TRIGGER IF EXISTS ore_payment_invoice_lines_au;
+DROP TRIGGER IF EXISTS ore_payment_invoice_lines_ad;
+DROP TRIGGER IF EXISTS ore_journal2_trackers_ai;
+DROP TRIGGER IF EXISTS ore_journal2_trackers_au;
+DROP TRIGGER IF EXISTS ore_journal2_trackers_ad;
+DROP TRIGGER IF EXISTS ore_journal3_entries_ai;
+DROP TRIGGER IF EXISTS ore_journal3_entries_au;
+DROP TRIGGER IF EXISTS ore_journal3_entries_ad;
+DROP TRIGGER IF EXISTS ore_calendar_events_ai;
+DROP TRIGGER IF EXISTS ore_calendar_events_au;
+DROP TRIGGER IF EXISTS ore_calendar_events_ad;
+DROP TRIGGER IF EXISTS ore_content_items_ai;
+DROP TRIGGER IF EXISTS ore_content_items_au;
+DROP TRIGGER IF EXISTS ore_content_items_ad;
+DROP TRIGGER IF EXISTS ore_video_jobs_ai;
+DROP TRIGGER IF EXISTS ore_video_jobs_au;
+DROP TRIGGER IF EXISTS ore_video_jobs_ad;
+DROP TRIGGER IF EXISTS ore_cleanup_activity_events_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_files_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_contacts_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_tags_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_contact_methods_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_calendar_events_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_calendar_routines_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_todo_groups_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_todo_personal_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_payment_invoices_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_payment_invoice_lines_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_journal1_groups_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_journal2_trackers_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_journal3_entries_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_content_groups_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_content_items_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_physical_item_groups_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_physical_items_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_video_scripts_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_correspondence_bd;
+DROP TRIGGER IF EXISTS ore_payment_invoice_lines_receipts_au;
+DROP TRIGGER IF EXISTS ore_jmap_email_mailboxes_au;
+DROP TRIGGER IF EXISTS ore_jmap_email_mailboxes_bd;
+
+DROP TABLE IF EXISTS object_relationship_edge_index;
+
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW object_relationship_edges_source AS
+-- Complete compact recomputation of the reviewed first-class object adjacency
+-- set. Provider mailbox membership, correspondence participants, trace links,
+-- tags, and other non-network facts intentionally remain in their owning
+-- tables. DISTINCT collapses multiple authoritative facts that imply the same
+-- logical connection. This view supports rebuild and parity verification only.
+-- sourceOfTruth: false
+-- derivedFrom: ["calendar_event_contacts_join", "payment_invoice_line_receipts_join", "calendar_events_todo_join", "todo_content_join", "physical_items_todo_join", "physical_items_content_join", "physical_items_files_join", "physical_items_contacts_join", "todo_correspondence_join", "calendar_events_correspondence_join", "correspondence_files_join", "todo_personal", "physical_items", "payment_invoices", "payment_invoice_lines", "journal2_trackers", "journal3_entries", "calendar_events", "content_items", "video_jobs"]
+-- relationship_type: Reviewed relationship kind that declares the ordered endpoint types and whether the default connection is removable through the shared network.
+-- left_id: Local identifier of the relationship type's declared left endpoint.
+-- right_id: Local identifier of the relationship type's declared right endpoint.
+WITH canonical_edges AS (
+  SELECT IF(link.participant_role = 'other', 'event-contact', 'event-contact-owned') AS relationship_type,
+         link.calendar_event_id AS left_id, link.contact_id AS right_id
+  FROM calendar_event_contacts_join AS link
+
+  UNION ALL
+  SELECT 'invoice-file-receipt', line.payment_invoice_id, receipt.file_id
+  FROM payment_invoice_line_receipts_join AS receipt
+  JOIN payment_invoice_lines AS line USING (payment_invoice_line_id)
+
+  UNION ALL
+  SELECT IF(link.relationship_kind = 'context', 'todo-event', 'todo-event-owned'),
+         link.calendar_event_id, link.personal_task_id
+  FROM calendar_events_todo_join AS link
+
+  UNION ALL
+  SELECT 'todo-content', link.personal_task_id, link.content_id FROM todo_content_join AS link
+
+  UNION ALL
+  SELECT IF(link.relationship_kind = 'related', 'thing-todo', 'thing-todo-owned'),
+         link.physical_item_id, link.personal_task_id FROM physical_items_todo_join AS link
+
+  UNION ALL
+  SELECT IF(link.relationship_kind = 'related', 'thing-content', 'thing-content-owned'),
+         link.physical_item_id, link.content_id FROM physical_items_content_join AS link
+
+  UNION ALL
+  SELECT IF(link.file_role = 'attachment', 'thing-file', 'thing-file-owned'),
+         link.physical_item_id, link.file_id FROM physical_items_files_join AS link
+
+  UNION ALL
+  SELECT IF(link.relationship_kind = 'related', 'thing-contact', 'thing-contact-owned'),
+         link.physical_item_id, link.contact_id FROM physical_items_contacts_join AS link
+
+  UNION ALL
+  SELECT 'todo-correspondence', link.personal_task_id, link.correspondence_id FROM todo_correspondence_join AS link
+
+  UNION ALL
+  SELECT 'event-correspondence', link.calendar_event_id, link.correspondence_id FROM calendar_events_correspondence_join AS link
+
+  UNION ALL
+  SELECT 'correspondence-file', link.correspondence_id, link.file_id FROM correspondence_files_join AS link
+
+  UNION ALL
+  SELECT 'todo-group', task.todo_group_id, task.personal_task_id FROM todo_personal AS task
+
+  UNION ALL
+  SELECT 'todo-contact', task.personal_task_id, task.related_contact_id
+  FROM todo_personal AS task WHERE task.related_contact_id IS NOT NULL
+
+  UNION ALL
+  SELECT 'physical-item-group', item.physical_item_group_id, item.physical_item_id FROM physical_items AS item
+
+  UNION ALL
+  SELECT 'invoice-payer', invoice.payment_invoice_id, invoice.payer_contact_id
+  FROM payment_invoices AS invoice WHERE invoice.payer_contact_id IS NOT NULL
+
+  UNION ALL
+  SELECT 'invoice-line', line.payment_invoice_id, line.personal_task_id
+  FROM payment_invoice_lines AS line WHERE line.personal_task_id IS NOT NULL
+
+  UNION ALL
+  SELECT 'journal-group', tracker.journal_group_id, tracker.tracker_id FROM journal2_trackers AS tracker
+
+  UNION ALL
+  SELECT 'tracker-entry', entry.tracker_id, entry.journal_entry_id FROM journal3_entries AS entry
+
+  UNION ALL
+  SELECT 'routine-event', event.calendar_routine_id, event.calendar_event_id
+  FROM calendar_events AS event WHERE event.calendar_routine_id IS NOT NULL
+
+  UNION ALL
+  SELECT 'content-group', content.content_group_id, content.content_id FROM content_items AS content
+
+  UNION ALL
+  SELECT 'content-file', content.content_id, content.primary_file_id
+  FROM content_items AS content WHERE content.primary_file_id IS NOT NULL
+
+  UNION ALL
+  SELECT 'script-content', job.video_script_id, job.content_id
+  FROM video_jobs AS job WHERE job.video_script_id IS NOT NULL AND job.content_id IS NOT NULL
+)
+SELECT DISTINCT relationship_type, left_id, right_id
+FROM canonical_edges
+WHERE left_id IS NOT NULL AND right_id IS NOT NULL;
+
+CREATE TABLE object_relationship_edge_index (
+    relationship_type ENUM('event-contact', 'event-contact-owned', 'invoice-file-receipt', 'todo-event', 'todo-event-owned', 'todo-content', 'thing-todo', 'thing-todo-owned', 'thing-content', 'thing-content-owned', 'thing-file', 'thing-file-owned', 'thing-contact', 'thing-contact-owned', 'todo-correspondence', 'event-correspondence', 'correspondence-file', 'todo-group', 'physical-item-group', 'todo-contact', 'invoice-payer', 'invoice-line', 'journal-group', 'tracker-entry', 'routine-event', 'content-group', 'content-file', 'script-content') NOT NULL COMMENT 'Reviewed relationship kind whose contract fixes the ordered first-class endpoint types.',
+    left_id BIGINT UNSIGNED NOT NULL COMMENT 'Authoritative local identifier of the relationship type''s declared left endpoint.',
+    right_id BIGINT UNSIGNED NOT NULL COMMENT 'Authoritative local identifier of the relationship type''s declared right endpoint.',
+    PRIMARY KEY (left_id, relationship_type, right_id),
+    KEY object_relationship_edge_reverse (right_id, relationship_type, left_id)
+) ENGINE=InnoDB COMMENT='Compact transactionally maintained existence index for one-hop adjacency between first-class native objects. Each logical relationship appears once in canonical direction. Authoritative domain tables and joins remain the source of truth; this table is never a mutation path.';
+
+INSERT INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+SELECT relationship_type, left_id, right_id FROM object_relationship_edges_source;
+
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW object_relationship_edges AS
+-- Stable read-only compact consumer surface for first-class object adjacency.
+SELECT relationship_type, left_id, right_id FROM object_relationship_edge_index;
+
+DROP TRIGGER IF EXISTS ore_calendar_event_contacts_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_event_contacts_join_ai AFTER INSERT ON calendar_event_contacts_join FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT IF(NEW.participant_role = ''other'', ''event-contact'', ''event-contact-owned''), NEW.calendar_event_id, NEW.contact_id
+    WHERE NEW.calendar_event_id IS NOT NULL AND NEW.contact_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_event_contacts_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_event_contacts_join_au AFTER UPDATE ON calendar_event_contacts_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = IF(OLD.participant_role = ''other'', ''event-contact'', ''event-contact-owned'') AND left_id = OLD.calendar_event_id AND right_id = OLD.contact_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT IF(candidate.participant_role = ''other'', ''event-contact'', ''event-contact-owned''), candidate.calendar_event_id, candidate.contact_id
+    FROM calendar_event_contacts_join AS candidate
+    WHERE IF(candidate.participant_role = ''other'', ''event-contact'', ''event-contact-owned'') = IF(OLD.participant_role = ''other'', ''event-contact'', ''event-contact-owned'') AND candidate.calendar_event_id = OLD.calendar_event_id AND candidate.contact_id = OLD.contact_id
+    LIMIT 1;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT IF(NEW.participant_role = ''other'', ''event-contact'', ''event-contact-owned''), NEW.calendar_event_id, NEW.contact_id
+    WHERE NEW.calendar_event_id IS NOT NULL AND NEW.contact_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_event_contacts_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_event_contacts_join_ad AFTER DELETE ON calendar_event_contacts_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = IF(OLD.participant_role = ''other'', ''event-contact'', ''event-contact-owned'') AND left_id = OLD.calendar_event_id AND right_id = OLD.contact_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT IF(candidate.participant_role = ''other'', ''event-contact'', ''event-contact-owned''), candidate.calendar_event_id, candidate.contact_id
+    FROM calendar_event_contacts_join AS candidate
+    WHERE IF(candidate.participant_role = ''other'', ''event-contact'', ''event-contact-owned'') = IF(OLD.participant_role = ''other'', ''event-contact'', ''event-contact-owned'') AND candidate.calendar_event_id = OLD.calendar_event_id AND candidate.contact_id = OLD.contact_id
+    LIMIT 1;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_payment_invoice_line_receipts_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_payment_invoice_line_receipts_join_ai AFTER INSERT ON payment_invoice_line_receipts_join FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''invoice-file-receipt'', (SELECT payment_invoice_id FROM payment_invoice_lines WHERE payment_invoice_line_id = NEW.payment_invoice_line_id), NEW.file_id
+    WHERE (SELECT payment_invoice_id FROM payment_invoice_lines WHERE payment_invoice_line_id = NEW.payment_invoice_line_id) IS NOT NULL AND NEW.file_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_payment_invoice_line_receipts_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_payment_invoice_line_receipts_join_au AFTER UPDATE ON payment_invoice_line_receipts_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''invoice-file-receipt'' AND left_id = (SELECT payment_invoice_id FROM payment_invoice_lines WHERE payment_invoice_line_id = OLD.payment_invoice_line_id) AND right_id = OLD.file_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''invoice-file-receipt'', (SELECT payment_invoice_id FROM payment_invoice_lines WHERE payment_invoice_line_id = candidate.payment_invoice_line_id), candidate.file_id
+    FROM payment_invoice_line_receipts_join AS candidate
+    WHERE ''invoice-file-receipt'' = ''invoice-file-receipt'' AND (SELECT payment_invoice_id FROM payment_invoice_lines WHERE payment_invoice_line_id = candidate.payment_invoice_line_id) = (SELECT payment_invoice_id FROM payment_invoice_lines WHERE payment_invoice_line_id = OLD.payment_invoice_line_id) AND candidate.file_id = OLD.file_id
+    LIMIT 1;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''invoice-file-receipt'', (SELECT payment_invoice_id FROM payment_invoice_lines WHERE payment_invoice_line_id = NEW.payment_invoice_line_id), NEW.file_id
+    WHERE (SELECT payment_invoice_id FROM payment_invoice_lines WHERE payment_invoice_line_id = NEW.payment_invoice_line_id) IS NOT NULL AND NEW.file_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_payment_invoice_line_receipts_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_payment_invoice_line_receipts_join_ad AFTER DELETE ON payment_invoice_line_receipts_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''invoice-file-receipt'' AND left_id = (SELECT payment_invoice_id FROM payment_invoice_lines WHERE payment_invoice_line_id = OLD.payment_invoice_line_id) AND right_id = OLD.file_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''invoice-file-receipt'', (SELECT payment_invoice_id FROM payment_invoice_lines WHERE payment_invoice_line_id = candidate.payment_invoice_line_id), candidate.file_id
+    FROM payment_invoice_line_receipts_join AS candidate
+    WHERE ''invoice-file-receipt'' = ''invoice-file-receipt'' AND (SELECT payment_invoice_id FROM payment_invoice_lines WHERE payment_invoice_line_id = candidate.payment_invoice_line_id) = (SELECT payment_invoice_id FROM payment_invoice_lines WHERE payment_invoice_line_id = OLD.payment_invoice_line_id) AND candidate.file_id = OLD.file_id
+    LIMIT 1;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_events_todo_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_events_todo_join_ai AFTER INSERT ON calendar_events_todo_join FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT IF(NEW.relationship_kind = ''context'', ''todo-event'', ''todo-event-owned''), NEW.calendar_event_id, NEW.personal_task_id
+    WHERE NEW.calendar_event_id IS NOT NULL AND NEW.personal_task_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_events_todo_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_events_todo_join_au AFTER UPDATE ON calendar_events_todo_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = IF(OLD.relationship_kind = ''context'', ''todo-event'', ''todo-event-owned'') AND left_id = OLD.calendar_event_id AND right_id = OLD.personal_task_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT IF(NEW.relationship_kind = ''context'', ''todo-event'', ''todo-event-owned''), NEW.calendar_event_id, NEW.personal_task_id
+    WHERE NEW.calendar_event_id IS NOT NULL AND NEW.personal_task_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_events_todo_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_events_todo_join_ad AFTER DELETE ON calendar_events_todo_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = IF(OLD.relationship_kind = ''context'', ''todo-event'', ''todo-event-owned'') AND left_id = OLD.calendar_event_id AND right_id = OLD.personal_task_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_todo_content_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_todo_content_join_ai AFTER INSERT ON todo_content_join FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''todo-content'', NEW.personal_task_id, NEW.content_id
+    WHERE NEW.personal_task_id IS NOT NULL AND NEW.content_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_todo_content_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_todo_content_join_au AFTER UPDATE ON todo_content_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''todo-content'' AND left_id = OLD.personal_task_id AND right_id = OLD.content_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''todo-content'', NEW.personal_task_id, NEW.content_id
+    WHERE NEW.personal_task_id IS NOT NULL AND NEW.content_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_todo_content_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_todo_content_join_ad AFTER DELETE ON todo_content_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''todo-content'' AND left_id = OLD.personal_task_id AND right_id = OLD.content_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_todo_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_todo_join_ai AFTER INSERT ON physical_items_todo_join FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT IF(NEW.relationship_kind = ''related'', ''thing-todo'', ''thing-todo-owned''), NEW.physical_item_id, NEW.personal_task_id
+    WHERE NEW.physical_item_id IS NOT NULL AND NEW.personal_task_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_todo_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_todo_join_au AFTER UPDATE ON physical_items_todo_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = IF(OLD.relationship_kind = ''related'', ''thing-todo'', ''thing-todo-owned'') AND left_id = OLD.physical_item_id AND right_id = OLD.personal_task_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT IF(NEW.relationship_kind = ''related'', ''thing-todo'', ''thing-todo-owned''), NEW.physical_item_id, NEW.personal_task_id
+    WHERE NEW.physical_item_id IS NOT NULL AND NEW.personal_task_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_todo_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_todo_join_ad AFTER DELETE ON physical_items_todo_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = IF(OLD.relationship_kind = ''related'', ''thing-todo'', ''thing-todo-owned'') AND left_id = OLD.physical_item_id AND right_id = OLD.personal_task_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_content_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_content_join_ai AFTER INSERT ON physical_items_content_join FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT IF(NEW.relationship_kind = ''related'', ''thing-content'', ''thing-content-owned''), NEW.physical_item_id, NEW.content_id
+    WHERE NEW.physical_item_id IS NOT NULL AND NEW.content_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_content_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_content_join_au AFTER UPDATE ON physical_items_content_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = IF(OLD.relationship_kind = ''related'', ''thing-content'', ''thing-content-owned'') AND left_id = OLD.physical_item_id AND right_id = OLD.content_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT IF(NEW.relationship_kind = ''related'', ''thing-content'', ''thing-content-owned''), NEW.physical_item_id, NEW.content_id
+    WHERE NEW.physical_item_id IS NOT NULL AND NEW.content_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_content_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_content_join_ad AFTER DELETE ON physical_items_content_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = IF(OLD.relationship_kind = ''related'', ''thing-content'', ''thing-content-owned'') AND left_id = OLD.physical_item_id AND right_id = OLD.content_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_files_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_files_join_ai AFTER INSERT ON physical_items_files_join FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT IF(NEW.file_role = ''attachment'', ''thing-file'', ''thing-file-owned''), NEW.physical_item_id, NEW.file_id
+    WHERE NEW.physical_item_id IS NOT NULL AND NEW.file_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_files_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_files_join_au AFTER UPDATE ON physical_items_files_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = IF(OLD.file_role = ''attachment'', ''thing-file'', ''thing-file-owned'') AND left_id = OLD.physical_item_id AND right_id = OLD.file_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT IF(NEW.file_role = ''attachment'', ''thing-file'', ''thing-file-owned''), NEW.physical_item_id, NEW.file_id
+    WHERE NEW.physical_item_id IS NOT NULL AND NEW.file_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_files_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_files_join_ad AFTER DELETE ON physical_items_files_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = IF(OLD.file_role = ''attachment'', ''thing-file'', ''thing-file-owned'') AND left_id = OLD.physical_item_id AND right_id = OLD.file_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_contacts_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_contacts_join_ai AFTER INSERT ON physical_items_contacts_join FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT IF(NEW.relationship_kind = ''related'', ''thing-contact'', ''thing-contact-owned''), NEW.physical_item_id, NEW.contact_id
+    WHERE NEW.physical_item_id IS NOT NULL AND NEW.contact_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_contacts_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_contacts_join_au AFTER UPDATE ON physical_items_contacts_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = IF(OLD.relationship_kind = ''related'', ''thing-contact'', ''thing-contact-owned'') AND left_id = OLD.physical_item_id AND right_id = OLD.contact_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT IF(NEW.relationship_kind = ''related'', ''thing-contact'', ''thing-contact-owned''), NEW.physical_item_id, NEW.contact_id
+    WHERE NEW.physical_item_id IS NOT NULL AND NEW.contact_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_contacts_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_contacts_join_ad AFTER DELETE ON physical_items_contacts_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = IF(OLD.relationship_kind = ''related'', ''thing-contact'', ''thing-contact-owned'') AND left_id = OLD.physical_item_id AND right_id = OLD.contact_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_todo_correspondence_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_todo_correspondence_join_ai AFTER INSERT ON todo_correspondence_join FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''todo-correspondence'', NEW.personal_task_id, NEW.correspondence_id
+    WHERE NEW.personal_task_id IS NOT NULL AND NEW.correspondence_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_todo_correspondence_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_todo_correspondence_join_au AFTER UPDATE ON todo_correspondence_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''todo-correspondence'' AND left_id = OLD.personal_task_id AND right_id = OLD.correspondence_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''todo-correspondence'', NEW.personal_task_id, NEW.correspondence_id
+    WHERE NEW.personal_task_id IS NOT NULL AND NEW.correspondence_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_todo_correspondence_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_todo_correspondence_join_ad AFTER DELETE ON todo_correspondence_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''todo-correspondence'' AND left_id = OLD.personal_task_id AND right_id = OLD.correspondence_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_events_correspondence_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_events_correspondence_join_ai AFTER INSERT ON calendar_events_correspondence_join FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''event-correspondence'', NEW.calendar_event_id, NEW.correspondence_id
+    WHERE NEW.calendar_event_id IS NOT NULL AND NEW.correspondence_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_events_correspondence_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_events_correspondence_join_au AFTER UPDATE ON calendar_events_correspondence_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''event-correspondence'' AND left_id = OLD.calendar_event_id AND right_id = OLD.correspondence_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''event-correspondence'', NEW.calendar_event_id, NEW.correspondence_id
+    WHERE NEW.calendar_event_id IS NOT NULL AND NEW.correspondence_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_events_correspondence_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_events_correspondence_join_ad AFTER DELETE ON calendar_events_correspondence_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''event-correspondence'' AND left_id = OLD.calendar_event_id AND right_id = OLD.correspondence_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_correspondence_files_join_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_correspondence_files_join_ai AFTER INSERT ON correspondence_files_join FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''correspondence-file'', NEW.correspondence_id, NEW.file_id
+    WHERE NEW.correspondence_id IS NOT NULL AND NEW.file_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_correspondence_files_join_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_correspondence_files_join_au AFTER UPDATE ON correspondence_files_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''correspondence-file'' AND left_id = OLD.correspondence_id AND right_id = OLD.file_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''correspondence-file'', NEW.correspondence_id, NEW.file_id
+    WHERE NEW.correspondence_id IS NOT NULL AND NEW.file_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_correspondence_files_join_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_correspondence_files_join_ad AFTER DELETE ON correspondence_files_join FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''correspondence-file'' AND left_id = OLD.correspondence_id AND right_id = OLD.file_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_todo_personal_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_todo_personal_ai AFTER INSERT ON todo_personal FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''todo-group'', NEW.todo_group_id, NEW.personal_task_id
+    WHERE NEW.todo_group_id IS NOT NULL AND NEW.personal_task_id IS NOT NULL;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''todo-contact'', NEW.personal_task_id, NEW.related_contact_id
+    WHERE NEW.personal_task_id IS NOT NULL AND NEW.related_contact_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_todo_personal_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_todo_personal_au AFTER UPDATE ON todo_personal FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''todo-group'' AND left_id = OLD.todo_group_id AND right_id = OLD.personal_task_id;
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''todo-contact'' AND left_id = OLD.personal_task_id AND right_id = OLD.related_contact_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''todo-group'', NEW.todo_group_id, NEW.personal_task_id
+    WHERE NEW.todo_group_id IS NOT NULL AND NEW.personal_task_id IS NOT NULL;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''todo-contact'', NEW.personal_task_id, NEW.related_contact_id
+    WHERE NEW.personal_task_id IS NOT NULL AND NEW.related_contact_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_todo_personal_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_todo_personal_ad AFTER DELETE ON todo_personal FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''todo-group'' AND left_id = OLD.todo_group_id AND right_id = OLD.personal_task_id;
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''todo-contact'' AND left_id = OLD.personal_task_id AND right_id = OLD.related_contact_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_ai AFTER INSERT ON physical_items FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''physical-item-group'', NEW.physical_item_group_id, NEW.physical_item_id
+    WHERE NEW.physical_item_group_id IS NOT NULL AND NEW.physical_item_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_au AFTER UPDATE ON physical_items FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''physical-item-group'' AND left_id = OLD.physical_item_group_id AND right_id = OLD.physical_item_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''physical-item-group'', NEW.physical_item_group_id, NEW.physical_item_id
+    WHERE NEW.physical_item_group_id IS NOT NULL AND NEW.physical_item_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_physical_items_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_physical_items_ad AFTER DELETE ON physical_items FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''physical-item-group'' AND left_id = OLD.physical_item_group_id AND right_id = OLD.physical_item_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_payment_invoices_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_payment_invoices_ai AFTER INSERT ON payment_invoices FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''invoice-payer'', NEW.payment_invoice_id, NEW.payer_contact_id
+    WHERE NEW.payment_invoice_id IS NOT NULL AND NEW.payer_contact_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_payment_invoices_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_payment_invoices_au AFTER UPDATE ON payment_invoices FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''invoice-payer'' AND left_id = OLD.payment_invoice_id AND right_id = OLD.payer_contact_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''invoice-payer'', NEW.payment_invoice_id, NEW.payer_contact_id
+    WHERE NEW.payment_invoice_id IS NOT NULL AND NEW.payer_contact_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_payment_invoices_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_payment_invoices_ad AFTER DELETE ON payment_invoices FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''invoice-payer'' AND left_id = OLD.payment_invoice_id AND right_id = OLD.payer_contact_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_payment_invoice_lines_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_payment_invoice_lines_ai AFTER INSERT ON payment_invoice_lines FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''invoice-line'', NEW.payment_invoice_id, NEW.personal_task_id
+    WHERE NEW.payment_invoice_id IS NOT NULL AND NEW.personal_task_id IS NOT NULL;
+  DELETE FROM object_relationship_edge_index
+    WHERE relationship_type = ''invoice-file-receipt'' AND left_id = NEW.payment_invoice_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT DISTINCT ''invoice-file-receipt'', line.payment_invoice_id, receipt.file_id
+    FROM payment_invoice_line_receipts_join AS receipt
+    JOIN payment_invoice_lines AS line USING (payment_invoice_line_id)
+    WHERE line.payment_invoice_id = NEW.payment_invoice_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_payment_invoice_lines_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_payment_invoice_lines_au AFTER UPDATE ON payment_invoice_lines FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''invoice-line'' AND left_id = OLD.payment_invoice_id AND right_id = OLD.personal_task_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''invoice-line'', candidate.payment_invoice_id, candidate.personal_task_id
+    FROM payment_invoice_lines AS candidate
+    WHERE ''invoice-line'' = ''invoice-line'' AND candidate.payment_invoice_id = OLD.payment_invoice_id AND candidate.personal_task_id = OLD.personal_task_id
+    LIMIT 1;
+  DELETE FROM object_relationship_edge_index
+    WHERE relationship_type = ''invoice-file-receipt'' AND left_id = OLD.payment_invoice_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT DISTINCT ''invoice-file-receipt'', line.payment_invoice_id, receipt.file_id
+    FROM payment_invoice_line_receipts_join AS receipt
+    JOIN payment_invoice_lines AS line USING (payment_invoice_line_id)
+    WHERE line.payment_invoice_id = OLD.payment_invoice_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''invoice-line'', NEW.payment_invoice_id, NEW.personal_task_id
+    WHERE NEW.payment_invoice_id IS NOT NULL AND NEW.personal_task_id IS NOT NULL;
+  DELETE FROM object_relationship_edge_index
+    WHERE relationship_type = ''invoice-file-receipt'' AND left_id = NEW.payment_invoice_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT DISTINCT ''invoice-file-receipt'', line.payment_invoice_id, receipt.file_id
+    FROM payment_invoice_line_receipts_join AS receipt
+    JOIN payment_invoice_lines AS line USING (payment_invoice_line_id)
+    WHERE line.payment_invoice_id = NEW.payment_invoice_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_payment_invoice_lines_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_payment_invoice_lines_ad AFTER DELETE ON payment_invoice_lines FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''invoice-line'' AND left_id = OLD.payment_invoice_id AND right_id = OLD.personal_task_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''invoice-line'', candidate.payment_invoice_id, candidate.personal_task_id
+    FROM payment_invoice_lines AS candidate
+    WHERE ''invoice-line'' = ''invoice-line'' AND candidate.payment_invoice_id = OLD.payment_invoice_id AND candidate.personal_task_id = OLD.personal_task_id
+    LIMIT 1;
+  DELETE FROM object_relationship_edge_index
+    WHERE relationship_type = ''invoice-file-receipt'' AND left_id = OLD.payment_invoice_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT DISTINCT ''invoice-file-receipt'', line.payment_invoice_id, receipt.file_id
+    FROM payment_invoice_line_receipts_join AS receipt
+    JOIN payment_invoice_lines AS line USING (payment_invoice_line_id)
+    WHERE line.payment_invoice_id = OLD.payment_invoice_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_journal2_trackers_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_journal2_trackers_ai AFTER INSERT ON journal2_trackers FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''journal-group'', NEW.journal_group_id, NEW.tracker_id
+    WHERE NEW.journal_group_id IS NOT NULL AND NEW.tracker_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_journal2_trackers_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_journal2_trackers_au AFTER UPDATE ON journal2_trackers FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''journal-group'' AND left_id = OLD.journal_group_id AND right_id = OLD.tracker_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''journal-group'', NEW.journal_group_id, NEW.tracker_id
+    WHERE NEW.journal_group_id IS NOT NULL AND NEW.tracker_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_journal2_trackers_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_journal2_trackers_ad AFTER DELETE ON journal2_trackers FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''journal-group'' AND left_id = OLD.journal_group_id AND right_id = OLD.tracker_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_journal3_entries_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_journal3_entries_ai AFTER INSERT ON journal3_entries FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''tracker-entry'', NEW.tracker_id, NEW.journal_entry_id
+    WHERE NEW.tracker_id IS NOT NULL AND NEW.journal_entry_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_journal3_entries_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_journal3_entries_au AFTER UPDATE ON journal3_entries FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''tracker-entry'' AND left_id = OLD.tracker_id AND right_id = OLD.journal_entry_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''tracker-entry'', NEW.tracker_id, NEW.journal_entry_id
+    WHERE NEW.tracker_id IS NOT NULL AND NEW.journal_entry_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_journal3_entries_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_journal3_entries_ad AFTER DELETE ON journal3_entries FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''tracker-entry'' AND left_id = OLD.tracker_id AND right_id = OLD.journal_entry_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_events_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_events_ai AFTER INSERT ON calendar_events FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''routine-event'', NEW.calendar_routine_id, NEW.calendar_event_id
+    WHERE NEW.calendar_routine_id IS NOT NULL AND NEW.calendar_event_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_events_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_events_au AFTER UPDATE ON calendar_events FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''routine-event'' AND left_id = OLD.calendar_routine_id AND right_id = OLD.calendar_event_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''routine-event'', NEW.calendar_routine_id, NEW.calendar_event_id
+    WHERE NEW.calendar_routine_id IS NOT NULL AND NEW.calendar_event_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_calendar_events_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_calendar_events_ad AFTER DELETE ON calendar_events FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''routine-event'' AND left_id = OLD.calendar_routine_id AND right_id = OLD.calendar_event_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_content_items_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_content_items_ai AFTER INSERT ON content_items FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''content-group'', NEW.content_group_id, NEW.content_id
+    WHERE NEW.content_group_id IS NOT NULL AND NEW.content_id IS NOT NULL;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''content-file'', NEW.content_id, NEW.primary_file_id
+    WHERE NEW.content_id IS NOT NULL AND NEW.primary_file_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_content_items_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_content_items_au AFTER UPDATE ON content_items FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''content-group'' AND left_id = OLD.content_group_id AND right_id = OLD.content_id;
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''content-file'' AND left_id = OLD.content_id AND right_id = OLD.primary_file_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''content-group'', NEW.content_group_id, NEW.content_id
+    WHERE NEW.content_group_id IS NOT NULL AND NEW.content_id IS NOT NULL;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''content-file'', NEW.content_id, NEW.primary_file_id
+    WHERE NEW.content_id IS NOT NULL AND NEW.primary_file_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_content_items_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_content_items_ad AFTER DELETE ON content_items FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''content-group'' AND left_id = OLD.content_group_id AND right_id = OLD.content_id;
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''content-file'' AND left_id = OLD.content_id AND right_id = OLD.primary_file_id;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_video_jobs_ai;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_video_jobs_ai AFTER INSERT ON video_jobs FOR EACH ROW BEGIN
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''script-content'', NEW.video_script_id, NEW.content_id
+    WHERE NEW.video_script_id IS NOT NULL AND NEW.content_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_video_jobs_au;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_video_jobs_au AFTER UPDATE ON video_jobs FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''script-content'' AND left_id = OLD.video_script_id AND right_id = OLD.content_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''script-content'', candidate.video_script_id, candidate.content_id
+    FROM video_jobs AS candidate
+    WHERE ''script-content'' = ''script-content'' AND candidate.video_script_id = OLD.video_script_id AND candidate.content_id = OLD.content_id
+    LIMIT 1;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''script-content'', NEW.video_script_id, NEW.content_id
+    WHERE NEW.video_script_id IS NOT NULL AND NEW.content_id IS NOT NULL;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_video_jobs_ad;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_video_jobs_ad AFTER DELETE ON video_jobs FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE relationship_type = ''script-content'' AND left_id = OLD.video_script_id AND right_id = OLD.content_id;
+  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
+    SELECT ''script-content'', candidate.video_script_id, candidate.content_id
+    FROM video_jobs AS candidate
+    WHERE ''script-content'' = ''script-content'' AND candidate.video_script_id = OLD.video_script_id AND candidate.content_id = OLD.content_id
+    LIMIT 1;
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_contacts_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_contacts_bd BEFORE DELETE ON contacts FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN (''event-contact'', ''event-contact-owned'', ''thing-contact'', ''thing-contact-owned'', ''todo-contact'', ''invoice-payer'') AND right_id = OLD.contact_id);
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_files_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_files_bd BEFORE DELETE ON files FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN (''invoice-file-receipt'', ''thing-file'', ''thing-file-owned'', ''correspondence-file'', ''content-file'') AND right_id = OLD.file_id);
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_calendar_events_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_calendar_events_bd BEFORE DELETE ON calendar_events FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN (''event-contact'', ''event-contact-owned'', ''todo-event'', ''todo-event-owned'', ''event-correspondence'') AND left_id = OLD.calendar_event_id) OR (relationship_type IN (''routine-event'') AND right_id = OLD.calendar_event_id);
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_calendar_routines_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_calendar_routines_bd BEFORE DELETE ON calendar_routines FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN (''routine-event'') AND left_id = OLD.calendar_routine_id);
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_todo_groups_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_todo_groups_bd BEFORE DELETE ON todo_groups FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN (''todo-group'') AND left_id = OLD.todo_group_id);
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_todo_personal_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_todo_personal_bd BEFORE DELETE ON todo_personal FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN (''todo-content'', ''todo-correspondence'', ''todo-contact'') AND left_id = OLD.personal_task_id) OR (relationship_type IN (''todo-event'', ''todo-event-owned'', ''thing-todo'', ''thing-todo-owned'', ''todo-group'', ''invoice-line'') AND right_id = OLD.personal_task_id);
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_payment_invoices_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_payment_invoices_bd BEFORE DELETE ON payment_invoices FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN (''invoice-file-receipt'', ''invoice-payer'', ''invoice-line'') AND left_id = OLD.payment_invoice_id);
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_journal1_groups_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_journal1_groups_bd BEFORE DELETE ON journal1_groups FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN (''journal-group'') AND left_id = OLD.journal_group_id);
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_journal2_trackers_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_journal2_trackers_bd BEFORE DELETE ON journal2_trackers FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN (''tracker-entry'') AND left_id = OLD.tracker_id) OR (relationship_type IN (''journal-group'') AND right_id = OLD.tracker_id);
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_journal3_entries_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_journal3_entries_bd BEFORE DELETE ON journal3_entries FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN (''tracker-entry'') AND right_id = OLD.journal_entry_id);
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_content_groups_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_content_groups_bd BEFORE DELETE ON content_groups FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN (''content-group'') AND left_id = OLD.content_group_id);
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_content_items_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_content_items_bd BEFORE DELETE ON content_items FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN (''content-file'') AND left_id = OLD.content_id) OR (relationship_type IN (''todo-content'', ''thing-content'', ''thing-content-owned'', ''content-group'', ''script-content'') AND right_id = OLD.content_id);
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_physical_item_groups_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_physical_item_groups_bd BEFORE DELETE ON physical_item_groups FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN (''physical-item-group'') AND left_id = OLD.physical_item_group_id);
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_physical_items_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_physical_items_bd BEFORE DELETE ON physical_items FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN (''thing-todo'', ''thing-todo-owned'', ''thing-content'', ''thing-content-owned'', ''thing-file'', ''thing-file-owned'', ''thing-contact'', ''thing-contact-owned'') AND left_id = OLD.physical_item_id) OR (relationship_type IN (''physical-item-group'') AND right_id = OLD.physical_item_id);
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_video_scripts_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_video_scripts_bd BEFORE DELETE ON video_scripts FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN (''script-content'') AND left_id = OLD.video_script_id);
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_correspondence_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_correspondence_bd BEFORE DELETE ON correspondence FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN (''correspondence-file'') AND left_id = OLD.correspondence_id) OR (relationship_type IN (''todo-correspondence'', ''event-correspondence'') AND right_id = OLD.correspondence_id);
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+-- end migration 0067
+
 -- migration 0066: store-json-shaped-values-as-text
 -- writer downtime: required while MariaDB removes JSON-validity constraints
 -- and changes the five JSON aliases to explicit LONGTEXT columns. The matching

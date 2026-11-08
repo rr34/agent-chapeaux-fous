@@ -1,4 +1,5 @@
 import { nativeFirstClassObjectTypes } from "./native-object-types.mjs";
+import { objectRelationshipTypeByName, objectRelationshipTypes } from "./object-relationships.mjs";
 import { OrganizerInputError } from "./organizer-store.mjs";
 
 const maximumConnections = 100;
@@ -322,27 +323,50 @@ export class ObjectNetworkService {
 
   #connections(identity) {
     const { type, id } = identity;
-    const targetTypes = [...supportedTypes];
-    const placeholders = targetTypes.map(() => "?").join(", ");
-    const rows = this.database.prepare(`SELECT
-        to_type AS type,
-        to_id AS id,
-        MIN(relationship_type) AS kind,
-        MIN(CASE
-          WHEN relationship_type IN ('todo-contact', 'todo-content', 'event-correspondence') THEN 1
-          WHEN relationship_type IN ('thing-todo', 'thing-content', 'thing-contact')
-            AND relationship_qualifier = 'related' THEN 1
-          WHEN relationship_type = 'thing-file' AND relationship_qualifier = 'attachment' THEN 1
-          WHEN relationship_type = 'todo-event' AND relationship_qualifier = 'context' THEN 1
-          WHEN relationship_type = 'event-contact' AND relationship_qualifier = 'other' THEN 1
-          ELSE 0
-        END) AS removable
-      FROM object_relationship_edges
-      WHERE from_type = ? AND from_id = ? AND to_type IN (${placeholders})
-      GROUP BY to_type, to_id
-      ORDER BY to_type, to_id
-      LIMIT ?`).all(type, String(id), ...targetTypes, maximumConnections + 1);
-    return rows.map((row) => edge(row.type, row.id, row.kind, Boolean(Number(row.removable))));
+    const left = objectRelationshipTypes.filter(({ leftType, rightType }) => leftType === type && supportedTypes.has(rightType));
+    const right = objectRelationshipTypes.filter(({ rightType, leftType }) => rightType === type && supportedTypes.has(leftType));
+    const selections = [];
+    const parameters = [];
+    if (left.length) {
+      selections.push(`SELECT relationship_type, right_id AS related_id, 0 AS is_reverse
+        FROM object_relationship_edges WHERE left_id = ?
+          AND relationship_type IN (${left.map(() => "?").join(", ")})`);
+      parameters.push(id, ...left.map(({ name }) => name));
+    }
+    if (right.length) {
+      selections.push(`SELECT relationship_type, left_id AS related_id, 1 AS is_reverse
+        FROM object_relationship_edges WHERE right_id = ?
+          AND relationship_type IN (${right.map(() => "?").join(", ")})`);
+      parameters.push(id, ...right.map(({ name }) => name));
+    }
+    if (!selections.length) return [];
+    const rows = this.database.prepare(`${selections.join("\nUNION ALL\n")}
+      ORDER BY relationship_type, related_id LIMIT ?`)
+      .all(...parameters, (maximumConnections * 2) + 1);
+    return rows.flatMap((row) => {
+      const relationship = objectRelationshipTypeByName.get(row.relationship_type);
+      if (!relationship) return [];
+      const relatedType = Number(row.is_reverse) ? relationship.leftType : relationship.rightType;
+      return [edge(relatedType, row.related_id, relationship.publicName, relationship.removable)];
+    }).sort((a, b) => a.type.localeCompare(b.type) || a.id - b.id);
+  }
+
+  #relationshipsBetween(first, second) {
+    const matches = objectRelationshipTypes.filter(({ leftType, rightType }) =>
+      (leftType === first.type && rightType === second.type)
+      || (leftType === second.type && rightType === first.type));
+    if (!matches.length) return [];
+    const forward = matches[0].leftType === first.type;
+    const leftId = forward ? first.id : second.id;
+    const rightId = forward ? second.id : first.id;
+    const rows = this.database.prepare(`SELECT relationship_type FROM object_relationship_edges
+      WHERE left_id = ? AND right_id = ?
+        AND relationship_type IN (${matches.map(() => "?").join(", ")})`)
+      .all(leftId, rightId, ...matches.map(({ name }) => name));
+    return rows.flatMap((row) => {
+      const definition = objectRelationshipTypeByName.get(row.relationship_type);
+      return definition ? [definition] : [];
+    });
   }
 
   graph(rawIdentity) {
@@ -457,13 +481,10 @@ export class ObjectNetworkService {
         "contacts.contact": "contact", "files.file": "file",
         "todos.personal_task": "todo", "video.content_item": "content",
       }[target.type];
-      const existing = this.database.prepare(`SELECT relationship_qualifier FROM object_relationship_edges
-        WHERE from_type = 'things.physical_item' AND from_id = ? AND to_type = ? AND to_id = ?
-        LIMIT 1`).get(String(physicalItem.id), target.type, String(target.id));
-      if (linked && existing) return this.graph(first);
-      if (!linked && !existing) throw new OrganizerInputError("That exact physical-item connection does not exist.", 404);
-      const defaultQualifier = targetType === "file" ? "attachment" : "related";
-      if (!linked && existing.relationship_qualifier !== defaultQualifier) {
+      const existing = this.#relationshipsBetween(physicalItem, target);
+      if (linked && existing.length) return this.graph(first);
+      if (!linked && !existing.length) throw new OrganizerInputError("That exact physical-item connection does not exist.", 404);
+      if (!linked && existing.some(({ removable }) => !removable)) {
         throw new OrganizerInputError("Use the Things relationship editor to remove a specialized physical-item connection.", 409);
       }
       this.physicalItems.setLinks([{

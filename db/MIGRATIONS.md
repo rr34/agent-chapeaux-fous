@@ -11,6 +11,30 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 67: Compact first-class object adjacency
+
+Replaces the wide, bidirectionally duplicated relationship projection with one
+canonical existence row containing only a reviewed relationship `ENUM` and two
+local numeric endpoint IDs. Its primary and reverse keys preserve fast one-hop
+lookup from either endpoint. Relationship types fix their ordered first-class
+endpoint types; specialized domain-owned relationships use distinct enum values
+so the shared network preserves removal rules without copied qualifiers.
+
+The rebuild source now includes only relationships between interactive
+first-class native objects. Correspondence participants, email mailbox
+membership, activity-event file links, tags, contact methods, and other
+non-network facts remain solely in their authoritative domains. `DISTINCT`
+collapses multiple authoritative facts that imply the same logical connection,
+and maintenance triggers recheck the compact source before removing such an
+existence row. Verification compares only the exact three-column tuple set.
+
+Apply with writers stopped and a verified backup. The migration drops the
+derived version-65 table, immediately removing its copied payload and indexes,
+then rebuilds the much smaller derived index. No authoritative domain or
+relationship row is changed. MariaDB DDL commits implicitly; after a partial
+failure keep writers stopped and replay the complete idempotent block before
+verification and restart.
+
 ## Version 66: Store JSON-shaped values as text
 
 Removes every MariaDB JSON-validity constraint, changes the five columns that

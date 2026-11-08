@@ -1,0 +1,37 @@
+export const objectRelationshipTypes = Object.freeze([
+  ["event-contact", "calendar.event", "contacts.contact", true],
+  ["event-contact-owned", "calendar.event", "contacts.contact", false],
+  ["invoice-file-receipt", "payments.invoice", "files.file", false],
+  ["todo-event", "calendar.event", "todos.personal_task", true],
+  ["todo-event-owned", "calendar.event", "todos.personal_task", false],
+  ["todo-content", "todos.personal_task", "video.content_item", true],
+  ["thing-todo", "things.physical_item", "todos.personal_task", true],
+  ["thing-todo-owned", "things.physical_item", "todos.personal_task", false],
+  ["thing-content", "things.physical_item", "video.content_item", true],
+  ["thing-content-owned", "things.physical_item", "video.content_item", false],
+  ["thing-file", "things.physical_item", "files.file", true],
+  ["thing-file-owned", "things.physical_item", "files.file", false],
+  ["thing-contact", "things.physical_item", "contacts.contact", true],
+  ["thing-contact-owned", "things.physical_item", "contacts.contact", false],
+  ["todo-correspondence", "todos.personal_task", "correspondence.item", true],
+  ["event-correspondence", "calendar.event", "correspondence.item", true],
+  ["correspondence-file", "correspondence.item", "files.file", false],
+  ["todo-group", "todos.todo_group", "todos.personal_task", false],
+  ["physical-item-group", "things.physical_item_group", "things.physical_item", false],
+  ["todo-contact", "todos.personal_task", "contacts.contact", true],
+  ["invoice-payer", "payments.invoice", "contacts.contact", false],
+  ["invoice-line", "payments.invoice", "todos.personal_task", false],
+  ["journal-group", "journal.group", "journal.tracker", false],
+  ["tracker-entry", "journal.tracker", "journal.entry", false],
+  ["routine-event", "calendar.routine", "calendar.event", false],
+  ["content-group", "video.content_group", "video.content_item", false],
+  ["content-file", "video.content_item", "files.file", false],
+  ["script-content", "video.script", "video.content_item", false],
+].map(([name, leftType, rightType, removable]) => Object.freeze({
+  name, leftType, rightType, removable,
+  publicName: name.endsWith("-owned") ? name.slice(0, -6) : name,
+})));
+
+export const objectRelationshipTypeByName = new Map(
+  objectRelationshipTypes.map((definition) => [definition.name, definition]),
+);

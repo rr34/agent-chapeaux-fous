@@ -405,18 +405,20 @@ discussing; it does not make a tool callable, authorize a mutation, or bypass
 the owning tool's validation.
 
 The native interactive object network reads local adjacency through the
-read-only `object_relationship_edges` view. Its indexed derived table normalizes
-every physical join table plus explicitly reviewed direct native relationships,
-emits each edge in both directions, and retains its source table, source key,
-family, qualifier, ordering, timestamp, and domain attributes. Database
-triggers maintain that projection in the authoritative source transaction; the
-complete `object_relationship_edges_source` computation remains the rebuild and
-parity-audit definition. The owning tables and tools remain authoritative. The
-consumer view does not infer that an endpoint is first-class, authorize a
-write, perform recursive traversal, or replace an immutable relationship
-reference set; application code filters the declared object types, applies a
-hard result bound, and batch-hydrates each surviving type through its owning
-read.
+read-only `object_relationship_edges` view. Its indexed derived table contains
+one compact canonical existence tuple—reviewed relationship enum plus two local
+numeric IDs—for each distinct connection between first-class object types.
+Each enum fixes its ordered endpoint types and simple-network removal behavior;
+forward and reverse indexes support adjacency from either endpoint without
+duplicating rows. Provider mailbox membership, correspondence participants,
+trace links, tags, and other non-network relationships stay exclusively in
+their owning domains. Database triggers maintain the compact projection in the
+authoritative source transaction; `object_relationship_edges_source` remains
+the rebuild and exact parity-audit definition. The owning tables and tools
+remain authoritative. The consumer view does not authorize writes, perform
+recursive traversal, or replace an immutable relationship reference set;
+application code applies a hard result bound and batch-hydrates every endpoint
+through its owning read.
 
 While the user composes a request, every canonical object card exposes the same
 selection checkbox, and the persistent Agent composer shows the bounded total

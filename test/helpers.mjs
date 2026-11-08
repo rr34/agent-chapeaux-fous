@@ -23,7 +23,7 @@ export function baselineBeforeTodoPlanningPromptRemoval(source) {
       "    CONSTRAINT todo_personal_billable CHECK (",
       "    CONSTRAINT todo_personal_prompt CHECK (planning_prompt_text IS NULL OR CHAR_LENGTH(TRIM(planning_prompt_text)) BETWEEN 1 AND 10000),\n    CONSTRAINT todo_personal_billable CHECK (",
     )
-    .replace("Target: MariaDB 10.11, schema version 66.", "Target: MariaDB 10.11, schema version 62.")
+    .replace("Target: MariaDB 10.11, schema version 67.", "Target: MariaDB 10.11, schema version 62.")
     .replace("VALUES (1, 66,", "VALUES (1, 62,")
     .replace(
       "content_type          ENUM('video_promo', 'video_personal', 'video_tutorial', 'audio_promo', 'audio_personal', 'audio_tutorial', 'image', 'other') NOT NULL DEFAULT 'video_tutorial' COMMENT 'Content medium and purpose. video_promo: Promotional video. video_personal: Personal or general-purpose video. video_tutorial: Instructional video. audio_promo: Promotional audio. audio_personal: Personal or general-purpose audio. audio_tutorial: Instructional audio. image: Still image or graphic. other: Content not represented by the named formats.',",

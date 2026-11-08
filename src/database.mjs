@@ -1,6 +1,6 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 
-export const requiredDatabaseSchemaVersion = 66;
+export const requiredDatabaseSchemaVersion = 67;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -130,9 +130,7 @@ export const requiredDatabaseShape = {
     "sha256_snapshot", "created_at_utc",
   ],
   object_relationship_edge_index: [
-    "from_type", "from_id", "relationship_type", "to_type", "to_id",
-    "relationship_family", "source_table", "source_key_json", "source_key_sha256",
-    "created_at_utc", "relationship_qualifier", "sort_order", "attributes_json", "is_reverse",
+    "relationship_type", "left_id", "right_id",
   ],
   journal1_groups: ["journal_group_id", "name", "archived_at_utc"],
   journal2_trackers: ["tracker_id", "journal_group_id", "name", "unit", "archived_at_utc", "asking_starts_at_utc", "asking_recurrence_rule", "asking_time_zone"],
@@ -149,18 +147,26 @@ export const requiredDatabaseShape = {
 
 export const requiredDatabaseViewShape = {
   object_relationship_edges: [
-    "from_type", "from_id", "relationship_type", "to_type", "to_id",
-    "relationship_family", "source_table", "source_key_json", "created_at_utc",
-    "relationship_qualifier", "sort_order", "attributes_json", "is_reverse",
+    "relationship_type", "left_id", "right_id",
   ],
   object_relationship_edges_source: [
-    "from_type", "from_id", "relationship_type", "to_type", "to_id",
-    "relationship_family", "source_table", "source_key_json", "created_at_utc",
-    "relationship_qualifier", "sort_order", "attributes_json", "is_reverse",
+    "relationship_type", "left_id", "right_id",
   ],
 };
 
 export const requiredEnumColumns = {
+  object_relationship_edge_index: {
+    relationship_type: [
+      "event-contact", "event-contact-owned", "invoice-file-receipt",
+      "todo-event", "todo-event-owned", "todo-content",
+      "thing-todo", "thing-todo-owned", "thing-content", "thing-content-owned",
+      "thing-file", "thing-file-owned", "thing-contact", "thing-contact-owned",
+      "todo-correspondence", "event-correspondence", "correspondence-file",
+      "todo-group", "physical-item-group", "todo-contact", "invoice-payer",
+      "invoice-line", "journal-group", "tracker-entry", "routine-event",
+      "content-group", "content-file", "script-content",
+    ],
+  },
   files: {
     media_kind: ["audio", "video", "image", "document", "archive", "other"],
     title_source: ["original_filename", "ai", "user"],

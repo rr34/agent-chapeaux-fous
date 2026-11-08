@@ -13,6 +13,7 @@ import { relationshipEdgeViewColumns, relationshipJoinTables } from "../scripts/
 import {
   baselineObjectRelationshipEdgeTriggers,
   migrationObjectRelationshipEdgeTriggers,
+  objectRelationshipEdgeSourceTables,
 } from "../scripts/object-relationship-edge-triggers.mjs";
 import { requiredDatabaseSchemaVersion, requiredEnumColumns } from "../src/database.mjs";
 import { baselineBeforeJournalLevels } from "./helpers.mjs";
@@ -73,19 +74,19 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 66", () => {
+test("the authoritative MariaDB baseline is complete at schema version 67", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
   assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 49);
   assert.equal(statements.filter((statement) => /^CREATE (?:SQL SECURITY INVOKER )?VIEW\b/iu.test(statement)).length, 9);
-  assert.equal(statements.filter((statement) => /\bCREATE TRIGGER\b/iu.test(statement)).length, 105);
-  assert.equal(source.match(/\bENUM\(/gu)?.length, 36);
-  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 67);
-  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 95);
+  assert.equal(statements.filter((statement) => /\bCREATE TRIGGER\b/iu.test(statement)).length, 83);
+  assert.equal(source.match(/\bENUM\(/gu)?.length, 37);
+  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 66);
+  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 94);
   assert.doesNotMatch(source, /\b(?:[A-Za-z_][A-Za-z0-9_]*_at_utc|ask_after|resolved_at|routine_occurrence_key)\s+VARCHAR\(/u);
   assert.equal(
     Object.values(requiredEnumColumns).reduce((count, fields) => count + Object.keys(fields).length, 0),
-    36,
+    37,
   );
   for (const [tableName, fields] of Object.entries(requiredEnumColumns)) {
     const table = statements.find((statement) => statement.startsWith(`CREATE TABLE ${tableName} `));
@@ -180,8 +181,6 @@ test("the authoritative MariaDB baseline is complete at schema version 66", () =
   for (const declaration of [
     /email_keywords_json\s+LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin/u,
     /source_metadata_json\s+LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin/u,
-    /source_key_json\s+LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL/u,
-    /attributes_json\s+LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL/u,
   ]) assert.match(source, declaration);
   assert.match(source, /video_scripts_script_json_length CHECK \(CHAR_LENGTH\(script_json\) <= 500000\)/u);
   const sourceAliases = statements.find((statement) => statement.startsWith("CREATE TABLE correspondence_source_aliases "));
@@ -200,19 +199,22 @@ test("the authoritative MariaDB baseline is complete at schema version 66", () =
   const relationshipSourceView = statements.find((statement) => statement.startsWith("CREATE SQL SECURITY INVOKER VIEW object_relationship_edges_source "));
   assert.ok(relationshipView);
   assert.match(relationshipView, /FROM object_relationship_edge_index/u);
-  for (const tableName of relationshipJoinTables) assert.match(relationshipSourceView, new RegExp(`\\b${tableName}\\b`, "u"));
+  for (const tableName of objectRelationshipEdgeSourceTables) assert.match(relationshipSourceView, new RegExp(`\\b${tableName}\\b`, "u"));
+  for (const tableName of ["correspondence_participants_join", "correspondence_email_mailboxes_join", "activity_event_files_join"]) {
+    assert.doesNotMatch(relationshipSourceView, new RegExp(`\\b${tableName}\\b`, "u"));
+  }
   for (const columnName of relationshipEdgeViewColumns) assert.match(relationshipView, new RegExp(`\\b${columnName}\\b`, "u"));
-  const contactCleanup = statements.find((statement) => statement.startsWith("CREATE TRIGGER ore_cleanup_contacts_bd\n"));
-  const invoiceCleanup = statements.find((statement) => statement.startsWith("CREATE TRIGGER ore_cleanup_payment_invoices_bd\n"));
-  assert.match(contactCleanup, /FROM contact_methods[\s\S]*WHERE contact_id = OLD[.]contact_id/u);
-  assert.match(invoiceCleanup, /FROM payment_invoice_lines[\s\S]*WHERE payment_invoice_id = OLD[.]payment_invoice_id/u);
+  const contactCleanup = statements.find((statement) => statement.startsWith("CREATE TRIGGER ore_cleanup_contacts_bd "));
+  const invoiceCleanup = statements.find((statement) => statement.startsWith("CREATE TRIGGER ore_cleanup_payment_invoices_bd "));
+  assert.match(contactCleanup, /right_id = OLD[.]contact_id/u);
+  assert.match(invoiceCleanup, /left_id = OLD[.]payment_invoice_id/u);
   for (const retired of ["todo_routine_id", "scheduled_at_utc", "due_at_utc", "is_all_day", "duration_minutes"]) {
     assert.doesNotMatch(todoTable, new RegExp(`\\b${retired}\\b`, "u"));
   }
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 66, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 67, 'Chapeaux Fous MariaDB database'\)$/);
   assert.equal(
     requiredDatabaseSchemaVersion,
     readMigrationLedger(path.join(root, "db", "migrations.sql")).at(-1).version,
@@ -236,7 +238,7 @@ test("migration 66 removes MariaDB JSON verification while preserving text limit
 test("relationship edge trigger DDL stays synchronized with its canonical generator", () => {
   const baseline = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
-    .find(({ version }) => version === 65);
+    .find(({ version }) => version === 67);
   assert.ok(baseline.includes(baselineObjectRelationshipEdgeTriggers(baseline)));
   assert.ok(migration.sql.includes(migrationObjectRelationshipEdgeTriggers(baseline)));
 });

@@ -827,18 +827,21 @@ view descriptions live beside their definitions in the baseline SQL. Explicit
 schema-description payload and no generated schema file is required.
 
 The interactive object network reads one-hop local adjacency from the read-only
-`object_relationship_edges` view. That stable consumer surface reads the
-indexed `object_relationship_edge_index` projection instead of recomputing all
-sixteen `_join` tables and reviewed direct native relationships on every click.
-Database triggers update both directed projection rows in the same transaction
-as each authoritative source change. The owning domain tables remain
-authoritative and all changes continue through their domain tools; the index is
-never a mutation path. The complete `object_relationship_edges_source` view is
-the deliberately slower rebuild and parity-audit definition. Migration and
-database verification refuse completion when that canonical computation and
-the indexed projection differ. Application code applies the first-class object
-catalog, hard result bound, batched type-owned hydration, and
-simple-connection rules; neither view is a recursive traversal engine.
+`object_relationship_edges` view. Its `object_relationship_edge_index` stores
+one compact canonical row—relationship enum plus two local numeric IDs—for each
+distinct connection between reviewed first-class object types. Forward and
+reverse indexes avoid recomputing the relevant domain joins on every click;
+application relationship metadata remains only in its authoritative owning
+table. Provider mailbox membership, correspondence participants, trace links,
+tags, and other non-network facts are intentionally absent. Database triggers
+maintain existence rows in the same transaction as source changes, including
+the case where several source facts imply one logical connection. The index is
+never a mutation path. The compact `object_relationship_edges_source` view is
+the rebuild and parity-audit definition, and database verification refuses
+completion when its exact tuple set differs from the index. Application code
+maps each enum to its fixed ordered endpoint types, applies the first-class
+object catalog and hard result bound, batch-hydrates through owning reads, and
+enforces simple-connection rules; neither view is recursive traversal.
 
 Native discovery has one in-process search coordinator shared by agent
 `global_search`, the user-facing Search screen and `/api/global-search`, and the
@@ -1232,8 +1235,10 @@ reference material, artifacts, and people. Four constrained many-to-many tables
 connect them to exact personal to-dos, content-library items, durable files, and
 contacts without copying or weakening those domains. The Things tools own item,
 group, and link mutations; physical groups and items are first-class objects.
-The read-only `object_relationship_edges` view projects all four joins plus
-physical-item group membership in both directions for the shared object network.
+The compact read-only `object_relationship_edges` view indexes all four joins
+plus physical-item group membership once in canonical direction; the shared
+object network uses its forward or reverse key according to the reviewed
+relationship-type contract.
 The screen label is **Things**; database and object contracts use the narrower
 term **physical item** so other first-class objects are not misclassified.
 

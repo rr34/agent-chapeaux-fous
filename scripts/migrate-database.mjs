@@ -178,6 +178,9 @@ export const relationshipJoinTables = Object.freeze([
 ]);
 
 export const relationshipEdgeViewColumns = Object.freeze([
+  "relationship_type", "left_id", "right_id",
+]);
+export const legacyRelationshipEdgeViewColumns = Object.freeze([
   "from_type", "from_id", "relationship_type", "to_type", "to_id",
   "relationship_family", "source_table", "source_key_json", "created_at_utc",
   "relationship_qualifier", "sort_order", "attributes_json", "is_reverse",
@@ -396,8 +399,10 @@ export async function assertMigrationSpecificIntegrity(
       ["correspondence.email_keywords_json", "YES"],
       ["correspondence.source_metadata_json", "YES"],
       ["correspondence_source_aliases.source_metadata_json", "YES"],
-      ["object_relationship_edge_index.source_key_json", "NO"],
-      ["object_relationship_edge_index.attributes_json", "NO"],
+      ...(schemaVersion < 67 ? [
+        ["object_relationship_edge_index.source_key_json", "NO"],
+        ["object_relationship_edge_index.attributes_json", "NO"],
+      ] : []),
     ]) {
       const column = byName.get(name);
       if (column?.DATA_TYPE !== "longtext" || column.CHARACTER_SET_NAME !== "utf8mb4"
@@ -416,7 +421,77 @@ export async function assertMigrationSpecificIntegrity(
       throw new Error("Migration 0066 must preserve the video script JSON-text length limit");
     }
   }
-  if (migration.version === 65) {
+  if (migration.version === 67) {
+    const [columns] = await connection.query(`SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'object_relationship_edge_index'
+      ORDER BY ORDINAL_POSITION`, [databaseName]);
+    if (JSON.stringify(columns.map((row) => row.COLUMN_NAME)) !== JSON.stringify(relationshipEdgeViewColumns)) {
+      throw new Error("Migration 0067 did not establish the compact relationship index shape");
+    }
+    const relationshipType = columns.find((row) => row.COLUMN_NAME === "relationship_type");
+    if (relationshipType?.DATA_TYPE !== "enum"
+        || JSON.stringify(enumValues(relationshipType.COLUMN_TYPE))
+          !== JSON.stringify(requiredEnumColumns.object_relationship_edge_index.relationship_type)) {
+      throw new Error("Migration 0067 did not establish the reviewed relationship type enum");
+    }
+    const [indexes] = await connection.query(`SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX
+      FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'object_relationship_edge_index'
+      ORDER BY INDEX_NAME, SEQ_IN_INDEX`, [databaseName]);
+    for (const [name, expected] of [
+      ["PRIMARY", ["left_id", "relationship_type", "right_id"]],
+      ["object_relationship_edge_reverse", ["right_id", "relationship_type", "left_id"]],
+    ]) {
+      const actual = indexes.filter((row) => row.INDEX_NAME === name).map((row) => row.COLUMN_NAME);
+      if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+        throw new Error(`Migration 0067 did not establish compact relationship index ${name}`);
+      }
+    }
+    const [views] = await connection.query(`SELECT TABLE_NAME, VIEW_DEFINITION, SECURITY_TYPE
+      FROM information_schema.VIEWS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ('object_relationship_edges', 'object_relationship_edges_source')`, [databaseName]);
+    for (const name of ["object_relationship_edges", "object_relationship_edges_source"]) {
+      if (!views.some((row) => row.TABLE_NAME === name && row.SECURITY_TYPE === "INVOKER")) {
+        throw new Error(`Migration 0067 did not establish invoker-secured view ${name}`);
+      }
+    }
+    const sourceDefinition = String(views.find((row) => row.TABLE_NAME === "object_relationship_edges_source")?.VIEW_DEFINITION ?? "");
+    for (const excluded of ["correspondence_participants_join", "correspondence_email_mailboxes_join", "activity_event_files_join"]) {
+      if (sourceDefinition.includes(excluded)) throw new Error(`Migration 0067 compact source must exclude ${excluded}`);
+    }
+    const [triggers] = await connection.query(`SELECT TRIGGER_NAME, EVENT_OBJECT_TABLE, EVENT_MANIPULATION
+      FROM information_schema.TRIGGERS
+      WHERE TRIGGER_SCHEMA = ? AND TRIGGER_NAME LIKE 'ore\\_%'`, [databaseName]);
+    for (const table of objectRelationshipEdgeSourceTables) {
+      for (const [event, suffix] of [["INSERT", "ai"], ["UPDATE", "au"], ["DELETE", "ad"]]) {
+        if (!triggers.some((row) => row.TRIGGER_NAME === `ore_${table}_${suffix}`
+          && row.EVENT_OBJECT_TABLE === table && row.EVENT_MANIPULATION === event)) {
+          throw new Error(`Migration 0067 did not establish compact ${event.toLowerCase()} maintenance for ${table}`);
+        }
+      }
+    }
+    for (const table of Object.keys(objectRelationshipEdgeEndpointTables)) {
+      if (!triggers.some((row) => row.TRIGGER_NAME === `ore_cleanup_${table}_bd`
+        && row.EVENT_OBJECT_TABLE === table && row.EVENT_MANIPULATION === "DELETE")) {
+        throw new Error(`Migration 0067 did not establish compact endpoint cleanup for ${table}`);
+      }
+    }
+    const [parity] = await connection.query(`SELECT
+        (SELECT COUNT(*) FROM object_relationship_edge_index) AS indexed_count,
+        (SELECT COUNT(*) FROM object_relationship_edges_source) AS source_count,
+        EXISTS (
+          SELECT 1 FROM object_relationship_edges_source source_edge
+          LEFT JOIN object_relationship_edge_index indexed_edge
+            USING (relationship_type, left_id, right_id)
+          WHERE indexed_edge.relationship_type IS NULL LIMIT 1
+        ) AS has_mismatch`);
+    if (Number(parity[0]?.indexed_count) !== Number(parity[0]?.source_count)
+        || Number(parity[0]?.has_mismatch) !== 0) {
+      throw new Error("Migration 0067 compact relationship index does not match its canonical source");
+    }
+  }
+  if (migration.version === 65 && schemaVersion < 67) {
     const [objects] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE
       FROM information_schema.TABLES
       WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (
@@ -633,9 +708,14 @@ export async function assertMigrationSpecificIntegrity(
     const definitionView = relationshipDefinitionView(schemaVersion);
     const [views] = await connection.query(`SELECT VIEW_DEFINITION, SECURITY_TYPE FROM information_schema.VIEWS
       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = '${definitionView}'`, [databaseName]);
+    const includesMailboxMembership = String(views[0]?.VIEW_DEFINITION ?? "")
+      .includes("correspondence_email_mailboxes_join");
     if (views.length !== 1 || views[0].SECURITY_TYPE !== "INVOKER"
-        || !String(views[0].VIEW_DEFINITION).includes("correspondence_email_mailboxes_join")) {
-      throw new Error(`Migration 0060 did not expose mailbox membership through ${definitionView}`);
+        || (schemaVersion < 67 && !includesMailboxMembership)
+        || (schemaVersion >= 67 && includesMailboxMembership)) {
+      throw new Error(schemaVersion >= 67
+        ? `Migration 0067 must keep mailbox membership out of ${definitionView}`
+        : `Migration 0060 did not expose mailbox membership through ${definitionView}`);
     }
   }
   if (migration.version === 59) {
@@ -863,7 +943,7 @@ export async function assertMigrationSpecificIntegrity(
       }
     }
   }
-  if (migration.version === 54 || migration.version === 55) {
+  if ((migration.version === 54 || migration.version === 55) && schemaVersion < 67) {
     const label = String(migration.version).padStart(4, "0");
     const [objects] = await connection.query(`SELECT TABLE_NAME, TABLE_TYPE
       FROM information_schema.TABLES
@@ -875,7 +955,7 @@ export async function assertMigrationSpecificIntegrity(
       FROM information_schema.COLUMNS
       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'object_relationship_edges'
       ORDER BY ORDINAL_POSITION`, [databaseName]);
-    if (JSON.stringify(columns.map((row) => row.COLUMN_NAME)) !== JSON.stringify(relationshipEdgeViewColumns)) {
+    if (JSON.stringify(columns.map((row) => row.COLUMN_NAME)) !== JSON.stringify(legacyRelationshipEdgeViewColumns)) {
       throw new Error(`Migration ${label} established an invalid object_relationship_edges column contract`);
     }
     const definitionView = relationshipDefinitionView(schemaVersion);
