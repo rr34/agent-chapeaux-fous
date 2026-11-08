@@ -139,6 +139,7 @@ a { color: inherit; }
 .correspondence-card-indicator circle[r="1"] { fill: currentColor; stroke: none; }
 .compact-object-card.correspondence-card { align-items: start; }
 .compact-object-card.correspondence-card > .compact-object-leading { padding-top: 1px; }
+.compact-object-card.correspondence-card--email > .compact-object-identity > .compact-object-heading > strong { flex: 0 1 auto; }
 .compact-object-card.correspondence-card.has-generic-display > .compact-object-identity > .compact-object-heading > strong,
 .first-class-object-card.correspondence-card.has-generic-display > .first-class-object-content > .first-class-object-title { display: none; }
 .compact-object-card.correspondence-card > .compact-object-identity > .compact-object-details { display: block; margin-top: 2px; }

@@ -78,7 +78,7 @@ export function CorrespondenceCard(props: ObjectCardProps) {
   return <SimpleObjectCard
     {...props}
     object={object}
-    className={`correspondence-card${genericDisplay ? " has-generic-display" : ""}${props.className ? ` ${props.className}` : ""}`}
+    className={`correspondence-card${medium === "email" ? " correspondence-card--email" : ""}${genericDisplay ? " has-generic-display" : ""}${props.className ? ` ${props.className}` : ""}`}
     leading={props.leading ? <div className="correspondence-card-leading">{indicators}{props.leading}</div> : indicators}
     compactDetails={compactDetails}
     compactHeadingMeta={when}

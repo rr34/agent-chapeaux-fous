@@ -156,6 +156,7 @@ test("correspondence cards own compact channel, direction, and content presentat
   assert.match(correspondence, /formatDisplayDate\(value, \{ fallback: "" \}\)/);
   assert.match(correspondence, /formatted[.]replace\(" at ", ", "\)/);
   assert.match(correspondence, /compactHeadingMeta=\{when\}/);
+  assert.match(correspondence, /medium === "email" \? " correspondence-card--email"/);
   assert.match(screen, /\{ label: "Medium", value: item\.medium \}/);
   assert.match(screen, /\{ label: "Call disposition", value: item\.call_disposition \}/);
   assert.match(screen, /\["sms", "mms", "rcs", "imessage"\]\.includes\(medium\) \? "messages" : medium/);
@@ -165,6 +166,7 @@ test("correspondence cards own compact channel, direction, and content presentat
   assert.match(styles, /\.first-class-object-card\.correspondence-card > \.first-class-object-content > \.first-class-object-label,[\s\S]*\.compact-object-card\.correspondence-card > \.compact-object-identity > span:first-child \{ display: none; \}/);
   assert.match(styles, /\.correspondence-card-preview \{[^}]*-webkit-line-clamp: 2;[^}]*line-clamp: 2;/s);
   assert.match(styles, /\.compact-object-identity \.compact-object-heading-meta \{[^}]*color: var\(--muted\);[^}]*white-space: nowrap;/s);
+  assert.match(styles, /\.compact-object-card\.correspondence-card--email > \.compact-object-identity > \.compact-object-heading > strong \{ flex: 0 1 auto; \}/);
 });
 
 test("journal tracker cards own their stock-style value history and default to one year", () => {
