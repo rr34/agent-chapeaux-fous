@@ -2006,6 +2006,7 @@ function ContactsScreen() {
           {group.contacts.map((contact) => {
           const name = textKey(contact, "displayName", "name");
           const status = textKey(contact, "status") || "active";
+          const notes = textKey(contact, "notes");
           const methods = (contact.methods as Entity[] | undefined) || [];
           const tags = (contact.tags as string[] | undefined) || [];
           const contactDetails = methods.map((method) => cardAttribute(
@@ -2031,6 +2032,8 @@ function ContactsScreen() {
               badges: [...tags, ...(status !== "active" ? [status] : [])],
               links,
             })}
+            details={notes ? <section className="contact-card-notes"><h4>Notes</h4><p>{notes}</p></section> : undefined}
+            detailsInContent
             onEdit={() => setEditingContactId(Number(contact.id))}
             controls={<ObjectSelectionControls identity={contactIdentity(contact)} subject={`contact ${name}`} />}
           />;

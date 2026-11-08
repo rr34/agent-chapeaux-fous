@@ -979,6 +979,9 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .first-class-object-card:has(> .first-class-object-leading) > .first-class-object-actions { grid-column: 3; }
 .first-class-object-card:has(> .first-class-object-leading) > .first-class-object-details { grid-column: 1 / -1; }
 .contact-card.is-inactive { background: rgba(121, 116, 105, .07); }
+.contact-card-notes { margin-top: 7px; padding-top: 9px; border-top: 1px solid var(--line); }
+.contact-card-notes h4 { margin: 0 0 4px; color: var(--olive); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+.contact-card-notes p { margin: 0; color: var(--ink); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
 .todo-card-leading { display: flex; align-items: center; gap: 9px; }
 .todo-card.is-complete .first-class-object-title { color: var(--muted); text-decoration: line-through; }
 .journal-row-schedule .tracker-schedule,

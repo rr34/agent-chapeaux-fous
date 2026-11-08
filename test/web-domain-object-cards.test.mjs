@@ -86,6 +86,7 @@ test("full and expanded cards show their complete provided information", () => {
 test("collapsed contact cards render the contact name as their identity", () => {
   const contact = fs.readFileSync(path.join(cardsRoot, "ContactCard.tsx"), "utf8");
   const compact = fs.readFileSync(path.join(cardsRoot, "CompactObjectCard.tsx"), "utf8");
+  const app = fs.readFileSync(path.join(root, "web/src/App.tsx"), "utf8");
   const styles = fs.readFileSync(path.join(root, "web/src/styles.css"), "utf8");
 
   assert.match(contact, /className=\{`contact-card/);
@@ -94,6 +95,9 @@ test("collapsed contact cards render the contact name as their identity", () => 
   assert.doesNotMatch(styles, /\.compact-object-card\.contact-card > \.compact-object-controls \{[^}]*grid-row:/s);
   assert.match(styles, /\.compact-object-card\.correspondence-card\.has-generic-display > \.compact-object-identity > \.compact-object-heading > strong/);
   assert.doesNotMatch(styles, /\.correspondence-card\.has-generic-display \.compact-object-identity > \.compact-object-heading > strong/);
+  assert.match(app, /details=\{notes \? <section className="contact-card-notes"><h4>Notes<\/h4><p>\{notes\}<\/p><\/section> : undefined\}/);
+  assert.match(app, /detailsInContent/);
+  assert.match(styles, /\.contact-card-notes p \{[^}]*white-space: pre-wrap;/s);
 });
 
 test("calendar event cards keep notes and event details behind the shared expansion", () => {
