@@ -438,7 +438,11 @@ the rebuild and exact parity-audit definition. The owning tables and tools
 remain authoritative. The consumer view does not authorize writes, perform
 recursive traversal, or replace an immutable relationship reference set;
 application code applies a hard result bound and batch-hydrates every endpoint
-through its owning read.
+through its owning read. A contact-focused network additionally reads at most
+the twenty newest authoritative correspondence records through a participant
+existence check and presents them as non-removable cards. This bounded
+domain-owned augmentation does not materialize correspondence participants in
+the general edge index.
 
 While the user composes a request, every canonical object card exposes the same
 selection checkbox, and the persistent Agent composer shows the bounded total

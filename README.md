@@ -845,6 +845,11 @@ completion when its exact tuple set differs from the index. Application code
 maps each enum to its fixed ordered endpoint types, applies the first-class
 object catalog and hard result bound, batch-hydrates through owning reads, and
 enforces simple-connection rules; neither view is recursive traversal.
+When a contact is the network focus, the application separately reads at most
+the twenty newest correspondence records from the authoritative timeline using
+an indexed participant-existence check. Those non-removable cards are merged
+ahead of compact adjacency results without persisting participant relationships
+in the edge index.
 
 Native discovery has one in-process search coordinator shared by agent
 `global_search`, the user-facing Search screen and `/api/global-search`, and the

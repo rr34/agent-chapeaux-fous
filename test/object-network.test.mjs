@@ -279,6 +279,7 @@ test("contact cards carry their available communication actions with the object"
           { method_kind: "phone", label: "pref", value: "+14406227421" },
           { method_kind: "email", label: "work", value: "brian@example.com" },
         ];
+        if (/FROM correspondence AS item/u.test(sql)) return [];
         if (/FROM object_relationship_edges/u.test(sql)) return [];
         throw new Error(`Unexpected all: ${sql}`);
       },
@@ -296,4 +297,45 @@ test("contact cards carry their available communication actions with the object"
     { label: "Text pref", href: "sms:+14406227421" },
     { label: "Email work", href: "mailto:brian@example.com" },
   ]);
+});
+
+test("a contact network includes its 20 newest correspondence items without indexing them as edges", () => {
+  const recentIds = Array.from({ length: 20 }, (_, index) => 100 - index);
+  let recentQuery = null;
+  let correspondenceReads = 0;
+  const database = { prepare(sql) {
+    return {
+      get() {
+        if (/FROM contacts WHERE contact_id/u.test(sql)) return {
+          contact_id: 12, display_name: "Brian Lesko", contact_kind: "person",
+          organization_name: null, status: "active", birth_date: null, notes: null,
+        };
+        throw new Error(`Unexpected get: ${sql}`);
+      },
+      all(...parameters) {
+        if (/FROM contact_methods/u.test(sql)) return [];
+        if (/FROM correspondence AS item/u.test(sql)) {
+          recentQuery = { sql, parameters };
+          return recentIds.map((correspondence_id) => ({ correspondence_id }));
+        }
+        if (/FROM object_relationship_edges/u.test(sql)) return [];
+        if (/FROM correspondence WHERE correspondence_id IN/u.test(sql)) {
+          correspondenceReads += 1;
+          return recentIds.map((correspondence_id) => ({
+            correspondence_id, medium: "call", direction: "inbound", subject: null,
+            body: null, delivery_status: null, call_disposition: "missed",
+            occurred_at_utc: `2026-11-08 12:${String(correspondence_id % 60).padStart(2, "0")}:00.000`,
+          }));
+        }
+        throw new Error(`Unexpected all: ${sql}`);
+      },
+    };
+  } };
+  const graph = new ObjectNetworkService({ database, organizer: {}, registry: {} }).graph(contactIdentity);
+  assert.match(recentQuery.sql, /EXISTS[\s\S]*participant[.]contact_id = \?/u);
+  assert.match(recentQuery.sql, /ORDER BY item[.]occurred_at_utc DESC, item[.]correspondence_id DESC/u);
+  assert.deepEqual(recentQuery.parameters, [12, 20]);
+  assert.equal(correspondenceReads, 1);
+  assert.deepEqual(graph.connections.map(({ object, removable }) => [object.id, removable]),
+    recentIds.map((id) => [id, false]));
 });

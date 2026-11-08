@@ -3,6 +3,7 @@ import { objectRelationshipTypeByName, objectRelationshipTypes } from "./object-
 import { OrganizerInputError } from "./organizer-store.mjs";
 
 const maximumConnections = 100;
+const maximumRecentContactCorrespondence = 20;
 const supportedTypes = new Set([
   "contacts.contact", "todos.todo_group", "todos.personal_task", "payments.invoice",
   "journal.group", "journal.tracker", "journal.entry", "calendar.event",
@@ -351,6 +352,21 @@ export class ObjectNetworkService {
     }).sort((a, b) => a.type.localeCompare(b.type) || a.id - b.id);
   }
 
+  #recentContactCorrespondence(identity) {
+    if (identity.type !== "contacts.contact") return [];
+    const rows = this.database.prepare(`SELECT item.correspondence_id
+      FROM correspondence AS item
+      WHERE EXISTS (
+        SELECT 1 FROM correspondence_participants_join AS participant
+        WHERE participant.contact_id = ?
+          AND participant.correspondence_id = item.correspondence_id
+      )
+      ORDER BY item.occurred_at_utc DESC, item.correspondence_id DESC
+      LIMIT ?`).all(identity.id, maximumRecentContactCorrespondence);
+    return rows.map(({ correspondence_id }) =>
+      edge("correspondence.item", correspondence_id, "correspondence-contact", false));
+  }
+
   #relationshipsBetween(first, second) {
     const matches = objectRelationshipTypes.filter(({ leftType, rightType }) =>
       (leftType === first.type && rightType === second.type)
@@ -374,7 +390,10 @@ export class ObjectNetworkService {
     const focus = this.#readObject(identity);
     if (!focus) throw new OrganizerInputError("Object not found.", 404);
     const deduplicated = new Map();
-    for (const connection of this.#connections(identity)) {
+    for (const connection of [
+      ...this.#recentContactCorrespondence(identity),
+      ...this.#connections(identity),
+    ]) {
       const key = `${connection.type}:${connection.id}`;
       const previous = deduplicated.get(key);
       deduplicated.set(key, previous
