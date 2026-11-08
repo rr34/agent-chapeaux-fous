@@ -225,6 +225,16 @@ test("native object types explicitly distinguish integer primary keys from opaqu
   });
 });
 
+test("every database-backed native object publishes its real primary-key column", () => {
+  for (const type of nativeFirstClassObjectTypes.filter(({ table }) => table)) {
+    assert.equal(
+      type.identity.field,
+      type.key,
+      `${type.id} must publish ${type.key}, not a generic or application alias`,
+    );
+  }
+});
+
 test("native ID consumers publish bindings for singleton and batch inputs", () => {
   const definitions = new Map(nativeRegistry().toolDefinitions().map((definition) => [definition.name, definition]));
   const bindings = (name) => definitions.get(name).metadata?.[objectInputBindingsMetadataKey]?.bindings ?? [];

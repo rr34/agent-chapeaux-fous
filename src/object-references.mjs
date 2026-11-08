@@ -128,6 +128,21 @@ function remoteIdentity(record, type) {
   return type.identity?.field ? nativeId(record?.[type.identity.field]) : null;
 }
 
+function exactObjectFields(type, record, { id, ref, display }) {
+  const fields = {
+    [type.identity.field]: id,
+    [type.reference.field]: ref,
+    [type.display.field]: display,
+  };
+  for (const qualifier of type.qualifiers ?? []) {
+    const value = record?.[qualifier.field];
+    if (["string", "number", "boolean"].includes(typeof value) || value === null) {
+      fields[qualifier.field] = value;
+    }
+  }
+  return fields;
+}
+
 function remoteReferences(toolDefinition, toolDefinitions, result, sourceEventSeq, exactRecords) {
   const groups = [];
   for (const type of remoteObjectTypes(toolDefinition, toolDefinitions)) {
@@ -142,7 +157,12 @@ function remoteReferences(toolDefinition, toolDefinitions, result, sourceEventSe
       const role = recordObjectRole(record);
       if (!role) return;
       const byRef = byRole.get(role) ?? new Map();
-      if (id != null && !byRef.has(reference)) byRef.set(reference, { id, ref: reference, display });
+      if (id != null && !byRef.has(reference)) {
+        byRef.set(reference, {
+          id, ref: reference, display,
+          fields: exactObjectFields(type, record, { id, ref: reference, display }),
+        });
+      }
       byRole.set(role, byRef);
     }, exactRecords);
     for (const [role, byRef] of byRole) {
@@ -247,13 +267,49 @@ export function objectReferenceProtectedFields(toolDefinition, toolDefinitions =
     .filter(Boolean)])];
 }
 
+export function projectModelFacingObjectFields(toolDefinition, toolDefinitions, value) {
+  const types = toolDefinition?.source === "local"
+    ? nativeFirstClassObjectTypes
+    : remoteObjectTypes(toolDefinition, toolDefinitions);
+  if (!types.length) return value;
+  const visit = (current) => {
+    if (Array.isArray(current)) return current.map(visit);
+    if (!current || typeof current !== "object") return current;
+    const prototype = Object.getPrototypeOf(current);
+    if (prototype !== Object.prototype && prototype !== null) return current;
+    const projected = Object.fromEntries(Object.entries(current)
+      .map(([key, child]) => [key, visit(child)]));
+    for (const type of types) {
+      const identityField = type.identity?.field;
+      const referenceField = type.reference?.field;
+      const displayField = type.display?.field;
+      if (!identityField || !referenceField || !displayField
+          || projected[identityField] == null || projected[referenceField] == null
+          || projected[displayField] == null) continue;
+      if (identityField !== "id" && projected.id === projected[identityField]) delete projected.id;
+      if (referenceField !== "ref" && projected.ref === projected[referenceField]) delete projected.ref;
+      if (displayField !== "display" && projected.display === projected[displayField]) delete projected.display;
+    }
+    return projected;
+  };
+  return visit(value);
+}
+
 function normalizedObject(value, type = null) {
   const id = canonicalId(value?.id, type);
   const ref = compactScalar(value?.ref, 1_000);
   const display = compactScalar(value?.display, 500);
   if (id == null || !ref || !display) return null;
   if (type && !ref.startsWith(type.refPrefix)) return null;
-  return { id, ref, display };
+  const declaredFields = value?.fields && typeof value.fields === "object"
+    && !Array.isArray(value.fields)
+    ? Object.fromEntries(Object.entries(value.fields).filter(([name, fieldValue]) => (
+        /^[A-Za-z_][A-Za-z0-9_]*$/u.test(name)
+        && (["string", "number", "boolean"].includes(typeof fieldValue) || fieldValue === null)
+      )))
+    : {};
+  const fields = declaredFields;
+  return { id, ref, display, ...(Object.keys(fields).length >= 3 ? { fields } : {}) };
 }
 
 export function normalizeObjectReferenceGroups(groups, { maximumObjects = 2_000 } = {}) {
@@ -457,15 +513,33 @@ export function flatObjectReferences(groups) {
   })));
 }
 
+export function modelObjectIdentity({ type, id, ref, display, fields } = {}) {
+  if (fields && typeof fields === "object" && !Array.isArray(fields)) return { ...fields };
+  const nativeType = nativeFirstClassObjectTypes.find((candidate) => candidate.id === type);
+  if (!nativeType || id == null || !ref || !display) return null;
+  return {
+    [nativeType.identity.field]: id,
+    [nativeType.reference.field]: ref,
+    [nativeType.display.field]: display,
+  };
+}
+
 export function compactObjectReferenceContext(groups) {
-  return normalizeObjectReferenceGroups(groups).map((group) => ({
-    mention: group.mention,
-    role: group.role,
-    type: group.type,
-    source: group.source,
-    objects: group.objects.map(({ id, ref, display }) => ({ id, ref, display })),
-    sourceEventSeqs: group.sourceEventSeqs,
-  }));
+  return normalizeObjectReferenceGroups(groups).flatMap((group) => {
+    const objects = group.objects.flatMap((object) => {
+      const identity = modelObjectIdentity({ type: group.type, ...object });
+      return identity ? [identity] : [];
+    });
+    if (!objects.length) return [];
+    return [{
+      mention: group.mention,
+      role: group.role,
+      type: group.type,
+      source: group.source,
+      objects,
+      sourceEventSeqs: group.sourceEventSeqs,
+    }];
+  });
 }
 
 export function unresolvedSelectedObjectCandidates(selectedCandidates, availableGroups) {

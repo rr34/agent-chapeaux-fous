@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import Ajv2020 from "ajv/dist/2020.js";
-import { flatObjectReferences } from "./object-references.mjs";
+import { flatObjectReferences, modelObjectIdentity } from "./object-references.mjs";
 
 export const objectInputBindingsMetadataKey = "agent-slayer/object-input-bindings";
 export const objectInputBindingsProtocol = "agent-slayer.object-input-bindings";
@@ -51,6 +51,20 @@ function referencesFor(toolDefinition, objectType, selectedGroups, observedGroup
   return [...new Map([...selected, ...observed].map((object) => [object.ref, object])).values()];
 }
 
+function modelReferences(references, binding) {
+  return references.flatMap((object) => {
+    const identity = modelObjectIdentity(object);
+    return [{
+      object_type: object.type,
+      source: object.source,
+      ...(identity ?? {
+        [binding.value]: object[binding.value],
+        mention: object.display,
+      }),
+    }];
+  });
+}
+
 function schemaAtPointer(root, segments) {
   let current = root;
   for (const segment of segments) {
@@ -98,7 +112,7 @@ export function objectInputBindingProblem({
         const missing = completeReferences
           .filter((object) => !suppliedSet.has(object[binding.value]));
         if (missing.length) {
-          const exact = missing.map(({ id, ref, display }) => ({ id, ref, display }));
+          const exact = modelReferences(missing, binding);
           return `${toolDefinition.name}${binding.path} must include the complete explicit ${binding.objectType} selection; missing ${binding.value} values for ${JSON.stringify(exact)}`;
         }
       }
@@ -108,7 +122,7 @@ export function objectInputBindingProblem({
     if (!references.length) {
       return `${toolDefinition.name}${binding.path} requires a verified ${binding.objectType} binding from its owning read tool; ${JSON.stringify(invalid)} is not identified`;
     }
-    const exact = references.map(({ id, ref, display }) => ({ id, ref, display }));
+    const exact = modelReferences(references, binding);
     return `${toolDefinition.name}${binding.path} must use an exact verified ${binding.value} from the available ${binding.objectType} bindings: ${JSON.stringify(exact)}`;
   }
   return null;

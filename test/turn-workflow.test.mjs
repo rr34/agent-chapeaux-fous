@@ -1903,6 +1903,91 @@ test("an exceptional repair is audited again before its response is accepted", a
   assert.equal(requests.length, 5);
 });
 
+test("repair retains failed-call history and blocks the identical doomed retry", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  let executions = 0;
+  calendarUpdateTool(registry, async ({ title }) => {
+    executions += 1;
+    if (title === null) throw new Error("A new title is required for this rename.");
+    return { updated: true, event: { calendar_event_id: 3165, title } };
+  });
+  const failedArguments = { calendar_event_id: 3165, title: null, status: "confirmed" };
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    runTurn: async (payload, index) => {
+      if (index === 0) return completed(JSON.stringify(core({
+        objective: "Rename calendar event 3165 to Admin.",
+        actions: [{
+          instruction: "Rename calendar event 3165 to Admin.", targetRefs: [],
+          outcomes: [{
+            description: "Calendar event 3165 is named Admin.", targetRefs: [],
+            cardinality: { minimum: 1, maximum: 1, basis: "request" },
+          }],
+        }],
+      })));
+      if (index === 1) {
+        const failed = await payload.onToolCall({
+          callId: "rename-missing-title", tool: "calendar_event_update",
+          arguments: failedArguments,
+        });
+        assert.equal(failed.ok, false);
+        return completed("I could not rename the event.");
+      }
+      if (index === 2) return completed(JSON.stringify({
+        version: 1,
+        outcome: "repair_needed",
+        requiresUserInput: false,
+        missingInformation: [],
+        summary: "The attempted update omitted the requested title.",
+        satisfied: [],
+        remaining: ["Rename event 3165 to Admin."],
+        repairInstructions: ["Retry with the requested title Admin."],
+      }));
+      if (index === 3) {
+        assert.match(payload.developerInstructions, /Failed-call ledger \(runtime-enforced across execution and repair\)/u);
+        assert.match(payload.developerInstructions, /A new title is required for this rename/u);
+        assert.match(payload.developerInstructions, /argumentsFingerprint/u);
+        const duplicate = await payload.onToolCall({
+          callId: "rename-identical-repair", tool: "calendar_event_update",
+          arguments: { status: "confirmed", title: null, calendar_event_id: 3165 },
+        });
+        assert.equal(duplicate.ok, false);
+        assert.equal(duplicate.stopToolLoop, true);
+        const corrected = await payload.onToolCall({
+          callId: "rename-corrected-repair", tool: "calendar_event_update",
+          arguments: { calendar_event_id: 3165, title: "Admin", status: "confirmed" },
+        });
+        assert.equal(corrected.ok, true);
+        return completed("Renamed the event to Admin.");
+      }
+      assert.equal(index, 4);
+      return completed(JSON.stringify({
+        version: 1,
+        outcome: "complete",
+        requiresUserInput: false,
+        missingInformation: [],
+        summary: "The corrected receipt proves the rename.",
+        satisfied: ["Calendar event 3165 is named Admin."],
+        remaining: [],
+        repairInstructions: [],
+      }));
+    },
+  });
+
+  assert.equal(await runtime.run({
+    requestId: "request-repair-failure-memory",
+    requestEventId: "event-current",
+    text: "Rename calendar event 3165 to Admin.",
+  }), "Renamed the event to Admin.");
+  assert.equal(executions, 2, "the identical repair call must be blocked before tool execution");
+  assert.equal(requests.length, 5);
+});
+
 test("ordinary informational work needs no mutation receipt and no audit", async () => {
   const requests = [];
   const ledger = fakeLedger();

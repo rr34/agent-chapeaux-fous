@@ -40,6 +40,26 @@ to a first-class object, it preserves one compact binding containing:
 - the human-facing display name; and
 - source event numbers proving where that binding was observed.
 
+The binding's internal `id`, `ref`, and `display` slots are comparison and
+correlation machinery only. They are never the model-facing names of object
+fields. Every object projection sent to an LLM uses the exact identity,
+reference, display, and compact qualifier field names declared by the owning
+Object Description. For a native database object, the identity field is its
+real, deliberately named primary-key column such as `content_id`,
+`personal_task_id`, or `calendar_event_id`; it is never weakened to a generic
+`id`. Cheap exact routing qualifiers already read while verifying identity,
+including owning object IDs, user-facing sequence numbers, and current version
+tokens, remain attached under their real domain or database field names. A
+generic transport envelope may carry the domain-qualified object type and
+source, but it must not rename authoritative object fields. When their exact
+names are unavailable, the application withholds those values from model
+context and uses the owning read path rather than inventing generic aliases.
+When a native tool result contains both a legacy application alias and the
+complete exact Object Description identity triplet, the durable receipt keeps
+the literal result while the LLM-facing result projection removes only the
+redundant generic `id`, `ref`, or `display` alias. The exact primary key,
+stable reference, display field, and real routing qualifiers remain visible.
+
 The ID and stable reference are the machine identity. The display name is the
 human identity. Neither substitutes for the other and neither may be discarded:
 an ID without type, source, display, and evidence is meaningless context for a
@@ -811,6 +831,12 @@ that interaction to finish instead of permitting another tool-loop iteration.
 Completion audit may begin a repair interaction only with a materially
 different argument object supported by the receipts, owning tool's retry
 contract, and user's authorization; the unchanged call remains blocked.
+The canonical failed-call fingerprints, exact errors, and bounded argument
+evidence survive every execution refresh and the audit-to-repair boundary.
+Repair receives a prominent failed-call ledger before it acts, and runtime
+enforcement is initialized from the same prior receipts. Starting a repair
+interaction never resets failed-call memory or makes unchanged arguments
+eligible again.
 
 # 2D. Conversation types / structured interactions
 

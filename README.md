@@ -172,6 +172,9 @@ mutations by default. Each exception must have a concrete domain reason. Exact
 identity and stable references, authorization, pagination, concurrency,
 idempotency, transaction or partial-success rules, lifecycle states, and
 literal receipts remain consistent across agent tools and HTTP/UI adapters.
+Internal normalized binding slots never become generic model-facing object
+fields: model context uses the exact provider identity names and, for native
+records, the real database primary-key and compact routing-field names.
 The architecture is resource-centric: each owning capability manifest declares
 all create/read/update/delete-or-archive cells for its first-class objects and
 all link/read/update/unlink cells for its physical relationships. The registry

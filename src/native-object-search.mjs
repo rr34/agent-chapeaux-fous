@@ -21,6 +21,9 @@ export const nativeObjectTypes = Object.freeze(nativeFirstClassObjectTypes
   .map((type) => Object.freeze({
     type: type.searchType, domainType: type.id, source: type.source, table: type.table, key: type.key,
     label: type.title, searchFields: type.searchFields, refPrefix: type.refPrefix,
+    producerIdentityField: type.identity.field,
+    producerReferenceField: type.reference.field,
+    producerDisplayField: type.display.field,
   })));
 
 const byType = new Map(nativeObjectTypes.map((definition) => [definition.type, definition]));
@@ -30,29 +33,34 @@ const byDomainType = new Map(nativeObjectTypes.map((definition) => [definition.d
 // except for domain states that are logically deleted and no longer eligible
 // for ordinary agent context.
 const exactCandidateReads = Object.freeze({
-  contact: { display: "display_name", where: "status <> 'inactive'" },
+  contact: {
+    display: "display_name", where: "status <> 'inactive'",
+    fields: ["contact_kind", "status", "updated_at_utc"],
+  },
   contact_method: {
     display: "COALESCE(NULLIF(CONCAT_WS(': ', label, value), ''), CAST(contact_method_id AS CHAR))",
     where: "contact_id IN (SELECT contact_id FROM contacts WHERE status <> 'inactive')",
+    fields: ["contact_id", "method_kind", "label", "value"],
   },
-  todo_group: { display: "name", where: "1 = 1" },
-  todo: { display: "text", where: "1 = 1" },
-  physical_item_group: { display: "name", where: "1 = 1" },
-  physical_item: { display: "name", where: "1 = 1" },
-  journal_group: { display: "name", where: "1 = 1" },
-  tracker: { display: "name", where: "1 = 1" },
-  journal_entry: { display: "content_text", where: "1 = 1" },
-  calendar_event: { display: "title", where: "1 = 1" },
-  calendar_routine: { display: "title", where: "1 = 1" },
-  file: { display: "COALESCE(title, original_filename)", where: "1 = 1" },
-  profile_fact: { display: "fact_text", where: "1 = 1" },
-  correspondence: { display: "COALESCE(subject, CONCAT(medium, ' ', direction))", where: "1 = 1" },
-  video_script: { display: "title", where: "1 = 1" },
-  content_group: { display: "name", where: "1 = 1" },
-  content_item: { display: "title", where: "1 = 1" },
+  todo_group: { display: "name", where: "1 = 1", fields: ["daily_paper_pinned", "updated_at_utc"] },
+  todo: { display: "text", where: "1 = 1", fields: ["todo_group_id", "sequence", "status", "updated_at_utc"] },
+  physical_item_group: { display: "name", where: "1 = 1", fields: ["sort_position", "updated_at_utc"] },
+  physical_item: { display: "name", where: "1 = 1", fields: ["physical_item_group_id", "status", "item_condition", "location_text", "version"] },
+  journal_group: { display: "name", where: "1 = 1", fields: ["updated_at_utc"] },
+  tracker: { display: "name", where: "1 = 1", fields: ["journal_group_id", "unit", "updated_at_utc"] },
+  journal_entry: { display: "content_text", where: "1 = 1", fields: ["tracker_id", "occurred_at_utc", "updated_at_utc"] },
+  calendar_event: { display: "title", where: "1 = 1", fields: ["starts_at_utc", "status", "recurrence_rule", "updated_at_utc"] },
+  calendar_routine: { display: "title", where: "1 = 1", fields: ["first_starts_at_utc", "recurrence_rule", "disabled_at_utc", "updated_at_utc"] },
+  file: { display: "COALESCE(title, original_filename)", where: "1 = 1", fields: ["title", "original_filename", "media_kind", "mime_type", "updated_at_utc"] },
+  profile_fact: { display: "fact_text", where: "1 = 1", fields: ["fact_type", "fact_status", "updated_at_utc"] },
+  correspondence: { display: "COALESCE(subject, CONCAT(medium, ' ', direction))", where: "1 = 1", fields: ["medium", "direction", "occurred_at_utc"] },
+  video_script: { display: "title", where: "1 = 1", fields: ["status", "version", "updated_at_utc"] },
+  content_group: { display: "name", where: "1 = 1", fields: ["sort_position", "uses_sequence", "updated_at_utc"] },
+  content_item: { display: "title", where: "1 = 1", fields: ["content_group_id", "sequence", "content_status", "updated_at_utc", "created_at_utc"] },
   "payments.invoice": {
     display: "CONCAT(COALESCE(payer_name_snapshot, 'Payer not set'), ' — Invoice ', payment_invoice_id)",
     where: "1 = 1",
+    fields: ["payer_contact_id", "status", "currency", "amount_minor", "due_on", "created_at_utc"],
   },
 });
 const missingExactCandidateRead = nativeObjectTypes.find(({ type }) => !exactCandidateReads[type]);
@@ -302,9 +310,10 @@ function readCandidates(database, tokens, selectedTypes = null, query = "") {
   read("content_group", "content_group.content_group_id AS id, content_group.name AS title",
     "content_groups AS content_group", "content_group.archived_at_utc IS NULL", ["content_group.name"], [],
     "content_group.sort_position, content_group.content_group_id");
-  read("content_item", `content.content_id AS id, content.title,
+  read("content_item", `content.content_id AS id, content.title, content.sequence,
       content.content_status, content.content_type, content.content_group_id AS parent_id,
-      content_group.name AS parent_title`,
+      content_group.name AS parent_title,
+      COALESCE(content.updated_at_utc, content.created_at_utc) AS version`,
     "content_items AS content JOIN content_groups AS content_group USING (content_group_id)",
     "content.content_status IN ('draft', 'uploaded_unlisted', 'published') AND content_group.archived_at_utc IS NULL",
     ["content.title", "content.description", "content.personal_notes", "content_group.name"], [],
@@ -354,6 +363,7 @@ function scoreCandidate({ type, row }, tokens) {
   const definition = byType.get(type);
   const id = Number(row.id);
   const title = compact(row.title, 160) ?? "";
+  const ref = `${definition.refPrefix}${id}`;
   const detail = type === "contact" ? [row.contact_kind, row.tag_labels].filter(Boolean).join(" · ")
     : type === "contact_method" ? [row.parent_title, row.method_kind].filter(Boolean).join(" · ")
     : type === "todo" ? [row.parent_title, row.sequence == null ? null : `#${row.sequence}`, row.status].filter(Boolean).join(" · ")
@@ -368,11 +378,42 @@ function scoreCandidate({ type, row }, tokens) {
                     : type === "content_item" ? [row.parent_title, row.content_status].filter(Boolean).join(" · ")
                       : type === "physical_item" ? [row.parent_title, row.item_condition, row.status, row.location_text].filter(Boolean).join(" · ")
                       : row.status ?? "";
+  const routingFields = {
+    contact: { contact_kind: row.contact_kind },
+    contact_method: { contact_id: row.parent_id, method_kind: row.method_kind },
+    todo: { todo_group_id: row.parent_id, sequence: row.sequence, status: row.status },
+    physical_item: {
+      physical_item_group_id: row.parent_id, item_condition: row.item_condition,
+      status: row.status, location_text: row.location_text,
+    },
+    tracker: { journal_group_id: row.parent_id, unit: row.unit },
+    journal_entry: { tracker_id: row.parent_id, occurred_at_utc: row.occurred_at_utc },
+    calendar_event: { starts_at_utc: row.starts_at_utc, status: row.status },
+    calendar_routine: { recurrence_rule: row.recurrence_rule },
+    file: { original_filename: row.original_filename, media_kind: row.media_kind, mime_type: row.mime_type },
+    profile_fact: { fact_type: row.fact_type, fact_status: row.fact_status },
+    correspondence: { medium: row.medium, direction: row.direction, occurred_at_utc: row.occurred_at_utc },
+    video_script: { status: row.status },
+    content_item: {
+      content_group_id: row.parent_id, sequence: row.sequence,
+      content_status: row.content_status, groupId: row.parent_id,
+      contentStatus: row.content_status, version: row.version,
+    },
+    "payments.invoice": {
+      status: row.status, currency: row.currency, amount_minor: row.amount_minor, due_on: row.due_on,
+    },
+  }[type] ?? {};
+  const exactFields = {
+    [definition.producerIdentityField]: id,
+    [definition.producerReferenceField]: ref,
+    [definition.producerDisplayField]: title,
+    ...Object.fromEntries(Object.entries(routingFields).filter(([, value]) => value != null)),
+  };
   return {
     type, domainType: definition.domainType, source: definition.source,
-    table: definition.table, id, ref: `${definition.refPrefix}${id}`,
+    table: definition.table, id, ref,
     label: definition.label, title, detail: String(detail).slice(0, 160),
-    matchedOn: [...matchedOn], score, row,
+    matchedOn: [...matchedOn], score, row, fields: exactFields,
   };
 }
 
@@ -462,28 +503,63 @@ export function resolveNativeObjectCandidates(database, selectedCandidates = [])
   for (const selection of normalized) {
     const definition = selectableByDomainType.get(selection.type);
     const read = exactCandidateReads[definition.type];
-    const row = database.prepare(`SELECT ${read.display} AS title${
-      selection.occurrenceStartsAtUtc ? ", recurrence_rule" : ""
+    const selectedFields = [...new Set(read.fields ?? [])];
+    const row = database.prepare(`SELECT ${definition.key}, ${read.display} AS title${
+      selectedFields.length ? `, ${selectedFields.join(", ")}` : ""
     } FROM ${definition.table}
       WHERE ${definition.key} = ? AND ${read.where} LIMIT 1`).get(selection.id);
     const title = compact(row?.title, 160);
     if (!title || (selection.occurrenceStartsAtUtc && !row?.recurrence_rule)) continue;
-    const producerFields = definition.type === definition.domainType ? {
+    const producerFields = {
       [definition.producerIdentityField]: selection.id,
       [definition.producerReferenceField]: selection.ref,
       [definition.producerDisplayField]: title,
-    } : {};
+      ...Object.fromEntries(selectedFields.flatMap((field) => (
+        row[field] === undefined ? [] : [[field, row[field]]]
+      ))),
+      ...(definition.domainType === "video.content_item"
+        ? Object.fromEntries(Object.entries({
+            groupId: row.content_group_id,
+            sequence: row.sequence,
+            contentStatus: row.content_status,
+            version: row.updated_at_utc ?? row.created_at_utc,
+          }).filter(([, value]) => value !== undefined))
+        : {}),
+    };
     resolved.push({
       type: definition.type, domainType: definition.domainType, source: definition.source,
       table: definition.table, id: selection.id, ref: selection.ref,
       label: definition.label, title, detail: "", matchedOn: ["selected stable reference"],
-      related: [], ...producerFields,
+      related: [], fields: producerFields,
       ...(selection.occurrenceStartsAtUtc ? {
         occurrenceStartsAtUtc: selection.occurrenceStartsAtUtc,
       } : {}),
     });
   }
   return resolved;
+}
+
+function modelCandidate(object) {
+  const definition = selectableByDomainType.get(object.domainType);
+  if (!definition) return null;
+  const fields = object.fields ?? {
+    [definition.producerIdentityField]: object.id,
+    [definition.producerReferenceField]: object.ref,
+    [definition.producerDisplayField]: object.title,
+  };
+  return {
+    object_type: object.domainType,
+    source: object.source,
+    ...(object.table ? { source_table: object.table } : {}),
+    ...fields,
+    ...(object.detail ? { detail: object.detail } : {}),
+    matched_on: object.matchedOn ?? [],
+    related: (object.related ?? []).flatMap((related) => {
+      const projected = modelCandidate({ ...related, domainType: byType.get(related.type)?.domainType,
+        source: byType.get(related.type)?.source, table: byType.get(related.type)?.table });
+      return projected ? [projected] : [];
+    }),
+  };
 }
 
 export function registerNativeObjectContextView(registry, organizer, searchCoordinator = null) {
@@ -501,27 +577,29 @@ export function registerNativeObjectContextView(registry, organizer, searchCoord
         ? organizer.resolveNativeObjectCandidates(selectedObjectCandidates)
         : [];
       const selectedOccurrences = selected.flatMap((object) => object.occurrenceStartsAtUtc ? [{
-        type: object.domainType,
-        id: object.id,
-        ref: object.ref,
-        display: object.title,
-        occurrenceStartsAtUtc: object.occurrenceStartsAtUtc,
+        object_type: object.domainType,
+        ...object.fields,
+        occurrence_starts_at_utc: object.occurrenceStartsAtUtc,
       }] : []);
       const selectedObjects = selected.map(({ occurrenceStartsAtUtc: _occurrence, ...object }) => object);
       const objects = [...selectedObjects, ...result.objects]
         .filter((object, index, values) => values.findIndex(({ ref }) => ref === object.ref) === index);
+      const modelObjects = objects.flatMap((object) => {
+        const projected = modelCandidate(object);
+        return projected ? [projected] : [];
+      });
       return {
         source: result.source,
         capturedAtUtc: result.capturedAtUtc,
         data: {
-          objects,
+          objects: modelObjects,
           selectedCount: selectedObjectCandidates.length,
           resolvedSelectedCount: selected.length,
           ...(selectedOccurrences.length ? { selectedOccurrences } : {}),
           lexicalCandidateCount: result.objects.length,
         },
         count: objects.length,
-        text: JSON.stringify({ objects, ...(selectedOccurrences.length ? { selectedOccurrences } : {}) }),
+        text: JSON.stringify({ objects: modelObjects, ...(selectedOccurrences.length ? { selectedOccurrences } : {}) }),
       };
     },
   });

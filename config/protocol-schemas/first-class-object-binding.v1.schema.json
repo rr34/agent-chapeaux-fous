@@ -73,6 +73,26 @@
           "minLength": 1,
           "maxLength": 500,
           "description": "Human-facing name or compact label for the same object."
+        },
+        "fields": {
+          "type": "object",
+          "minProperties": 3,
+          "maxProperties": 32,
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "maxLength": 120
+          },
+          "additionalProperties": {
+            "anyOf": [
+              { "type": "string", "maxLength": 2000 },
+              { "type": "integer" },
+              { "type": "number" },
+              { "type": "boolean" },
+              { "type": "null" }
+            ]
+          },
+          "description": "Exact provider- or database-named identity, reference, display, and compact qualifier fields retained for model-facing object context. Generic id/ref/display remain internal comparison slots and are never the model-facing field names."
         }
       }
     }

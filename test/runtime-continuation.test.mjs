@@ -39,6 +39,25 @@ test("large early discovery preserves later record IDs, mutation failures, and v
   assert.deepEqual(receipts, before);
 });
 
+test("failed-call memory is prominent, exact, and fingerprinted for repair", () => {
+  const text = sameRequestReceiptInstructions([receipt(12, undefined, {
+    tool: "database_read",
+    ok: false,
+    arguments: { table: "content_items", where: { id: 168 } },
+    error: "Unknown column 'id' in where clause",
+  })]);
+  const ledgerLine = text.split("\n\n").find((block) => block.startsWith("Failed-call ledger"));
+  assert.ok(ledgerLine);
+  const [failure] = JSON.parse(ledgerLine.slice(ledgerLine.indexOf(":" ) + 2));
+  assert.equal(failure.tool, "database_read");
+  assert.match(failure.argumentsFingerprint, /^[0-9a-f]{64}$/u);
+  assert.deepEqual(failure.arguments, {
+    table: "content_items", where: { id: 168 },
+  });
+  assert.match(failure.error, /Unknown column 'id'/u);
+  assert.match(failure.retryRule, /Do not submit these same canonical arguments again/u);
+});
+
 test("oversized recent arguments do not hide smaller earlier receipts", () => {
   const text = sameRequestReceiptInstructions([
     receipt(1, { opaque_reference: "prepared-result" }, {

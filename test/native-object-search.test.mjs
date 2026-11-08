@@ -200,7 +200,14 @@ test("native object context is advertised and read only after strict view select
     searchNativeObjects(input) {
       calls.push(input);
       return { source: "native_mariadb_object_tables", capturedAtUtc: "2026-09-15T12:00:00.000Z",
-        objects: [{ ref: "agent-slayer://contacts/7", title: "Lucas Ruffing" }] };
+        objects: [{
+          type: "contact", domainType: "contacts.contact", source: "native:contacts",
+          table: "contacts", id: 7, ref: "agent-slayer://contacts/7", title: "Lucas Ruffing",
+          fields: {
+            contact_id: 7, ref: "agent-slayer://contacts/7", display_name: "Lucas Ruffing",
+          },
+          matchedOn: ["title"], related: [],
+        }] };
     },
   });
   const advertised = registry.capabilityManifest("search").contextViews[0];
@@ -213,6 +220,54 @@ test("native object context is advertised and read only after strict view select
   assert.deepEqual(calls, [{ query: "Do you see Lucas Ruffing?", limit: 6 }]);
   assert.equal(prepared[0].source, "native_mariadb_object_tables");
   assert.match(prepared[0].text, /agent-slayer:\/\/contacts\/7/u);
+  const [candidate] = JSON.parse(prepared[0].text).objects;
+  assert.equal(candidate.contact_id, 7);
+  assert.equal(Object.hasOwn(candidate, "id"), false);
+});
+
+test("content hydration exposes the real primary key and cheap routing fields without a generic id", async () => {
+  const database = { prepare(sql) {
+    return { all() {
+      if (!sql.includes("FROM content_items AS content")) return [];
+      return [{
+        id: 168,
+        title: "Primary-key hydration",
+        parent_id: 12,
+        parent_title: "Agent notes",
+        sequence: 44,
+        content_status: "published",
+        version: "2026-11-08T14:30:00.000Z",
+      }];
+    } };
+  } };
+  const result = searchNativeObjects(database, {
+    query: "Primary-key hydration", limit: 1, domainTypes: ["video.content_item"],
+  });
+  const registry = new ToolRegistry();
+  registry.registerCapability({ id: "search", title: "Global search" });
+  registerNativeObjectContextView(registry, { searchNativeObjects() { return result; } });
+  const [prepared] = await registry.prepareContext(["search.native_object_candidates"], {
+    requestText: "Find Primary-key hydration.",
+  });
+  const [candidate] = JSON.parse(prepared.text).objects;
+  assert.deepEqual(candidate, {
+    object_type: "video.content_item",
+    source: "native:video",
+    source_table: "content_items",
+    content_id: 168,
+    content_ref: "agent-slayer://content-items/168",
+    content_title: "Primary-key hydration",
+    content_group_id: 12,
+    sequence: 44,
+    content_status: "published",
+    groupId: 12,
+    contentStatus: "published",
+    version: "2026-11-08T14:30:00.000Z",
+    detail: "Agent notes · published",
+    matched_on: ["title"],
+    related: [],
+  });
+  assert.equal(Object.hasOwn(candidate, "id"), false);
 });
 
 
@@ -372,11 +427,14 @@ test("searchable invoices remain rereadable by exact stable reference", () => {
     type: "payments.invoice", domainType: "payments.invoice", source: "native:payments",
     table: "payment_invoices", id: 51, ref: "agent-slayer://payment-invoices/51",
     label: "Payment invoice", title: "Payer not set — not priced", detail: "",
-    matchedOn: ["selected stable reference"], related: [], invoiceId: 51,
-    display: "Payer not set — not priced",
+    matchedOn: ["selected stable reference"], related: [],
+    fields: {
+      payment_invoice_id: 51, ref: "agent-slayer://payment-invoices/51",
+      display: "Payer not set — not priced",
+    },
   }]);
   assert.equal(nativeObjectTypes.some(({ domainType }) => domainType === "payments.invoice"), true);
-  assert.doesNotMatch(statement, /\bcurrency\b/u);
+  assert.match(statement, /\bcurrency\b/u);
   assert.deepEqual(objectReferenceGroupsFromToolResult({
     toolDefinition: { name: "context:search.native_object_candidates", source: "local" },
     result: { objects: resolved },
@@ -407,7 +465,10 @@ test("searchable contact methods remain rereadable by exact stable reference", (
     type: "contact_method", domainType: "contacts.method", source: "native:contacts",
     table: "contact_methods", id: 9, ref: "agent-slayer://contact-methods/9",
     label: "Contact method", title: "Work: alice@example.com", detail: "",
-    matchedOn: ["selected stable reference"], related: [],
+    matchedOn: ["selected stable reference"], related: [], fields: {
+      contact_method_id: 9, method_ref: "agent-slayer://contact-methods/9",
+      method_display: "Work: alice@example.com",
+    },
   }]);
 });
 
@@ -448,6 +509,7 @@ test("composer selections are verified by stable ID without ranked-search trunca
     type: "contact", domainType: "contacts.contact", source: "native:contacts",
     table: "contacts", id: 7, ref: "agent-slayer://contacts/7", label: "Contact",
     title: "Lucas Ruffing", detail: "", matchedOn: ["selected stable reference"], related: [],
+    fields: { contact_id: 7, ref: "agent-slayer://contacts/7", display_name: "Lucas Ruffing" },
   }]);
   assert.equal(statements.length, 1);
   assert.match(statements[0].sql, /WHERE contact_id = \? AND status <> 'inactive' LIMIT 1/u);

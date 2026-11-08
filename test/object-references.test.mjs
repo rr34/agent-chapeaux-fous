@@ -10,9 +10,33 @@ import {
   normalizeObjectReferenceGroups,
   objectReferenceGroupsFromToolResult,
   objectReferenceSelectionFindings,
+  projectModelFacingObjectFields,
   relevantObjectReferenceCatalog,
   unresolvedSelectedObjectCandidates,
 } from "../src/object-references.mjs";
+
+test("model-facing native results remove generic identity aliases once exact fields exist", () => {
+  assert.deepEqual(projectModelFacingObjectFields({ source: "local" }, [], {
+    items: [{
+      id: 168,
+      content_id: 168,
+      content_ref: "agent-slayer://content-items/168",
+      content_title: "Primary-key hydration",
+      groupId: 12,
+      sequence: 44,
+      version: "2026-11-08T14:30:00.000Z",
+    }],
+  }), {
+    items: [{
+      content_id: 168,
+      content_ref: "agent-slayer://content-items/168",
+      content_title: "Primary-key hydration",
+      groupId: 12,
+      sequence: 44,
+      version: "2026-11-08T14:30:00.000Z",
+    }],
+  });
+});
 
 test("a verified current request attachment becomes a canonical file binding", () => {
   assert.deepEqual(currentRequestAttachmentObjectReferences({
@@ -71,8 +95,14 @@ test("remote object bindings preserve bulk IDs, stable references, displays, and
     type: "accounting.account",
     source: "mcp:accounting",
     objects: [
-      { id: 178, ref: "accounting://accounts/178", display: "Operating Checking" },
-      { id: 179, ref: "accounting://accounts/179", display: "Payroll Checking" },
+      {
+        id: 178, ref: "accounting://accounts/178", display: "Operating Checking",
+        fields: { id: 178, ref: "accounting://accounts/178", name: "Operating Checking" },
+      },
+      {
+        id: 179, ref: "accounting://accounts/179", display: "Payroll Checking",
+        fields: { id: 179, ref: "accounting://accounts/179", name: "Payroll Checking" },
+      },
     ],
     sourceEventSeqs: [30_801],
   }]);
@@ -138,8 +168,14 @@ test("repeated observations merge evidence only for the repeated stable object",
       type: "accounting.account",
       source: "mcp:accounting",
       objects: [
-        { id: 178, ref: "accounting://accounts/178", display: "Operating Checking" },
-        { id: 179, ref: "accounting://accounts/179", display: "Payroll Checking" },
+        {
+          id: 178, ref: "accounting://accounts/178", display: "Operating Checking",
+          fields: { id: 178, ref: "accounting://accounts/178", name: "Operating Checking" },
+        },
+        {
+          id: 179, ref: "accounting://accounts/179", display: "Payroll Checking",
+          fields: { id: 179, ref: "accounting://accounts/179", name: "Payroll Checking" },
+        },
       ],
       sourceEventSeqs: [10],
     },

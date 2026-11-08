@@ -1,5 +1,7 @@
 import { schemaProblem } from "./tools/registry.mjs";
-import { compactObjectReferenceContext, flatObjectReferences } from "./object-references.mjs";
+import {
+  compactObjectReferenceContext, flatObjectReferences, modelObjectIdentity,
+} from "./object-references.mjs";
 import { compactReferenceSets, referenceSetObjectRefs } from "./reference-sets.mjs";
 
 const text = (maximum = 2_000) => ({ type: "string", minLength: 1, maxLength: maximum });
@@ -369,16 +371,30 @@ function compactCapabilityCatalog(catalog, requestText) {
 function selectedObjects(selectedObjectCandidates) {
   return selectedObjectCandidates.map(({
     mention, type, source, id, ref, display, occurrenceStartsAtUtc,
-  }) => ({
-    mention, type, source, id, ref, display,
-    ...(occurrenceStartsAtUtc ? { occurrenceStartsAtUtc } : {}),
-  }));
+  }) => {
+    const identity = modelObjectIdentity({ type, id, ref, display });
+    return {
+      mention,
+      object_type: type,
+      source,
+      ...(identity ?? {}),
+      ...(occurrenceStartsAtUtc ? { occurrence_starts_at_utc: occurrenceStartsAtUtc } : {}),
+    };
+  });
 }
 
 function selectedCalendarOccurrenceScopes(selectedObjectCandidates) {
   return selectedObjectCandidates.flatMap(({
     type, id, ref, display, occurrenceStartsAtUtc,
-  }) => occurrenceStartsAtUtc ? [{ type, id, ref, display, occurrenceStartsAtUtc }] : []);
+  }) => {
+    if (!occurrenceStartsAtUtc) return [];
+    const identity = modelObjectIdentity({ type, id, ref, display });
+    return identity ? [{
+      object_type: type,
+      ...identity,
+      occurrence_starts_at_utc: occurrenceStartsAtUtc,
+    }] : [];
+  });
 }
 
 export function commonSenseContext({

@@ -58,9 +58,11 @@ import {
   currentRequestAttachmentObjectReferences,
   explicitReferenceObjectCatalog,
   flatObjectReferences,
+  modelObjectIdentity,
   mergeObjectReferenceGroups,
   objectReferenceGroupsFromToolResult,
   objectReferenceProtectedFields,
+  projectModelFacingObjectFields,
   relevantObjectReferenceCatalog,
   unresolvedSelectedObjectCandidates,
 } from "./object-references.mjs";
@@ -324,6 +326,44 @@ function receiptAttemptKey(receipt) {
     ? { ...(receipt.arguments ?? {}), result_filter: receipt.resultFilter }
     : receipt?.arguments;
   return toolAttemptKey(receipt?.tool, argumentsObject);
+}
+
+function failedCallLedger(receipts, maximumCharacters = 8_000) {
+  const failed = receipts.filter((receipt) => (
+    receipt?.ok === false && receipt.preExecutionRejection !== true
+  ));
+  if (!failed.length) return "";
+  const entries = failed.map((receipt) => {
+    const attemptKey = receiptAttemptKey(receipt);
+    const exactArguments = receipt?.resultFilter
+      ? { ...(receipt.arguments ?? {}), result_filter: receipt.resultFilter }
+      : receipt.arguments;
+    const entry = {
+      tool: receipt.tool,
+      argumentsFingerprint: createHash("sha256").update(attemptKey).digest("hex"),
+      arguments: structuralEvidenceSummary(exactArguments, "/arguments"),
+      error: receipt.error ?? "Tool call failed",
+      retryRule: "Do not submit these same canonical arguments again. A retry must be materially different and supported by the tool contract and receipts.",
+    };
+    const serialized = JSON.stringify(entry);
+    return serialized.length <= 4_000 ? entry : {
+      tool: entry.tool,
+      argumentsFingerprint: entry.argumentsFingerprint,
+      error: entry.error,
+      argumentsStoredInDurableReceipt: true,
+      retryRule: entry.retryRule,
+    };
+  });
+  const prefix = "Failed-call ledger (runtime-enforced across execution and repair): ";
+  const serialized = JSON.stringify(entries);
+  if (prefix.length + serialized.length <= maximumCharacters) return `${prefix}${serialized}`;
+  const selected = [];
+  for (const { tool, argumentsFingerprint, error, retryRule } of [...entries].reverse()) {
+    const candidate = [{ tool, argumentsFingerprint, error, retryRule }, ...selected];
+    if (prefix.length + JSON.stringify(candidate).length > maximumCharacters) continue;
+    selected.unshift(candidate[0]);
+  }
+  return selected.length ? `${prefix}${JSON.stringify(selected)}` : "";
 }
 
 function regexEscape(value) {
@@ -632,6 +672,7 @@ export function sameRequestReceiptInstructions(receipts, maximumCharacters = 24_
   const header = [
     "# Earlier execution evidence from this same user request",
     "Each source-referenced entry below is the compact canonical continuation projection of one durable tool receipt. Treat successful entries as completed actions, continue from their evidence, and do not repeat them unless the user explicitly asked for repetition.",
+    "Failed calls remain failed across execution, audit, and repair. The failed-call ledger names runtime-enforced argument fingerprints. Never resubmit one of those exact calls; use a materially corrected argument object supported by the error and receipts, or report the blocker.",
     "Entries marked evidenceStoredInDurableReceipt are structural summaries, not complete results. storedAt identifies a whole value retained in the durable receipt projection; no text prefix or inferred meaning replaces it. Read missing evidence only when needed. The receipt index preserves every source and outcome even when its detail does not fit. Never repeat an action to recover evidence.",
   ].join("\n");
   const index = {};
@@ -640,11 +681,12 @@ export function sameRequestReceiptInstructions(receipts, maximumCharacters = 24_
     (index[key] ??= []).push(receipt.receiptEventSeq ?? null);
   }
   const sourceIndex = `Receipt index (tool:outcome → source event numbers): ${JSON.stringify(index)}`;
+  const failureLedger = failedCallLedger(receipts, Math.min(8_000, Math.max(0, maximumCharacters - header.length - sourceIndex.length - 4)));
   // Reserve room for references before admitting any large result. Spend the
   // remaining space on recent evidence first, then render in original order.
   // An early schema discovery must not displace later records or write receipts.
   const blocks = [];
-  let characters = header.length + sourceIndex.length + 2;
+  let characters = header.length + sourceIndex.length + failureLedger.length + (failureLedger ? 4 : 2);
   if (characters > maximumCharacters) return "";
   for (let index = receipts.length - 1; index >= 0; index -= 1) {
     const receipt = receipts[index];
@@ -674,7 +716,7 @@ export function sameRequestReceiptInstructions(receipts, maximumCharacters = 24_
     characters += additionalCharacters;
   }
   return [
-    header, sourceIndex,
+    header, sourceIndex, ...(failureLedger ? [failureLedger] : []),
     ...blocks.reverse().map(({ text }) => text),
   ].join("\n\n");
 }
@@ -1282,9 +1324,10 @@ export class SlayerRuntime {
         preparedObjectReferences,
       );
       if (unresolvedSelections.length) {
-        const missing = unresolvedSelections.map(({ display, type, id, ref }) => ({
-          display, type, id, ref,
-        }));
+        const missing = unresolvedSelections.flatMap((selection) => {
+          const identity = modelObjectIdentity(selection);
+          return identity ? [{ object_type: selection.type, source: selection.source, ...identity }] : [];
+        });
         throw new Error(`Every selected object must be verified before execution. Missing or unavailable selections: ${JSON.stringify(missing)}`);
       }
       if (preparedObjectReferences.length) {
@@ -2755,6 +2798,11 @@ export class SlayerRuntime {
                   ? Number.MAX_SAFE_INTEGER
                   : this.config.maxInlineToolResultCharacters ?? 32 * 1024,
               });
+              const modelDeliveredResult = projectModelFacingObjectFields(
+                registeredTool ?? callableToolDefinitions.get(name),
+                this.registry.toolDefinitions(),
+                inline.deliveredResult,
+              );
               const newObjectReferences = objectReferenceGroupsFromToolResult({
                 toolDefinition: registeredTool ?? callableToolDefinitions.get(name),
                 toolDefinitions: this.registry.toolDefinitions(),
@@ -2763,7 +2811,7 @@ export class SlayerRuntime {
                 // results are already authorized receipts; derive their
                 // bounded canonical identities before inline paging can hide
                 // per-item evidence needed for deterministic continuity.
-                result: readOnly ? inline.deliveredResult : toolResult,
+                result: readOnly ? modelDeliveredResult : toolResult,
                 sourceEventSeq: receiptEventSeq,
               });
               const outcomeEvidence = !readOnly
@@ -2823,7 +2871,7 @@ export class SlayerRuntime {
                 arguments: toolArguments,
                 ...(filterRequest ? { resultFilter: filterRequest } : {}),
                 ok: true,
-                result: inline.deliveredResult,
+                result: modelDeliveredResult,
                 receiptEventSeq,
                 ...(newObjectReferences.length ? { objectReferences: newObjectReferences } : {}),
                 ...(intentOutcomeRefs.length ? { intentOutcomeRefs } : {}),
@@ -2855,7 +2903,7 @@ export class SlayerRuntime {
               }
               return attachModelInputAttachments({
                 ok: true,
-                result: inline.deliveredResult,
+                result: modelDeliveredResult,
                 ...(providerResult?.attachmentFailures?.length
                   ? { attachmentFailures: providerResult.attachmentFailures }
                   : {}),
