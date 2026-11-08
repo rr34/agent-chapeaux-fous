@@ -18,6 +18,7 @@ export interface ObjectCardProps {
   detailsInContent?: boolean;
   stackEdges?: boolean;
   compactDetails?: ReactNode;
+  compactHeadingMeta?: ReactNode;
   topEdge?: ReactNode;
   bottomEdge?: ReactNode;
   leading?: ReactNode;

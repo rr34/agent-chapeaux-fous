@@ -76,7 +76,19 @@ test("Library groups expose an explicit automatic-sequencing setting", () => {
   assert.match(librarySource, /`\/api\/content-groups\/\$\{groupId\}\/sequence`/);
   assert.match(librarySource, /JSON\.stringify\(\{ usesSequence \}\)/);
   assert.match(librarySource, /group\.usesSequence \? "Auto sequence" : "Manual numbering"/);
-  assert.match(librarySource, /group\.usesSequence \? "Stop auto sequence" : "Enable sequence"/);
+  assert.doesNotMatch(librarySource, /key: "sequence"/);
+  assert.match(librarySource, /<GroupEditor[\s\S]*sequenceAction=/);
+  assert.match(appSource, /usesSequence \? "Stop auto sequence" : "Enable sequence"/);
   assert.match(librarySource, /Existing unnumbered items will be numbered/);
   assert.doesNotMatch(librarySource, /window\.confirm/);
+});
+
+test("to-do sequence settings appear only in the shared group editor", () => {
+  const start = appSource.indexOf("function TodoScreen");
+  const end = appSource.indexOf("\nfunction ThingsScreen", start);
+  const todoSource = appSource.slice(start, end);
+
+  assert.match(todoSource, /sequenceAction=\{\{ execute:/);
+  assert.doesNotMatch(todoSource, /onClick=\{\(\) => void setGroupSequence/);
+  assert.match(todoSource, /usesSequence: group\.usesSequence/);
 });

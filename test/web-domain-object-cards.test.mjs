@@ -92,8 +92,8 @@ test("collapsed contact cards render the contact name as their identity", () => 
   assert.match(compact, /<strong>\{object\.display\}<\/strong>/);
   assert.match(styles, /\.compact-object-card\.has-leading \{[^}]*grid-template-columns: auto minmax\(0, 1fr\) auto;/s);
   assert.doesNotMatch(styles, /\.compact-object-card\.contact-card > \.compact-object-controls \{[^}]*grid-row:/s);
-  assert.match(styles, /\.compact-object-card\.correspondence-card\.has-generic-display > \.compact-object-identity > strong/);
-  assert.doesNotMatch(styles, /\.correspondence-card\.has-generic-display \.compact-object-identity > strong/);
+  assert.match(styles, /\.compact-object-card\.correspondence-card\.has-generic-display > \.compact-object-identity > \.compact-object-heading > strong/);
+  assert.doesNotMatch(styles, /\.correspondence-card\.has-generic-display \.compact-object-identity > \.compact-object-heading > strong/);
 });
 
 test("calendar event cards keep notes and event details behind the shared expansion", () => {
@@ -153,6 +153,9 @@ test("correspondence cards own compact channel, direction, and content presentat
   assert.match(correspondence, /callDisposition === "missed"/);
   assert.match(correspondence, /className="correspondence-card-preview"/);
   assert.match(correspondence, /compactDetails=\{compactDetails\}/);
+  assert.match(correspondence, /formatDisplayDate\(value, \{ fallback: "" \}\)/);
+  assert.match(correspondence, /formatted[.]replace\(" at ", ", "\)/);
+  assert.match(correspondence, /compactHeadingMeta=\{when\}/);
   assert.match(screen, /\{ label: "Medium", value: item\.medium \}/);
   assert.match(screen, /\{ label: "Call disposition", value: item\.call_disposition \}/);
   assert.match(screen, /\["sms", "mms", "rcs", "imessage"\]\.includes\(medium\) \? "messages" : medium/);
@@ -161,6 +164,7 @@ test("correspondence cards own compact channel, direction, and content presentat
   assert.match(network, /attribute\("Call disposition", row\.call_disposition\)/);
   assert.match(styles, /\.first-class-object-card\.correspondence-card > \.first-class-object-content > \.first-class-object-label,[\s\S]*\.compact-object-card\.correspondence-card > \.compact-object-identity > span:first-child \{ display: none; \}/);
   assert.match(styles, /\.correspondence-card-preview \{[^}]*-webkit-line-clamp: 2;[^}]*line-clamp: 2;/s);
+  assert.match(styles, /\.compact-object-identity \.compact-object-heading-meta \{[^}]*color: var\(--muted\);[^}]*white-space: nowrap;/s);
 });
 
 test("journal tracker cards own their stock-style value history and default to one year", () => {

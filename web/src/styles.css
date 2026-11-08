@@ -112,6 +112,9 @@ a { color: inherit; }
 .compact-object-identity { min-width: 0; display: grid; gap: 2px; }
 .compact-object-identity span { color: var(--olive); font-size: 9px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
 .compact-object-identity strong { overflow: hidden; font: 600 17px/1.15 "Newsreader", Georgia, serif; text-overflow: ellipsis; white-space: nowrap; }
+.compact-object-heading { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.compact-object-heading > strong { min-width: 0; flex: 1; }
+.compact-object-identity .compact-object-heading-meta { flex: none; color: var(--muted); font-size: 10px; font-weight: 500; letter-spacing: 0; text-transform: none; white-space: nowrap; }
 .compact-object-details { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; margin-top: 3px; }
 .compact-object-details .pill { padding: 2px 6px; font-size: 9px; }
 .calendar-event-todo-count { color: var(--muted); font-size: 10px; font-weight: 700; }
@@ -136,7 +139,7 @@ a { color: inherit; }
 .correspondence-card-indicator circle[r="1"] { fill: currentColor; stroke: none; }
 .compact-object-card.correspondence-card { align-items: start; }
 .compact-object-card.correspondence-card > .compact-object-leading { padding-top: 1px; }
-.compact-object-card.correspondence-card.has-generic-display > .compact-object-identity > strong,
+.compact-object-card.correspondence-card.has-generic-display > .compact-object-identity > .compact-object-heading > strong,
 .first-class-object-card.correspondence-card.has-generic-display > .first-class-object-content > .first-class-object-title { display: none; }
 .compact-object-card.correspondence-card > .compact-object-identity > .compact-object-details { display: block; margin-top: 2px; }
 .correspondence-card-compact-details { min-width: 0; display: grid; gap: 5px; }

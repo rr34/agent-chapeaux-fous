@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { formatDisplayDate } from "../../date-format";
 import { SimpleObjectCard } from "./SimpleObjectCard";
 import type { ObjectCardProps } from "./types";
 
@@ -18,6 +19,13 @@ function cardQualifier(props: ObjectCardProps, label: "medium" | "direction") {
   const fromAttribute = normalized(attribute(props, label));
   if (values.has(fromAttribute)) return fromAttribute;
   return normalized(props.object.badges?.find((badge) => values.has(normalized(badge))));
+}
+
+function compactDate(props: ObjectCardProps) {
+  const value = attribute(props, "when")?.trim();
+  if (!value) return "";
+  const formatted = formatDisplayDate(value, { fallback: "" }) || value;
+  return formatted.replace(" at ", ", ");
 }
 
 function MediumIcon({ medium }: { medium: string }) {
@@ -66,11 +74,13 @@ export function CorrespondenceCard(props: ObjectCardProps) {
     </div>
     : null;
   const indicators = <Indicators medium={medium} direction={direction} missed={missed} />;
+  const when = compactDate(props);
   return <SimpleObjectCard
     {...props}
     object={object}
     className={`correspondence-card${genericDisplay ? " has-generic-display" : ""}${props.className ? ` ${props.className}` : ""}`}
     leading={props.leading ? <div className="correspondence-card-leading">{indicators}{props.leading}</div> : indicators}
     compactDetails={compactDetails}
+    compactHeadingMeta={when}
   />;
 }

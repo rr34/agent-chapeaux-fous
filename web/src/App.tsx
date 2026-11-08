@@ -371,6 +371,8 @@ type EditableGroup = {
   id: number;
   name: string;
   resource: "todo-groups" | "content-groups" | "journal-groups" | "physical-item-groups";
+  nameEditable?: boolean;
+  usesSequence?: boolean;
 };
 
 type GroupDeleteAction = {
@@ -378,6 +380,11 @@ type GroupDeleteAction = {
   description?: string;
   confirmation: string;
   execute: () => Promise<void>;
+};
+
+type GroupSequenceAction = {
+  enableConfirmation?: string;
+  execute: (usesSequence: boolean) => Promise<void>;
 };
 
 function NewGroupEditor({ resource, label, onClose, onChanged }: {
@@ -414,15 +421,19 @@ function NewGroupEditor({ resource, label, onClose, onChanged }: {
   </div>;
 }
 
-function GroupEditor({ group, onClose, onChanged, deleteAction }: {
+function GroupEditor({ group, onClose, onChanged, deleteAction, sequenceAction }: {
   group: EditableGroup;
   onClose: () => void;
   onChanged: () => void | Promise<void>;
   deleteAction?: GroupDeleteAction;
+  sequenceAction?: GroupSequenceAction;
 }) {
   const [name, setName] = useState(group.name);
+  const [usesSequence, setUsesSequence] = useState(group.usesSequence ?? false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [changingSequence, setChangingSequence] = useState(false);
+  const [confirmingSequence, setConfirmingSequence] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const save = async (event: FormEvent) => {
@@ -459,18 +470,43 @@ function GroupEditor({ group, onClose, onChanged, deleteAction }: {
       setDeleting(false);
     }
   };
+  const changeSequence = async (nextUsesSequence: boolean) => {
+    if (!sequenceAction) return;
+    setChangingSequence(true);
+    setError("");
+    try {
+      await sequenceAction.execute(nextUsesSequence);
+      setUsesSequence(nextUsesSequence);
+      setConfirmingSequence(false);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not change the sequence setting.");
+    } finally {
+      setChangingSequence(false);
+    }
+  };
   return <div className="object-editor-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="object-editor" role="dialog" aria-modal="true" aria-labelledby="group-editor-title">
       <form onSubmit={(event) => void save(event)}>
         <header className="object-editor-heading"><div><p className="eyebrow">Group</p><h2 id="group-editor-title">Edit {group.name}</h2></div><button className="button button--quiet" type="button" onClick={onClose}>Close</button></header>
-        <label>Group name<input value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required autoFocus /></label>
+        <label>Group name<input value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required autoFocus disabled={group.nameEditable === false} /></label>
+        {sequenceAction && <div>
+          <p className="field-hint">Automatic sequencing assigns the next group-local number to unnumbered items.</p>
+          <button className="button button--quiet" type="button" disabled={changingSequence || confirmingSequence} onClick={() => {
+            if (!usesSequence && sequenceAction.enableConfirmation) setConfirmingSequence(true);
+            else void changeSequence(!usesSequence);
+          }}>{changingSequence ? "Changing…" : usesSequence ? "Stop auto sequence" : "Enable sequence"}</button>
+        </div>}
+        {sequenceAction && confirmingSequence && <section className="group-delete-confirmation" role="alertdialog" aria-label="Confirm automatic sequencing">
+          <p>{sequenceAction.enableConfirmation}</p>
+          <div><button className="button button--quiet" type="button" disabled={changingSequence} onClick={() => setConfirmingSequence(false)}>Cancel</button><button className="button" type="button" disabled={changingSequence} onClick={() => void changeSequence(true)}>{changingSequence ? "Enabling…" : "Enable sequence"}</button></div>
+        </section>}
         {deleteAction?.description && <p className="field-hint">{deleteAction.description}</p>}
         {deleteAction && confirmingDelete && <section className="group-delete-confirmation" role="alertdialog" aria-label="Confirm group deletion">
           <p>{deleteAction.confirmation}</p>
           <div><button className="button button--quiet" type="button" disabled={deleting} onClick={() => setConfirmingDelete(false)}>Keep group</button><button className="button button--danger" type="button" disabled={deleting} onClick={() => void deleteGroup()}>{deleting ? "Deleting…" : `Yes, ${deleteAction.label.toLowerCase()}`}</button></div>
         </section>}
         {error && <p className="form-error" role="alert">{error}</p>}
-        <footer className="object-editor-actions">{deleteAction && !confirmingDelete && <button className="button button--danger" type="button" onClick={() => { setError(""); setConfirmingDelete(true); }} disabled={saving || deleting}>{deleteAction.label}</button>}<button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" type="submit" disabled={saving || deleting || confirmingDelete || !name.trim()}>{saving ? "Saving…" : "Save changes"}</button></footer>
+        <footer className="object-editor-actions">{deleteAction && !confirmingDelete && <button className="button button--danger" type="button" onClick={() => { setError(""); setConfirmingDelete(true); }} disabled={saving || deleting}>{deleteAction.label}</button>}<button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" type="submit" disabled={saving || deleting || changingSequence || confirmingDelete || confirmingSequence || !name.trim()}>{saving ? "Saving…" : "Save changes"}</button></footer>
       </form>
     </section>
   </div>;
@@ -1679,6 +1715,7 @@ function TodoScreen() {
       await Promise.all([reload(), reloadGroups()]);
     } catch (caught) {
       setReorderError(caught instanceof Error ? caught.message : "Could not change the to-do sequence setting.");
+      throw caught;
     }
   };
   const assignNextSequence = async (todo: Entity) => {
@@ -1797,7 +1834,7 @@ function TodoScreen() {
         {group.groupId != null ? <TodoGroupCard
           object={{ id: group.groupId, type: "todos.todo_group", label: "To-do group", display: group.name, attributes: [{ label: "Items", value: String(group.todos.length) }], badges: [group.dailyPaperPinned ? "Pinned to paper" : "Active"] }}
           controls={<ObjectSelectionControls identity={todoGroupIdentity({ id: group.groupId, name: group.name })} subject={`to-do group ${group.name}`} />}
-          details={<div className="todo-group-management"><TodoPriorityControls todoId={group.groupId} todoText={`${group.name} group`} todoIndex={(groupData?.groups || []).findIndex((candidate) => Number(candidate.id) === group.groupId)} todoCount={(groupData?.groups || []).length} busy={false} onMove={(_, movement) => void reorderGroups(group.groupId!, movement)} />{group.name.toLowerCase() !== "inbox" && <button className="button button--quiet group-edit-button" type="button" aria-label={`Edit ${group.name} group`} onClick={() => setEditingGroup({ id: group.groupId!, name: group.name, resource: "todo-groups" })}>Edit</button>}<button className="button button--quiet" type="button" onClick={() => void setGroupSequence(group.groupId!, !group.usesSequence)}>{group.usesSequence ? "Stop auto sequence" : "Enable sequence"}</button><button className={`button button--quiet todo-group-pin${group.dailyPaperPinned ? " is-pinned" : ""}`} type="button" aria-pressed={group.dailyPaperPinned} onClick={() => void setDailyPaperPinned(group.groupId!, !group.dailyPaperPinned)}><PaperPinIcon />{group.dailyPaperPinned ? "Pinned to paper" : "Pin to paper"}</button></div>}
+          details={<div className="todo-group-management"><TodoPriorityControls todoId={group.groupId} todoText={`${group.name} group`} todoIndex={(groupData?.groups || []).findIndex((candidate) => Number(candidate.id) === group.groupId)} todoCount={(groupData?.groups || []).length} busy={false} onMove={(_, movement) => void reorderGroups(group.groupId!, movement)} /><button className="button button--quiet group-edit-button" type="button" aria-label={`Edit ${group.name} group`} onClick={() => setEditingGroup({ id: group.groupId!, name: group.name, resource: "todo-groups", nameEditable: group.name.toLowerCase() !== "inbox", usesSequence: group.usesSequence })}>Edit</button><button className={`button button--quiet todo-group-pin${group.dailyPaperPinned ? " is-pinned" : ""}`} type="button" aria-pressed={group.dailyPaperPinned} onClick={() => void setDailyPaperPinned(group.groupId!, !group.dailyPaperPinned)}><PaperPinIcon />{group.dailyPaperPinned ? "Pinned to paper" : "Pin to paper"}</button></div>}
         /> : <header className="todo-group-heading"><h2>{group.name}</h2></header>}
         <div className="todo-group-items">{group.todos.map((todo, todoIndex) => <TodoItem
           todo={todo}
@@ -1827,7 +1864,8 @@ function TodoScreen() {
       group={editingGroup}
       onClose={() => setEditingGroup(null)}
       onChanged={async () => { await Promise.all([reload(), reloadGroups()]); }}
-      deleteAction={{
+      sequenceAction={{ execute: (usesSequence) => setGroupSequence(editingGroup.id, usesSequence) }}
+      deleteAction={editingGroup.nameEditable === false ? undefined : {
         label: "Delete group",
         description: "Delete is available after every active task has been moved, completed, ignored, or archived. Terminal tasks retain the historical group name.",
         confirmation: `Delete the ${editingGroup.name} group? Terminal tasks will retain this historical group.`,
@@ -2108,8 +2146,6 @@ function LibraryScreen() {
   const [editingContent, setEditingContent] = useState<Entity | null>(null);
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
   const [sequenceError, setSequenceError] = useState("");
-  const [changingSequenceGroupId, setChangingSequenceGroupId] = useState<number | null>(null);
-  const [pendingSequenceEnable, setPendingSequenceEnable] = useState<{ id: number; name: string } | null>(null);
   const contentParameters = new URLSearchParams({ limit: serverQuery ? "5000" : "1000" });
   if (serverQuery) contentParameters.set("q", serverQuery);
   const { data, error, loading, reload } = useApi<{ content: Entity[] }>(`/api/content-items?${contentParameters}`);
@@ -2164,17 +2200,14 @@ function LibraryScreen() {
   const reloadLibrary = async () => { await Promise.all([reload(), reloadGroups()]); };
   const setContentGroupSequenceMode = async (groupId: number, usesSequence: boolean) => {
     setSequenceError("");
-    setChangingSequenceGroupId(groupId);
     try {
       await api(`/api/content-groups/${groupId}/sequence`, {
         method: "POST", body: JSON.stringify({ usesSequence }),
       });
       await reloadLibrary();
-      setPendingSequenceEnable(null);
     } catch (caught) {
       setSequenceError(caught instanceof Error ? caught.message : "Could not change the Library sequence setting.");
-    } finally {
-      setChangingSequenceGroupId(null);
+      throw caught;
     }
   };
   const moveContentGroup = async (groupId: number, movement: TodoPriorityMovement) => {
@@ -2203,10 +2236,6 @@ function LibraryScreen() {
     {error && <ErrorState error={error} retry={reloadLibrary} />}
     {groupError && <ErrorState error={groupError} retry={reloadLibrary} />}
     {sequenceError && <p className="inline-error" role="alert">{sequenceError}</p>}
-    {pendingSequenceEnable && <section className="group-delete-confirmation" role="alertdialog" aria-label="Confirm automatic Library sequencing">
-      <p>Enable automatic sequence numbers for {pendingSequenceEnable.name}? Existing unnumbered items will be numbered.</p>
-      <div><button className="button button--quiet" type="button" disabled={changingSequenceGroupId != null} onClick={() => setPendingSequenceEnable(null)}>Cancel</button><button className="button" type="button" disabled={changingSequenceGroupId != null} onClick={() => void setContentGroupSequenceMode(pendingSequenceEnable.id, true)}>{changingSequenceGroupId != null ? "Enabling…" : "Enable sequence"}</button></div>
-    </section>}
     {!loading && !groupsLoading && !error && !groupError && !groups.length && <Empty>{filterQuery.trim() ? "No library items match the filter." : "Nothing here yet."}</Empty>}
     {!loading && !groupsLoading && !error && !groupError && Boolean(groups.length) && <div className="library-groups">
       {groups.map((group) => <section className="library-group" key={group.id} aria-label={`${group.name} library group`}>
@@ -2218,8 +2247,7 @@ function LibraryScreen() {
             { key: "up", label: "Move group up", onClick: () => void moveContentGroup(Number(group.id), "up") },
             { key: "down", label: "Move group down", onClick: () => void moveContentGroup(Number(group.id), "down") },
             { key: "bottom", label: "Move group to bottom", onClick: () => void moveContentGroup(Number(group.id), "bottom") },
-            { key: "sequence", label: group.usesSequence ? "Stop auto sequence" : "Enable sequence", disabled: changingSequenceGroupId != null, onClick: () => group.usesSequence ? void setContentGroupSequenceMode(Number(group.id), false) : setPendingSequenceEnable({ id: Number(group.id), name: group.name }) },
-            ...(group.editable ? [{ key: "edit", label: "Edit", onClick: () => setEditingGroup({ id: Number(group.id), name: group.name, resource: "content-groups" }) }] : []),
+            { key: "edit", label: "Edit", onClick: () => setEditingGroup({ id: Number(group.id), name: group.name, resource: "content-groups", nameEditable: group.editable, usesSequence: group.usesSequence }) },
           ]}
         /> : <header className="library-group-heading"><h2 id={`library-group-${group.id}`}>{group.name}</h2><span>{group.items.length} {group.items.length === 1 ? "item" : "items"}</span></header>}
         {group.items.length ? <ul className="library-list">
@@ -2257,7 +2285,7 @@ function LibraryScreen() {
     />}
     {addingGroup && <NewGroupEditor resource="content-groups" label="Library" onClose={() => setAddingGroup(false)} onChanged={reloadLibrary} />}
     {editingContent && <LibraryContentEditor content={editingContent} groups={groupData?.groups || []} onClose={() => setEditingContent(null)} onChanged={reloadLibrary} />}
-    {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={reloadLibrary} deleteAction={{ label: "Archive group", description: "Only empty Library groups can be archived.", confirmation: `Archive the empty ${editingGroup.name} group?`, execute: async () => { await api(`/api/content-groups/${editingGroup.id}/archive`, { method: "POST" }); if (selectedGroupId === String(editingGroup.id)) setSelectedGroupId("all"); } }} />}
+    {editingGroup && <GroupEditor group={editingGroup} onClose={() => setEditingGroup(null)} onChanged={reloadLibrary} sequenceAction={{ enableConfirmation: `Enable automatic sequence numbers for ${editingGroup.name}? Existing unnumbered items will be numbered.`, execute: (usesSequence) => setContentGroupSequenceMode(editingGroup.id, usesSequence) }} deleteAction={editingGroup.nameEditable === false ? undefined : { label: "Archive group", description: "Only empty Library groups can be archived.", confirmation: `Archive the empty ${editingGroup.name} group?`, execute: async () => { await api(`/api/content-groups/${editingGroup.id}/archive`, { method: "POST" }); if (selectedGroupId === String(editingGroup.id)) setSelectedGroupId("all"); } }} />}
   </>;
 }
 
