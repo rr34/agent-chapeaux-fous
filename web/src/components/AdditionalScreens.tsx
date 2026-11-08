@@ -22,6 +22,12 @@ type CorrespondenceItem = {
   participants: Participant[]; linked_todos: Array<{ todo_id: number; text: string; status: string }>;
   linked_calendar_events: CorrespondenceCalendarEvent[];
 };
+type CorrespondenceContactGroup = {
+  contact_id: number; display_name: string; tags: Array<{ slug: string; label: string }>;
+  correspondence_count: number; earliest_at_utc: string; latest_at_utc: string;
+  media: string[]; directions: string[];
+};
+type CorrespondenceContactTag = { slug: string; label: string; contact_count: number };
 type MessageSyncProgress = {
   status: "pending" | "running" | "complete" | "error" | "cancelled";
   completed: number;
@@ -66,11 +72,18 @@ function messageHistoryLabel(mode: string) {
   return ({ incremental: "Since last sync", days_30: "Last 30 days", days_90: "Last 90 days", days_365: "Last year", all: "All available history" } as Record<string, string>)[mode] || "Since last sync";
 }
 
+function localDateBoundary(value: string) {
+  return value ? new Date(`${value}T00:00:00`).toISOString() : "";
+}
+
 export function CorrespondenceScreen() {
   const [query, setQuery] = useState("");
   const [medium, setMedium] = useState("");
   const [direction, setDirection] = useState("");
   const [mailbox, setMailbox] = useState("");
+  const [participantTag, setParticipantTag] = useState("");
+  const [occurredFromDate, setOccurredFromDate] = useState("");
+  const [occurredBeforeDate, setOccurredBeforeDate] = useState("");
   const [groupBy, setGroupBy] = useState("date");
   const [page, setPage] = useState(0);
   const [syncing, setSyncing] = useState(false);
@@ -85,8 +98,15 @@ export function CorrespondenceScreen() {
   if (medium) parameters.set("medium", medium);
   if (direction) parameters.set("direction", direction);
   if (mailbox) parameters.set("mailbox", mailbox);
-  const { data, error, loading, reload } = useApi<{ items: CorrespondenceItem[]; mailboxes: CorrespondenceMailbox[] }>(`/api/correspondence?${parameters}`);
-  useEffect(() => { setPage(0); }, [query, medium, direction, mailbox]);
+  if (participantTag) parameters.set("participantTag", participantTag);
+  if (occurredFromDate) parameters.set("occurredFromUtc", localDateBoundary(occurredFromDate));
+  if (occurredBeforeDate) parameters.set("occurredBeforeUtc", localDateBoundary(occurredBeforeDate));
+  if (groupBy === "contact") parameters.set("groupBy", "contact");
+  const { data, error, loading, reload } = useApi<{
+    items: CorrespondenceItem[]; contact_groups: CorrespondenceContactGroup[];
+    mailboxes: CorrespondenceMailbox[]; contact_tags: CorrespondenceContactTag[]; has_more: boolean;
+  }>(`/api/correspondence?${parameters}`);
+  useEffect(() => { setPage(0); }, [query, medium, direction, mailbox, participantTag, occurredFromDate, occurredBeforeDate, groupBy]);
   const groups = useMemo(() => {
     const grouped = new Map<string, CorrespondenceItem[]>();
     for (const item of data?.items || []) {
@@ -193,13 +213,33 @@ export function CorrespondenceScreen() {
       <select value={medium} onChange={(event) => setMedium(event.target.value)}><option value="">All media</option>{["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "other"].map((value) => <option key={value}>{value}</option>)}</select>
       <select value={direction} onChange={(event) => setDirection(event.target.value)}><option value="">All directions</option><option>inbound</option><option>outbound</option></select>
       <select aria-label="Email mailbox" value={mailbox} onChange={(event) => setMailbox(event.target.value)}><option value="">All mailboxes</option>{(data?.mailboxes || []).map((value) => <option key={value.mailbox_id} value={value.mailbox_id}>{value.name}</option>)}</select>
+      <select aria-label="Participant contact tag" value={participantTag} onChange={(event) => setParticipantTag(event.target.value)}><option value="">All contact tags</option>{(data?.contact_tags || []).map((tag) => <option key={tag.slug} value={tag.slug}>{tag.label} ({tag.contact_count})</option>)}</select>
+      <input aria-label="Correspondence from date" type="date" value={occurredFromDate} onChange={(event) => setOccurredFromDate(event.target.value)} />
+      <input aria-label="Correspondence before date" type="date" value={occurredBeforeDate} min={occurredFromDate || undefined} onChange={(event) => setOccurredBeforeDate(event.target.value)} />
       <select value={groupBy} onChange={(event) => setGroupBy(event.target.value)}><option value="date">Group by date</option><option value="contact">Group by contact</option><option value="medium">Group by medium</option><option value="direction">Group by direction</option></select>
     </div>
     {syncingMessages && messageSyncProgress && <section className="message-sync-progress" aria-live="polite"><div className="message-sync-progress-heading"><strong>{messageSyncProgress.total ? `${messageSyncProgress.completed} of ${messageSyncProgress.total} conversations complete` : "Discovering conversations"}</strong>{messageSyncProgress.total > 0 && <span>{Math.round((messageSyncProgress.completed / messageSyncProgress.total) * 100)}%</span>}</div><progress max={messageSyncProgress.total || undefined} value={messageSyncProgress.total ? messageSyncProgress.completed : undefined} /><small>{Date.now() - messageSyncProgress.updatedAtMs > 30_000 ? `No new progress for ${syncDuration(Date.now() - messageSyncProgress.updatedAtMs)}. Automatic recovery will reload the Messages tab after 90 seconds.` : `Last activity ${syncDuration(Date.now() - messageSyncProgress.updatedAtMs)} ago.`}</small></section>}
     {notice && <p className="status correspondence-sync-status">{notice}</p>}
     {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}
-    {!loading && !error && !groups.length && <Empty>No correspondence matches these filters.</Empty>}
-    <div className="library-groups">{groups.map(([name, items]) => <section className="library-group" key={name}><header className="library-group-heading"><h2>{name}</h2><span>{items.length} items</span></header><ul className="library-list">{items.map((item) => <ObjectCard as="li" mode="compact" key={item.correspondence_id} object={{
+    {!loading && !error && groupBy === "contact" && !(data?.contact_groups.length || 0) && <Empty>No contacts match these correspondence filters.</Empty>}
+    {!loading && !error && groupBy !== "contact" && !groups.length && <Empty>No correspondence matches these filters.</Empty>}
+    {groupBy === "contact" && <div className="library-groups">{(data?.contact_groups || []).map((contact) => <ObjectCard mode="compact" key={contact.contact_id} object={{
+      id: contact.contact_id, type: "contacts.contact", label: "Contact", display: contact.display_name,
+      attributes: [
+        { label: "Correspondence", value: String(contact.correspondence_count) },
+        { label: "Most recent", value: formatDisplayDate(contact.latest_at_utc) },
+        { label: "First in range", value: formatDisplayDate(contact.earliest_at_utc) },
+        { label: "Media", value: contact.media.join(", ") },
+        { label: "Directions", value: contact.directions.join(", ") },
+      ],
+      badges: contact.tags.map((tag) => tag.label),
+    }} controls={<ObjectSelectionControls identity={{
+      mention: `@${contact.display_name}`, type: "contacts.contact", source: "native:contacts",
+      id: contact.contact_id, ref: `agent-slayer://contacts/${contact.contact_id}`,
+      display: contact.display_name, label: "Contact",
+      detail: `Contact: ${contact.display_name}\nReference code: contact_id=${contact.contact_id}`,
+    }} subject={`contact ${contact.display_name}`} />} />)}</div>}
+    {groupBy !== "contact" && <div className="library-groups">{groups.map(([name, items]) => <section className="library-group" key={name}><header className="library-group-heading"><h2>{name}</h2><span>{items.length} items</span></header><ul className="library-list">{items.map((item) => <ObjectCard as="li" mode="compact" key={item.correspondence_id} object={{
       id: item.correspondence_id, type: "correspondence.item", label: "Correspondence", display: item.display,
       body: correspondencePreview(item.body), attributes: [
         { label: "Medium", value: item.medium }, { label: "Direction", value: item.direction },
@@ -214,8 +254,8 @@ export function CorrespondenceScreen() {
     }} controls={<ObjectSelectionControls identity={correspondenceIdentity(item)} subject={`correspondence ${item.display}`} />} details={item.linked_todos.length || item.linked_calendar_events.length ? <>
       {item.linked_todos.length > 0 && <section><h4>Linked to-dos</h4><ul>{item.linked_todos.map((todo) => <li key={todo.todo_id}>{todo.text}</li>)}</ul></section>}
       {item.linked_calendar_events.length > 0 && <section><h4>Linked calendar events</h4><ul>{item.linked_calendar_events.map((event) => <li key={event.calendar_event_id}>{event.title} · {formatDisplayDate(event.starts_at_utc, { timeZone: event.time_zone || undefined })}</li>)}</ul></section>}
-    </> : undefined} />)}</ul></section>)}</div>
-    {!loading && !error && (page > 0 || (data?.items.length || 0) === 200) && <nav className="correspondence-pages" aria-label="Correspondence pages"><button className="button button--quiet" disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>Previous</button><span>Page {page + 1}</span><button className="button button--quiet" disabled={(data?.items.length || 0) < 200} onClick={() => setPage((value) => value + 1)}>Next</button></nav>}
+    </> : undefined} />)}</ul></section>)}</div>}
+    {!loading && !error && (page > 0 || data?.has_more) && <nav className="correspondence-pages" aria-label="Correspondence pages"><button className="button button--quiet" disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>Previous</button><span>Page {page + 1}</span><button className="button button--quiet" disabled={!data?.has_more} onClick={() => setPage((value) => value + 1)}>Next</button></nav>}
   </>;
 }
 

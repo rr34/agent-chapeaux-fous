@@ -712,6 +712,10 @@ const server = http.createServer(async (request, response) => {
         medium: url.searchParams.get("medium") || null,
         direction: url.searchParams.get("direction") || null,
         mailboxId: url.searchParams.get("mailbox") || null,
+        occurredFromUtc: url.searchParams.get("occurredFromUtc") || null,
+        occurredBeforeUtc: url.searchParams.get("occurredBeforeUtc") || null,
+        participantTag: url.searchParams.get("participantTag") || null,
+        groupBy: url.searchParams.get("groupBy") || "none",
         limit: url.searchParams.get("limit") || 100,
         offset: url.searchParams.get("offset") || 0,
       }));

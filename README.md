@@ -1401,10 +1401,16 @@ own the job lifetime. Only a completed baseline records its Email state; later
 synchronization consumes paginated `Email/changes`, and an expired provider
 cursor falls back to a new full baseline instead of silently treating the
 mirror as current.
-Correspondence has no tag system: user organization uses the
-existing object relationships, including user-managed to-do and calendar-event
-links exposed by the selection and network controls. These links organize the
-local objects without modifying provider correspondence or the linked endpoint.
+Correspondence has no independent tag system. Its domain-owned read accepts
+inclusive occurred-from and exclusive occurred-before boundaries and can filter
+known participants by one exact contact tag, then either return correspondence
+items or bounded contact summaries with counts and first/latest occurrences.
+The same filters back the web Correspondence screen and the agent tool. The tag
+remains owned by the contact; filtering never copies or assigns it to provider
+correspondence. User organization also uses the existing object relationships,
+including user-managed to-do and calendar-event links exposed by the selection
+and network controls. These links organize local objects without modifying
+provider correspondence or the linked endpoint.
 Phone synchronization remains mobile-only.
 
 The web-only **Music** section follows Files in navigation, reads the same

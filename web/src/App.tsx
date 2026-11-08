@@ -10,7 +10,7 @@ import { TrackerSchedule } from "./components/TrackerSchedule";
 import { AccountScreen, CorrespondenceScreen, MusicScreen, useWebMusicPlayer } from "./components/AdditionalScreens";
 import { SectionFilter } from "./components/SectionFilter";
 import { Markdown } from "./components/Markdown";
-import { ObjectSelectionProvider, objectSelectionKey } from "./components/ObjectSelectionContext";
+import { ObjectSelectionProvider, objectSelectionKey, useObjectSelection } from "./components/ObjectSelectionContext";
 import { ContactCard } from "./components/object-cards/ContactCard";
 import { FileCard } from "./components/object-cards/FileCard";
 import { InvoiceCard } from "./components/object-cards/InvoiceCard";
@@ -1893,6 +1893,7 @@ function ContactDuplicateGroup({ group, contacts, busy, onMerge }: { group: Enti
 }
 
 function ContactsScreen() {
+  const objectSelection = useObjectSelection();
   const [addingContact, setAddingContact] = useState(false);
   const [editingContactId, setEditingContactId] = useState<number | null>(null);
   const [query, setQuery] = useState("");
@@ -1900,7 +1901,6 @@ function ContactsScreen() {
   const [selectedKind, setSelectedKind] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("active");
   const [selectedTag, setSelectedTag] = useState("all");
-  const [selectedContactIds, setSelectedContactIds] = useState<Set<number>>(new Set());
   const [bulkTag, setBulkTag] = useState("");
   const [confirmingContactDelete, setConfirmingContactDelete] = useState(false);
   const [renamingTag, setRenamingTag] = useState(false);
@@ -1914,6 +1914,10 @@ function ContactsScreen() {
   const { data, error, loading, reload } = useApi<{ contacts: Entity[] }>(`/api/contacts?${contactParameters}`);
   const { data: duplicateData, reload: reloadDuplicates } = useApi<{ groups: Entity[]; groupCount?: number }>("/api/contacts/duplicates?limit=200");
   const contacts = data?.contacts || [];
+  const selectedObjectKeys = new Set((objectSelection?.selections || []).map(objectSelectionKey));
+  const selectedContactIds = new Set(contacts
+    .filter((contact) => selectedObjectKeys.has(objectSelectionKey(contactIdentity(contact))))
+    .map((contact) => Number(contact.id)));
   const contactTags = useMemo(() => [...new Set(contacts.flatMap((contact) => (contact.tags as string[] | undefined) || []))].sort((left, right) => left.localeCompare(right)), [contacts]);
   const visibleContacts = contacts.filter((contact) =>
     (selectedKind === "all" || textKey(contact, "kind") === selectedKind)
@@ -1944,7 +1948,7 @@ function ContactsScreen() {
     setContactAction(action); setContactStatus("");
     try {
       await api("/api/contacts/bulk", { method: "POST", body: JSON.stringify({ action, ...(action === "add_tag" ? { tag: bulkTag } : {}), contacts: selectedContacts.map((contact) => ({ id: Number(contact.id), expectedVersion: contact.version })) }) });
-      setSelectedContactIds(new Set()); setBulkTag(""); setConfirmingContactDelete(false); setContactStatus(action === "delete" ? "Selected contacts deleted." : "Tag added to selected contacts.");
+      objectSelection?.changeSelections(selectedContacts.map(contactIdentity), false); setBulkTag(""); setConfirmingContactDelete(false); setContactStatus(action === "delete" ? "Selected contacts deleted." : "Tag added to selected contacts.");
       await Promise.all([reload(), reloadDuplicates()]);
     } catch (caught) { setContactStatus(caught instanceof Error ? caught.message : String(caught)); }
     finally { setContactAction(""); }
@@ -1976,7 +1980,7 @@ function ContactsScreen() {
     {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}
     {!loading && !error && <>
       <SectionFilter query={query} onChange={setQuery} onSearch={searchContacts} searching={loading} count={visibleContacts.length} noun="contact" controls={<>
-        <label className="todo-completed-filter"><input type="checkbox" aria-label="Select all visible contacts" checked={visibleContacts.length > 0 && visibleContacts.every((contact) => selectedContactIds.has(Number(contact.id)))} onChange={(event) => setSelectedContactIds((current) => { const next = new Set(current); for (const contact of visibleContacts) { if (event.target.checked) next.add(Number(contact.id)); else next.delete(Number(contact.id)); } return next; })} />Select visible</label>
+        <label className="todo-completed-filter"><input type="checkbox" aria-label="Select all visible contacts" checked={visibleContacts.length > 0 && visibleContacts.every((contact) => selectedContactIds.has(Number(contact.id)))} onChange={(event) => objectSelection?.changeSelections(visibleContacts.map(contactIdentity), event.target.checked)} />Select visible</label>
         <SectionSelectFilter label="Group" value={selectedKind} onChange={setSelectedKind}>
           <option value="all">All groups</option><option value="person">People</option><option value="organization">Organizations</option><option value="service">Services</option>
         </SectionSelectFilter>
@@ -1987,7 +1991,7 @@ function ContactsScreen() {
           <option value="all">All tags</option>{contactTags.map((tag) => <option value={tag} key={tag}>{tag}</option>)}
         </SectionSelectFilter>
       </>} />
-      {selectedContacts.length > 0 && <section className="surface contact-bulk-actions"><strong>{selectedContacts.length} selected</strong><input aria-label="Tag selected contacts" placeholder="Tag" value={bulkTag} onChange={(event) => setBulkTag(event.target.value)} /><button className="button button--quiet" disabled={Boolean(contactAction) || !bulkTag.trim()} onClick={() => void bulkContacts("add_tag")}>Add tag</button><button className="button button--danger" disabled={Boolean(contactAction)} onClick={() => setConfirmingContactDelete(true)}>Delete selected</button></section>}
+      {selectedContacts.length > 0 && <section className="surface contact-bulk-actions"><strong>{selectedContacts.length} selected</strong><input aria-label="Tag selected contacts" placeholder="Tag" list="contact-bulk-tag-options" autoComplete="off" value={bulkTag} onChange={(event) => setBulkTag(event.target.value)} /><datalist id="contact-bulk-tag-options">{contactTags.map((tag) => <option value={tag} key={tag} />)}</datalist><button className="button button--quiet" disabled={Boolean(contactAction) || !bulkTag.trim()} onClick={() => void bulkContacts("add_tag")}>Add tag</button><button className="button button--danger" disabled={Boolean(contactAction)} onClick={() => setConfirmingContactDelete(true)}>Delete selected</button></section>}
       {confirmingContactDelete && <section className="group-delete-confirmation" role="alertdialog" aria-label="Confirm contact deletion"><p>Permanently delete {selectedContacts.length} selected contacts? This cannot be undone.</p><div><button className="button button--quiet" onClick={() => setConfirmingContactDelete(false)}>Cancel</button><button className="button button--danger" onClick={() => void bulkContacts("delete")}>Delete permanently</button></div></section>}
       {renamingTag && <section className="surface integration-add-form" role="dialog" aria-label="Rename contact tag"><h2>Rename or merge tag</h2><label>Current tag<select value={renameCurrentTag} onChange={(event) => { setRenameCurrentTag(event.target.value); setRenameNextTag(event.target.value); }}>{contactTags.map((tag) => <option key={tag}>{tag}</option>)}</select></label><label>New tag<input value={renameNextTag} onChange={(event) => setRenameNextTag(event.target.value)} /></label><p className="field-hint">If the new tag already exists, assignments are merged into it.</p><div><button className="button button--quiet" onClick={() => setRenamingTag(false)}>Cancel</button><button className="button" disabled={!renameNextTag.trim() || renameNextTag.trim() === renameCurrentTag} onClick={() => void renameTag()}>Rename tag</button></div></section>}
       {showDuplicates && <section className="surface duplicate-review"><div className="section-title"><h2>Possible duplicate contacts</h2><button className="button button--quiet" onClick={() => setShowDuplicates(false)}>Close</button></div>{(duplicateData?.groups || []).map((group, index) => <ContactDuplicateGroup key={((group.contactIds as number[] | undefined) || [index]).join("-")} group={group} contacts={contacts} busy={Boolean(contactAction)} onMerge={(keepId, mergeIds) => void mergeDuplicates(keepId, mergeIds)} />)}</section>}
@@ -2028,7 +2032,7 @@ function ContactsScreen() {
               links,
             })}
             onEdit={() => setEditingContactId(Number(contact.id))}
-            controls={<><label className="object-selection-control"><input type="checkbox" aria-label={`Select ${name}`} checked={selectedContactIds.has(Number(contact.id))} onChange={(event) => setSelectedContactIds((current) => { const next = new Set(current); if (event.target.checked) next.add(Number(contact.id)); else next.delete(Number(contact.id)); return next; })} /></label><ObjectSelectionControls identity={contactIdentity(contact)} subject={`contact ${name}`} /></>}
+            controls={<ObjectSelectionControls identity={contactIdentity(contact)} subject={`contact ${name}`} />}
           />;
           })}
           </ul>
@@ -3390,23 +3394,34 @@ function Workspace() {
   const [requestTrace, setRequestTrace] = useState<RequestTrace | null>(null);
   const [traceError, setTraceError] = useState<unknown>(null);
   const go = (next: string) => { setView(next); history.replaceState(null, "", `#${next}`); };
-  const toggleObjectSelection = (identity: SelectedObjectCandidate) => {
-    const identityKey = objectSelectionKey(identity);
-    const selected = agentObjectSelections.find((candidate) => objectSelectionKey(candidate) === identityKey);
-    if (selected) {
-      setAgentObjectSelections((current) => current.filter((candidate) => objectSelectionKey(candidate) !== identityKey));
-      if (selected.selectionOrigin === "mention") {
-        setAgentDraft((current) => current.replaceAll(selected.mention, "").replace(/ {2,}/gu, " ").trimStart());
+  const changeObjectSelections = (identities: SelectedObjectCandidate[], selected: boolean) => {
+    const identityKeys = new Set(identities.map(objectSelectionKey));
+    if (!selected) {
+      const removedMentions = agentObjectSelections
+        .filter((candidate) => identityKeys.has(objectSelectionKey(candidate)) && candidate.selectionOrigin === "mention")
+        .map(({ mention }) => mention);
+      setAgentObjectSelections((current) => current.filter((candidate) => !identityKeys.has(objectSelectionKey(candidate))));
+      if (removedMentions.length) {
+        setAgentDraft((current) => removedMentions.reduce((draft, mention) => draft.replaceAll(mention, ""), current).replace(/ {2,}/gu, " ").trimStart());
       }
       setAgentSelectionNotice(null);
       return;
     }
-    if (agentObjectSelections.length >= maximumObjectReferences) {
+    const existingKeys = new Set(agentObjectSelections.map(objectSelectionKey));
+    const additions = identities.filter((identity, index) => {
+      const key = objectSelectionKey(identity);
+      return !existingKeys.has(key) && identities.findIndex((candidate) => objectSelectionKey(candidate) === key) === index;
+    });
+    if (agentObjectSelections.length + additions.length > maximumObjectReferences) {
       setAgentSelectionNotice(`A request can reference at most ${maximumObjectReferences} objects. Nothing was selected or truncated.`);
       return;
     }
     setAgentSelectionNotice(null);
-    setAgentObjectSelections((current) => [...current, { ...identity, selectionOrigin: "card" }]);
+    setAgentObjectSelections((current) => [...current, ...additions.map((identity) => ({ ...identity, selectionOrigin: "card" as const }))]);
+  };
+  const toggleObjectSelection = (identity: SelectedObjectCandidate) => {
+    const selected = agentObjectSelections.some((candidate) => objectSelectionKey(candidate) === objectSelectionKey(identity));
+    changeObjectSelections([identity], !selected);
   };
   const reuseObjectMention = (selection: PersistedObjectCandidate) => {
     const selectionKey = objectSelectionKey(selection);
@@ -3481,7 +3496,7 @@ function Workspace() {
   else if (view === "music") screen = <MusicScreen player={musicPlayer} />;
   else if (view === "correspondence") screen = <CorrespondenceScreen />;
   else screen = <GenericScreen kind={view as keyof typeof genericScreens} />;
-  return <ObjectSelectionProvider selections={agentObjectSelections} toggleSelection={toggleObjectSelection}><div className={`app-shell${musicPlayer.queue.length ? " has-music-player" : ""}`}><aside className="sidebar"><a className="brand" href="/app"><img src="/icon.svg" alt="" /><span>Time v3<br />Agent</span></a><nav>{navigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><NavigationIcon id={id} label={label} />{label}</button>)}</nav></aside><main className="workspace">{screen}</main>{musicPlayer.element}<AgentComposer
+  return <ObjectSelectionProvider selections={agentObjectSelections} toggleSelection={toggleObjectSelection} changeSelections={changeObjectSelections}><div className={`app-shell${musicPlayer.queue.length ? " has-music-player" : ""}`}><aside className="sidebar"><a className="brand" href="/app"><img src="/icon.svg" alt="" /><span>Time v3<br />Agent</span></a><nav>{navigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><NavigationIcon id={id} label={label} />{label}</button>)}</nav></aside><main className="workspace">{screen}</main>{musicPlayer.element}<AgentComposer
     text={agentDraft}
     setText={setAgentDraft}
     selections={agentObjectSelections}

@@ -68,6 +68,6 @@ test("object selection stays in the current section and shares one workspace sel
   const handler = app.slice(app.indexOf("const toggleObjectSelection"), app.indexOf("const showTrace"));
   assert.doesNotMatch(handler, /go\("agent"\)/);
   assert.match(app, /<ObjectSelectionProvider selections=\{agentObjectSelections\}/);
-  assert.match(handler, /current\.filter\(\(candidate\) => objectSelectionKey\(candidate\) !== identityKey\)/);
+  assert.match(app, /current\.filter\(\(candidate\) => !identityKeys\.has\(objectSelectionKey\(candidate\)\)\)/);
   assert.match(handler, /maximumObjectReferences/);
 });

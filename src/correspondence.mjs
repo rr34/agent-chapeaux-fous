@@ -16,6 +16,26 @@ function emailInstant(value, label) {
   return parsed.toISOString();
 }
 
+function optionalUtcInstant(value, label) {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string") throw new Error(`${label} must be an RFC 3339 timestamp`);
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) throw new Error(`${label} must be an RFC 3339 timestamp`);
+  return parsed.toISOString();
+}
+
+function contactTagSlug(value) {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string" || value.trim().length > 200) {
+    throw new Error("participant_tag must contain at most 200 characters");
+  }
+  const slug = value.trim().normalize("NFKD").replace(/\p{M}/gu, "")
+    .toLocaleLowerCase("en-US").replace(/[^\p{Letter}\p{Number}]+/gu, "-")
+    .replace(/^-+|-+$/gu, "");
+  if (!slug) throw new Error("participant_tag must contain a letter or number");
+  return slug;
+}
+
 function emailKeywords(value) {
   if (value == null) return [];
   if (Array.isArray(value)) return value.map(String).toSorted();
@@ -186,27 +206,120 @@ export class CorrespondenceService {
     }
   }
 
-  list({ q = "", medium = null, direction = null, mailboxId = null, limit = 100, offset = 0 } = {}) {
+  list({
+    q = "", medium = null, direction = null, mailboxId = null,
+    occurredFromUtc = null, occurredBeforeUtc = null, participantTag = null,
+    groupBy = "none", limit = 100, offset = 0,
+  } = {}) {
     limit = Math.min(200, Math.max(1, Number(limit) || 100));
     offset = Math.max(0, Number(offset) || 0);
+    occurredFromUtc = optionalUtcInstant(occurredFromUtc, "occurred_from_utc");
+    occurredBeforeUtc = optionalUtcInstant(occurredBeforeUtc, "occurred_before_utc");
+    if (occurredFromUtc && occurredBeforeUtc && occurredFromUtc >= occurredBeforeUtc) {
+      throw new Error("occurred_from_utc must be earlier than occurred_before_utc");
+    }
+    const participantTagSlug = contactTagSlug(participantTag);
+    if (!["none", "contact"].includes(groupBy)) throw new Error("group_by must be none or contact");
     const where = [];
     const values = [];
     if (q.trim()) {
-      where.push("(subject LIKE ? OR body LIKE ?)");
+      where.push("(correspondence.subject LIKE ? OR correspondence.body LIKE ?)");
       values.push(`%${q.trim()}%`, `%${q.trim()}%`);
     }
-    if (medium) { where.push("medium = ?"); values.push(medium); }
-    if (direction) { where.push("direction = ?"); values.push(direction); }
+    if (medium) { where.push("correspondence.medium = ?"); values.push(medium); }
+    if (direction) { where.push("correspondence.direction = ?"); values.push(direction); }
+    if (occurredFromUtc) {
+      where.push("correspondence.occurred_at_utc >= ?");
+      values.push(occurredFromUtc);
+    }
+    if (occurredBeforeUtc) {
+      where.push("correspondence.occurred_at_utc < ?");
+      values.push(occurredBeforeUtc);
+    }
     if (mailboxId) {
       where.push(`EXISTS (SELECT 1 FROM correspondence_email_mailboxes_join AS selected_mailbox
         WHERE selected_mailbox.correspondence_id = correspondence.correspondence_id
           AND selected_mailbox.mailbox_id = ?)`);
       values.push(mailboxId);
     }
+    if (groupBy === "contact") {
+      where.push("contact.status <> 'inactive'");
+      if (participantTagSlug) {
+        where.push(`EXISTS (SELECT 1 FROM contacts_tags_join AS selected_assignment
+          JOIN tags AS selected_tag USING (tag_id)
+          WHERE selected_assignment.record_type = 'contact'
+            AND selected_assignment.record_id = CAST(contact.contact_id AS CHAR)
+            AND selected_tag.is_active = 1 AND selected_tag.slug = ?)`);
+        values.push(participantTagSlug);
+      }
+      const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+      const rows = this.database.prepare(`SELECT contact.contact_id, contact.display_name,
+          COUNT(DISTINCT correspondence.correspondence_id) AS correspondence_count,
+          MIN(correspondence.occurred_at_utc) AS earliest_at_utc,
+          MAX(correspondence.occurred_at_utc) AS latest_at_utc,
+          GROUP_CONCAT(DISTINCT correspondence.medium ORDER BY correspondence.medium SEPARATOR ',') AS media,
+          GROUP_CONCAT(DISTINCT correspondence.direction ORDER BY correspondence.direction SEPARATOR ',') AS directions
+        FROM correspondence AS correspondence
+        JOIN correspondence_participants_join AS grouped_participant USING (correspondence_id)
+        JOIN contacts AS contact USING (contact_id)
+        ${clause}
+        GROUP BY contact.contact_id, contact.display_name
+        ORDER BY latest_at_utc DESC, contact.contact_id DESC LIMIT ? OFFSET ?`)
+        .all(...values, limit + 1, offset);
+      const hasMore = rows.length > limit;
+      const page = rows.slice(0, limit);
+      const tagsByContact = new Map();
+      if (page.length) {
+        const placeholders = page.map(() => "?").join(", ");
+        for (const row of this.database.prepare(`SELECT assignment.record_id AS contact_id,
+            tag.slug, tag.label
+          FROM contacts_tags_join AS assignment JOIN tags AS tag USING (tag_id)
+          WHERE assignment.record_type = 'contact' AND tag.is_active = 1
+            AND assignment.record_id IN (${placeholders})
+          ORDER BY assignment.record_id, tag.label, tag.tag_id`).all(...page.map(({ contact_id: id }) => String(id)))) {
+          const id = Number(row.contact_id);
+          tagsByContact.set(id, [...(tagsByContact.get(id) || []), { slug: row.slug, label: row.label }]);
+        }
+      }
+      return {
+        result_type: "contacts",
+        items: [],
+        contact_groups: page.map((row) => ({
+          contact_id: Number(row.contact_id),
+          display_name: row.display_name,
+          tags: tagsByContact.get(Number(row.contact_id)) || [],
+          correspondence_count: Number(row.correspondence_count),
+          earliest_at_utc: row.earliest_at_utc,
+          latest_at_utc: row.latest_at_utc,
+          media: row.media ? String(row.media).split(",") : [],
+          directions: row.directions ? String(row.directions).split(",") : [],
+        })),
+        mailboxes: this.#mailboxes(),
+        contact_tags: this.#contactTags(),
+        count: page.length,
+        limit,
+        offset,
+        has_more: hasMore,
+      };
+    }
+    if (participantTagSlug) {
+      where.push(`EXISTS (SELECT 1 FROM correspondence_participants_join AS selected_participant
+        JOIN contacts AS selected_contact USING (contact_id)
+        JOIN contacts_tags_join AS selected_assignment
+          ON selected_assignment.record_type = 'contact'
+         AND selected_assignment.record_id = CAST(selected_contact.contact_id AS CHAR)
+        JOIN tags AS selected_tag USING (tag_id)
+        WHERE selected_participant.correspondence_id = correspondence.correspondence_id
+          AND selected_contact.status <> 'inactive'
+          AND selected_tag.is_active = 1 AND selected_tag.slug = ?)`);
+      values.push(participantTagSlug);
+    }
     const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
-    const rows = this.database.prepare(`SELECT * FROM correspondence ${clause}
-      ORDER BY occurred_at_utc DESC, correspondence_id DESC LIMIT ? OFFSET ?`)
-      .all(...values, limit, offset);
+    const rowsWithSentinel = this.database.prepare(`SELECT correspondence.* FROM correspondence AS correspondence ${clause}
+      ORDER BY correspondence.occurred_at_utc DESC, correspondence.correspondence_id DESC LIMIT ? OFFSET ?`)
+      .all(...values, limit + 1, offset);
+    const hasMore = rowsWithSentinel.length > limit;
+    const rows = rowsWithSentinel.slice(0, limit);
     const ids = rows.map((row) => Number(row.correspondence_id));
     const participants = new Map();
     const todos = new Map();
@@ -296,16 +409,38 @@ export class CorrespondenceService {
       }
     }
     return {
+      result_type: "items",
       items: rows.map((row) => publicItem(row, participants.get(Number(row.correspondence_id)) || [],
         todos.get(Number(row.correspondence_id)) || [], calendarEvents.get(Number(row.correspondence_id)) || [],
         mailboxes.get(Number(row.correspondence_id)) || [],
         sourceObservations.get(Number(row.correspondence_id)) || [])),
-      mailboxes: this.database.prepare(`SELECT mailbox_id, name, role, parent_mailbox_id
-        FROM jmap_email_mailboxes ORDER BY sort_order, name, mailbox_id`).all(),
+      contact_groups: [],
+      mailboxes: this.#mailboxes(),
+      contact_tags: this.#contactTags(),
       count: rows.length,
       limit,
       offset,
+      has_more: hasMore,
     };
+  }
+
+  #mailboxes() {
+    return this.database.prepare(`SELECT mailbox_id, name, role, parent_mailbox_id
+      FROM jmap_email_mailboxes ORDER BY sort_order, name, mailbox_id`).all();
+  }
+
+  #contactTags() {
+    return this.database.prepare(`SELECT tag.slug, tag.label, COUNT(contact.contact_id) AS contact_count
+      FROM tags AS tag
+      LEFT JOIN contacts_tags_join AS assignment
+        ON assignment.tag_id = tag.tag_id AND assignment.record_type = 'contact'
+      LEFT JOIN contacts AS contact
+        ON assignment.record_id = CAST(contact.contact_id AS CHAR) AND contact.status <> 'inactive'
+      WHERE tag.is_active = 1
+      GROUP BY tag.tag_id, tag.slug, tag.label
+      ORDER BY tag.label, tag.tag_id`).all().map((row) => ({
+      slug: row.slug, label: row.label, contact_count: Number(row.contact_count),
+    }));
   }
 
   setTodoLinks({ links }, context = {}) {

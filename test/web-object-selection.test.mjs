@@ -19,7 +19,7 @@ test("every card selection stages one exact object in the shared Agent request s
   assert.match(context, /ObjectSelectionContext\.Provider/);
   assert.match(context, /occurrenceStartsAtUtc/);
   assert.match(context, /objectSelectionKey/);
-  assert.match(app, /<ObjectSelectionProvider selections=\{agentObjectSelections\} toggleSelection=\{toggleObjectSelection\}>/);
+  assert.match(app, /<ObjectSelectionProvider selections=\{agentObjectSelections\} toggleSelection=\{toggleObjectSelection\} changeSelections=\{changeObjectSelections\}>/);
   assert.match(app, /selectionOrigin: "card"/);
   const toggleStart = app.indexOf("const toggleObjectSelection =");
   const toggleEnd = app.indexOf("const reuseObjectMention =", toggleStart);
@@ -30,8 +30,17 @@ test("recurring occurrence cards retain their timestamp and select independently
   assert.match(controls, /event\.isGeneratedOccurrence/);
   assert.match(controls, /occurrenceStartsAtUtc: event\.startsAtUtc/);
   assert.match(controls, /objectSelectionKey\(identity\)/);
-  assert.match(app, /objectSelectionKey\(candidate\) === identityKey/);
-  assert.match(app, /objectSelectionKey\(candidate\) !== identityKey/);
+  assert.match(app, /objectSelectionKey\(candidate\) === objectSelectionKey\(identity\)/);
+  assert.match(app, /!identityKeys\.has\(objectSelectionKey\(candidate\)\)/);
+});
+
+test("contact cards share their Agent checkbox with bulk actions and suggest existing tags", () => {
+  assert.match(app, /const selectedObjectKeys = new Set/);
+  assert.match(app, /objectSelection\?\.changeSelections\(visibleContacts\.map\(contactIdentity\), event\.target\.checked\)/);
+  assert.match(app, /controls=\{<ObjectSelectionControls identity=\{contactIdentity\(contact\)\}/);
+  assert.doesNotMatch(app, /aria-label=\{`Select \$\{name\}`\}/);
+  assert.match(app, /list="contact-bulk-tag-options"/);
+  assert.match(app, /<datalist id="contact-bulk-tag-options">\{contactTags\.map/);
 });
 
 test("the composer counts selections by object type without duplicating selected cards", () => {

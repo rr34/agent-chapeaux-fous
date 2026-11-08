@@ -52,7 +52,7 @@ test("SMS drafts return exact choices when a contact has several non-primary pho
 test("correspondence reads expose and filter provider mailbox membership and unread state", () => {
   let listQuery = null;
   const database = { prepare(sql) {
-    if (sql.startsWith("SELECT * FROM correspondence")) return { all: (...args) => {
+    if (sql.startsWith("SELECT correspondence.* FROM correspondence")) return { all: (...args) => {
       listQuery = { sql, args };
       return [{ correspondence_id: 9, medium: "email", direction: "inbound", subject: "Update",
         body: "<p>News</p>", occurred_at_utc: "2026-11-01T12:00:00.000Z",
@@ -73,12 +73,13 @@ test("correspondence reads expose and filter provider mailbox membership and unr
     if (sql.includes("FROM jmap_email_mailboxes ORDER BY")) return { all: () => [{
       mailbox_id: "inbox-1", name: "Inbox", role: "inbox", parent_mailbox_id: null,
     }] };
+    if (sql.includes("FROM tags AS tag")) return { all: () => [] };
     throw new Error(`Unexpected SQL: ${sql}`);
   } };
   const service = new CorrespondenceService({ store: { requireReady: () => database }, ledger: {}, jmap: {} });
   const result = service.list({ medium: "email", mailboxId: "inbox-1", limit: 20 });
   assert.match(listQuery.sql, /EXISTS \(SELECT 1 FROM correspondence_email_mailboxes_join/u);
-  assert.deepEqual(listQuery.args, ["email", "inbox-1", 20, 0]);
+  assert.deepEqual(listQuery.args, ["email", "inbox-1", 21, 0]);
   assert.equal(result.items[0].is_read, false);
   assert.deepEqual(result.items[0].email_keywords, ["$flagged"]);
   assert.deepEqual(result.items[0].mailboxes, [{
@@ -91,6 +92,67 @@ test("correspondence reads expose and filter provider mailbox membership and unr
     time_zone: "America/New_York", is_all_day: false, status: "confirmed",
   }]);
   assert.equal(result.mailboxes[0].name, "Inbox");
+  assert.equal(result.result_type, "items");
+  assert.equal(result.has_more, false);
+});
+
+test("correspondence contact grouping combines time, content, mailbox, and participant-tag filters", () => {
+  let groupQuery = null;
+  const database = { prepare(sql) {
+    if (sql.includes("COUNT(DISTINCT correspondence.correspondence_id)")) return { all: (...args) => {
+      groupQuery = { sql, args };
+      return [{
+        contact_id: 10, display_name: "Avery Watch",
+        correspondence_count: 4, earliest_at_utc: "2026-10-26T12:00:00.000Z",
+        latest_at_utc: "2026-11-07T18:30:00.000Z", media: "email,sms", directions: "inbound,outbound",
+      }];
+    } };
+    if (sql.includes("assignment.record_id AS contact_id")) return { all: () => [{
+      contact_id: "10", slug: "watch-customer", label: "Watch Customer",
+    }] };
+    if (sql.includes("FROM jmap_email_mailboxes ORDER BY")) return { all: () => [] };
+    if (sql.includes("FROM tags AS tag")) return { all: () => [{
+      slug: "watch-customer", label: "Watch Customer", contact_count: 12,
+    }] };
+    throw new Error(`Unexpected SQL: ${sql}`);
+  } };
+  const service = new CorrespondenceService({ store: { requireReady: () => database }, ledger: {}, jmap: {} });
+  const result = service.list({
+    q: "repair", medium: "email", direction: "inbound", mailboxId: "inbox-1",
+    occurredFromUtc: "2026-10-25T04:00:00.000Z",
+    occurredBeforeUtc: "2026-11-09T05:00:00.000Z",
+    participantTag: "Watch Customer", groupBy: "contact", limit: 20,
+  });
+  assert.match(groupQuery.sql, /contact\.status <> 'inactive'/u);
+  assert.match(groupQuery.sql, /selected_tag\.slug = \?/u);
+  assert.match(groupQuery.sql, /correspondence\.occurred_at_utc >= \?/u);
+  assert.match(groupQuery.sql, /correspondence\.occurred_at_utc < \?/u);
+  assert.deepEqual(groupQuery.args, [
+    "%repair%", "%repair%", "email", "inbound",
+    "2026-10-25T04:00:00.000Z", "2026-11-09T05:00:00.000Z",
+    "inbox-1", "watch-customer", 21, 0,
+  ]);
+  assert.deepEqual(result.contact_groups, [{
+    contact_id: 10, display_name: "Avery Watch",
+    tags: [{ slug: "watch-customer", label: "Watch Customer" }],
+    correspondence_count: 4,
+    earliest_at_utc: "2026-10-26T12:00:00.000Z",
+    latest_at_utc: "2026-11-07T18:30:00.000Z",
+    media: ["email", "sms"], directions: ["inbound", "outbound"],
+  }]);
+  assert.equal(result.result_type, "contacts");
+  assert.equal(result.contact_tags[0].contact_count, 12);
+  assert.equal(result.has_more, false);
+});
+
+test("correspondence reads reject inverted occurrence ranges", () => {
+  const service = new CorrespondenceService({
+    store: { requireReady: () => ({}) }, ledger: {}, jmap: {},
+  });
+  assert.throws(() => service.list({
+    occurredFromUtc: "2026-11-09T00:00:00.000Z",
+    occurredBeforeUtc: "2026-11-08T00:00:00.000Z",
+  }), /must be earlier/u);
 });
 
 test("correspondence calendar-event links validate the full batch and return literal idempotent receipts", () => {
