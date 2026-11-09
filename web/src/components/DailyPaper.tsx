@@ -116,16 +116,8 @@ function todoTitle(todo: LinkedTodo) {
   return todo.text || todo.title || "Task";
 }
 
-function relationshipKindLabel(value?: string | null) {
-  return value ? value[0].toUpperCase() + value.slice(1) : null;
-}
-
-function PrintableTodoCard({ todo, showRelationship = false }: {
-  todo: LinkedTodo;
-  showRelationship?: boolean;
-}) {
+function PrintableTodoCard({ todo }: { todo: LinkedTodo }) {
   const details = [
-    showRelationship ? relationshipKindLabel(todo.relationshipKind) : null,
     todo.relatedContact ? `Contact · ${todo.relatedContact.displayName}` : null,
   ].filter(Boolean);
   return <li className="paper-todo-card">
@@ -188,20 +180,6 @@ function PrintablePinnedTodoGroups({ groups }: { groups: DailyPaperTodoGroup[] }
   </section>;
 }
 
-function PrintableScheduledTodos({ todos }: { todos: LinkedTodo[] }) {
-  return <section className="paper-scheduled-todos">
-    <header className="paper-append-heading">
-      <h3>Scheduled this week</h3>
-      <small>{todos.length} {todos.length === 1 ? "item" : "items"}</small>
-    </header>
-    {todos.length ? <ul className="paper-todo-cards">
-      {[...todos].sort(compareTodoOrder).map((todo) => <PrintableTodoCard todo={todo} showRelationship key={todo.todoId} />)}
-    </ul> : <div className="paper-todo-empty-lines" aria-label="Blank weekly checklist">
-      {Array.from({ length: 4 }, (_, index) => <span key={index} />)}
-    </div>}
-  </section>;
-}
-
 export function DailyPaper({ model, preview = false }: { model: DailyPaperModel; preview?: boolean }) {
   return (
     <div className="daily-paper-document">
@@ -226,9 +204,8 @@ export function DailyPaper({ model, preview = false }: { model: DailyPaperModel;
 
       <section className="paper-section paper-weekly-todos">
         <header className="paper-section-heading">
-          <span>01</span><h2>To-do lists</h2><small>Scheduled this week and pinned</small>
+          <span>01</span><h2>Pinned to-do groups</h2><small>Open tasks from pinned groups</small>
         </header>
-        <PrintableScheduledTodos todos={model.scheduledTodos} />
         <PrintablePinnedTodoGroups groups={model.printableTodoGroups} />
       </section>
 

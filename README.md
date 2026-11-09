@@ -535,10 +535,8 @@ the configured detail; `original` is the default so small receipt text remains
 visible. PDF originals are verified and retained as durable files without being
 decoded as text; invoice receipts use their exact file bindings. Small text files appear in full in visible model context;
 large files contribute a bounded preview while native file tools can process the verified
-full attachment. A task's Schedule
-button opens the calendar in day-pick mode; selecting a day writes the task's
-scheduled date as an all-day task. Timed tasks remain available through the
-to-do editor and agent tools.
+full attachment. Full to-do cards expose the completion instant when present
+and the row's latest update instant as **Last changed**.
 
 The **To do** screen's **Print PDF** action captures its current visible
 projection after the group, text-search, and completed-item filters have been
@@ -548,20 +546,18 @@ does not independently query or add hidden to-dos while printing.
 
 The **Calendar** screen composes a shared React weekly-paper component from the
 authoritative two-week calendar, the Monday-to-Sunday week containing the
-selected date, to-dos linked to that week's events, and active to-do groups
-pinned to the paper. Pinned groups contribute all open tasks and remain as
-writable sections when empty.
-On screen, each calendar event owns its linked reusable to-do cards and their
-relationship labels instead of duplicating them in a separate to-do column.
+selected date, and active to-do groups pinned to the paper. Pinned groups
+contribute all open tasks and remain as writable sections when empty. Calendar
+events and personal to-dos remain separate first-class objects; neither owns a
+relationship to the other.
 The paper shows the selected Monday-to-Sunday week followed by the next week.
 The calendar contains only events. Each seven-day row grows to its busiest day
 and reserves at least three additional event-row heights of blank space below
 it, giving every day in that week matching writing room.
-Below it, a full-width **To-do lists** section contains every distinct task
-linked to an event in the headed week followed by pinned groups, without
-repeating those scheduled tasks inside their pinned groups. The print preview
-is a transient editable copy for browser printing; source calendar and to-do
-records remain unchanged. Choose Letter or A4 and click **Download weekly PDF**
+Below it, a full-width **Pinned to-do groups** section contains the open tasks
+from every group pinned to the paper. The print preview is a transient editable
+copy for browser printing; source calendar and to-do records remain unchanged.
+Choose Letter or A4 and click **Download weekly PDF**
 to render, store, and download the current weekly snapshot. The agent can invoke
 the same behavior through the compatibility tool identity
 `daily_paper_generate`. Chromium is
@@ -877,7 +873,8 @@ controls which exact tool schemas are callable.
   deletion fails while active tasks remain and preserves the group on terminal
   task history. To-dos are deliberately non-temporal:
   schedules, deadlines, durations, all-day state, and recurrence belong to the
-  calendar. New and existing tasks can be
+  calendar, and calendar events and personal to-dos deliberately have no direct
+  relationship. New and existing tasks can be
   placed at an exact 1-based manual sort position, including position 1.
   `todo_add` accepts an exact active contact ID and atomically creates the task
   with that optional contact connection in the same native call; an existing
@@ -886,7 +883,7 @@ controls which exact tool schemas are callable.
   atomic call, using the same array schema for a singular update.
 - `calendar_event_search`, `calendar_event_list`, `calendar_event_add`,
   `calendar_event_update`, `calendar_event_recurrence_set`,
-  `calendar_event_todo_link_set`, `calendar_routine_list`,
+  `calendar_routine_list`,
   `calendar_routine_add`, `calendar_routine_update`, and
   `calendar_routine_generate` provide the native model-facing calendar
   path. Event records retain exact `calendar_events` column names and tool-owned
@@ -897,11 +894,7 @@ controls which exact tool schemas are callable.
   remain an internal storage and interoperability detail. Search matches every
   supplied term across stored event titles, descriptions, and locations, with
   archived events available only when requested. Calendar routines generate
-  concrete events for bounded date ranges and never generate to-dos. Events and
-  to-dos have a many-to-many relationship with explicit work, deadline, or
-  context semantics. Their owning link tool atomically creates, changes, or
-  removes only the exact named pairs, so unlinking never requires replacing an
-  event's other relationships. A saved event can
+  concrete events for bounded date ranges and never generate to-dos. A saved event can
   create one standardized invitation email draft addressed to active contacts
   through the configured JMAP mail account. This action creates a draft only:
   it never sends the message, writes to a remote calendar, or changes the local
@@ -1407,10 +1400,10 @@ known participants by one exact contact tag, then either return correspondence
 items or bounded contact summaries with counts and first/latest occurrences.
 The same filters back the web Correspondence screen and the agent tool. The tag
 remains owned by the contact; filtering never copies or assigns it to provider
-correspondence. User organization also uses the existing object relationships,
-including user-managed to-do and calendar-event links exposed by the selection
-and network controls. These links organize local objects without modifying
-provider correspondence or the linked endpoint.
+correspondence. User organization also uses the existing object relationships
+exposed by the selection and network controls. These links organize local
+objects without modifying provider correspondence or the linked endpoint.
+Calendar events and personal to-dos deliberately have no direct relationship.
 Phone synchronization remains mobile-only.
 
 The web-only **Music** section follows Files in navigation, reads the same

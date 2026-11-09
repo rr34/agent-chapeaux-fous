@@ -6,7 +6,6 @@ import { objectRelationshipTypes } from "../src/object-relationships.mjs";
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(directory, "..");
 const baselineFilename = path.join(repositoryRoot, "db/mariadb/0001-baseline.sql");
-const migrationsFilename = path.join(repositoryRoot, "db/migrations.sql");
 
 const quoted = (value) => `'${value.replaceAll("'", "''")}'`;
 const fixed = (value) => () => quoted(value);
@@ -15,7 +14,6 @@ const column = (name) => (record) => `${record}.${name}`;
 const edgeSources = Object.freeze([
   { table: "calendar_event_contacts_join", deduplicated: true, type: (r) => `IF(${r}.participant_role = 'other', 'event-contact', 'event-contact-owned')`, left: column("calendar_event_id"), right: column("contact_id") },
   { table: "payment_invoice_line_receipts_join", deduplicated: true, type: fixed("invoice-file-receipt"), left: (r) => `(SELECT payment_invoice_id FROM payment_invoice_lines WHERE payment_invoice_line_id = ${r}.payment_invoice_line_id)`, right: column("file_id") },
-  { table: "calendar_events_todo_join", type: (r) => `IF(${r}.relationship_kind = 'context', 'todo-event', 'todo-event-owned')`, left: column("calendar_event_id"), right: column("personal_task_id") },
   { table: "todo_content_join", type: fixed("todo-content"), left: column("personal_task_id"), right: column("content_id") },
   { table: "physical_items_todo_join", type: (r) => `IF(${r}.relationship_kind = 'related', 'thing-todo', 'thing-todo-owned')`, left: column("physical_item_id"), right: column("personal_task_id") },
   { table: "physical_items_content_join", type: (r) => `IF(${r}.relationship_kind = 'related', 'thing-content', 'thing-content-owned')`, left: column("physical_item_id"), right: column("content_id") },
@@ -60,7 +58,7 @@ export const objectRelationshipEdgeEndpointTables = Object.freeze({
 
 const legacySourceTables = [
   "activity_event_files_join", "contacts_tags_join", "calendar_event_contacts_join",
-  "payment_invoice_line_receipts_join", "calendar_events_todo_join", "todo_content_join",
+  "payment_invoice_line_receipts_join", "todo_content_join",
   "physical_items_todo_join", "physical_items_content_join", "physical_items_files_join",
   "physical_items_contacts_join", "video_script_sources_join", "todo_correspondence_join",
   "calendar_events_correspondence_join", "correspondence_files_join",
@@ -186,20 +184,11 @@ export function writeBaselineObjectRelationshipEdgeTriggers(filename = baselineF
     `-- BEGIN GENERATED OBJECT RELATIONSHIP EDGE TRIGGERS\n${baselineObjectRelationshipEdgeTriggers()}\n/* END GENERATED OBJECT RELATIONSHIP EDGE TRIGGERS *///`));
 }
 
-export function writeMigrationObjectRelationshipEdgeTriggers(filename = migrationsFilename) {
-  const source = fs.readFileSync(filename, "utf8");
-  const pattern = /(-- migration 0067:[\s\S]*?CREATE OR REPLACE SQL SECURITY INVOKER VIEW object_relationship_edges AS[\s\S]*?SELECT relationship_type, left_id, right_id FROM object_relationship_edge_index;\n\n)[\s\S]*?(\n-- end migration 0067)/u;
-  if (!pattern.test(source)) throw new Error("Could not find migration 0067 compact trigger section");
-  fs.writeFileSync(filename, source.replace(pattern,
-    `$1${migrationObjectRelationshipEdgeTriggers()}\n$2`));
-}
-
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const mode = process.argv[2];
   if (mode === "baseline") process.stdout.write(`${baselineObjectRelationshipEdgeTriggers()}\n`);
   else if (mode === "migration") process.stdout.write(`${migrationObjectRelationshipEdgeTriggers()}\n`);
   else if (mode === "drop-migration") process.stdout.write(`${migrationDropObjectRelationshipEdgeTriggers()}\n`);
   else if (mode === "write-baseline") writeBaselineObjectRelationshipEdgeTriggers();
-  else if (mode === "write-migration") writeMigrationObjectRelationshipEdgeTriggers();
-  else throw new Error("Expected baseline, migration, drop-migration, write-baseline, or write-migration output mode");
+  else throw new Error("Expected baseline, migration, drop-migration, or write-baseline output mode");
 }

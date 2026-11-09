@@ -327,7 +327,7 @@ export function registerTodoTools(registry, store, ledger) {
 
   registry.register({
     name: "todo_add",
-    description: "Add one non-temporal native personal to-do to an exact group selected by stable ID. When related_contact_id is supplied, this same call atomically creates the to-do with its optional connection to that exact active contact; do not make a follow-up relationship call. New items default to the top of their group unless an explicit position is supplied. It may carry a fixed billable amount in minor currency units. To place work or a deadline on the calendar, create a calendar event and link it to the to-do. When the returned task has a non-null sequence, report that group-local sequence together with group_name in the completion response; personal_task_id is a different database identity.",
+    description: "Add one non-temporal native personal to-do to an exact group selected by stable ID. When related_contact_id is supplied, this same call atomically creates the to-do with its optional connection to that exact active contact; do not make a follow-up relationship call. New items default to the top of their group unless an explicit position is supplied. It may carry a fixed billable amount in minor currency units. Calendar events separately own schedules and deadlines. When the returned task has a non-null sequence, report that group-local sequence together with group_name in the completion response; personal_task_id is a different database identity.",
     outputSchema: { type: "object", properties: { task: todoTaskRecordSchema } },
     parameters: { type: "object", additionalProperties: false, properties: {
       text: {

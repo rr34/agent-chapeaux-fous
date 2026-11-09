@@ -14,21 +14,21 @@ const serverSource = fs.readFileSync(new URL("../src/server.mjs", import.meta.ur
 const organizerSource = fs.readFileSync(new URL("../src/organizer-store.mjs", import.meta.url), "utf8");
 const dateFormatSource = fs.readFileSync(new URL("../web/src/date-format.ts", import.meta.url), "utf8");
 
-test("calendar days select the detailed timeline and linked to-dos", () => {
+test("calendar days select the detailed event timeline", () => {
   assert.match(calendarSource, /onSelect\?: \(localDate: string\) => void/);
   assert.match(calendarSource, /onClick=\{\(\) => onSelect\(day\.localDate\)\}/);
   assert.match(calendarSource, /aria-pressed=\{isSelected\}/);
   assert.match(appSource, /events=\{selectedEvents\}/);
-  assert.match(appSource, /const weekTodos = linkedTodosForEvents\(printCalendarDays\.slice\(0, 7\)\.flatMap\(\(day\) => day\.events\)\)/);
+  assert.doesNotMatch(appSource, /linkedTodosForEvents|weekTodos/);
 });
 
-test("screen calendar nests scheduled to-dos beneath their linked events", () => {
+test("screen calendar expands event details without nesting to-dos", () => {
   assert.match(appSource, /<h2>Selected day’s plan<\/h2>/);
-  assert.match(appSource, /Events are expanded by default so notes, contacts, and linked to-dos are visible/);
+  assert.match(appSource, /Events are expanded by default so notes and contacts are visible/);
   assert.match(appSource, /<DayTimeline[^>]+defaultExpanded/);
   assert.match(calendarSource, /<CalendarEventItem[\s\S]*defaultExpanded=\{defaultExpanded\}/);
   assert.doesNotMatch(appSource, /<h2>Scheduled to-dos<\/h2>/);
-  assert.match(styles, /\.timeline-event-linked-todos \{[^}]*display: grid;[^}]*list-style: none;/s);
+  assert.doesNotMatch(styles, /timeline-event-linked-todos/);
 });
 
 test("calendar week arrows move only the displayed range and Today restores today", () => {
@@ -74,7 +74,7 @@ test("print preview follows the selected week while the selected-day UI remains"
   assert.match(appSource, /const printEndDate = shiftLocalDate\(weekStartDate, 13\)/);
   assert.match(appSource, /printCalendarDays: printCalendarDays\.length === 14/);
   assert.match(appSource, /todayEvents: selectedEvents/);
-  assert.match(appSource, /scheduledTodos: weekTodos/);
+  assert.doesNotMatch(appSource, /scheduledTodos|weekTodos/);
   assert.match(appSource, /<DailyPaper model=\{previewModel\} preview \/>/);
   assert.match(appSource, /Preview and edit the printed week/);
 });
@@ -104,12 +104,12 @@ test("printable calendar renders every event in crowded days", () => {
   assert.match(styles, /\.calendar-event-card\.paper-calendar-event-card > \.first-class-object-content > \.first-class-object-body \{[^}]*grid-column: 2;[^}]*overflow: visible;[^}]*white-space: pre-wrap;[^}]*-webkit-line-clamp: unset;/s);
 });
 
-test("the printed calendar contains only events and keeps to-dos below it", () => {
+test("the printed calendar contains only events and keeps pinned groups below it", () => {
   const paperLayout = calendarSource.slice(calendarSource.indexOf("export function DailyPaper"));
   assert.match(calendarSource, /days=\{model\.printCalendarDays\}/);
   assert.doesNotMatch(calendarSource, /calendar-chip-todos|showLinkedTodos/);
-  assert.ok(paperLayout.indexOf("model.printCalendarDays") < paperLayout.indexOf("PrintableScheduledTodos"));
-  assert.match(calendarSource, /<PrintableScheduledTodos todos=\{model\.scheduledTodos\} \/>/);
+  assert.ok(paperLayout.indexOf("model.printCalendarDays") < paperLayout.indexOf("PrintablePinnedTodoGroups"));
+  assert.doesNotMatch(calendarSource, /PrintableScheduledTodos|scheduledTodos/);
   assert.doesNotMatch(calendarSource, /PrintableWeatherTimeline|PrintableEventCards|paper-event-bracket|paper-event-connector/);
 });
 
@@ -129,20 +129,19 @@ test("the reusable calendar event card owns concise date and time edge labels", 
   assert.match(styles, /\.calendar-event-time--end \{[^}]*border-top:/s);
 });
 
-test("weekly paper replaces the daily plan with scheduled and pinned to-do lists", () => {
+test("weekly paper replaces the daily plan with pinned to-do groups", () => {
   const paperLayout = calendarSource.slice(calendarSource.indexOf("export function DailyPaper"));
   assert.doesNotMatch(calendarSource, /TodoWorksheet|Handwriting sheets follow|TODOS_PER_WORKSHEET/);
   assert.match(paperLayout, /paper-week-page/);
   assert.doesNotMatch(paperLayout, /paper-details-page|Today’s plan|Follow-through/);
-  assert.match(paperLayout, /<h2>To-do lists<\/h2>/);
-  assert.match(calendarSource, /<PrintableScheduledTodos todos=\{model\.scheduledTodos\} \/>/);
+  assert.match(paperLayout, /<h2>Pinned to-do groups<\/h2>/);
+  assert.doesNotMatch(calendarSource, /PrintableScheduledTodos|scheduledTodos/);
   assert.match(calendarSource, /<PrintablePinnedTodoGroups groups=\{model\.printableTodoGroups\} \/>/);
-  assert.ok(paperLayout.indexOf("PrintableScheduledTodos") < paperLayout.indexOf("PrintablePinnedTodoGroups"));
   assert.match(calendarSource, /className="paper-todo-empty-lines"/);
   assert.match(calendarSource, /className="paper-todo-group"/);
   assert.doesNotMatch(calendarSource, /paper-todo-cluster/);
   assert.match(organizerSource, /related_contact\.display_name AS related_contact_name/);
-  assert.match(organizerSource, /linkedTodos: links\.get\(eventId\(event\)\) \?\? \[\]/);
+  assert.doesNotMatch(organizerSource, /calendar_events_todo_join|linkedTodos: links\.get/);
   assert.doesNotMatch(calendarSource, /personal_task_id|todoPrintIdentifier|data-object-reference|paper-todo-id/);
   assert.match(calendarSource, /Blank writing area for \$\{todoTitle\(todo\)\}/);
   assert.match(calendarSource, /className="paper-handwriting-space"/);

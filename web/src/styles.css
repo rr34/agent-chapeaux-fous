@@ -117,7 +117,6 @@ a { color: inherit; }
 .compact-object-identity .compact-object-heading-meta { flex: none; color: var(--muted); font-size: 10px; font-weight: 500; letter-spacing: 0; text-transform: none; white-space: nowrap; }
 .compact-object-details { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; margin-top: 3px; }
 .compact-object-details .pill { padding: 2px 6px; font-size: 9px; }
-.calendar-event-todo-count { color: var(--muted); font-size: 10px; font-weight: 700; }
 .compact-object-controls, .compact-object-controls > .object-card-controls { display: flex; align-items: center; gap: 6px; }
 .compact-object-expand, .compact-object-collapse { width: 32px; height: 32px; min-width: 32px; display: inline-grid; place-items: center; padding: 0; border: 1px solid #b9c0b2; border-radius: 8px; color: var(--olive-dark); background: transparent; }
 .compact-object-expand:hover, .compact-object-collapse:hover { color: white; border-color: var(--olive-dark); background: var(--olive-dark); }
@@ -419,8 +418,6 @@ button.routine-item-content:focus-visible { outline: 3px solid rgba(104, 116, 90
 .timeline-list > li { min-width: 0; }
 .timeline-list strong { display: block; }
 .timeline-list p { color: var(--muted); margin: 5px 0 0; line-height: 1.45; }
-.timeline-event-linked-todos { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
-.timeline-linked-todo-relationship { padding: 2px 6px; border-radius: 999px; color: var(--muted) !important; background: var(--olive-soft); font-size: 9px !important; letter-spacing: .04em !important; }
 .event-place { display: block; color: var(--olive); font-size: 12px; margin-top: 2px; }
 .editable-object-content, .todo-item-content { width: 100%; min-width: 0; margin: -7px; padding: 7px; border: 0; border-radius: 8px; color: inherit; background: transparent; font: inherit; text-align: left; }
 button.editable-object-content, button.todo-item-content { cursor: pointer; }
@@ -790,7 +787,6 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-append-heading small { color: #72796d; font-size: 5.4pt; }
 .paper-today-trackers, .paper-pinned-todos { margin-top: .11in; padding-top: .075in; border-top: 1px solid #b8bdb2; }
 .paper-weekly-todos { flex: 1 1 auto; border-top: 1px solid #272c24; padding-top: .12in; page-break-inside: auto; break-inside: auto; }
-.paper-scheduled-todos { margin-top: .11in; }
 .paper-today-trackers { page-break-inside: avoid; break-inside: avoid-page; }
 .paper-details-masthead { min-height: .55in; display: flex; align-items: end; justify-content: space-between; gap: .3in; border-bottom: 2px solid #252b22; padding-bottom: .11in; margin-bottom: .14in; }
 .paper-details-masthead h1 { margin: .02in 0 0; font: 600 20pt/.95 "Newsreader", Georgia, serif; }

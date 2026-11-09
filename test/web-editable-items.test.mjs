@@ -30,9 +30,7 @@ test("one reusable to-do item keeps completion separate from click-to-edit", () 
   assert.match(items, /export function TodoItem/);
   assert.match(app, /<TodoItem[\s\S]*?todo=\{todo\}/);
   assert.match(dailyPaper, /<PrintableTodoCard todo=\{todo\}/);
-  assert.match(items, /className="timeline-event-linked-todos"/);
-  assert.match(items, /linkedTodos\.map\(\(todo\) => <TodoItem/);
-  assert.match(items, /variant="scheduled"/);
+  assert.doesNotMatch(items, /timeline-event-linked-todos|linkedTodos|variant="scheduled"/);
   assert.doesNotMatch(app, /<ScheduledTodos/);
   assert.ok(todoCard.includes('className={`todo-check${complete ? "" : " todo-check--mark-complete"}`}'));
   assert.match(items, /onToggleComplete=\{editable \? \(\) => void toggle\(\) : undefined\}/);
@@ -52,7 +50,8 @@ test("one reusable to-do item keeps completion separate from click-to-edit", () 
   assert.doesNotMatch(styles, /\.todo-row|\.todo-sequence/);
   assert.match(items, /version: current\.version/);
   assert.match(items, /status: current\.status === "complete" \? "todo" : "complete"/);
-  assert.match(items, /label: "Completed", value: formatDisplayDate\(completedAtUtc, \{ includeTime: false \}\)/);
+  assert.match(items, /label: "Completed", value: formatDisplayDate\(completedAtUtc\)/);
+  assert.match(items, /label: "Last changed", value: formatDisplayDate\(updatedAtUtc\)/);
   assert.match(items, /version: todo\.version/);
   assert.match(items, /export function TodoEditor/);
   assert.match(server, /request\.method === "GET" && todoMatch/);

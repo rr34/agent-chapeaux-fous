@@ -163,7 +163,6 @@ export const relationshipJoinTables = Object.freeze([
   "contacts_tags_join",
   "calendar_event_contacts_join",
   "payment_invoice_line_receipts_join",
-  "calendar_events_todo_join",
   "todo_content_join",
   "physical_items_todo_join",
   "physical_items_content_join",
@@ -385,6 +384,40 @@ async function assertVersion32Integrity(connection, databaseName) {
 export async function assertMigrationSpecificIntegrity(
   connection, migration, databaseName, schemaVersion = migration.version,
 ) {
+  if (migration.version === 68) {
+    const [columns] = await connection.query(`SELECT DATA_TYPE, COLUMN_TYPE
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'object_relationship_edge_index'
+        AND COLUMN_NAME = 'relationship_type'`, [databaseName]);
+    if (columns[0]?.DATA_TYPE !== "enum"
+        || JSON.stringify(enumValues(columns[0]?.COLUMN_TYPE))
+          !== JSON.stringify(requiredEnumColumns.object_relationship_edge_index.relationship_type)) {
+      throw new Error("Migration 0068 did not narrow the relationship type enum");
+    }
+    const [tables] = await connection.query(`SELECT TABLE_NAME FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'calendar_events_todo_join'`, [databaseName]);
+    if (tables.length !== 0) throw new Error("Migration 0068 left calendar-event/to-do links in place");
+    const [views] = await connection.query(`SELECT VIEW_DEFINITION FROM information_schema.VIEWS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'object_relationship_edges_source'`, [databaseName]);
+    if (views.length !== 1
+        || String(views[0]?.VIEW_DEFINITION ?? "").includes("calendar_events_todo_join")) {
+      throw new Error("Migration 0068 did not restore the relationship source without calendar-event/to-do links");
+    }
+    const [triggers] = await connection.query(`SELECT TRIGGER_NAME, ACTION_STATEMENT
+      FROM information_schema.TRIGGERS
+      WHERE TRIGGER_SCHEMA = ? AND TRIGGER_NAME IN (
+        'ore_calendar_events_todo_join_ai', 'ore_calendar_events_todo_join_au',
+        'ore_calendar_events_todo_join_ad', 'ore_cleanup_calendar_events_bd',
+        'ore_cleanup_todo_personal_bd'
+      )`, [databaseName]);
+    const triggerNames = new Set(triggers.map((row) => row.TRIGGER_NAME));
+    if (!triggerNames.has("ore_cleanup_calendar_events_bd")
+        || !triggerNames.has("ore_cleanup_todo_personal_bd")
+        || triggers.some((row) => row.TRIGGER_NAME.startsWith("ore_calendar_events_todo_join_")
+          || /todo-event|calendar_events_todo_join/u.test(String(row.ACTION_STATEMENT ?? "")))) {
+      throw new Error("Migration 0068 did not replace calendar-event/to-do trigger maintenance");
+    }
+  }
   if (migration.version === 66) {
     const [columns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE,
         CHARACTER_SET_NAME, COLLATION_NAME, IS_NULLABLE
@@ -430,9 +463,13 @@ export async function assertMigrationSpecificIntegrity(
       throw new Error("Migration 0067 did not establish the compact relationship index shape");
     }
     const relationshipType = columns.find((row) => row.COLUMN_NAME === "relationship_type");
+    const currentRelationshipTypes = requiredEnumColumns.object_relationship_edge_index.relationship_type;
+    const expectedRelationshipTypes = schemaVersion < 68
+      ? [...currentRelationshipTypes.slice(0, 3), "todo-event", "todo-event-owned", ...currentRelationshipTypes.slice(3)]
+      : currentRelationshipTypes;
     if (relationshipType?.DATA_TYPE !== "enum"
         || JSON.stringify(enumValues(relationshipType.COLUMN_TYPE))
-          !== JSON.stringify(requiredEnumColumns.object_relationship_edge_index.relationship_type)) {
+          !== JSON.stringify(expectedRelationshipTypes)) {
       throw new Error("Migration 0067 did not establish the reviewed relationship type enum");
     }
     const [indexes] = await connection.query(`SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX
@@ -463,7 +500,10 @@ export async function assertMigrationSpecificIntegrity(
     const [triggers] = await connection.query(`SELECT TRIGGER_NAME, EVENT_OBJECT_TABLE, EVENT_MANIPULATION
       FROM information_schema.TRIGGERS
       WHERE TRIGGER_SCHEMA = ? AND TRIGGER_NAME LIKE 'ore\\_%'`, [databaseName]);
-    for (const table of objectRelationshipEdgeSourceTables) {
+    const expectedSourceTables = schemaVersion < 68
+      ? [...objectRelationshipEdgeSourceTables, "calendar_events_todo_join"]
+      : objectRelationshipEdgeSourceTables;
+    for (const table of expectedSourceTables) {
       for (const [event, suffix] of [["INSERT", "ai"], ["UPDATE", "au"], ["DELETE", "ad"]]) {
         if (!triggers.some((row) => row.TRIGGER_NAME === `ore_${table}_${suffix}`
           && row.EVENT_OBJECT_TABLE === table && row.EVENT_MANIPULATION === event)) {
@@ -1287,7 +1327,7 @@ export async function assertMigrationSpecificIntegrity(
       throw new Error("Migration 0041 did not restore check catch_up_one_source");
     }
   }
-  if (migration.version === 40) {
+  if (migration.version === 40 && schemaVersion < 68) {
     const [tables] = await connection.query(`SELECT TABLE_NAME FROM information_schema.TABLES
       WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ('calendar_routines', 'calendar_events_todo_join', 'todo_routines')`, [databaseName]);
     const names = new Set(tables.map(row => row.TABLE_NAME));
@@ -1307,7 +1347,7 @@ export async function assertMigrationSpecificIntegrity(
       throw new Error("Migration 0040 left task-derived catch-up storage");
     }
   }
-  if (migration.version === 39) {
+  if (migration.version === 39 && schemaVersion < 68) {
     const [tables] = await connection.query(`SELECT TABLE_NAME FROM information_schema.TABLES
       WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ('calendar_routines', 'calendar_events_todo_join')`, [databaseName]);
     if (new Set(tables.map(row => row.TABLE_NAME)).size !== 2) {

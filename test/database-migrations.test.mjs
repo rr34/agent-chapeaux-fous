@@ -31,6 +31,39 @@ const block = (version, name = `migration-${version}`, sql = `SELECT ${version};
   return `-- migration ${label}: ${name}\n${sql}\n-- end migration ${label}\n`;
 };
 
+test("calendar-event/to-do link retirement requires the table and trigger surface to be gone", async () => {
+  const relationshipTypes = requiredEnumColumns.object_relationship_edge_index.relationship_type;
+  const enumColumn = [{ DATA_TYPE: "enum", COLUMN_TYPE: `enum(${relationshipTypes.map((value) => `'${value}'`).join(",")})` }];
+  const cleanupTriggers = [
+    { TRIGGER_NAME: "ore_cleanup_calendar_events_bd", ACTION_STATEMENT: "DELETE event relationships" },
+    { TRIGGER_NAME: "ore_cleanup_todo_personal_bd", ACTION_STATEMENT: "DELETE todo relationships" },
+  ];
+  const connection = ({ columns = enumColumn, tables = [], views = [{ VIEW_DEFINITION: "SELECT relationship_type, left_id, right_id FROM canonical_edges" }], triggers = cleanupTriggers } = {}) => ({ async query(sql) {
+    if (sql.includes("information_schema.COLUMNS")) return [columns];
+    if (sql.includes("information_schema.TABLES")) return [tables];
+    if (sql.includes("information_schema.VIEWS")) return [views];
+    if (sql.includes("information_schema.TRIGGERS")) return [triggers];
+    throw new Error(`Unexpected SQL: ${sql}`);
+  } });
+  await assertMigrationSpecificIntegrity(connection(), { version: 68 }, "test_database");
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ columns: [] }), { version: 68 }, "test_database"),
+    /did not narrow.*enum/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ tables: [{ TABLE_NAME: "calendar_events_todo_join" }] }), { version: 68 }, "test_database"),
+    /links in place/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ views: [] }), { version: 68 }, "test_database"),
+    /did not restore the relationship source/u,
+  );
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection({ triggers: cleanupTriggers.slice(0, 1) }), { version: 68 }, "test_database"),
+    /did not replace.*trigger maintenance/u,
+  );
+});
+
 test("JSON-shaped storage integrity requires text columns and no MariaDB JSON validation", async () => {
   const columns = [
     ["correspondence", "email_keywords_json", "YES"],
@@ -154,19 +187,37 @@ test("compact relationship integrity requires three columns, both lookup keys, b
     if (sql.includes("object_relationship_edges_source source_edge")) return [[parity]];
     throw new Error(`Unexpected SQL: ${sql}`);
   } });
-  await assertMigrationSpecificIntegrity(connection(), { version: 67 }, "test_database");
+  await assertMigrationSpecificIntegrity(connection(), { version: 67 }, "test_database", 68);
+  const legacyTypes = [
+    ...requiredEnumColumns.object_relationship_edge_index.relationship_type.slice(0, 3),
+    "todo-event", "todo-event-owned",
+    ...requiredEnumColumns.object_relationship_edge_index.relationship_type.slice(3),
+  ];
+  const legacyColumns = columns.map((column) => column.COLUMN_NAME === "relationship_type"
+    ? { ...column, COLUMN_TYPE: `enum(${legacyTypes.map((value) => `'${value}'`).join(",")})` }
+    : column);
+  const legacyTriggers = triggers.concat(
+    [["INSERT", "ai"], ["UPDATE", "au"], ["DELETE", "ad"]].map(([EVENT_MANIPULATION, suffix]) => ({
+      TRIGGER_NAME: `ore_calendar_events_todo_join_${suffix}`,
+      EVENT_OBJECT_TABLE: "calendar_events_todo_join",
+      EVENT_MANIPULATION,
+    })),
+  );
+  await assertMigrationSpecificIntegrity(connection({
+    selectedColumns: legacyColumns, selectedTriggers: legacyTriggers,
+  }), { version: 67 }, "test_database", 67);
   await assert.rejects(
-    assertMigrationSpecificIntegrity(connection({ selectedColumns: columns.slice(0, 2) }), { version: 67 }, "test_database"),
+    assertMigrationSpecificIntegrity(connection({ selectedColumns: columns.slice(0, 2) }), { version: 67 }, "test_database", 68),
     /compact relationship index shape/u,
   );
   await assert.rejects(
     assertMigrationSpecificIntegrity(connection({ selectedViews: [views[0], {
       ...views[1], VIEW_DEFINITION: "select * from correspondence_participants_join",
-    }] }), { version: 67 }, "test_database"),
+    }] }), { version: 67 }, "test_database", 68),
     /must exclude correspondence_participants_join/u,
   );
   await assert.rejects(
-    assertMigrationSpecificIntegrity(connection({ parity: { indexed_count: 9, source_count: 10, has_mismatch: 1 } }), { version: 67 }, "test_database"),
+    assertMigrationSpecificIntegrity(connection({ parity: { indexed_count: 9, source_count: 10, has_mismatch: 1 } }), { version: 67 }, "test_database", 68),
     /does not match its canonical source/u,
   );
 });
@@ -942,11 +993,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67]);
-  for (let current = 29; current <= 67; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68]);
+  for (let current = 29; current <= 68; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 67 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 68 - current }, (_, index) => current + index + 1),
     );
   }
 });

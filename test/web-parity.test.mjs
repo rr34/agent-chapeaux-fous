@@ -31,13 +31,13 @@ test("React calendar exposes archived search, contact roles, invitations, and pe
   assert.match(editors, /Delete permanently/);
 });
 
-test("React to-dos expose complete group, contact, sequence, and calendar management", () => {
+test("React to-dos expose complete group, contact, and sequence management", () => {
   assert.match(app, /resource="todo-groups"/);
   assert.match(app, /\/api\/todo-groups\/reorder/);
   assert.match(app, /\/sequence`/);
   assert.match(app, /assign-next-sequence/);
   assert.match(app, /relatedContactId/);
-  assert.match(app, /\/calendar-links/);
+  assert.doesNotMatch(app, /\/calendar-links/);
   assert.match(editors, /Related contact/);
 });
 
@@ -51,7 +51,7 @@ test("React contacts expose bulk actions, tag rename, and duplicate merges", () 
 test("React Library and Files expose their retained lifecycle operations", () => {
   assert.match(app, /resource="content-groups"/);
   assert.match(app, /\/api\/content-groups\/reorder/);
-  assert.match(app, /method: "DELETE"/);
+  assert.match(editors, /method: "DELETE"/);
   assert.match(app, /Open content/);
   assert.match(app, /FileMetadataEditor/);
   assert.doesNotMatch(app, /Attach stored/);

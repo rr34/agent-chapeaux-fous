@@ -16,6 +16,134 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0068: remove-calendar-event-todo-links
+-- writer downtime: required. The matching application no longer reads or
+-- writes calendar-event/to-do links, and this migration permanently deletes
+-- every existing link by dropping its authoritative join table.
+-- locking: dropping the source view, relationship table, and triggers and
+-- narrowing the relationship ENUM take metadata locks. The compact edge index
+-- delete touches only the two retired relationship kinds.
+-- recovery: MariaDB DDL commits implicitly. Keep writers stopped after any
+-- failure and replay this complete block. The removed link rows are not
+-- recoverable from this migration; restore the pre-migration database backup
+-- if they are unexpectedly needed.
+
+DROP VIEW IF EXISTS object_relationship_edges_source;
+
+DROP TRIGGER IF EXISTS ore_calendar_events_todo_join_ai;
+DROP TRIGGER IF EXISTS ore_calendar_events_todo_join_au;
+DROP TRIGGER IF EXISTS ore_calendar_events_todo_join_ad;
+DROP TRIGGER IF EXISTS ore_cleanup_calendar_events_bd;
+DROP TRIGGER IF EXISTS ore_cleanup_todo_personal_bd;
+
+DELETE FROM object_relationship_edge_index
+WHERE relationship_type IN ('todo-event', 'todo-event-owned');
+
+ALTER TABLE object_relationship_edge_index
+  MODIFY COLUMN relationship_type ENUM('event-contact', 'event-contact-owned', 'invoice-file-receipt', 'todo-content', 'thing-todo', 'thing-todo-owned', 'thing-content', 'thing-content-owned', 'thing-file', 'thing-file-owned', 'thing-contact', 'thing-contact-owned', 'todo-correspondence', 'event-correspondence', 'correspondence-file', 'todo-group', 'physical-item-group', 'todo-contact', 'invoice-payer', 'invoice-line', 'journal-group', 'tracker-entry', 'routine-event', 'content-group', 'content-file', 'script-content') NOT NULL COMMENT 'Reviewed relationship kind whose contract fixes the ordered first-class endpoint types.';
+
+DROP TABLE IF EXISTS calendar_events_todo_join;
+
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW object_relationship_edges_source AS
+WITH canonical_edges AS (
+  SELECT IF(link.participant_role = 'other', 'event-contact', 'event-contact-owned') AS relationship_type,
+         link.calendar_event_id AS left_id, link.contact_id AS right_id
+  FROM calendar_event_contacts_join AS link
+
+  UNION ALL
+  SELECT 'invoice-file-receipt', line.payment_invoice_id, receipt.file_id
+  FROM payment_invoice_line_receipts_join AS receipt
+  JOIN payment_invoice_lines AS line USING (payment_invoice_line_id)
+
+  UNION ALL
+  SELECT 'todo-content', link.personal_task_id, link.content_id FROM todo_content_join AS link
+
+  UNION ALL
+  SELECT IF(link.relationship_kind = 'related', 'thing-todo', 'thing-todo-owned'),
+         link.physical_item_id, link.personal_task_id FROM physical_items_todo_join AS link
+
+  UNION ALL
+  SELECT IF(link.relationship_kind = 'related', 'thing-content', 'thing-content-owned'),
+         link.physical_item_id, link.content_id FROM physical_items_content_join AS link
+
+  UNION ALL
+  SELECT IF(link.file_role = 'attachment', 'thing-file', 'thing-file-owned'),
+         link.physical_item_id, link.file_id FROM physical_items_files_join AS link
+
+  UNION ALL
+  SELECT IF(link.relationship_kind = 'related', 'thing-contact', 'thing-contact-owned'),
+         link.physical_item_id, link.contact_id FROM physical_items_contacts_join AS link
+
+  UNION ALL
+  SELECT 'todo-correspondence', link.personal_task_id, link.correspondence_id FROM todo_correspondence_join AS link
+
+  UNION ALL
+  SELECT 'event-correspondence', link.calendar_event_id, link.correspondence_id FROM calendar_events_correspondence_join AS link
+
+  UNION ALL
+  SELECT 'correspondence-file', link.correspondence_id, link.file_id FROM correspondence_files_join AS link
+
+  UNION ALL
+  SELECT 'todo-group', task.todo_group_id, task.personal_task_id FROM todo_personal AS task
+
+  UNION ALL
+  SELECT 'todo-contact', task.personal_task_id, task.related_contact_id
+  FROM todo_personal AS task WHERE task.related_contact_id IS NOT NULL
+
+  UNION ALL
+  SELECT 'physical-item-group', item.physical_item_group_id, item.physical_item_id FROM physical_items AS item
+
+  UNION ALL
+  SELECT 'invoice-payer', invoice.payment_invoice_id, invoice.payer_contact_id
+  FROM payment_invoices AS invoice WHERE invoice.payer_contact_id IS NOT NULL
+
+  UNION ALL
+  SELECT 'invoice-line', line.payment_invoice_id, line.personal_task_id
+  FROM payment_invoice_lines AS line WHERE line.personal_task_id IS NOT NULL
+
+  UNION ALL
+  SELECT 'journal-group', tracker.journal_group_id, tracker.tracker_id FROM journal2_trackers AS tracker
+
+  UNION ALL
+  SELECT 'tracker-entry', entry.tracker_id, entry.journal_entry_id FROM journal3_entries AS entry
+
+  UNION ALL
+  SELECT 'routine-event', event.calendar_routine_id, event.calendar_event_id
+  FROM calendar_events AS event WHERE event.calendar_routine_id IS NOT NULL
+
+  UNION ALL
+  SELECT 'content-group', content.content_group_id, content.content_id FROM content_items AS content
+
+  UNION ALL
+  SELECT 'content-file', content.content_id, content.primary_file_id
+  FROM content_items AS content WHERE content.primary_file_id IS NOT NULL
+
+  UNION ALL
+  SELECT 'script-content', job.video_script_id, job.content_id
+  FROM video_jobs AS job WHERE job.video_script_id IS NOT NULL AND job.content_id IS NOT NULL
+)
+SELECT DISTINCT relationship_type, left_id, right_id
+FROM canonical_edges
+WHERE left_id IS NOT NULL AND right_id IS NOT NULL;
+
+DROP TRIGGER IF EXISTS ore_cleanup_calendar_events_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_calendar_events_bd BEFORE DELETE ON calendar_events FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN (''event-contact'', ''event-contact-owned'', ''event-correspondence'') AND left_id = OLD.calendar_event_id) OR (relationship_type IN (''routine-event'') AND right_id = OLD.calendar_event_id);
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+DROP TRIGGER IF EXISTS ore_cleanup_todo_personal_bd;
+SET @object_relationship_edge_trigger_sql = 'CREATE TRIGGER ore_cleanup_todo_personal_bd BEFORE DELETE ON todo_personal FOR EACH ROW BEGIN
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN (''todo-content'', ''todo-correspondence'', ''todo-contact'') AND left_id = OLD.personal_task_id) OR (relationship_type IN (''thing-todo'', ''thing-todo-owned'', ''todo-group'', ''invoice-line'') AND right_id = OLD.personal_task_id);
+END';
+PREPARE object_relationship_edge_trigger_statement FROM @object_relationship_edge_trigger_sql;
+EXECUTE object_relationship_edge_trigger_statement;
+DEALLOCATE PREPARE object_relationship_edge_trigger_statement;
+
+-- end migration 0068
+
 -- migration 0067: compact-first-class-object-adjacency
 -- writer downtime: required while the obsolete wide projection, its views,
 -- and maintenance triggers are replaced. Authoritative domain relationships

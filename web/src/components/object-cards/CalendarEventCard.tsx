@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { formatDisplayTime } from "../../date-format";
 import { SimpleObjectCard } from "./SimpleObjectCard";
 import type { CalendarEvent } from "../../types";
@@ -65,16 +64,11 @@ export function calendarEventCardObject(event: CalendarEvent): ObjectCardProps["
 export function CalendarEventCard(props: ObjectCardProps & {
   event?: CalendarEvent;
   timeZone?: string;
-  linkedTodoDetails?: ReactNode;
 }) {
   const { event } = props;
   const timing = event ? calendarEventTiming(event, props.timeZone) : null;
-  const linkedTodos = event?.linkedTodos || [];
   const linkedContacts = event?.linkedContacts || [];
-  const todoCountLabel = linkedTodos.length
-    ? `${linkedTodos.length} linked ${linkedTodos.length === 1 ? "to-do" : "to-dos"}`
-    : null;
-  const eventDetails = event && (linkedContacts.length || linkedTodos.length)
+  const eventDetails = event && linkedContacts.length
     ? <div className="calendar-event-expanded-details">
       {linkedContacts.length > 0 && <section>
         <h4>Contacts</h4>
@@ -83,20 +77,7 @@ export function CalendarEventCard(props: ObjectCardProps & {
           {contact.participantRole && <span>{contact.participantRole.replaceAll("_", " ")}</span>}
         </li>)}</ul>
       </section>}
-      {linkedTodos.length > 0 && <section>
-        <h4>{todoCountLabel}</h4>
-        {props.linkedTodoDetails || <ul>{linkedTodos.map((todo) => <li className={todo.status === "complete" ? "is-complete" : ""} key={todo.todoId}>
-          <span aria-hidden="true">{todo.status === "complete" ? "☑" : "☐"}</span>
-          <strong>{todo.text || todo.title || "Task"}</strong>
-          {todo.relationshipKind && <span>{todo.relationshipKind.replaceAll("_", " ")}</span>}
-        </li>)}</ul>}
-      </section>}
     </div>
-    : null;
-  const compactDetails = todoCountLabel
-    ? <>
-      {todoCountLabel && <span className="calendar-event-todo-count">{todoCountLabel}</span>}
-    </>
     : null;
   const details = eventDetails || props.details ? <>{eventDetails}{props.details}</> : undefined;
   return <SimpleObjectCard
@@ -109,7 +90,6 @@ export function CalendarEventCard(props: ObjectCardProps & {
     bottomEdge={timing?.end ? <time className="calendar-event-time calendar-event-time--end" dateTime={event!.endsAtUtc!}>
       <strong>{timing.end}</strong><span>End</span>
     </time> : props.bottomEdge}
-    compactDetails={compactDetails}
     details={details}
     detailsInContent
     stackEdges

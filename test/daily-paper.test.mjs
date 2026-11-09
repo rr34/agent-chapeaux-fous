@@ -6,19 +6,6 @@ import test from "node:test";
 import { DailyPaperService, mondayOnOrBefore, normalizeInput } from "../src/daily-paper.mjs";
 
 function events() {
-  const openTodo = {
-    todoId: 17,
-    title: "Bring the annotated draft",
-    description: null,
-    status: "todo",
-    relationshipKind: "work",
-    groupId: 4,
-    groupName: "Writing",
-    groupSortPosition: 2,
-    sequence: 12,
-    sortPosition: 3,
-    relatedContact: { contactId: 8, displayName: "Jane Smith" },
-  };
   return [
     {
       id: 1,
@@ -30,7 +17,6 @@ function events() {
       timeZone: "America/New_York",
       isAllDay: false,
       status: "confirmed",
-      linkedTodos: [openTodo, { todoId: 18, title: "Finished already", status: "complete" }],
       linkedContacts: [{ contactId: 8, displayName: "Jane Smith", participantRole: "attendee" }],
     },
     {
@@ -41,7 +27,6 @@ function events() {
       timeZone: "America/New_York",
       isAllDay: false,
       status: "confirmed",
-      linkedTodos: [{ ...openTodo, relationshipKind: "deadline" }],
     },
     {
       id: 3,
@@ -51,7 +36,6 @@ function events() {
       timeZone: "America/New_York",
       isAllDay: false,
       status: "confirmed",
-      linkedTodos: [],
     },
   ];
 }
@@ -100,33 +84,6 @@ test("weekly paper keeps the screen range and builds the selected Monday-to-Sund
   assert.deepEqual(model.todayEvents.map(({ id }) => id), [1, 2]);
   assert.deepEqual(model.todayEvents[0].linkedContacts, [{
     contactId: 8, displayName: "Jane Smith", participantRole: "attendee",
-  }]);
-  assert.deepEqual(model.scheduledTodos, [{
-    todoId: 17,
-    title: "Bring the annotated draft",
-    description: null,
-    status: "todo",
-    relationshipKind: "work",
-    groupId: 4,
-    groupName: "Writing",
-    groupSortPosition: 2,
-    sequence: 12,
-    sortPosition: 3,
-    relatedContact: { contactId: 8, displayName: "Jane Smith" },
-    eventTitles: ["Planning breakfast", "Review the draft"],
-    eventLinks: [{
-      eventId: 1,
-      title: "Planning breakfast",
-      startsAtUtc: "2026-10-04T13:00:00.000Z",
-      isAllDay: false,
-      relationshipKind: "work",
-    }, {
-      eventId: 2,
-      title: "Review the draft",
-      startsAtUtc: "2026-10-04T18:00:00.000Z",
-      isAllDay: false,
-      relationshipKind: "deadline",
-    }],
   }]);
   assert.deepEqual(model.printableTodoGroups, []);
   assert.deepEqual(trackerRequest, { localDate: "2026-10-04", timeZone: "America/New_York" });
@@ -196,11 +153,10 @@ test("daily paper includes pinned groups, their open tasks, and empty group cont
   assert.deepEqual(model.printableTodoGroups.map(({ name, dailyPaperPinned, todos }) => ({
     name, dailyPaperPinned, todoIds: todos.map(({ todoId }) => todoId),
   })), [
-    { name: "Writing", dailyPaperPinned: true, todoIds: [] },
+    { name: "Writing", dailyPaperPinned: true, todoIds: [17] },
     { name: "Shopping", dailyPaperPinned: true, todoIds: [19] },
     { name: "Packing", dailyPaperPinned: true, todoIds: [] },
   ]);
-  assert.equal(model.todayEvents[0].linkedTodos[0].todoId, 17);
 });
 
 test("daily paper validates physical-page inputs", () => {
@@ -220,7 +176,6 @@ test("daily paper keeps date-only birthdays on one calendar day across time zone
       timeZone: "UTC",
       isAllDay: true,
       status: "active",
-      linkedTodos: [],
     }] },
     ledger: {},
     mediaRoot: "/tmp/unused-daily-paper",

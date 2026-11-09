@@ -26,15 +26,10 @@ organizer, attendee, or customer roles only when the request supports them.
 The tool can also remove exact contact-role associations in the same atomic batch. It does not send
 an invitation or change any to-do. Calendar reads return linked contacts.
 
-Calendar events are the sole owner of all scheduled times and deadlines. Link
-or unlink exact to-do/event pairs with `calendar_event_todo_link_set`, using
-`work`, `deadline`, or `context` to preserve the relationship's meaning and
-`linked=true` or `linked=false` to state the requested edge change. Unlink only
-the named pairs; never reconstruct or replace an event's complete relationship
-set merely to remove a subset. Submit every intended pair in one atomic batch.
-A work link on a routine-generated event moves that to-do's other work link in
-the same routine to the selected occurrence. Deadline and context links remain
-fixed. Never copy an event time into a to-do field; those fields do not exist.
+Calendar events are the sole owner of all scheduled times and deadlines.
+Personal to-dos remain separate non-temporal objects and have no direct
+relationship to calendar events. Never copy an event time into a to-do field;
+those fields do not exist.
 
 Use `calendar_routine_add`, `calendar_routine_list`, and
 `calendar_routine_update` for reusable routines and habits. A calendar routine
@@ -49,8 +44,6 @@ Each materialized event is independently editable: move or otherwise change its
 returned `calendar_event_id` with `calendar_event_update` and `scope="event"`.
 Its `calendar_routine_id` and `routine_occurrence_key` retain its relationship
 to the routine, but the edit does not rewrite the routine or sibling events.
-After generating the full range, it moves incomplete work links from older
-occurrences to the earliest current or upcoming occurrence in the same routine.
 It never creates to-dos, and task completion never advances a routine.
 
 Do not confuse a calendar routine with an RRULE recurring calendar-event master.

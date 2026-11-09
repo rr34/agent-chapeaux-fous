@@ -21,6 +21,7 @@ test("React routines generate bounded event ranges into the regular calendar", (
   assert.match(routines, /"Next week"/);
   assert.match(app, /setCalendarGenerationNotice\(message\); go\("calendar"\)/);
   assert.match(routines, /events were.*already present/);
+  assert.doesNotMatch(routines, /movedTodoCount|unfinished.*to-do/i);
 });
 
 test("React routines expose a creation dialog from the page heading", () => {

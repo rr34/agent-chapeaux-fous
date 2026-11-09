@@ -202,7 +202,7 @@ export const nativeFirstClassObjectTypes = Object.freeze([
     reference: field("ref", "Stable Agent Slayer calendar-event reference."),
     display: field("title", "Human-facing calendar-event title."),
     qualifiers: [field("starts_at_utc", "Stored UTC start instant."), field("status", "Current calendar-event status.")],
-    relationships: [relationship("todos", "todos.personal_task", "Personal to-dos linked to this event."), relationship("contacts", "contacts.contact", "Contacts linked to this event.")],
+    relationships: [relationship("contacts", "contacts.contact", "Contacts linked to this event.")],
     idFields: ["calendar_event_id", "calendarEventId"], displayFields: ["title", "summary", "name"],
     refFields: ["ref"], refPrefix: "agent-slayer://calendar-events/",
     inputFields: ["calendar_event_id"], searchFields: ["title", "description", "location_text"],

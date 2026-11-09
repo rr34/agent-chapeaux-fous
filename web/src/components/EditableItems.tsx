@@ -1073,20 +1073,10 @@ export function CalendarEventItem({ event, timeZone, defaultExpanded = false, on
   const eventId = Number(event.seriesId ?? event.id);
   const generatedReadOnly = Boolean(event.readOnly && !event.seriesId);
   const editable = Boolean(onChanged && Number.isSafeInteger(eventId) && eventId > 0 && !generatedReadOnly);
-  const linkedTodos = (event.linkedTodos || []).filter(({ status }) => status !== "complete");
-  const linkedTodoDetails = linkedTodos.length > 0 ? <ul className="timeline-event-linked-todos" aria-label={`To-dos linked to ${event.title}`}>
-    {linkedTodos.map((todo) => <TodoItem
-      todo={todo}
-      variant="scheduled"
-      onChanged={onChanged}
-      key={todo.todoId}
-    />)}
-  </ul> : undefined;
   return <li>
     <CalendarEventCard
-      event={{ ...event, linkedTodos }}
+      event={event}
       timeZone={timeZone}
-      linkedTodoDetails={linkedTodoDetails}
       mode="compact"
       defaultExpanded={defaultExpanded}
       object={calendarEventCardObject(event)}
@@ -1263,12 +1253,10 @@ export function TodoEditor({ todoId: id, suppliedGroups, initialGroupId, onClose
 }
 
 export function TodoItem({
-  todo, groups, eventTitles, variant = "row", cardControls, onChanged,
+  todo, groups, cardControls, onChanged,
 }: {
   todo: Entity | LinkedTodo;
   groups?: Entity[];
-  eventTitles?: string[];
-  variant?: "row" | "scheduled";
   cardControls?: ReactNode;
   onChanged?: Changed;
 }) {
@@ -1284,6 +1272,9 @@ export function TodoItem({
   );
   const complete = status === "complete";
   const completedAtUtc = complete && typeof todo.completedAtUtc === "string" ? todo.completedAtUtc : null;
+  const updatedAtUtc = "updatedAtUtc" in todo && typeof todo.updatedAtUtc === "string"
+    ? todo.updatedAtUtc
+    : null;
   const editable = Boolean(onChanged && Number.isSafeInteger(id) && id > 0);
   const sequence = todo.sequence != null ? String(todo.sequence) : null;
 
@@ -1302,16 +1293,16 @@ export function TodoItem({
   };
 
   const card = <TodoCard
-    as={variant === "scheduled" ? "li" : "article"}
-    mode={variant === "scheduled" ? "compact" : "full"}
+    as="article"
+    mode="full"
     object={{
       id, type: "todos.personal_task", label: "To-do", display: text,
       attributes: [
         { label: "Status", value: status },
         ...(sequence ? [{ label: "Sequence", value: `#${sequence}` }] : []),
-        ...(completedAtUtc ? [{ label: "Completed", value: formatDisplayDate(completedAtUtc, { includeTime: false }) }] : []),
+        ...(completedAtUtc ? [{ label: "Completed", value: formatDisplayDate(completedAtUtc) }] : []),
+        ...(updatedAtUtc ? [{ label: "Last changed", value: formatDisplayDate(updatedAtUtc) }] : []),
         ...(billable ? [{ label: "Billable", value: billable }] : []),
-        ...(eventTitles?.length ? [{ label: "For", value: eventTitles.join(", ") }] : []),
       ],
     }}
     leading={!editable ? <span className={`paper-checkbox ${complete ? "is-complete" : ""}`} aria-hidden="true">{complete ? "✓" : ""}</span> : undefined}
@@ -1319,9 +1310,6 @@ export function TodoItem({
     onEdit={editable ? () => setEditing(true) : undefined}
     busy={updating}
     controls={<><ObjectSelectionControls identity={todoIdentity(todo)} subject={`task ${text}`} />{cardControls}</>}
-    compactDetails={variant === "scheduled" && todo.relationshipKind
-      ? <span className="timeline-linked-todo-relationship">{String(todo.relationshipKind).replaceAll("_", " ")}</span>
-      : undefined}
     details={error ? <p className="inline-error todo-item-error" role="alert">{error}</p> : undefined}
   />;
   return <>

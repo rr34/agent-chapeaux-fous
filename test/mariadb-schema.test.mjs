@@ -12,7 +12,6 @@ import { readMigrationLedger, splitMariaDbStatements } from "../scripts/database
 import { relationshipEdgeViewColumns, relationshipJoinTables } from "../scripts/migrate-database.mjs";
 import {
   baselineObjectRelationshipEdgeTriggers,
-  migrationObjectRelationshipEdgeTriggers,
   objectRelationshipEdgeSourceTables,
 } from "../scripts/object-relationship-edge-triggers.mjs";
 import { requiredDatabaseSchemaVersion, requiredEnumColumns } from "../src/database.mjs";
@@ -74,19 +73,19 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 67", () => {
+test("the authoritative MariaDB baseline is complete at schema version 68", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
-  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 49);
+  assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 48);
   assert.equal(statements.filter((statement) => /^CREATE (?:SQL SECURITY INVOKER )?VIEW\b/iu.test(statement)).length, 9);
-  assert.equal(statements.filter((statement) => /\bCREATE TRIGGER\b/iu.test(statement)).length, 83);
-  assert.equal(source.match(/\bENUM\(/gu)?.length, 37);
+  assert.equal(statements.filter((statement) => /\bCREATE TRIGGER\b/iu.test(statement)).length, 80);
+  assert.equal(source.match(/\bENUM\(/gu)?.length, 36);
   assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 66);
-  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 94);
+  assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 93);
   assert.doesNotMatch(source, /\b(?:[A-Za-z_][A-Za-z0-9_]*_at_utc|ask_after|resolved_at|routine_occurrence_key)\s+VARCHAR\(/u);
   assert.equal(
     Object.values(requiredEnumColumns).reduce((count, fields) => count + Object.keys(fields).length, 0),
-    37,
+    36,
   );
   for (const [tableName, fields] of Object.entries(requiredEnumColumns)) {
     const table = statements.find((statement) => statement.startsWith(`CREATE TABLE ${tableName} `));
@@ -212,9 +211,9 @@ test("the authoritative MariaDB baseline is complete at schema version 67", () =
     assert.doesNotMatch(todoTable, new RegExp(`\\b${retired}\\b`, "u"));
   }
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
-  assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
+  assert.ok(!statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 67, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 68, 'Chapeaux Fous MariaDB database'\)$/);
   assert.equal(
     requiredDatabaseSchemaVersion,
     readMigrationLedger(path.join(root, "db", "migrations.sql")).at(-1).version,
@@ -237,10 +236,17 @@ test("migration 66 removes MariaDB JSON verification while preserving text limit
 
 test("relationship edge trigger DDL stays synchronized with its canonical generator", () => {
   const baseline = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
-  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
-    .find(({ version }) => version === 67);
   assert.ok(baseline.includes(baselineObjectRelationshipEdgeTriggers(baseline)));
-  assert.ok(migration.sql.includes(migrationObjectRelationshipEdgeTriggers(baseline)));
+});
+
+test("migration 68 deletes and retires calendar-event/to-do links", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 68);
+  assert.equal(migration.label, "0068:remove-calendar-event-todo-links");
+  assert.match(migration.sql, /writer downtime: required/u);
+  assert.match(migration.sql, /DELETE FROM object_relationship_edge_index[\s\S]*'todo-event'[\s\S]*'todo-event-owned'/u);
+  assert.match(migration.sql, /DROP TABLE IF EXISTS calendar_events_todo_join/u);
+  assert.doesNotMatch(migration.sql.slice(migration.sql.indexOf("CREATE OR REPLACE SQL SECURITY INVOKER VIEW object_relationship_edges_source")), /calendar_events_todo_join|todo-event/u);
 });
 
 test("the physical Things migration adds constrained tables and expands the bidirectional edge view", () => {

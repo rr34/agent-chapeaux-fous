@@ -27,9 +27,7 @@ const fileIdentity = {
   ref: "agent-slayer://files/31",
 };
 
-function fixture({ relationshipKind = null } = {}) {
-  let kind = relationshipKind;
-  const calls = [];
+function fixture() {
   const database = { prepare(sql) {
     return {
       get(...parameters) {
@@ -50,9 +48,6 @@ function fixture({ relationshipKind = null } = {}) {
           ends_at_utc: null, time_zone: "America/New_York", is_all_day: 0,
           status: "confirmed", recurrence_rule: null,
         };
-        if (/SELECT relationship_kind FROM calendar_events_todo_join/u.test(sql)) {
-          return kind ? { relationship_kind: kind } : undefined;
-        }
         throw new Error(`Unexpected get: ${sql} ${parameters}`);
       },
       all() {
@@ -68,88 +63,34 @@ function fixture({ relationshipKind = null } = {}) {
         }];
         if (/FROM object_relationship_edges/u.test(sql)) return [
           { relationship_type: "todo-group", related_id: "3", is_reverse: 1 },
-          ...(kind ? [{
-            relationship_type: kind === "context" ? "todo-event" : "todo-event-owned",
-            related_id: "9", is_reverse: 1,
-          }] : []),
         ];
         throw new Error(`Unexpected all: ${sql}`);
       },
     };
   } };
-  const organizer = {
-    placeTodoCalendarLinks(input) {
-      calls.push(input);
-      kind = input.placements[0].relationshipKind;
-    },
-    removeTodoCalendarLink() { kind = null; },
-  };
   return {
-    calls,
     service: new ObjectNetworkService({
       database,
-      organizer,
+      organizer: {},
       registry: { execute() { throw new Error("unexpected tool call"); } },
     }),
   };
 }
 
 test("the object network keeps exact bindings and presents real connected object cards without edge prose", () => {
-  const { service } = fixture({ relationshipKind: "context" });
+  const { service } = fixture();
   const graph = service.graph(todoIdentity);
   assert.equal(graph.focus.display, "Call the electrician");
   assert.deepEqual(graph.connections.map(({ object, removable }) => ({
     ref: object.ref, display: object.display, removable,
   })), [{
-    ref: "agent-slayer://calendar-events/9", display: "Kitchen walk-through", removable: true,
-  }, {
     ref: "agent-slayer://todo-groups/3", display: "Construction", removable: false,
   }]);
   assert.deepEqual(graph.connectableTypes,
-    ["contacts.contact", "calendar.event", "video.content_item", "things.physical_item", "correspondence.item"]);
-  assert.equal("relationshipLabel" in graph.connections[1], false);
+    ["contacts.contact", "video.content_item", "things.physical_item", "correspondence.item"]);
+  assert.equal("relationshipLabel" in graph.connections[0], false);
   assert.throws(() => service.graph({ ...todoIdentity, ref: "agent-slayer://todos/8" }),
     /does not match its owning source/u);
-});
-
-test("the object network batch-hydrates every connected object type", () => {
-  let eventReads = 0;
-  const database = { prepare(sql) {
-    return {
-      get() {
-        if (/FROM todo_personal WHERE personal_task_id =/u.test(sql)) return {
-          personal_task_id: 7, text: "Call the electrician", status: "todo", sequence: null,
-          billable_amount_minor: null, billable_currency: null,
-        };
-        throw new Error(`Unexpected get: ${sql}`);
-      },
-      all() {
-        if (/FROM object_relationship_edges/u.test(sql)) return [9, 10, 11].map((id) => ({
-          relationship_type: "todo-event", related_id: String(id), is_reverse: 1,
-        }));
-        if (/FROM calendar_events WHERE calendar_event_id IN \(\?, \?, \?\)/u.test(sql)) {
-          eventReads += 1;
-          return [9, 10, 11].map((calendar_event_id) => ({
-            calendar_event_id, title: `Event ${calendar_event_id}`, description: null,
-            location_text: null, starts_at_utc: "2026-11-07T12:00:00.000Z",
-            ends_at_utc: null, time_zone: "America/New_York", is_all_day: 0,
-            status: "confirmed", recurrence_rule: null,
-          }));
-        }
-        throw new Error(`Unexpected all: ${sql}`);
-      },
-    };
-  } };
-  const graph = new ObjectNetworkService({ database, organizer: {}, registry: {} }).graph(todoIdentity);
-  assert.equal(eventReads, 1);
-  assert.deepEqual(graph.connections.map(({ object }) => object.id), [9, 10, 11]);
-});
-
-test("a one-click task/event connection uses the calendar domain's context relationship", async () => {
-  const { service, calls } = fixture();
-  const graph = await service.setConnection({ from: todoIdentity, to: eventIdentity, linked: true });
-  assert.deepEqual(calls, [{ placements: [{ todoId: 7, eventId: 9, relationshipKind: "context" }] }]);
-  assert.equal(graph.connections.find(({ object }) => object.ref === eventIdentity.ref)?.removable, true);
 });
 
 test("a one-click correspondence/event connection uses the correspondence domain relationship", async () => {
@@ -196,38 +137,9 @@ test("a one-click correspondence/event connection uses the correspondence domain
     name: "correspondence_calendar_event_link_set",
     input: { links: [{ correspondence_id: 15, calendar_event_id: 9, linked: true }] },
   }]);
-  assert.deepEqual(graph.connectableTypes, ["contacts.contact", "todos.personal_task", "correspondence.item"]);
+  assert.deepEqual(graph.connectableTypes, ["contacts.contact", "correspondence.item"]);
   assert.equal(graph.connections[0].object.ref, correspondenceIdentity.ref);
   assert.equal(graph.connections[0].removable, true);
-});
-
-test("a batch-shaped connection receipt reports changed and already-satisfied edges", async () => {
-  const { service } = fixture();
-  const first = await service.setConnections([{
-    from: { ...todoIdentity, display: "Call the electrician" },
-    to: { ...eventIdentity, display: "Kitchen walk-through" },
-    linked: true,
-  }]);
-  assert.equal(first.selected_count, 1);
-  assert.equal(first.changed_count, 1);
-  assert.equal(first.results[0].to.ref, eventIdentity.ref);
-  assert.equal(first.results[0].to.display, "Kitchen walk-through");
-
-  const replay = await service.setConnections([{
-    from: { ...todoIdentity, display: "Call the electrician" },
-    to: { ...eventIdentity, display: "Kitchen walk-through" },
-    linked: true,
-  }]);
-  assert.equal(replay.changed_count, 0);
-  assert.equal(replay.unchanged_count, 1);
-});
-
-test("the simple network control cannot remove specialized calendar meaning", async () => {
-  const { service } = fixture({ relationshipKind: "work" });
-  await assert.rejects(
-    service.setConnection({ from: todoIdentity, to: eventIdentity, linked: false }),
-    /Open the calendar event to change a work or deadline relationship/u,
-  );
 });
 
 test("the simple network control preserves specialized physical-item meanings", async () => {

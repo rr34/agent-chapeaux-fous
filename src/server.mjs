@@ -933,7 +933,6 @@ const server = http.createServer(async (request, response) => {
         rangeDate: url.searchParams.get("rangeDate"),
         timeZone: url.searchParams.get("timeZone"),
         paperSize: url.searchParams.get("paperSize"),
-        includeCompletedTodos: url.searchParams.get("includeCompletedTodos") === "true",
       }));
       return;
     }
@@ -949,7 +948,7 @@ const server = http.createServer(async (request, response) => {
         timeZone: generated.model.timeZone,
         paperSize: generated.model.paperSize,
         eventCount: generated.model.printCalendarDays.reduce((count, day) => count + day.events.length, 0),
-        todoCount: generated.model.scheduledTodos.length + generated.model.printableTodoGroups.reduce(
+        todoCount: generated.model.printableTodoGroups.reduce(
           (count, group) => count + group.todos.length, 0,
         ),
         trackerCount: generated.model.scheduledTrackers.length,
@@ -1090,13 +1089,6 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 201, { event: organizer.createCalendar(await readJson(request)) });
       return;
     }
-    const calendarTodoLinksMatch = /^\/api\/calendar-events\/(\d+)\/todo-links$/.exec(url.pathname);
-    if (request.method === "PUT" && calendarTodoLinksMatch) {
-      sendJson(response, 200, {
-        event: organizer.setCalendarEventTodoLinks(calendarTodoLinksMatch[1], await readJson(request)),
-      });
-      return;
-    }
     const calendarContactLinkMatch = /^\/api\/calendar-events\/(\d+)\/contact-links$/.exec(url.pathname);
     if (request.method === "PATCH" && calendarContactLinkMatch) {
       sendJson(response, 200, organizer.changeCalendarEventContactLink(
@@ -1146,31 +1138,6 @@ const server = http.createServer(async (request, response) => {
           query: url.searchParams.get("q"),
         }),
       });
-      return;
-    }
-    const todoCalendarLinksMatch = /^\/api\/todos\/(\d+)\/calendar-links$/.exec(url.pathname);
-    if (request.method === "GET" && todoCalendarLinksMatch) {
-      sendJson(response, 200, organizer.getTodoCalendarLinks(todoCalendarLinksMatch[1], {
-        after: url.searchParams.get("after") || undefined,
-        limit: url.searchParams.get("limit") || 500,
-      }));
-      return;
-    }
-    if (request.method === "POST" && todoCalendarLinksMatch) {
-      const body = await readJson(request);
-      sendJson(response, 200, organizer.placeTodoCalendarLinks({ placements: [{
-        todoId: Number(todoCalendarLinksMatch[1]),
-        eventId: body.eventId,
-        relationshipKind: body.relationshipKind,
-      }] }, { actorType: "user", actorName: "todos_page" }));
-      return;
-    }
-    const todoCalendarLinkMatch = /^\/api\/todos\/(\d+)\/calendar-links\/(\d+)$/.exec(url.pathname);
-    if (request.method === "DELETE" && todoCalendarLinkMatch) {
-      sendJson(response, 200, organizer.removeTodoCalendarLink(
-        todoCalendarLinkMatch[1], todoCalendarLinkMatch[2],
-        { actorType: "user", actorName: "todos_page" },
-      ));
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/calendar-routines/preview") {

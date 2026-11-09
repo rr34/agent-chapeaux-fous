@@ -46,9 +46,7 @@ test("owning tool contracts explain inputs and results without a database or sch
     definitions.calendar_routine_update.metadata["agent-slayer/selection"].actionClasses.includes("DELETE"),
     true,
   );
-  assert.match(definitions.calendar_event_todo_link_set.description, /linked=false removes it/);
-  assert.equal(definitions.calendar_event_todo_link_set.annotations.idempotentHint, true);
-  assert.match(definitions.calendar_routine_generate.description, /earliest current or upcoming event/);
+  assert.equal(Object.hasOwn(definitions, "calendar_event_todo_link_set"), false);
   assert.ok(definitions.contact_search.outputSchema.properties.matches.items.properties.display_name.description);
   assert.match(
     definitions.contact_search.outputSchema.properties.matches.items.properties

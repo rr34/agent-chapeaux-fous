@@ -105,7 +105,7 @@ test("calendar event cards keep notes and event details behind the shared expans
   const compact = fs.readFileSync(path.join(cardsRoot, "CompactObjectCard.tsx"), "utf8");
   const styles = fs.readFileSync(path.join(root, "web/src/styles.css"), "utf8");
   assert.match(compact, /compactDetails && <div className="compact-object-details">/);
-  assert.match(calendar, /linked.*to-do/);
+  assert.doesNotMatch(calendar, /linked.*to-do/i);
   assert.match(calendar, /<h4>Contacts<\/h4>/);
   assert.match(calendar, /event\?: CalendarEvent/);
   assert.match(calendar, /calendarEventTiming\(event, props\.timeZone\)/);

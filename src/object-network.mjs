@@ -52,8 +52,8 @@ const objectReaderSql = Object.freeze({
 
 const connectableTypes = Object.freeze({
   "contacts.contact": ["todos.personal_task", "calendar.event", "things.physical_item"],
-  "todos.personal_task": ["contacts.contact", "calendar.event", "video.content_item", "things.physical_item", "correspondence.item"],
-  "calendar.event": ["contacts.contact", "todos.personal_task", "correspondence.item"],
+  "todos.personal_task": ["contacts.contact", "video.content_item", "things.physical_item", "correspondence.item"],
+  "calendar.event": ["contacts.contact", "correspondence.item"],
   "video.content_item": ["todos.personal_task", "things.physical_item"],
   "files.file": ["things.physical_item"],
   "things.physical_item": ["contacts.contact", "todos.personal_task", "video.content_item", "files.file"],
@@ -444,22 +444,6 @@ export class ObjectNetworkService {
         version: current.version,
         relatedContactId: linked ? contact.id : null,
       });
-    } else if (selected.key === "calendar.event|todos.personal_task") {
-      const event = selected.left.type === "calendar.event" ? selected.left : selected.right;
-      const todo = selected.left.type === "todos.personal_task" ? selected.left : selected.right;
-      const existing = this.database.prepare(`SELECT relationship_kind FROM calendar_events_todo_join
-        WHERE calendar_event_id = ? AND personal_task_id = ?`).get(event.id, todo.id);
-      if (linked && !existing) {
-        this.organizer.placeTodoCalendarLinks({ placements: [{
-          todoId: todo.id, eventId: event.id, relationshipKind: "context",
-        }] }, context);
-      } else if (!linked) {
-        if (!existing) throw new OrganizerInputError("That exact calendar connection does not exist.", 404);
-        if (existing.relationship_kind !== "context") {
-          throw new OrganizerInputError("Open the calendar event to change a work or deadline relationship.", 409);
-        }
-        this.organizer.removeTodoCalendarLink(todo.id, event.id, context);
-      }
     } else if (selected.key === "contacts.contact|calendar.event") {
       const contact = selected.left.type === "contacts.contact" ? selected.left : selected.right;
       const event = selected.left.type === "calendar.event" ? selected.left : selected.right;

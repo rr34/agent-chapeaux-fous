@@ -43,7 +43,7 @@ import {
   type AiPricingBook, type AiUsageCostInput,
 } from "./ai-usage";
 import type {
-  DailyPaperModel, DailyPaperTodoGroup, Entity, LinkedTodo, RequestRecord,
+  DailyPaperModel, Entity, RequestRecord,
   PersistedObjectCandidate, SelectedObjectCandidate, StoredFileBinding,
 } from "./types";
 import hatOutlineUrl from "./assets/logo-outline-hat.svg";
@@ -520,45 +520,6 @@ function shiftLocalDate(value: string, days: number) {
 
 function calendarMonthAnchor(year: string | number, month: string | number) {
   return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-01`;
-}
-
-function linkedTodosForEvents(events: DailyPaperModel["todayEvents"]) {
-  const todos = new Map<number, DailyPaperModel["scheduledTodos"][number]>();
-  for (const calendarEvent of events) {
-    for (const todo of calendarEvent.linkedTodos || []) {
-      if (todo.status === "complete") continue;
-      const todoId = Number(todo.todoId);
-      const existing = todos.get(todoId) || { ...todo, todoId, eventTitles: [], eventLinks: [] };
-      const eventTitles = existing.eventTitles?.includes(calendarEvent.title)
-        ? existing.eventTitles
-        : [...(existing.eventTitles || []), calendarEvent.title];
-      const eventLinks = existing.eventLinks?.some(({ eventId }) => String(eventId) === String(calendarEvent.id))
-        ? existing.eventLinks
-        : [...(existing.eventLinks || []), {
-            eventId: calendarEvent.id,
-            ...(calendarEvent.seriesId != null ? { seriesId: calendarEvent.seriesId } : {}),
-            title: calendarEvent.title,
-            startsAtUtc: calendarEvent.startsAtUtc,
-            isAllDay: calendarEvent.isAllDay,
-            relationshipKind: todo.relationshipKind || null,
-          }];
-      todos.set(todoId, { ...existing, eventTitles, eventLinks });
-    }
-  }
-  return [...todos.values()];
-}
-
-function printableTodoGroupsForPreview(
-  groups: DailyPaperTodoGroup[], scheduledTodos: LinkedTodo[],
-) {
-  const scheduledTodoIds = new Set(scheduledTodos.map(({ todoId }) => Number(todoId)));
-  return groups
-    .filter(({ dailyPaperPinned }) => dailyPaperPinned)
-    .map((group) => ({
-      ...group,
-      todos: group.todos.filter(({ todoId }) => !scheduledTodoIds.has(Number(todoId))),
-    }))
-    .sort((left, right) => left.sortPosition - right.sortPosition || left.name.localeCompare(right.name));
 }
 
 function mondayOnOrBeforeForPreview(localDate: string) {
@@ -1505,7 +1466,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
     const currentYear = Number(date.slice(0, 4));
     return Array.from({ length: 201 }, (_, index) => currentYear - 100 + index);
   }, [date]);
-  const requestParameters = new URLSearchParams({ date: selectedDate, rangeDate: displayDate, timeZone, paperSize: "letter", includeCompletedTodos: "false" });
+  const requestParameters = new URLSearchParams({ date: selectedDate, rangeDate: displayDate, timeZone, paperSize: "letter" });
   const { data, error, loading, reload } = useApi<DailyPaperModel>(`/api/daily-paper?${requestParameters}`);
   const calendarSearchUrl = serverQuery
     ? `/api/calendar-events/search?q=${encodeURIComponent(serverQuery)}&limit=200&includeArchived=${includeArchivedSearch}`
@@ -1529,7 +1490,6 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
     const printCalendarDays = data.calendarDays.filter((day) => (
       day.localDate >= weekStartDate && day.localDate <= printEndDate
     ));
-    const weekTodos = linkedTodosForEvents(printCalendarDays.slice(0, 7).flatMap((day) => day.events));
     return {
       ...data,
       date: selectedDate,
@@ -1541,8 +1501,6 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
         isToday: day.localDate === selectedDate,
       })),
       todayEvents: selectedEvents,
-      scheduledTodos: weekTodos,
-      printableTodoGroups: printableTodoGroupsForPreview(data.printableTodoGroups, weekTodos),
       weather: data.date === selectedDate ? data.weather : null,
     };
   }, [data, selectedDate, selectedEvents]);
@@ -1562,7 +1520,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
     setGenerationError(null);
     setGenerating(true);
     try {
-      const result = await api<{ file: StoredFileBinding }>("/api/daily-paper/pdf", { method: "POST", body: JSON.stringify({ date: selectedDate, timeZone, paperSize: "letter", includeCompletedTodos: false }) });
+      const result = await api<{ file: StoredFileBinding }>("/api/daily-paper/pdf", { method: "POST", body: JSON.stringify({ date: selectedDate, timeZone, paperSize: "letter" }) });
       await downloadAuthenticated(result.file.downloadUrl, result.file.originalFilename || `cf-weekly-planner-${mondayOnOrBeforeForPreview(selectedDate)}.pdf`);
     } catch (caught) { setGenerationError(caught); }
     finally { setGenerating(false); }
@@ -1601,7 +1559,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
         <CalendarGrid id="calendar-grid" days={data.calendarDays} selectedDate={selectedDate} onSelect={setSelectedDate} searchQuery={filterQuery} />
         <button className="calendar-range-arrow" type="button" aria-label="Next week" aria-controls="calendar-grid" title="Next week" onClick={() => setDisplayDate((current) => shiftLocalDate(current, 7))}>▼</button>
       </section>
-      <section className="surface calendar-day-plan"><p className="eyebrow">{formatLocalDate(selectedDate)}</p><h2>Selected day’s plan</h2><p className="calendar-day-plan-intro">Events are expanded by default so notes, contacts, and linked to-dos are visible.</p><DayTimeline events={selectedEvents} timeZone={data.timeZone} defaultExpanded onChanged={reload} /></section>
+      <section className="surface calendar-day-plan"><p className="eyebrow">{formatLocalDate(selectedDate)}</p><h2>Selected day’s plan</h2><p className="calendar-day-plan-intro">Events are expanded by default so notes and contacts are visible.</p><DayTimeline events={selectedEvents} timeZone={data.timeZone} defaultExpanded onChanged={reload} /></section>
       <details className="paper-preview surface">
         <summary>Preview and edit the printed week</summary>
         <p className="paper-preview-hint">The preview is an editable print copy. Changes here are temporary; use Print browser view to print them.</p>
@@ -1610,42 +1568,6 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
     </div>}
     {addingEvent && <CalendarEventEditor initialDate={selectedDate} onClose={() => setAddingEvent(false)} onChanged={reload} />}
   </>;
-}
-
-function TodoCalendarEditor({ todo, onClose, onChanged }: { todo: Entity; onClose: () => void; onChanged: () => void | Promise<void> }) {
-  const todoId = Number(todo.id);
-  const { data, error, loading, reload } = useApi<{ links: Entity[]; events: Entity[] }>(`/api/todos/${todoId}/calendar-links?limit=500`);
-  const [eventId, setEventId] = useState("");
-  const [relationshipKind, setRelationshipKind] = useState("work");
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState("");
-  useEffect(() => { if (!eventId && data?.events?.[0]) setEventId(String(data.events[0].eventId)); }, [data?.events, eventId]);
-  const add = async () => {
-    if (!eventId) return;
-    setBusy(true); setStatus("");
-    try {
-      await api(`/api/todos/${todoId}/calendar-links`, { method: "POST", body: JSON.stringify({ eventId: Number(eventId), relationshipKind }) });
-      await Promise.all([reload(), onChanged()]);
-      setStatus("Calendar link added.");
-    } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
-    finally { setBusy(false); }
-  };
-  const remove = async (linkedEventId: number) => {
-    setBusy(true); setStatus("");
-    try {
-      await api(`/api/todos/${todoId}/calendar-links/${linkedEventId}`, { method: "DELETE" });
-      await Promise.all([reload(), onChanged()]);
-      setStatus("Calendar link removed.");
-    } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
-    finally { setBusy(false); }
-  };
-  return <div className="object-editor-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="object-editor" role="dialog" aria-modal="true" aria-label="To-do calendar links">
-    <header className="object-editor-heading"><div><p className="eyebrow">To do</p><h2>Calendar: {textKey(todo, "text")}</h2></div><button className="button button--quiet" onClick={onClose}>Close</button></header>
-    {loading && <Loading />}{Boolean(error) && <ErrorState error={error} retry={reload} />}
-    <div className="object-editor-related">{(data?.links || []).map((link) => <div className="object-editor-related-row" key={String(link.eventId)}><span><strong>{String(link.title)}</strong> · {formatDisplayDate(String(link.startsAtUtc))} · {String(link.relationshipKind)}</span><button className="button button--quiet" disabled={busy} onClick={() => void remove(Number(link.eventId))}>Remove</button></div>)}</div>
-    <div className="object-editor-related-add"><label>Event<select value={eventId} onChange={(event) => setEventId(event.target.value)}>{(data?.events || []).map((calendarEvent) => <option value={String(calendarEvent.eventId)} key={String(calendarEvent.eventId)}>{String(calendarEvent.title)} · {formatDisplayDate(String(calendarEvent.startsAtUtc))}</option>)}</select></label><label>Relationship<select value={relationshipKind} onChange={(event) => setRelationshipKind(event.target.value)}><option value="work">Work</option><option value="deadline">Deadline</option><option value="context">Context</option></select></label><button className="button" disabled={busy || !eventId} onClick={() => void add()}>Link event</button></div>
-    {status && <p role="status" className="account-tool-refresh-status">{status}</p>}
-  </section></div>;
 }
 
 function TodoScreen() {
@@ -1663,7 +1585,6 @@ function TodoScreen() {
   const [addingTodo, setAddingTodo] = useState(false);
   const [addingGroup, setAddingGroup] = useState(false);
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
-  const [calendarTodo, setCalendarTodo] = useState<Entity | null>(null);
   const [reorderingTodoId, setReorderingTodoId] = useState<number | null>(null);
   const [reorderError, setReorderError] = useState("");
   const [generatingPdf, setGeneratingPdf] = useState(false);
@@ -1840,7 +1761,7 @@ function TodoScreen() {
           todo={todo}
           groups={groupData?.groups || []}
           onChanged={reload}
-          cardControls={group.groupId != null ? <><button className="object-card-icon-button" type="button" title="Calendar links" aria-label={`Manage calendar links for ${textKey(todo, "text")}`} onClick={() => setCalendarTodo(todo)}>Calendar</button>{group.usesSequence && <button className="object-card-icon-button" type="button" onClick={() => void assignNextSequence(todo)}>Next #</button>}<TodoPriorityControls
+          cardControls={group.groupId != null ? <>{group.usesSequence && <button className="object-card-icon-button" type="button" onClick={() => void assignNextSequence(todo)}>Next #</button>}<TodoPriorityControls
             todoId={Number(todo.id)}
             todoText={textKey(todo, "text", "title") || "Task"}
             todoIndex={todoIndex}
@@ -1859,7 +1780,6 @@ function TodoScreen() {
       onChanged={reload}
     />}
     {addingGroup && <NewGroupEditor resource="todo-groups" label="To-do" onClose={() => setAddingGroup(false)} onChanged={reloadGroups} />}
-    {calendarTodo && <TodoCalendarEditor todo={calendarTodo} onClose={() => setCalendarTodo(null)} onChanged={reload} />}
     {editingGroup && <GroupEditor
       group={editingGroup}
       onClose={() => setEditingGroup(null)}
@@ -3373,7 +3293,7 @@ function DailyPaperRoute() {
   const timeZone = parameters.get("timeZone") || Intl.DateTimeFormat().resolvedOptions().timeZone;
   const query = parameters.get("snapshot")
     ? new URLSearchParams({ snapshot: parameters.get("snapshot")! })
-    : new URLSearchParams({ date: parameters.get("date") || localToday(timeZone), timeZone, paperSize: parameters.get("paperSize") || "letter", includeCompletedTodos: parameters.get("includeCompletedTodos") || "false" });
+    : new URLSearchParams({ date: parameters.get("date") || localToday(timeZone), timeZone, paperSize: parameters.get("paperSize") || "letter" });
   const { data, error, loading } = useApi<DailyPaperModel>(`/api/daily-paper?${query}`);
   useEffect(() => { if (!data) return; void document.fonts.ready.then(() => { window.__DAILY_PAPER_READY__ = true; }); }, [data]);
   if (loading) return <Loading label="Laying out weekly paper" />;

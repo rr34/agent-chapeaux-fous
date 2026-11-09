@@ -2,8 +2,6 @@ export const objectRelationshipTypes = Object.freeze([
   ["event-contact", "calendar.event", "contacts.contact", true],
   ["event-contact-owned", "calendar.event", "contacts.contact", false],
   ["invoice-file-receipt", "payments.invoice", "files.file", false],
-  ["todo-event", "calendar.event", "todos.personal_task", true],
-  ["todo-event-owned", "calendar.event", "todos.personal_task", false],
   ["todo-content", "todos.personal_task", "video.content_item", true],
   ["thing-todo", "things.physical_item", "todos.personal_task", true],
   ["thing-todo-owned", "things.physical_item", "todos.personal_task", false],

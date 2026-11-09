@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { objectDescriptionMetadataKey } from "../src/object-description.mjs";
 import {
-  objectInputBindingProblem, objectInputBindingsMetadataKey,
+  objectInputBindingsMetadataKey,
 } from "../src/object-input-bindings.mjs";
 import {
   nativeFirstClassObjectTypes, normalizeNativeIdentityScalars,
@@ -79,10 +79,7 @@ test("native resources compile lifecycle routing and reject silent completeness 
   assert.doesNotThrow(() => assertNativeCapabilityRegistrations(definitions));
 
   const byName = new Map(definitions.map((definition) => [definition.name, definition]));
-  assert.deepEqual(
-    byName.get("calendar_event_todo_link_set").metadata["agent-slayer/selection"].actionClasses,
-    ["CREATE", "UPDATE", "DELETE"],
-  );
+  assert.equal(byName.has("calendar_event_todo_link_set"), false);
   assert.deepEqual(
     byName.get("profile_fact_set").metadata["agent-slayer/selection"].actionClasses,
     ["CREATE", "UPDATE"],
@@ -269,10 +266,6 @@ test("native ID consumers publish bindings for singleton and batch inputs", () =
     { path: "/links/*/calendar_event_id", objectType: "calendar.event", value: "id", role: "subject" },
     { path: "/links/*/contact_id", objectType: "contacts.contact", value: "id", role: "subject" },
   ]);
-  assert.deepEqual(bindings("calendar_event_todo_link_set"), [
-    { path: "/links/*/calendar_event_id", objectType: "calendar.event", value: "id", role: "subject" },
-    { path: "/links/*/personal_task_id", objectType: "todos.personal_task", value: "id", role: "subject" },
-  ]);
   assert.deepEqual(bindings("payment_invoice_payment_status_set"), [{
     path: "/updates/*/invoice_id", objectType: "payments.invoice", value: "id", role: "subject",
   }]);
@@ -339,46 +332,6 @@ test("native ID consumers publish bindings for singleton and batch inputs", () =
     { path: "/updates/*/content_id", objectType: "video.content_item", value: "id", role: "subject" },
     { path: "/updates/*/groupId", objectType: "video.content_group", value: "id", role: "subject" },
   ]);
-});
-
-test("calendar to-do unlink arguments carry the complete selected edge targets", () => {
-  const definition = nativeRegistry().toolDefinitions()
-    .find(({ name }) => name === "calendar_event_todo_link_set");
-  const selectedTodos = [{
-    mention: "selected to-dos", type: "todos.personal_task", source: "native:todos",
-    objects: [
-      { id: 109, ref: "agent-slayer://todos/109", display: "Bar lights" },
-      { id: 427, ref: "agent-slayer://todos/427", display: "Garage door" },
-    ],
-    sourceEventSeqs: [44_202],
-  }];
-  const observedEvent = [{
-    mention: "tomorrow's work window", type: "calendar.event", source: "native:calendar",
-    objects: [{
-      id: 3214, ref: "agent-slayer://calendar-events/3214", display: "Regular Work Window",
-    }],
-    sourceEventSeqs: [44_231],
-  }];
-  const links = selectedTodos[0].objects.map(({ id }) => ({
-    calendar_event_id: 3214,
-    personal_task_id: id,
-    relationship_kind: "work",
-    linked: false,
-  }));
-  assert.equal(objectInputBindingProblem({
-    toolDefinition: definition,
-    argumentsObject: { links },
-    selectedGroups: selectedTodos,
-    observedGroups: observedEvent,
-    completeGroups: selectedTodos,
-  }), null);
-  assert.match(objectInputBindingProblem({
-    toolDefinition: definition,
-    argumentsObject: { links: links.slice(0, 1) },
-    selectedGroups: selectedTodos,
-    observedGroups: observedEvent,
-    completeGroups: selectedTodos,
-  }), /must include the complete explicit.*Garage door/u);
 });
 
 test("native results bind only complete identity and preserve the correct parent display", () => {

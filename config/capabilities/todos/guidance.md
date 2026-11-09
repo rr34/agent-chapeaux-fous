@@ -80,16 +80,7 @@ call containing every intended pair to add or remove those associations atomical
 and one content item may link to many to-dos. Linking never moves, completes,
 edits, or deletes either parent record.
 
-When a task needs scheduled work, a deadline, or calendar context, use the
-calendar tools to create or identify a concrete event and then use
-`calendar_event_todo_link_set`. One event may link multiple to-dos and one to-do
-may link multiple events. Select relationship kind `work`, `deadline`, or
-`context` according to the user's meaning. Set `linked=true` to add or update
-the named pairs and `linked=false` to remove only those exact pairs; never
-replace the event's other links to remove a subset. Placing work on a generated
-routine event moves the task's other work link in that same routine; deadline
-and context links remain fixed.
-
 Routines and habits are temporal definitions and belong to the calendar
-capability. They generate calendar events only; completing a to-do never
+capability. They generate calendar events only. Calendar events and personal
+to-dos deliberately have no direct relationship; completing a to-do never
 generates another task.

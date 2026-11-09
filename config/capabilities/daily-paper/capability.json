@@ -4,7 +4,7 @@
   "version": 1,
   "id": "daily-paper",
   "title": "Printable weekly paper",
-  "summary": "Generate a durable printable PDF with an event-only selected week and following week, then current-week event-linked to-do cards, pinned groups, and writable calendar space.",
+  "summary": "Generate a durable printable PDF with an event-only selected week and following week, pinned to-do groups, and writable calendar space.",
   "aliases": [
     "weekly paper",
     "weekly planner",

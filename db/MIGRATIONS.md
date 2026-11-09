@@ -11,6 +11,19 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 68: Remove calendar-event/to-do links
+
+Deletes the two derived object-network edge kinds, drops the authoritative
+`calendar_events_todo_join` table and its maintenance triggers, narrows the
+relationship-type enum, and rebuilds the canonical relationship source without
+that relationship. Calendar events, personal to-dos, calendar routines, and
+every other relationship remain intact.
+
+Apply with writers stopped and a verified backup. Existing calendar-event/to-do
+link rows are intentionally deleted and can be recovered only from that backup.
+MariaDB DDL commits implicitly; after a partial failure keep writers stopped,
+replay the complete idempotent block, and run `npm run db:verify` before restart.
+
 ## Version 67: Compact first-class object adjacency
 
 Replaces the wide, bidirectionally duplicated relationship projection with one

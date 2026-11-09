@@ -71,7 +71,7 @@ test("resource declarations exhaustively classify first-class objects and physic
     relationshipTables,
   }));
   assert.equal(nativeFirstClassObjectTypes.length, 24);
-  assert.equal(relationshipTables.length, 16);
+  assert.equal(relationshipTables.length, 15);
 });
 
 test("capability package validation rejects schema, identity, and filesystem drift", async context => {

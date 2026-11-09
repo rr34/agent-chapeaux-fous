@@ -1,6 +1,6 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 
-export const requiredDatabaseSchemaVersion = 67;
+export const requiredDatabaseSchemaVersion = 68;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -100,7 +100,6 @@ export const requiredDatabaseShape = {
     "first_ends_at_utc", "time_zone", "is_all_day", "recurrence_rule", "disabled_at_utc",
     "source_event_id", "created_at_utc", "updated_at_utc",
   ],
-  calendar_events_todo_join: ["calendar_event_id", "personal_task_id", "relationship_kind", "created_at_utc"],
   calendar_event_exclusions: ["calendar_event_id", "excluded_starts_at_utc"],
   todo_groups: [
     "todo_group_id", "name", "sort_position", "uses_sequence",
@@ -158,7 +157,7 @@ export const requiredEnumColumns = {
   object_relationship_edge_index: {
     relationship_type: [
       "event-contact", "event-contact-owned", "invoice-file-receipt",
-      "todo-event", "todo-event-owned", "todo-content",
+      "todo-content",
       "thing-todo", "thing-todo-owned", "thing-content", "thing-content-owned",
       "thing-file", "thing-file-owned", "thing-contact", "thing-contact-owned",
       "todo-correspondence", "event-correspondence", "correspondence-file",
@@ -183,7 +182,6 @@ export const requiredEnumColumns = {
   contact_methods: { method_kind: ["email", "phone", "postal_address", "handle", "url", "other"] },
   calendar_events: { status: ["tentative", "confirmed", "cancelled"] },
   calendar_event_contacts_join: { participant_role: ["organizer", "attendee", "customer", "other"] },
-  calendar_events_todo_join: { relationship_kind: ["work", "deadline", "context"] },
   todo_personal: { status: ["todo", "complete", "ignore", "archive", "ai_suggested"] },
   payment_provider_accounts: {
     provider: ["stripe"],

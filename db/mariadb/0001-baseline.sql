@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 67.
+-- Target: MariaDB 10.11, schema version 68.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -523,7 +523,7 @@ CREATE TABLE todo_personal (
       (billable_amount_minor IS NULL AND billable_currency IS NULL)
       OR (billable_amount_minor > 0 AND billable_currency REGEXP '^[A-Z]{3}$')
     )
-) ENGINE=InnoDB COMMENT='Stores actionable and historical records in the user’s authoritative personal To-Do List. To-dos have no scheduling, deadline, duration, all-day, or recurrence fields; all temporal placement belongs to calendar events. Every task belongs to one group and may be linked to any number of calendar events through calendar_events_todo_join. A task may carry one current fixed billable amount, while invoices own immutable issued line snapshots and payment state. completed_at_utc records task lifecycle history. Sensitivity: Contains the user''s private tasks, plans, relationships, pricing, and source references.';
+) ENGINE=InnoDB COMMENT='Stores actionable and historical records in the user’s authoritative personal To-Do List. To-dos have no scheduling, deadline, duration, all-day, recurrence, or direct calendar-event relationship; all temporal commitments belong to calendar events. Every task belongs to one group. A task may carry one current fixed billable amount, while invoices own immutable issued line snapshots and payment state. completed_at_utc records task lifecycle history. Sensitivity: Contains the user''s private tasks, plans, relationships, pricing, and source references.';
 
 CREATE TABLE payment_provider_accounts (
     provider ENUM('stripe') NOT NULL COMMENT 'External payment processor owning the connected merchant account.',
@@ -617,28 +617,6 @@ CREATE TABLE payment_invoice_line_receipts_join (
     CONSTRAINT payment_invoice_line_receipts_file FOREIGN KEY (file_id) REFERENCES files(file_id) ON DELETE RESTRICT,
     CONSTRAINT payment_invoice_line_receipts_digest CHECK (sha256_snapshot REGEXP '^[0-9a-f]{64}$')
 ) ENGINE=InnoDB COMMENT='Associates at most one receipt file with each invoice line while allowing one receipt to support several lines. The file owns the durable bytes; this table owns the invoice-specific label, type, integrity snapshot, and relationship. Receipt associations freeze when the invoice leaves editable local preparation.';
-
-CREATE TABLE calendar_events_todo_join (
-    -- sourceOfTruth: true
-    -- synonyms: ["calendar to-do links", "event task links"]
-    -- keywords: ["calendar event", "to-do", "task", "work time", "deadline", "context"]
-    -- fk:calendar_events_todo_join_event meaning: Associates one concrete calendar event with a relevant personal to-do.
-    -- fk:calendar_events_todo_join_event cardinality: many calendar_events_todo_join to one calendar_events; one event may have many associations
-    -- fk:calendar_events_todo_join_event importantRules: ["Deleting the event deletes only its association rows."]
-    -- fk:calendar_events_todo_join_task meaning: Associates one personal to-do with a concrete calendar event that supplies work time, a deadline, or context.
-    -- fk:calendar_events_todo_join_task cardinality: many calendar_events_todo_join to one todo_personal; one to-do may have many associated events
-    -- fk:calendar_events_todo_join_task importantRules: ["Deleting the to-do deletes only its association rows."]
-
-    calendar_event_id BIGINT UNSIGNED NOT NULL COMMENT 'Concrete calendar event associated with the task.',
-    personal_task_id BIGINT UNSIGNED NOT NULL COMMENT 'Existing personal to-do associated with the calendar event.',
-    relationship_kind ENUM('work', 'deadline', 'context') NOT NULL DEFAULT 'context' COMMENT 'Meaning of this event-to-task association. work: scheduled working time. deadline: the event represents a deadline. context: the task is relevant to the event without stronger timing semantics.',
-    created_at_utc DATETIME(3) NOT NULL
-        DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when the association was created.',
-    PRIMARY KEY (calendar_event_id, personal_task_id),
-    KEY calendar_events_todo_join_task (personal_task_id, calendar_event_id),
-    CONSTRAINT calendar_events_todo_join_event FOREIGN KEY (calendar_event_id) REFERENCES calendar_events(calendar_event_id) ON DELETE CASCADE,
-    CONSTRAINT calendar_events_todo_join_task FOREIGN KEY (personal_task_id) REFERENCES todo_personal(personal_task_id) ON DELETE CASCADE
-) ENGINE=InnoDB COMMENT='Links concrete calendar events to personal to-dos. Either side may have many links. Deleting either parent removes only its association rows. Calendar events own all temporal facts; to-dos own work and completion state.';
 
 CREATE TABLE reminders (
     -- sourceOfTruth: true
@@ -1216,7 +1194,7 @@ CREATE TABLE correspondence_participants_join (
 ) ENGINE=InnoDB COMMENT='Records senders and recipients for messages and calls while retaining unmatched addresses that do not yet resolve to a contact. One row represents one participant address in one role on one correspondence row, optionally linked to a known contact and contact method. This is enough to identify everyone observed on a group message without making group-thread reconstruction an owned requirement. address_value preserves the address observed on the communication even when no contact matches it. Sensitivity: Contains private communication participants, addresses, and display names.';
 
 CREATE TABLE object_relationship_edge_index (
-    relationship_type ENUM('event-contact', 'event-contact-owned', 'invoice-file-receipt', 'todo-event', 'todo-event-owned', 'todo-content', 'thing-todo', 'thing-todo-owned', 'thing-content', 'thing-content-owned', 'thing-file', 'thing-file-owned', 'thing-contact', 'thing-contact-owned', 'todo-correspondence', 'event-correspondence', 'correspondence-file', 'todo-group', 'physical-item-group', 'todo-contact', 'invoice-payer', 'invoice-line', 'journal-group', 'tracker-entry', 'routine-event', 'content-group', 'content-file', 'script-content') NOT NULL COMMENT 'Reviewed relationship kind whose contract fixes the ordered first-class endpoint types.',
+    relationship_type ENUM('event-contact', 'event-contact-owned', 'invoice-file-receipt', 'todo-content', 'thing-todo', 'thing-todo-owned', 'thing-content', 'thing-content-owned', 'thing-file', 'thing-file-owned', 'thing-contact', 'thing-contact-owned', 'todo-correspondence', 'event-correspondence', 'correspondence-file', 'todo-group', 'physical-item-group', 'todo-contact', 'invoice-payer', 'invoice-line', 'journal-group', 'tracker-entry', 'routine-event', 'content-group', 'content-file', 'script-content') NOT NULL COMMENT 'Reviewed relationship kind whose contract fixes the ordered first-class endpoint types.',
     left_id BIGINT UNSIGNED NOT NULL COMMENT 'Authoritative local identifier of the relationship type''s declared left endpoint.',
     right_id BIGINT UNSIGNED NOT NULL COMMENT 'Authoritative local identifier of the relationship type''s declared right endpoint.',
     PRIMARY KEY (left_id, relationship_type, right_id),
@@ -1230,7 +1208,7 @@ CREATE SQL SECURITY INVOKER VIEW object_relationship_edges_source AS
 -- tables. DISTINCT collapses multiple authoritative facts that imply the same
 -- logical connection. This view supports rebuild and parity verification only.
 -- sourceOfTruth: false
--- derivedFrom: ["calendar_event_contacts_join", "payment_invoice_line_receipts_join", "calendar_events_todo_join", "todo_content_join", "physical_items_todo_join", "physical_items_content_join", "physical_items_files_join", "physical_items_contacts_join", "todo_correspondence_join", "calendar_events_correspondence_join", "correspondence_files_join", "todo_personal", "physical_items", "payment_invoices", "payment_invoice_lines", "journal2_trackers", "journal3_entries", "calendar_events", "content_items", "video_jobs"]
+-- derivedFrom: ["calendar_event_contacts_join", "payment_invoice_line_receipts_join", "todo_content_join", "physical_items_todo_join", "physical_items_content_join", "physical_items_files_join", "physical_items_contacts_join", "todo_correspondence_join", "calendar_events_correspondence_join", "correspondence_files_join", "todo_personal", "physical_items", "payment_invoices", "payment_invoice_lines", "journal2_trackers", "journal3_entries", "calendar_events", "content_items", "video_jobs"]
 -- relationship_type: Reviewed relationship kind that declares the ordered endpoint types and whether the default connection is removable through the shared network.
 -- left_id: Local identifier of the relationship type's declared left endpoint.
 -- right_id: Local identifier of the relationship type's declared right endpoint.
@@ -1243,11 +1221,6 @@ WITH canonical_edges AS (
   SELECT 'invoice-file-receipt', line.payment_invoice_id, receipt.file_id
   FROM payment_invoice_line_receipts_join AS receipt
   JOIN payment_invoice_lines AS line USING (payment_invoice_line_id)
-
-  UNION ALL
-  SELECT IF(link.relationship_kind = 'context', 'todo-event', 'todo-event-owned'),
-         link.calendar_event_id, link.personal_task_id
-  FROM calendar_events_todo_join AS link
 
   UNION ALL
   SELECT 'todo-content', link.personal_task_id, link.content_id FROM todo_content_join AS link
@@ -1677,23 +1650,6 @@ CREATE TRIGGER ore_payment_invoice_line_receipts_join_ad AFTER DELETE ON payment
     LIMIT 1;
 END//
 
-CREATE TRIGGER ore_calendar_events_todo_join_ai AFTER INSERT ON calendar_events_todo_join FOR EACH ROW BEGIN
-  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
-    SELECT IF(NEW.relationship_kind = 'context', 'todo-event', 'todo-event-owned'), NEW.calendar_event_id, NEW.personal_task_id
-    WHERE NEW.calendar_event_id IS NOT NULL AND NEW.personal_task_id IS NOT NULL;
-END//
-
-CREATE TRIGGER ore_calendar_events_todo_join_au AFTER UPDATE ON calendar_events_todo_join FOR EACH ROW BEGIN
-  DELETE FROM object_relationship_edge_index WHERE relationship_type = IF(OLD.relationship_kind = 'context', 'todo-event', 'todo-event-owned') AND left_id = OLD.calendar_event_id AND right_id = OLD.personal_task_id;
-  INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
-    SELECT IF(NEW.relationship_kind = 'context', 'todo-event', 'todo-event-owned'), NEW.calendar_event_id, NEW.personal_task_id
-    WHERE NEW.calendar_event_id IS NOT NULL AND NEW.personal_task_id IS NOT NULL;
-END//
-
-CREATE TRIGGER ore_calendar_events_todo_join_ad AFTER DELETE ON calendar_events_todo_join FOR EACH ROW BEGIN
-  DELETE FROM object_relationship_edge_index WHERE relationship_type = IF(OLD.relationship_kind = 'context', 'todo-event', 'todo-event-owned') AND left_id = OLD.calendar_event_id AND right_id = OLD.personal_task_id;
-END//
-
 CREATE TRIGGER ore_todo_content_join_ai AFTER INSERT ON todo_content_join FOR EACH ROW BEGIN
   INSERT IGNORE INTO object_relationship_edge_index (relationship_type, left_id, right_id)
     SELECT 'todo-content', NEW.personal_task_id, NEW.content_id
@@ -2056,7 +2012,7 @@ CREATE TRIGGER ore_cleanup_files_bd BEFORE DELETE ON files FOR EACH ROW BEGIN
 END//
 
 CREATE TRIGGER ore_cleanup_calendar_events_bd BEFORE DELETE ON calendar_events FOR EACH ROW BEGIN
-  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN ('event-contact', 'event-contact-owned', 'todo-event', 'todo-event-owned', 'event-correspondence') AND left_id = OLD.calendar_event_id) OR (relationship_type IN ('routine-event') AND right_id = OLD.calendar_event_id);
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN ('event-contact', 'event-contact-owned', 'event-correspondence') AND left_id = OLD.calendar_event_id) OR (relationship_type IN ('routine-event') AND right_id = OLD.calendar_event_id);
 END//
 
 CREATE TRIGGER ore_cleanup_calendar_routines_bd BEFORE DELETE ON calendar_routines FOR EACH ROW BEGIN
@@ -2068,7 +2024,7 @@ CREATE TRIGGER ore_cleanup_todo_groups_bd BEFORE DELETE ON todo_groups FOR EACH 
 END//
 
 CREATE TRIGGER ore_cleanup_todo_personal_bd BEFORE DELETE ON todo_personal FOR EACH ROW BEGIN
-  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN ('todo-content', 'todo-correspondence', 'todo-contact') AND left_id = OLD.personal_task_id) OR (relationship_type IN ('todo-event', 'todo-event-owned', 'thing-todo', 'thing-todo-owned', 'todo-group', 'invoice-line') AND right_id = OLD.personal_task_id);
+  DELETE FROM object_relationship_edge_index WHERE (relationship_type IN ('todo-content', 'todo-correspondence', 'todo-contact') AND left_id = OLD.personal_task_id) OR (relationship_type IN ('thing-todo', 'thing-todo-owned', 'todo-group', 'invoice-line') AND right_id = OLD.personal_task_id);
 END//
 
 CREATE TRIGGER ore_cleanup_payment_invoices_bd BEFORE DELETE ON payment_invoices FOR EACH ROW BEGIN
@@ -2115,4 +2071,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 67, 'Chapeaux Fous MariaDB database');
+VALUES (1, 68, 'Chapeaux Fous MariaDB database');

@@ -813,49 +813,8 @@ function publicTodo(row) {
   };
 }
 
-function calendarEventTodoLinks(database, eventIds) {
-  const ids = [...new Set(eventIds.filter((id) => Number.isInteger(Number(id))).map(Number))];
-  if (ids.length === 0) return new Map();
-  const rows = database.prepare(`
-    SELECT relation.calendar_event_id, relation.personal_task_id,
-           relation.relationship_kind, task.text, task.status,
-           task.todo_group_id, todo_group.name AS group_name,
-           todo_group.sort_position AS group_sort_position,
-           task.sequence, task.sort_position,
-           task.related_contact_id, related_contact.display_name AS related_contact_name
-    FROM calendar_events_todo_join AS relation
-    JOIN todo_personal AS task USING (personal_task_id)
-    JOIN todo_groups AS todo_group USING (todo_group_id)
-    LEFT JOIN contacts AS related_contact ON related_contact.contact_id = task.related_contact_id
-    WHERE relation.calendar_event_id IN (${ids.map(() => "?").join(", ")})
-      AND task.status <> 'archive'
-    ORDER BY relation.calendar_event_id,
-             todo_group.sort_position, todo_group.todo_group_id,
-             task.sequence IS NULL, task.sequence DESC,
-             task.sort_position, task.personal_task_id
-  `).all(...ids);
-  const byEvent = new Map(ids.map((id) => [id, []]));
-  for (const row of rows) byEvent.get(Number(row.calendar_event_id)).push({
-    todoId: Number(row.personal_task_id),
-    relationshipKind: row.relationship_kind,
-    text: row.text,
-    status: row.status,
-    groupId: Number(row.todo_group_id),
-    groupName: row.group_name,
-    groupSortPosition: Number(row.group_sort_position),
-    sequence: row.sequence == null ? null : Number(row.sequence),
-    sortPosition: Number(row.sort_position),
-    relatedContact: row.related_contact_id == null ? null : {
-      contactId: Number(row.related_contact_id),
-      displayName: row.related_contact_name,
-    },
-  });
-  return byEvent;
-}
-
-function attachCalendarEventLinks(database, events) {
+function attachCalendarEventContacts(database, events) {
   const eventId = (event) => Number(event.seriesId ?? event.id);
-  const links = calendarEventTodoLinks(database, events.map(eventId));
   const ids = [...new Set(events.map(eventId).filter((id) => Number.isSafeInteger(id) && id > 0))];
   const contactsByEvent = new Map(ids.map((id) => [id, []]));
   if (ids.length) {
@@ -877,24 +836,8 @@ function attachCalendarEventLinks(database, events) {
   }
   return events.map((event) => ({
     ...event,
-    linkedTodos: links.get(eventId(event)) ?? [],
     linkedContacts: contactsByEvent.get(eventId(event)) ?? [],
   }));
-}
-
-function publicTodoCalendarLink(row) {
-  return {
-    eventId: Number(row.calendar_event_id),
-    title: row.title,
-    startsAtUtc: row.starts_at_utc,
-    endsAtUtc: row.ends_at_utc ?? null,
-    timeZone: row.time_zone,
-    isAllDay: Boolean(row.is_all_day),
-    status: row.status,
-    relationshipKind: row.relationship_kind ?? null,
-    calendarRoutineId: row.calendar_routine_id == null ? null : Number(row.calendar_routine_id),
-    routineTitle: row.routine_title ?? null,
-  };
 }
 
 function publicRoutine(row) {
@@ -2517,7 +2460,7 @@ export class OrganizerStore {
     if (strictBounds && ordinary.length + recurring.length > 2000) {
       throw new OrganizerInputError("Calendar exceeded 2000 occurrences; narrow the date range.");
     }
-    return attachCalendarEventLinks(this.database, [...ordinary, ...recurring, ...birthdays]
+    return attachCalendarEventContacts(this.database, [...ordinary, ...recurring, ...birthdays]
       .sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc) || String(left.id).localeCompare(String(right.id)))
       .slice(0, 2000));
   }
@@ -2527,7 +2470,7 @@ export class OrganizerStore {
     return {
       query: result.query,
       includeArchived: result.includeArchived,
-      events: attachCalendarEventLinks(this.database, result.rows.map(publicCalendarEvent)),
+      events: attachCalendarEventContacts(this.database, result.rows.map(publicCalendarEvent)),
     };
   }
 
@@ -2777,7 +2720,6 @@ export class OrganizerStore {
   generateCalendarRoutines({ from, to } = {}, context = {}) {
     const fromUtc = isoDateTime(from, "from");
     const toUtc = isoDateTime(to, "to");
-    const nowUtc = isoDateTime(context.nowUtc ?? new Date().toISOString(), "now");
     const rangeMilliseconds = fromUtc && toUtc
       ? new Date(toUtc).getTime() - new Date(fromUtc).getTime()
       : 0;
@@ -2791,7 +2733,6 @@ export class OrganizerStore {
     `).all();
     const createdIds = [];
     let existingCount = 0;
-    const rollovers = [];
     this.database.exec("START TRANSACTION");
     try {
       for (const routine of routines) {
@@ -2832,66 +2773,6 @@ export class OrganizerStore {
           createdIds.push(Number(inserted.lastInsertRowid));
         }
       }
-      for (const routine of routines) {
-        const target = this.database.prepare(`
-          SELECT calendar_event_id, starts_at_utc
-          FROM calendar_events
-          WHERE calendar_routine_id = ?
-            AND status IN ('tentative', 'confirmed')
-            AND COALESCE(ends_at_utc, starts_at_utc) >= ?
-          ORDER BY starts_at_utc, calendar_event_id
-          LIMIT 1
-        `).get(routine.calendar_routine_id, nowUtc);
-        if (!target) continue;
-        const candidates = this.database.prepare(`
-          SELECT DISTINCT relation.personal_task_id
-          FROM calendar_events_todo_join AS relation
-          JOIN calendar_events AS source USING (calendar_event_id)
-          JOIN todo_personal AS task USING (personal_task_id)
-          WHERE source.calendar_routine_id = ?
-            AND source.calendar_event_id <> ?
-            AND source.starts_at_utc < ?
-            AND relation.relationship_kind = 'work'
-            AND task.status IN ('todo', 'ai_suggested')
-          ORDER BY relation.personal_task_id
-        `).all(routine.calendar_routine_id, target.calendar_event_id, target.starts_at_utc);
-        for (const candidate of candidates) {
-          const todoId = Number(candidate.personal_task_id);
-          const sourceEventIds = this.database.prepare(`
-            SELECT relation.calendar_event_id
-            FROM calendar_events_todo_join AS relation
-            JOIN calendar_events AS source USING (calendar_event_id)
-            WHERE relation.personal_task_id = ?
-              AND relation.relationship_kind = 'work'
-              AND source.calendar_routine_id = ?
-              AND source.calendar_event_id <> ?
-            ORDER BY source.starts_at_utc, source.calendar_event_id
-          `).all(todoId, routine.calendar_routine_id, target.calendar_event_id)
-            .map(({ calendar_event_id: eventId }) => Number(eventId));
-          const targetLink = this.database.prepare(`
-            SELECT relationship_kind FROM calendar_events_todo_join
-            WHERE calendar_event_id = ? AND personal_task_id = ?
-          `).get(target.calendar_event_id, todoId);
-          if (targetLink && targetLink.relationship_kind !== "work") continue;
-          if (!targetLink) this.database.prepare(`
-            INSERT INTO calendar_events_todo_join
-              (calendar_event_id, personal_task_id, relationship_kind)
-            VALUES (?, ?, 'work')
-          `).run(target.calendar_event_id, todoId);
-          const placeholders = sourceEventIds.map(() => "?").join(", ");
-          this.database.prepare(`
-            DELETE FROM calendar_events_todo_join
-            WHERE personal_task_id = ? AND relationship_kind = 'work'
-              AND calendar_event_id IN (${placeholders})
-          `).run(todoId, ...sourceEventIds);
-          rollovers.push({
-            todoId,
-            calendarRoutineId: Number(routine.calendar_routine_id),
-            fromEventIds: sourceEventIds,
-            toEventId: Number(target.calendar_event_id),
-          });
-        }
-      }
       if (createdIds.length > 0) {
         const sourceEventId = this.#activity({
           eventType: "calendar.routine.generated",
@@ -2910,24 +2791,10 @@ export class OrganizerStore {
         `);
         for (const id of createdIds) linkReceipt.run(sourceEventId, id);
       }
-      if (rollovers.length > 0) this.#activity({
-        eventType: "calendar.routine.work_links_rolled_forward",
-        status: "complete",
-        name: "Calendar routine work links rolled forward",
-        subjectType: "calendar_event_batch",
-        subjectId: `${fromUtc}/${toUtc}`,
-        contentText: `Moved ${rollovers.length} unfinished ${rollovers.length === 1 ? "task" : "tasks"} to the next routine event`,
-        payload: { from: fromUtc, to: toUtc, now: nowUtc, rollovers },
-        actorType: context.actorType ?? "user", actorName: context.actorName ?? "Nate",
-        source: context.source ?? "tailnet_web", channel: context.channel ?? "tailnet_web",
-        turnId: context.requestId ?? null, operationId: context.callId ?? null,
-      });
       this.database.exec("COMMIT");
       return {
         createdCount: createdIds.length,
         existingCount,
-        movedTodoCount: rollovers.length,
-        rollovers,
         events: createdIds.map((id) => this.getCalendar(id)),
       };
     } catch (error) {
@@ -4658,7 +4525,7 @@ export class OrganizerStore {
     const event = publicCalendarEvent(this.database.prepare(
       "SELECT * FROM calendar_events WHERE calendar_event_id = ?",
     ).get(identifier(id, "calendar event id")));
-    return event ? attachCalendarEventLinks(this.database, [event])[0] : null;
+    return event ? attachCalendarEventContacts(this.database, [event])[0] : null;
   }
 
   changeCalendarEventContactLinks(input, context = {}) {
@@ -4771,251 +4638,6 @@ export class OrganizerStore {
       linked: input?.linked,
     }] }, context);
     return { changed: result.results[0].changed, event: result.events[0] };
-  }
-
-  changeCalendarEventTodoLinks(input, context = {}) {
-    if (!Array.isArray(input?.links) || input.links.length < 1 || input.links.length > 500) {
-      throw new OrganizerInputError("links must contain between 1 and 500 event/to-do relationships.");
-    }
-    const links = input.links.map((link, index) => ({
-      eventId: identifier(link?.eventId, `links[${index}].eventId`),
-      todoId: identifier(link?.todoId, `links[${index}].todoId`),
-      relationshipKind: enumValue(link?.relationshipKind,
-        new Set(["work", "deadline", "context"]), `links[${index}].relationshipKind`, "context"),
-      linked: link?.linked,
-    }));
-    if (links.some(({ linked }) => typeof linked !== "boolean")) {
-      throw new OrganizerInputError("Every event/to-do relationship needs a boolean linked value.");
-    }
-    const keys = links.map(({ eventId, todoId }) => `${eventId}:${todoId}`);
-    if (new Set(keys).size !== keys.length) {
-      throw new OrganizerInputError("Duplicate event/to-do relationship in link batch.");
-    }
-
-    const events = new Map();
-    const todos = new Map();
-    const prepared = links.map((link) => {
-      let event = events.get(link.eventId);
-      if (!event) {
-        event = this.getCalendar(link.eventId);
-        if (!event) throw new OrganizerInputError("Calendar event not found.", 404);
-        if (event.recurrenceRule) {
-          throw new OrganizerInputError("Link to-dos to a concrete event occurrence, not a recurring series.", 409);
-        }
-        events.set(link.eventId, event);
-      }
-      let todo = todos.get(link.todoId);
-      if (!todo) {
-        todo = this.getTodo(link.todoId);
-        if (!todo) throw new OrganizerInputError("To-do not found.", 404);
-        todos.set(link.todoId, todo);
-      }
-      if (link.linked && link.relationshipKind === "work"
-          && !["todo", "ai_suggested"].includes(todo.status)) {
-        throw new OrganizerInputError("Only an unfinished to-do can be placed as work.", 409);
-      }
-      return { ...link, event, todo };
-    });
-
-    const workRoutineTargets = new Set();
-    for (const { linked, todoId, relationshipKind, event } of prepared) {
-      if (!linked || relationshipKind !== "work" || event.calendarRoutineId == null) continue;
-      const key = `${todoId}:${event.calendarRoutineId}`;
-      if (workRoutineTargets.has(key)) {
-        throw new OrganizerInputError("One call cannot place the same to-do on multiple work events from one routine.");
-      }
-      workRoutineTargets.add(key);
-    }
-
-    this.database.exec("START TRANSACTION");
-    try {
-      const exact = this.database.prepare(`
-        SELECT relationship_kind FROM calendar_events_todo_join
-        WHERE calendar_event_id = ? AND personal_task_id = ?
-      `);
-      const removeExact = this.database.prepare(`
-        DELETE FROM calendar_events_todo_join
-        WHERE calendar_event_id = ? AND personal_task_id = ? AND relationship_kind = ?
-      `);
-      const upsert = this.database.prepare(`
-        INSERT INTO calendar_events_todo_join
-          (calendar_event_id, personal_task_id, relationship_kind)
-        VALUES (?, ?, ?)
-        ON DUPLICATE KEY UPDATE relationship_kind = VALUES(relationship_kind)
-      `);
-      const resultsByKey = new Map();
-      const ordered = [...prepared].sort((left, right) => Number(left.linked) - Number(right.linked));
-      for (const link of ordered) {
-        const current = exact.get(link.eventId, link.todoId);
-        if (!link.linked) {
-          const changed = current?.relationship_kind === link.relationshipKind;
-          if (changed) removeExact.run(link.eventId, link.todoId, link.relationshipKind);
-          resultsByKey.set(`${link.eventId}:${link.todoId}`, {
-            ...link, changed, removedEventIds: [],
-          });
-          continue;
-        }
-        const removedEventIds = link.relationshipKind === "work"
-          && link.event.calendarRoutineId != null
-          ? this.database.prepare(`
-              SELECT relation.calendar_event_id
-              FROM calendar_events_todo_join AS relation
-              JOIN calendar_events AS event USING (calendar_event_id)
-              WHERE relation.personal_task_id = ?
-                AND relation.relationship_kind = 'work'
-                AND event.calendar_routine_id = ?
-                AND event.calendar_event_id <> ?
-              ORDER BY event.starts_at_utc, event.calendar_event_id
-            `).all(link.todoId, link.event.calendarRoutineId, link.eventId)
-            .map(({ calendar_event_id: eventId }) => Number(eventId))
-          : [];
-        if (removedEventIds.length > 0) this.database.prepare(`
-          DELETE relation FROM calendar_events_todo_join AS relation
-          JOIN calendar_events AS event USING (calendar_event_id)
-          WHERE relation.personal_task_id = ?
-            AND relation.relationship_kind = 'work'
-            AND event.calendar_routine_id = ?
-            AND event.calendar_event_id <> ?
-        `).run(link.todoId, link.event.calendarRoutineId, link.eventId);
-        upsert.run(link.eventId, link.todoId, link.relationshipKind);
-        resultsByKey.set(`${link.eventId}:${link.todoId}`, {
-          ...link,
-          changed: current?.relationship_kind !== link.relationshipKind || removedEventIds.length > 0,
-          removedEventIds,
-        });
-      }
-      const results = prepared.map((link) => resultsByKey.get(`${link.eventId}:${link.todoId}`));
-      const publicResults = results.map(({
-        eventId, todoId, relationshipKind, linked, changed, removedEventIds,
-      }) => ({ eventId, todoId, relationshipKind, linked, changed, removedEventIds }));
-      const result = {
-        selectedCount: publicResults.length,
-        changedCount: publicResults.filter(({ changed }) => changed).length,
-        unchangedCount: publicResults.filter(({ changed }) => !changed).length,
-        results: publicResults,
-        events: [...events.keys()].map((eventId) => this.getCalendar(eventId)),
-      };
-      this.#activity({
-        eventType: "calendar.todo_links.changed", status: "complete",
-        name: "Calendar event to-do links changed", subjectType: "calendar_event_batch",
-        subjectId: `${events.size}-events`,
-        contentText: `${result.changedCount} of ${result.selectedCount} requested calendar to-do links changed`,
-        payload: { links: publicResults },
-        actorType: context.actorType ?? "user", actorName: context.actorName ?? "Nate",
-        source: context.source ?? "tailnet_web", channel: context.channel ?? "tailnet_web",
-        turnId: context.requestId ?? null, operationId: context.callId ?? null,
-      });
-      this.database.exec("COMMIT");
-      return result;
-    } catch (error) {
-      this.database.exec("ROLLBACK");
-      throw error;
-    }
-  }
-
-  setCalendarEventTodoLinks(idValue, input, context = {}) {
-    const id = identifier(idValue, "calendar event id");
-    const event = this.getCalendar(id);
-    if (!event) throw new OrganizerInputError("Calendar event not found.", 404);
-    if (event.recurrenceRule) {
-      throw new OrganizerInputError("Link to-dos to a concrete event occurrence, not a recurring series.", 409);
-    }
-    if (!Array.isArray(input?.links)) throw new OrganizerInputError("links must be an array.");
-    const desired = input.links.map((link) => ({
-      eventId: id,
-      todoId: identifier(link?.todoId, "todo id"),
-      relationshipKind: enumValue(link?.relationshipKind,
-        new Set(["work", "deadline", "context"]), "relationshipKind", "work"),
-      linked: true,
-    }));
-    if (new Set(desired.map(({ todoId }) => todoId)).size !== desired.length) {
-      throw new OrganizerInputError("A to-do can be linked to an event only once.");
-    }
-    const desiredIds = new Set(desired.map(({ todoId }) => todoId));
-    const removals = this.database.prepare(`
-      SELECT personal_task_id, relationship_kind
-      FROM calendar_events_todo_join WHERE calendar_event_id = ?
-    `).all(id).filter(({ personal_task_id: todoId }) => !desiredIds.has(Number(todoId)))
-      .map(({ personal_task_id: todoId, relationship_kind: relationshipKind }) => ({
-        eventId: id, todoId: Number(todoId), relationshipKind, linked: false,
-      }));
-    if (desired.length === 0 && removals.length === 0) return event;
-    this.changeCalendarEventTodoLinks({ links: [...removals, ...desired] }, context);
-    return this.getCalendar(id);
-  }
-
-  getTodoCalendarLinks(idValue, { after, limit = 500 } = {}) {
-    const todoId = identifier(idValue, "todo id");
-    const todo = this.getTodo(todoId);
-    if (!todo) throw new OrganizerInputError("To-do not found.", 404);
-    const afterUtc = isoDateTime(after ?? new Date().toISOString(), "after");
-    const boundedLimit = integer(limit, "limit", { fallback: 500, minimum: 1, maximum: 1000 });
-    const select = `
-      SELECT event.*, routine.title AS routine_title, relation.relationship_kind
-      FROM calendar_events AS event
-      LEFT JOIN calendar_routines AS routine USING (calendar_routine_id)
-    `;
-    const links = this.database.prepare(`
-      ${select}
-      JOIN calendar_events_todo_join AS relation USING (calendar_event_id)
-      WHERE relation.personal_task_id = ?
-      ORDER BY event.starts_at_utc, event.calendar_event_id
-    `).all(todoId).map(publicTodoCalendarLink);
-    const events = this.database.prepare(`
-      ${select}
-      LEFT JOIN calendar_events_todo_join AS relation
-        ON relation.calendar_event_id = event.calendar_event_id
-       AND relation.personal_task_id = ?
-      WHERE event.recurrence_rule IS NULL
-        AND event.status IN ('tentative', 'confirmed')
-        AND COALESCE(event.ends_at_utc, event.starts_at_utc) >= ?
-      ORDER BY event.starts_at_utc, event.calendar_event_id
-      LIMIT ?
-    `).all(todoId, afterUtc, boundedLimit).map(publicTodoCalendarLink);
-    return { todo, links, events };
-  }
-
-  placeTodoCalendarLinks(input, context = {}) {
-    if (!Array.isArray(input?.placements) || input.placements.length < 1 || input.placements.length > 500) {
-      throw new OrganizerInputError("placements must contain 1 through 500 calendar placements.");
-    }
-    const placements = input.placements.map((placement, index) => ({
-      todoId: identifier(placement?.todoId, `placements[${index}].todoId`),
-      eventId: identifier(placement?.eventId, `placements[${index}].eventId`),
-      relationshipKind: enumValue(placement?.relationshipKind,
-        new Set(["work", "deadline", "context"]), `placements[${index}].relationshipKind`, "work"),
-    }));
-    if (new Set(placements.map(({ todoId, eventId }) => `${todoId}:${eventId}`)).size !== placements.length) {
-      throw new OrganizerInputError("placements cannot contain the same to-do and event more than once.");
-    }
-    const result = this.changeCalendarEventTodoLinks({
-      links: placements.map((placement) => ({ ...placement, linked: true })),
-    }, context);
-    return {
-      updatedCount: result.selectedCount,
-      placements: result.results.map((link) => ({
-        todoId: link.todoId,
-        eventId: link.eventId,
-        relationshipKind: link.relationshipKind,
-        removedEventIds: link.removedEventIds,
-      })),
-    };
-  }
-
-  removeTodoCalendarLink(todoIdValue, eventIdValue, context = {}) {
-    const todoId = identifier(todoIdValue, "todo id");
-    const eventId = identifier(eventIdValue, "calendar event id");
-    const link = this.database.prepare(`
-      SELECT relation.relationship_kind, event.title
-      FROM calendar_events_todo_join AS relation
-      JOIN calendar_events AS event USING (calendar_event_id)
-      WHERE relation.personal_task_id = ? AND relation.calendar_event_id = ?
-    `).get(todoId, eventId);
-    if (!link) throw new OrganizerInputError("Calendar link not found.", 404);
-    this.changeCalendarEventTodoLinks({ links: [{
-      todoId, eventId, relationshipKind: link.relationship_kind, linked: false,
-    }] }, context);
-    return { removed: true, todoId, eventId, relationshipKind: link.relationship_kind };
   }
 
   updateCalendar(idValue, input) {

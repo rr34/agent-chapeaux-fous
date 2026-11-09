@@ -171,10 +171,7 @@ export function RoutineScreen({ onGenerated }: {
       const existing = result.existingCount
         ? ` ${result.existingCount} ${result.existingCount === 1 ? "event was" : "events were"} already present.`
         : "";
-      const moved = result.movedTodoCount
-        ? ` Moved ${result.movedTodoCount} unfinished ${result.movedTodoCount === 1 ? "to-do" : "to-dos"} forward.`
-        : "";
-      onGenerated(`Created ${result.createdCount} calendar ${result.createdCount === 1 ? "event" : "events"}.${existing}${moved}`);
+      onGenerated(`Created ${result.createdCount} calendar ${result.createdCount === 1 ? "event" : "events"}.${existing}`);
     } catch (caught) {
       setGenerationError(caught);
     } finally {

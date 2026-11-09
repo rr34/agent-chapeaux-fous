@@ -10,22 +10,10 @@ export interface LinkedTodo {
   description?: string | null;
   status: string;
   completedAtUtc?: string | null;
-  relationshipKind?: string;
-  eventTitles?: string[];
-  eventLinks?: TodoEventLink[];
   relatedContact?: {
     contactId: number;
     displayName: string;
   } | null;
-}
-
-export interface TodoEventLink {
-  eventId: number | string;
-  seriesId?: number;
-  title: string;
-  startsAtUtc: string;
-  isAllDay: boolean;
-  relationshipKind: string | null;
 }
 
 export interface CalendarEvent {
@@ -44,7 +32,6 @@ export interface CalendarEvent {
   timeZone?: string | null;
   isAllDay: boolean;
   status?: string;
-  linkedTodos?: LinkedTodo[];
   linkedContacts?: Array<{
     contactId: number;
     displayName: string;
@@ -96,7 +83,6 @@ export interface CalendarRoutinePreview {
 export interface CalendarRoutineGeneration {
   createdCount: number;
   existingCount: number;
-  movedTodoCount: number;
   events: CalendarEvent[];
 }
 
@@ -108,7 +94,6 @@ export interface DailyPaperModel {
   rangeDate: string;
   timeZone: string;
   paperSize: "letter" | "a4";
-  includeCompletedTodos: boolean;
   heading: string;
   rangeHeading: string;
   weekStartDate: string;
@@ -117,7 +102,6 @@ export interface DailyPaperModel {
   calendarDays: CalendarDay[];
   printCalendarDays: CalendarDay[];
   todayEvents: CalendarEvent[];
-  scheduledTodos: LinkedTodo[];
   printableTodoGroups: DailyPaperTodoGroup[];
   scheduledTrackers: ScheduledTracker[];
   weather: DailyPaperWeather | null;

@@ -88,7 +88,6 @@ function normalizeInput(input = {}, defaultTimeZone = "UTC") {
     rangeDate,
     timeZone,
     paperSize,
-    includeCompletedTodos: input.includeCompletedTodos === true,
   };
 }
 
@@ -119,7 +118,6 @@ function compactEvent(event) {
     ...(event.seriesId != null ? { seriesId: event.seriesId } : {}),
     ...(event.isGeneratedOccurrence ? { isGeneratedOccurrence: true } : {}),
     ...(event.readOnly ? { readOnly: true } : {}),
-    linkedTodos: event.linkedTodos ?? [],
     linkedContacts: event.linkedContacts ?? [],
   };
 }
@@ -138,22 +136,17 @@ function compactPinnedTodo(todo, group) {
       contactId: Number(todo.relatedContactId),
       displayName: todo.relatedContactName,
     },
-    eventTitles: [],
-    eventLinks: [],
   };
 }
 
-function buildPrintableTodoGroups(scheduledTodos, pinnedGroups) {
-  const scheduledTodoIds = new Set(scheduledTodos.map(({ todoId }) => Number(todoId)));
+function buildPrintableTodoGroups(pinnedGroups) {
   return pinnedGroups
     .map((group) => ({
       id: Number(group.id),
       name: group.name,
       sortPosition: Number(group.sortPosition),
       dailyPaperPinned: true,
-      todos: (group.todos || [])
-        .map((todo) => compactPinnedTodo(todo, group))
-        .filter((todo) => !scheduledTodoIds.has(todo.todoId)),
+      todos: (group.todos || []).map((todo) => compactPinnedTodo(todo, group)),
     }))
     .sort((left, right) => left.sortPosition - right.sortPosition || left.name.localeCompare(right.name))
     .map((group) => ({ ...group, todos: [...group.todos] }));
@@ -294,40 +287,11 @@ export class DailyPaperService {
         events: printEvents.filter((event) => eventOverlaps(event, bounds, localDate)),
       };
     });
-    const currentWeekEvents = [...new Map(printCalendarDays.slice(0, 7)
-      .flatMap(({ events }) => events)
-      .map((event) => [`${event.id}:${event.startsAtUtc}`, event])).values()];
     const scheduledTrackers = this.trackerSchedule?.scheduledTrackersForDay({
       localDate: selected.date,
       timeZone: selected.timeZone,
     }) ?? [];
-    const todoMap = new Map();
-    for (const event of currentWeekEvents) {
-      for (const todo of event.linkedTodos) {
-        if (!selected.includeCompletedTodos && todo.status === "complete") continue;
-        const current = todoMap.get(Number(todo.todoId)) ?? {
-          ...todo,
-          todoId: Number(todo.todoId),
-          eventTitles: [],
-          eventLinks: [],
-        };
-        if (!current.eventTitles.includes(event.title)) current.eventTitles.push(event.title);
-        if (!current.eventLinks.some(({ eventId }) => String(eventId) === String(event.id))) {
-          current.eventLinks.push({
-            eventId: event.id,
-            ...(event.seriesId != null ? { seriesId: event.seriesId } : {}),
-            title: event.title,
-            startsAtUtc: event.startsAtUtc,
-            isAllDay: event.isAllDay,
-            relationshipKind: todo.relationshipKind ?? null,
-          });
-        }
-        todoMap.set(current.todoId, current);
-      }
-    }
-    const scheduledTodos = [...todoMap.values()];
     const printableTodoGroups = buildPrintableTodoGroups(
-      scheduledTodos,
       this.organizer.listDailyPaperTodoGroups?.() ?? [],
     );
     return {
@@ -343,7 +307,6 @@ export class DailyPaperService {
       calendarDays,
       printCalendarDays,
       todayEvents,
-      scheduledTodos,
       printableTodoGroups,
       scheduledTrackers,
       weather: null,
@@ -426,10 +389,8 @@ export class DailyPaperService {
           date: model.date,
           timeZone: model.timeZone,
           paperSize: model.paperSize,
-          includeCompletedTodos: model.includeCompletedTodos,
           eventCount: model.printCalendarDays.reduce((count, day) => count + day.events.length, 0),
-          todoCount: model.scheduledTodos.length
-            + model.printableTodoGroups.reduce((count, group) => count + group.todos.length, 0),
+          todoCount: model.printableTodoGroups.reduce((count, group) => count + group.todos.length, 0),
           trackerCount: model.scheduledTrackers.length,
           weatherStatus: model.weather?.status ?? "omitted",
         },

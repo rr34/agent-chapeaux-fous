@@ -4,7 +4,7 @@
   "version": 1,
   "id": "calendar",
   "title": "Calendar and routines",
-  "summary": "Read and manage all temporal commitments, deadlines, reusable routines, generated events, and their links to to-dos.",
+  "summary": "Read and manage all temporal commitments, deadlines, reusable routines, and generated events.",
   "aliases": [
     "calendar",
     "schedule",
@@ -59,21 +59,6 @@
         "read": { "tool": "calendar_event_search", "batch": { "mode": "collection" } },
         "update": { "tool": "calendar_event_contact_link_set", "batch": { "mode": "array", "input": "/links" }, "note": "Replace the exact role-qualified edge without replacing sibling contacts." },
         "unlink": { "tool": "calendar_event_contact_link_set", "batch": { "mode": "array", "input": "/links" } }
-      }
-    },
-    {
-      "id": "calendar.event_todo",
-      "kind": "relationship",
-      "title": "Calendar event to-do",
-      "summary": "A work, deadline, or context connection between one concrete calendar event and one personal to-do.",
-      "management": "user",
-      "storage": { "table": "calendar_events_todo_join" },
-      "endpoints": ["calendar.event", "todos.personal_task"],
-      "operations": {
-        "link": { "tool": "calendar_event_todo_link_set", "batch": { "mode": "array", "input": "/links" } },
-        "read": { "tool": "calendar_event_search", "batch": { "mode": "collection" } },
-        "update": { "tool": "calendar_event_todo_link_set", "batch": { "mode": "array", "input": "/links" }, "note": "Set the exact edge kind without reconstructing sibling links." },
-        "unlink": { "tool": "calendar_event_todo_link_set", "batch": { "mode": "array", "input": "/links" } }
       }
     }
   ],

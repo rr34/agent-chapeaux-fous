@@ -25,11 +25,11 @@ const dates = Array.from({ length: 14 }, (_, index) => {
   };
 });
 const events = [
-  { id: 1, title: "Morning walk", startsAtUtc: "2026-10-04T12:00:00.000Z", endsAtUtc: "2026-10-04T12:45:00.000Z", timeZone: "America/New_York", isAllDay: false, status: "confirmed", linkedTodos: [] },
-  { id: 2, title: "Planning breakfast", description: "Decide the next experiment and the one thing that would make today feel complete.", location: "Kitchen table", startsAtUtc: "2026-10-04T13:00:00.000Z", endsAtUtc: "2026-10-04T14:00:00.000Z", timeZone: "America/New_York", isAllDay: false, status: "confirmed", linkedTodos: [] },
-  { id: 3, title: "Review the draft", location: "Studio", startsAtUtc: "2026-10-04T18:00:00.000Z", endsAtUtc: "2026-10-04T19:30:00.000Z", timeZone: "America/New_York", isAllDay: false, status: "confirmed", linkedTodos: [] },
-  { id: 4, title: "Call Mom", startsAtUtc: "2026-10-04T22:00:00.000Z", endsAtUtc: "2026-10-04T22:30:00.000Z", timeZone: "America/New_York", isAllDay: false, status: "confirmed", linkedTodos: [] },
-  { id: 5, title: "Overnight handoff", startsAtUtc: "2026-10-05T02:30:00.000Z", endsAtUtc: "2026-10-05T04:30:00.000Z", timeZone: "America/New_York", isAllDay: false, status: "confirmed", linkedTodos: [] },
+  { id: 1, title: "Morning walk", startsAtUtc: "2026-10-04T12:00:00.000Z", endsAtUtc: "2026-10-04T12:45:00.000Z", timeZone: "America/New_York", isAllDay: false, status: "confirmed" },
+  { id: 2, title: "Planning breakfast", description: "Decide the next experiment and the one thing that would make today feel complete.", location: "Kitchen table", startsAtUtc: "2026-10-04T13:00:00.000Z", endsAtUtc: "2026-10-04T14:00:00.000Z", timeZone: "America/New_York", isAllDay: false, status: "confirmed" },
+  { id: 3, title: "Review the draft", location: "Studio", startsAtUtc: "2026-10-04T18:00:00.000Z", endsAtUtc: "2026-10-04T19:30:00.000Z", timeZone: "America/New_York", isAllDay: false, status: "confirmed" },
+  { id: 4, title: "Call Mom", startsAtUtc: "2026-10-04T22:00:00.000Z", endsAtUtc: "2026-10-04T22:30:00.000Z", timeZone: "America/New_York", isAllDay: false, status: "confirmed" },
+  { id: 5, title: "Overnight handoff", startsAtUtc: "2026-10-05T02:30:00.000Z", endsAtUtc: "2026-10-05T04:30:00.000Z", timeZone: "America/New_York", isAllDay: false, status: "confirmed" },
 ];
 dates[1].events = [{ ...events[0], id: 11, title: "Dentist" }];
 dates[3].events = [{ ...events[1], id: 12, title: "Project check-in" }];
@@ -50,7 +50,6 @@ const model = {
   rangeDate: "2026-10-04",
   timeZone: "America/New_York",
   paperSize: "letter",
-  includeCompletedTodos: false,
   heading: "Week 40: 28 Sep - 4 Oct 2026",
   rangeHeading: "Sep 28–Oct 11, 2026",
   weekStartDate: "2026-09-28",
@@ -59,32 +58,6 @@ const model = {
   calendarDays: dates,
   printCalendarDays: dates,
   todayEvents: events,
-  scheduledTodos: [
-    {
-      todoId: 17, title: "Bring the annotated draft", status: "todo",
-      groupId: 4, groupName: "Writing", groupSortPosition: 1, sortPosition: 1,
-      relatedContact: { contactId: 8, displayName: "Jane Smith" },
-      eventLinks: [{ eventId: 3, title: "Review the draft", startsAtUtc: events[2].startsAtUtc, isAllDay: false, relationshipKind: "work" }],
-    },
-    {
-      todoId: 18, title: "Choose three priorities", status: "todo",
-      groupId: 4, groupName: "Writing", groupSortPosition: 1, sortPosition: 2,
-      relatedContact: { contactId: 8, displayName: "Jane Smith" },
-      eventLinks: [{ eventId: 2, title: "Planning breakfast", startsAtUtc: events[1].startsAtUtc, isAllDay: false, relationshipKind: "context" }],
-    },
-    {
-      todoId: 19, title: "Pick up birthday card", status: "todo",
-      groupId: 7, groupName: "Personal", groupSortPosition: 2, sortPosition: 1,
-      relatedContact: { contactId: 12, displayName: "Mom" },
-      eventLinks: [{ eventId: 4, title: "Call Mom", startsAtUtc: events[3].startsAtUtc, isAllDay: false, relationshipKind: "deadline" }],
-    },
-    {
-      todoId: 20, title: "Ask Alex for the restaurant name", status: "todo",
-      groupId: 7, groupName: "Personal", groupSortPosition: 2, sortPosition: 2,
-      relatedContact: { contactId: 13, displayName: "Alex" },
-      eventLinks: [{ eventId: 4, title: "Call Mom", startsAtUtc: events[3].startsAtUtc, isAllDay: false, relationshipKind: "context" }],
-    },
-  ],
   scheduledTrackers: [
     {
       trackerId: 31,
@@ -147,7 +120,7 @@ model.printableTodoGroups = [{
   todos: [{
     todoId: 21, title: "Buy coffee beans", status: "todo",
     groupId: 9, groupName: "Shopping", groupSortPosition: 3, sortPosition: 1,
-    relatedContact: null, eventLinks: [],
+    relatedContact: null,
   }],
 }, {
   id: 10,
@@ -156,13 +129,6 @@ model.printableTodoGroups = [{
   dailyPaperPinned: true,
   todos: [],
 }];
-for (const todo of model.scheduledTodos) {
-  for (const link of todo.eventLinks) {
-    const event = events.find(({ id }) => id === link.eventId);
-    event?.linkedTodos.push({ ...todo, relationshipKind: link.relationshipKind });
-  }
-}
-
 const serveStatic = createStaticHandler({ repositoryRoot, publicRoot: path.join(repositoryRoot, "public") });
 const server = http.createServer(async (request, response) => {
   try {
@@ -202,19 +168,8 @@ try {
   if (await page.locator(".paper-todo-empty-lines").count() !== 1) {
     throw new Error("Expected one empty pinned to-do group checklist");
   }
-  const calendarTodoCount = await page.locator(".calendar-chip-todos").count();
-  if (calendarTodoCount !== 0) {
-    throw new Error(`Expected an event-only calendar; received ${calendarTodoCount} calendar to-do lists`);
-  }
   if (await page.locator(".paper-pinned-todos .paper-todo-card").count() !== 1) {
-    throw new Error("Expected one pinned-only to-do after the scheduled weekly list");
-  }
-  const pinnedText = await page.locator(".paper-pinned-todos").allTextContents();
-  if (pinnedText.some((text) => text.includes("Bring the annotated draft"))) {
-    throw new Error("A scheduled to-do was duplicated in the pinned appendage");
-  }
-  if (await page.locator(".paper-scheduled-todos .paper-todo-card").count() !== model.scheduledTodos.length) {
-    throw new Error("Expected every scheduled weekly to-do in the full-width list");
+    throw new Error("Expected one to-do from the pinned groups");
   }
   if (await page.locator(".two-week-grid--compact .calendar-cell").count() !== 14) {
     throw new Error("Expected the headed week followed by the next week in the printed calendar");

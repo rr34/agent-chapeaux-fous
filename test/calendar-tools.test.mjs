@@ -151,104 +151,7 @@ test("native calendar tools create, list, update, and cancel stored events", asy
   assert.equal(afterCancellation.count, 0);
 });
 
-test("calendar reads hide archived linked to-dos without deleting their associations", async (context) => {
-  const { store, registry } = calendarFixture(context);
-  const database = store.requireReady();
-  const todoId = Number(database.prepare(`INSERT INTO todo_personal (todo_group_id, text, status)
-    SELECT todo_group_id, 'Historical preparation', 'archive' FROM todo_groups WHERE name = 'Inbox'
-    RETURNING personal_task_id`).get().personal_task_id);
-  const eventId = Number(database.prepare(`INSERT INTO calendar_events (title, starts_at_utc, status)
-    VALUES ('Current appointment', '2026-09-13T15:00:00.000Z', 'confirmed')
-    RETURNING calendar_event_id`).get().calendar_event_id);
-  database.prepare(`INSERT INTO calendar_events_todo_join
-    (calendar_event_id, personal_task_id, relationship_kind) VALUES (?, ?, 'context')`).run(eventId, todoId);
-
-  const listed = await registry.execute("calendar_event_list", {
-    starts_at_utc: "2026-09-13T00:00:00.000Z",
-    ends_at_utc: "2026-09-14T00:00:00.000Z",
-  });
-  assert.equal(listed.occurrences[0].calendar_events.linked_todos.length, 0);
-  assert.equal(Number(database.prepare(`SELECT COUNT(*) AS count FROM calendar_events_todo_join
-    WHERE calendar_event_id = ? AND personal_task_id = ?`).get(eventId, todoId).count), 1);
-});
-
-test("native calendar reads order linked to-dos by descending sequence before manual position", async (context) => {
-  const { organizer, registry } = calendarFixture(context);
-  const group = organizer.createTodoGroup({ name: "Native sequenced event work" });
-  const highSequence = organizer.createTodo({ text: "Ninth native task", groupId: group.id, sequence: 9 });
-  const lowSequence = organizer.createTodo({ text: "Second native task", groupId: group.id, sequence: 2 });
-  const unsequenced = organizer.createTodo({ text: "Unnumbered native task", groupId: group.id });
-  const event = organizer.createCalendar({
-    title: "Native sequence check", startsAtUtc: "2026-09-13T15:00:00.000Z",
-    endsAtUtc: "2026-09-13T16:00:00.000Z", timeZone: "America/New_York",
-  });
-  organizer.setCalendarEventTodoLinks(event.id, { links: [
-    { todoId: unsequenced.id, relationshipKind: "work" },
-    { todoId: lowSequence.id, relationshipKind: "work" },
-    { todoId: highSequence.id, relationshipKind: "work" },
-  ] });
-
-  const listed = await registry.execute("calendar_event_list", {
-    starts_at_utc: "2026-09-13T00:00:00.000Z",
-    ends_at_utc: "2026-09-14T00:00:00.000Z",
-  });
-  assert.deepEqual(listed.occurrences[0].calendar_events.linked_todos
-    .map(({ personal_task_id: todoId }) => todoId), [highSequence.id, lowSequence.id, unsequenced.id]);
-});
-
-test("calendar to-do links unlink exact selected edges without replacing retained links", async (context) => {
-  const { store, organizer, registry } = calendarFixture(context);
-  const database = store.requireReady();
-  const group = organizer.createTodoGroup({ name: "Exact calendar unlink" });
-  const first = organizer.createTodo({ text: "First selected task", groupId: group.id });
-  const second = organizer.createTodo({ text: "Second selected task", groupId: group.id });
-  const retained = organizer.createTodo({ text: "Retained task", groupId: group.id });
-  const event = organizer.createCalendar({
-    title: "Regular Work Window", startsAtUtc: "2026-10-21T11:00:00.000Z",
-    endsAtUtc: "2026-10-21T18:00:00.000Z", timeZone: "America/New_York",
-  });
-  const input = (todos, linked) => ({ links: todos.map((todo) => ({
-    calendar_event_id: event.id,
-    personal_task_id: todo.id,
-    relationship_kind: "work",
-    linked,
-  })) });
-
-  const added = await registry.execute("calendar_event_todo_link_set",
-    input([first, second, retained], true));
-  assert.equal(added.changed_count, 3);
-  assert.deepEqual(added.events[0].linked_todos
-    .map(({ personal_task_id: todoId }) => todoId).sort((left, right) => left - right),
-  [first.id, second.id, retained.id].sort((left, right) => left - right));
-
-  const removed = await registry.execute("calendar_event_todo_link_set",
-    input([first, second], false));
-  assert.equal(removed.selected_count, 2);
-  assert.equal(removed.changed_count, 2);
-  assert.deepEqual(removed.results.map(({ personal_task_id: todoId, linked }) => [todoId, linked]), [
-    [first.id, false], [second.id, false],
-  ]);
-  assert.deepEqual(removed.events[0].linked_todos
-    .map(({ personal_task_id: todoId }) => todoId), [retained.id]);
-
-  const replay = await registry.execute("calendar_event_todo_link_set",
-    input([first, second], false));
-  assert.equal(replay.changed_count, 0);
-  assert.equal(replay.unchanged_count, 2);
-
-  await assert.rejects(registry.execute("calendar_event_todo_link_set", {
-    links: [
-      input([retained], false).links[0],
-      { ...input([first], false).links[0], personal_task_id: retained.id + 999 },
-    ],
-  }), /To-do not found/);
-  assert.equal(Number(database.prepare(`
-    SELECT COUNT(*) AS count FROM calendar_events_todo_join
-    WHERE calendar_event_id = ? AND personal_task_id = ?
-  `).get(event.id, retained.id).count), 1);
-});
-
-test("calendar contact links are visible, role-specific, idempotent, and leave to-dos alone", async (context) => {
+test("calendar contact links are visible, role-specific, and idempotent", async (context) => {
   const { store, organizer, registry } = calendarFixture(context);
   const database = store.requireReady();
   const contactId = Number(database.prepare(`
@@ -274,7 +177,6 @@ test("calendar contact links are visible, role-specific, idempotent, and leave t
     contact_id: contactId, display_name: "Brian Lesko", contact_status: "active",
     participant_role: "other", response_status: null,
   }]);
-  assert.deepEqual(added.events[0].linked_todos, []);
   const repeated = await registry.execute("calendar_event_contact_link_set", argumentsObject);
   assert.equal(repeated.changed_count, 0);
   assert.equal(Number(database.prepare(`
@@ -296,9 +198,6 @@ test("calendar contact links are visible, role-specific, idempotent, and leave t
   assert.equal(removed.changed_count, 1);
   assert.deepEqual(removed.events[0].linked_contacts, []);
   assert.equal(removed.events[0].starts_at_utc, "2026-09-18T11:00:00.000Z");
-  assert.equal(Number(database.prepare(`
-    SELECT COUNT(*) AS count FROM calendar_events_todo_join WHERE calendar_event_id = ?
-  `).get(eventId).count), 0);
 
   await assert.rejects(registry.execute("calendar_event_contact_link_set", {
     links: [link, { ...link, contact_id: contactId + 999 }],

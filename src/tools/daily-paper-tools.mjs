@@ -6,7 +6,7 @@ export function registerDailyPaperTools(registry, service) {
     name: "daily_paper_generate",
     title: "Generate weekly paper",
     metadata: toolMetadataWithDescription(null, {
-      summary: "Generate and store one printable PDF with an event-only two-week calendar followed by current-week event-linked to-do cards and pinned to-do groups. This creates a snapshot; it does not update source records.",
+      summary: "Generate and store one printable PDF with an event-only two-week calendar followed by pinned to-do groups. This creates a snapshot; it does not update source records.",
       actionClasses: ["CREATE"],
       effectClassifications: ["MUTATING"],
     }),
@@ -16,7 +16,7 @@ export function registerDailyPaperTools(registry, service) {
       idempotentHint: false,
       openWorldHint: true,
     },
-    description: "Generate and durably store one printable PDF headed for the Monday-to-Sunday week containing an exact local calendar date. Render an event-only calendar for that week followed by the next week. Beneath the calendar, render only full-width to-do cards: every distinct open to-do linked to an event in the headed week, plus every active pinned group and its remaining open tasks. Preserve empty pinned groups as writable checklist sections, deduplicate tasks by stable ID, and remove headed-week scheduled tasks from their pinned group lists. Exclude completed linked to-dos unless includeCompletedTodos is true; pinning does not include completed group history. The selected date identifies the headed week and does not create a separate daily-plan section. On success, status is complete and file is the stored first-class PDF binding with its download path; the counts describe both displayed weeks' event appearances, distinct printed to-dos, and trackers queried for compatibility. The operation does not change calendar, to-do, or journal data. Validation, rendering, or storage failure returns an error and no successful generation result.",
+    description: "Generate and durably store one printable PDF headed for the Monday-to-Sunday week containing an exact local calendar date. Render an event-only calendar for that week followed by the next week. Beneath the calendar, render every active pinned to-do group and its open tasks, preserving empty pinned groups as writable checklist sections. Pinning does not include completed group history. The selected date identifies the headed week and does not create a separate daily-plan section. On success, status is complete and file is the stored first-class PDF binding with its download path; the counts describe both displayed weeks' event appearances, printed pinned-group to-dos, and trackers queried for compatibility. The operation does not change calendar, to-do, or journal data. Validation, rendering, or storage failure returns an error and no successful generation result.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -37,12 +37,8 @@ export function registerDailyPaperTools(registry, service) {
           enum: ["letter", "a4"],
           description: "Physical paper size.",
         },
-        includeCompletedTodos: {
-          type: "boolean",
-          description: "Whether completed to-dos linked to today’s events remain visible.",
-        },
       },
-      required: ["date", "timeZone", "paperSize", "includeCompletedTodos"],
+      required: ["date", "timeZone", "paperSize"],
     },
     outputSchema: {
       type: "object",
@@ -105,7 +101,7 @@ export function registerDailyPaperTools(registry, service) {
         timeZone: result.model.timeZone,
         paperSize: result.model.paperSize,
         eventCount: result.model.printCalendarDays.reduce((count, day) => count + day.events.length, 0),
-        todoCount: result.model.scheduledTodos.length + result.model.printableTodoGroups.reduce(
+        todoCount: result.model.printableTodoGroups.reduce(
           (count, group) => count + group.todos.length, 0,
         ),
         trackerCount: result.model.scheduledTrackers.length,
