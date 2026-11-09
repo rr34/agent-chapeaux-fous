@@ -541,8 +541,9 @@ and the row's latest update instant as **Last changed**.
 The **To do** screen's **Print PDF** action captures its current visible
 projection after the group, text-search, and completed-item filters have been
 applied. It renders those groups and tasks in their current display order as a
-printable checklist, stores the PDF as a durable file, and downloads it. It
-does not independently query or add hidden to-dos while printing.
+printable checklist with each group's cards in a two-column grid by default,
+wrapping card text as needed. It stores the PDF as a durable file and downloads
+it. It does not independently query or add hidden to-dos while printing.
 
 The **Calendar** screen composes a shared React weekly-paper component from the
 authoritative two-week calendar, the Monday-to-Sunday week containing the
