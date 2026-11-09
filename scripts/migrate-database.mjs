@@ -633,9 +633,12 @@ export async function assertMigrationSpecificIntegrity(
       FROM information_schema.COLUMNS
       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'content_items'
         AND COLUMN_NAME IN ('content_type', 'content_status')`, [databaseName]);
+    const contentStatusExpectation = schemaVersion >= 69
+      ? [requiredEnumColumns.content_items.content_status, "draft"]
+      : [["draft", "uploaded_unlisted", "published", "unused", "obsolete"], "published"];
     for (const [name, expectedValues, expectedDefault] of [
       ["content_type", requiredEnumColumns.content_items.content_type, "video_tutorial"],
-      ["content_status", ["draft", "uploaded_unlisted", "published", "unused", "obsolete"], "published"],
+      ["content_status", ...contentStatusExpectation],
     ]) {
       const column = columns.find((row) => row.COLUMN_NAME === name);
       if (JSON.stringify(enumValues(column?.COLUMN_TYPE)) !== JSON.stringify(expectedValues)
