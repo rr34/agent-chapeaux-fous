@@ -1,5 +1,5 @@
 -- Chapeaux Fous MariaDB schema baseline.
--- Target: MariaDB 10.11, schema version 68.
+-- Target: MariaDB 10.11, schema version 69.
 --
 -- Apply only to an empty database whose default character set is utf8mb4.
 -- This file is the authoritative schema for a fresh Chapeaux Fous database.
@@ -717,7 +717,7 @@ CREATE TABLE content_items (
     published_at_utc      DATETIME(3) NOT NULL
                           DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC publication time reported for the content when known. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
     content_host          ENUM('youtube', 'vimeo', 'spotify', 'mytlomdotcom', 'none') NOT NULL DEFAULT 'youtube' COMMENT 'Platform or service that hosts the published content. youtube: Hosted on YouTube. vimeo: Hosted on Vimeo. spotify: Hosted on Spotify. mytlomdotcom: Hosted on mytlom.com. none: The content has no external host.',
-    content_status        ENUM('draft', 'uploaded_unlisted', 'published', 'unused', 'obsolete') NOT NULL DEFAULT 'published' COMMENT 'Current content lifecycle state. draft: Still being prepared. uploaded_unlisted: Uploaded but not publicly listed. published: Published and current. unused: Retained but not currently used. obsolete: Superseded and no longer current.',
+    content_status        ENUM('draft', 'unlisted', 'published', 'unused', 'obsolete') NOT NULL DEFAULT 'draft' COMMENT 'Current content lifecycle state. draft: Still being prepared. unlisted: Available at its hosted location but not publicly listed. published: Published and current. unused: Retained but not currently used. obsolete: Superseded and no longer current.',
     content_url           TEXT COMMENT 'Canonical public or hosted URL for the content when one exists. Format: URL.',
     relationship_to_user  ENUM('mine', 'reference') NOT NULL DEFAULT 'mine' COMMENT 'Whether the item is the user''s authored or planned work or reference material from elsewhere. mine: the user''s authored, owned, planned, or produced content. reference: Material from another creator kept as a source or reference.',
     creator_contact_id    BIGINT UNSIGNED COMMENT 'Known person, organization, or service that created the content.',
@@ -2071,4 +2071,4 @@ END//
 DELIMITER ;
 
 INSERT INTO database_meta (singleton, schema_version, description)
-VALUES (1, 68, 'Chapeaux Fous MariaDB database');
+VALUES (1, 69, 'Chapeaux Fous MariaDB database');

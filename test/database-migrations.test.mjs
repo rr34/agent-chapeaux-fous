@@ -404,6 +404,28 @@ test("content vocabulary migration requires the new enums and defaults", async (
   );
 });
 
+test("content status rename migration requires unlisted and the draft default", async () => {
+  const expectedColumns = [{
+    COLUMN_TYPE: "enum('draft','unlisted','published','unused','obsolete')",
+    COLUMN_DEFAULT: "'draft'",
+  }];
+  const connection = (columns = expectedColumns) => ({
+    async query(sql, parameters) {
+      assert.match(sql, /information_schema\.COLUMNS/u);
+      assert.deepEqual(parameters, ["test_database"]);
+      return [columns];
+    },
+  });
+  await assertMigrationSpecificIntegrity(connection(), { version: 69 }, "test_database");
+  await assert.rejects(
+    assertMigrationSpecificIntegrity(connection([{
+      COLUMN_TYPE: "enum('draft','uploaded_unlisted','published','unused','obsolete')",
+      COLUMN_DEFAULT: "'published'",
+    }]), { version: 69 }, "test_database"),
+    /content status vocabulary and draft default/u,
+  );
+});
+
 test("Android contact source alias integrity requires identity, chronology, and provenance", async () => {
   const requiredColumns = [
     "contact_source_alias_id", "contact_id", "source", "external_id",

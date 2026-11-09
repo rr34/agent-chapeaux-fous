@@ -51,9 +51,11 @@ test("the React library creates, edits, and permanently deletes content from the
     "video_promo", "video_personal", "video_tutorial", "audio_promo",
     "audio_personal", "audio_tutorial", "image", "other",
   ]) assert.match(editableItemsSource, new RegExp(`<option value="${value}">`));
-  for (const value of ["draft", "uploaded_unlisted", "published", "unused", "obsolete"]) {
+  for (const value of ["draft", "unlisted", "published", "unused", "obsolete"]) {
     assert.match(editableItemsSource, new RegExp(`<option value="${value}">`));
   }
+  assert.match(editableItemsSource, /contentStatus: String\(content\?\.contentStatus \|\| "draft"\)/u);
+  assert.match(editableItemsSource, /<option value="unlisted">Unlisted<\/option>/u);
   for (const retired of ["mobileUGC_tutorial", "mobileUGC_ad", "webUGC_tutorial", "webUGC_ad", "video_ad", "podcast", "unknown", "active", "queued"]) {
     assert.doesNotMatch(editableItemsSource.slice(editableItemsSource.indexOf("interface LibraryContentDraft"), editableItemsSource.indexOf("interface JournalTrackerDraft")), new RegExp(`value="${retired}"`));
   }

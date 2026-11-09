@@ -177,6 +177,14 @@ test("content creation tools publish compact identified mutation results", async
     createDefinition.inputSchema.properties.items.items.properties.publishedAtUtc.type,
     ["string", "null"],
   );
+  assert.equal(
+    createDefinition.inputSchema.properties.items.items.required.includes("contentStatus"),
+    false,
+  );
+  assert.deepEqual(
+    createDefinition.inputSchema.properties.items.items.properties.contentStatus.enum,
+    ["draft", "unlisted", "published", "unused", "obsolete"],
+  );
   const itemWithoutPublicationTime = {
     sequence: 33,
     title: "Job 6 - Patek Philippe Display Case",
@@ -184,7 +192,6 @@ test("content creation tools publish compact identified mutation results", async
     transcript: null,
     contentHost: "youtube",
     contentType: "other",
-    contentStatus: "published",
     contentUrl: null,
   };
   assert.equal(schemaProblem({

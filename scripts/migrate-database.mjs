@@ -384,6 +384,17 @@ async function assertVersion32Integrity(connection, databaseName) {
 export async function assertMigrationSpecificIntegrity(
   connection, migration, databaseName, schemaVersion = migration.version,
 ) {
+  if (migration.version === 69) {
+    const [columns] = await connection.query(`SELECT COLUMN_TYPE, COLUMN_DEFAULT
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'content_items'
+        AND COLUMN_NAME = 'content_status'`, [databaseName]);
+    if (JSON.stringify(enumValues(columns[0]?.COLUMN_TYPE))
+          !== JSON.stringify(requiredEnumColumns.content_items.content_status)
+        || columnDefaultValue(columns[0]?.COLUMN_DEFAULT) !== "draft") {
+      throw new Error("Migration 0069 did not establish the content status vocabulary and draft default");
+    }
+  }
   if (migration.version === 68) {
     const [columns] = await connection.query(`SELECT DATA_TYPE, COLUMN_TYPE
       FROM information_schema.COLUMNS
@@ -624,7 +635,7 @@ export async function assertMigrationSpecificIntegrity(
         AND COLUMN_NAME IN ('content_type', 'content_status')`, [databaseName]);
     for (const [name, expectedValues, expectedDefault] of [
       ["content_type", requiredEnumColumns.content_items.content_type, "video_tutorial"],
-      ["content_status", requiredEnumColumns.content_items.content_status, "published"],
+      ["content_status", ["draft", "uploaded_unlisted", "published", "unused", "obsolete"], "published"],
     ]) {
       const column = columns.find((row) => row.COLUMN_NAME === name);
       if (JSON.stringify(enumValues(column?.COLUMN_TYPE)) !== JSON.stringify(expectedValues)

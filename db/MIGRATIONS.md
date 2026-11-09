@@ -11,6 +11,18 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 69: Draft content default and unlisted status
+
+Changes the default lifecycle for newly created Content Library items from
+`published` to `draft` and renames `uploaded_unlisted` to `unlisted`. Existing
+`uploaded_unlisted` rows retain their lifecycle meaning under the shorter name;
+all other item data and statuses remain unchanged.
+
+Apply with writers stopped because the application validators, agent tool
+schemas, web editor, and MariaDB enum must switch together. The migration first
+widens the enum, rewrites only the renamed status, and then narrows the enum,
+so the complete block can be replayed after a partial MariaDB DDL commit.
+
 ## Version 68: Remove calendar-event/to-do links
 
 Deletes the two derived object-network edge kinds, drops the authoritative

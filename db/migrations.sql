@@ -16,6 +16,31 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0069: content-draft-default-and-unlisted-status
+-- writer downtime: required. The matching application validates `unlisted`
+-- instead of `uploaded_unlisted`, so application writers and schema vocabulary
+-- must switch together.
+-- locking: both ALTER TABLE statements take a metadata lock on content_items;
+-- the UPDATE rewrites only rows using the retired status value.
+-- recovery: MariaDB DDL commits implicitly. Keep writers stopped after any
+-- failure and replay this complete block. The temporary enum accepts both old
+-- and new values, making replay safe before the final narrowing statement.
+
+ALTER TABLE content_items
+  MODIFY content_status ENUM(
+    'draft', 'uploaded_unlisted', 'unlisted', 'published', 'unused', 'obsolete'
+  ) NOT NULL DEFAULT 'draft';
+
+UPDATE content_items
+SET content_status = 'unlisted'
+WHERE content_status = 'uploaded_unlisted';
+
+ALTER TABLE content_items
+  MODIFY content_status ENUM('draft', 'unlisted', 'published', 'unused', 'obsolete') NOT NULL DEFAULT 'draft'
+    COMMENT 'Current content lifecycle state. draft: Still being prepared. unlisted: Available at its hosted location but not publicly listed. published: Published and current. unused: Retained but not currently used. obsolete: Superseded and no longer current.';
+
+-- end migration 0069
+
 -- migration 0068: remove-calendar-event-todo-links
 -- writer downtime: required. The matching application no longer reads or
 -- writes calendar-event/to-do links, and this migration permanently deletes

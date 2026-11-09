@@ -524,6 +524,6 @@ test("content discovery includes every current lifecycle state", () => {
   const source = fs.readFileSync(new URL("../src/native-object-search.mjs", import.meta.url), "utf8");
   assert.match(
     source,
-    /content\.content_status IN \('draft', 'uploaded_unlisted', 'published'\)/u,
+    /content\.content_status IN \('draft', 'unlisted', 'published'\)/u,
   );
 });

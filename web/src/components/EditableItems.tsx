@@ -236,7 +236,7 @@ function libraryContentDraft(
     description: String(content?.description || ""),
     publishedAt: localDateTimeValue(String(content?.publishedAtUtc || new Date().toISOString())),
     contentHost: String(content?.contentHost || "youtube"),
-    contentStatus: String(content?.contentStatus || "published"),
+    contentStatus: String(content?.contentStatus || "draft"),
     contentUrl: String(content?.contentUrl || ""),
   };
 }
@@ -323,7 +323,7 @@ export function LibraryContentEditor({ content, groups, initialGroupId, onClose,
           <option value="video_promo">Video promo</option><option value="video_personal">Video personal</option><option value="video_tutorial">Video tutorial</option><option value="audio_promo">Audio promo</option><option value="audio_personal">Audio personal</option><option value="audio_tutorial">Audio tutorial</option><option value="image">Image</option><option value="other">Other</option>
         </select></label>
         <label>Status<select value={draft.contentStatus} onChange={(change) => setDraft({ ...draft, contentStatus: change.target.value })}>
-          <option value="draft">Draft</option><option value="uploaded_unlisted">Uploaded unlisted</option><option value="published">Published</option><option value="unused">Unused</option><option value="obsolete">Obsolete</option>
+          <option value="draft">Draft</option><option value="unlisted">Unlisted</option><option value="published">Published</option><option value="unused">Unused</option><option value="obsolete">Obsolete</option>
         </select></label>
         <label>Host<select value={draft.contentHost} onChange={(change) => setDraft({ ...draft, contentHost: change.target.value })}>
           <option value="youtube">YouTube</option><option value="vimeo">Vimeo</option><option value="spotify">Spotify</option><option value="mytlomdotcom">mytlom.com</option><option value="none">None</option>

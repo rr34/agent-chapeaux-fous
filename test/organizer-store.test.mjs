@@ -1423,6 +1423,31 @@ test("grouped content supports sequence-aware CRUD, filtering, and safe group li
       ["Research", "Campaigns", "General"],
     );
 
+    const defaultDraft = organizer.createContent({
+      groupId: campaigns.id,
+      title: "New campaign idea",
+    });
+    assert.equal(defaultDraft.contentStatus, "draft");
+    const unlisted = organizer.createContent({
+      groupId: campaigns.id,
+      title: "Hosted preview",
+      contentStatus: "unlisted",
+    });
+    assert.equal(unlisted.contentStatus, "unlisted");
+    const batch = organizer.createContentItems({
+      groupId: campaigns.id,
+      items: [{
+        sequence: null,
+        title: "Batch-created idea",
+        description: null,
+        transcript: null,
+        contentHost: "none",
+        contentType: "other",
+        contentUrl: null,
+      }],
+    });
+    assert.equal(batch.items[0].contentStatus, "draft");
+
     const first = organizer.createContent({
       groupId: research.id,
       sequence: 1,
@@ -1486,7 +1511,7 @@ test("grouped content supports sequence-aware CRUD, filtering, and safe group li
         'content_group.created', 'content_group.reordered', 'content.created',
         'content.updated', 'content.deleted', 'content_group.archived'
       )
-    `).get().count, 8);
+    `).get().count, 10);
   } finally {
     organizer.close();
     temporary.cleanup();

@@ -29,7 +29,7 @@ const contentTypes = new Set([
   "audio_promo", "audio_personal", "audio_tutorial", "image", "other",
 ]);
 const contentHosts = new Set(["youtube", "vimeo", "spotify", "mytlomdotcom", "none"]);
-const contentStatuses = new Set(["draft", "uploaded_unlisted", "published", "unused", "obsolete"]);
+const contentStatuses = new Set(["draft", "unlisted", "published", "unused", "obsolete"]);
 const contactKinds = new Set(["person", "organization", "service"]);
 const contactStatuses = new Set(["active", "inactive", "blocked", "deceased"]);
 const contactMethodKinds = new Set(["email", "phone", "postal_address", "handle", "url", "other"]);
@@ -3208,7 +3208,7 @@ export class OrganizerStore {
     }
     if (status != null && status !== "") {
       conditions.push("content.content_status = ?");
-      values.push(enumValue(status, contentStatuses, "status", "published"));
+      values.push(enumValue(status, contentStatuses, "status", "draft"));
     }
     appendTermSearch(conditions, values, searchPatterns(query), [
       "content.title", "content.description", "content.transcript", "content.content_status",
@@ -3342,7 +3342,7 @@ export class OrganizerStore {
       description: optionalText(input?.description, "description", 1_000_000),
       publishedAtUtc: isoDateTime(input?.publishedAtUtc ?? new Date().toISOString(), "publishedAtUtc", { required: true }),
       contentHost: enumValue(input?.contentHost, contentHosts, "contentHost", "youtube"),
-      contentStatus: enumValue(input?.contentStatus, contentStatuses, "contentStatus", "published"),
+      contentStatus: enumValue(input?.contentStatus, contentStatuses, "contentStatus", "draft"),
       contentUrl: httpUrl(input?.contentUrl, "contentUrl"),
     };
     const now = new Date().toISOString();
@@ -3414,7 +3414,7 @@ export class OrganizerStore {
           entry?.contentHost, contentHosts, `items[${index}].contentHost`, "none",
         ),
         contentStatus: enumValue(
-          entry?.contentStatus, contentStatuses, `items[${index}].contentStatus`, "published",
+          entry?.contentStatus, contentStatuses, `items[${index}].contentStatus`, "draft",
         ),
         contentUrl,
       };

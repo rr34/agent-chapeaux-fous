@@ -613,7 +613,7 @@ export function registerVideoScriptTools(
     capabilityRegistry.register({
       name: "video_content_create",
       title: "Create content-library items",
-      description: "Atomically create a bounded batch of 1 through 50 ordinary items in one exact active content-library group. Each item carries its own title, optional text, optional publication time, type, host, status, optional HTTP(S) source URL, and explicit positive sequence or null. An omitted or null publication time uses the current UTC time captured for the batch. Null sequence remains unnumbered and array order never generates sequence. Duplicate non-null sequences reject the complete call without partial writes. This is a general content mutation, not an external-source import or media transfer; it does not download, render, or publish media. A successful result proves new items were created, so do not replay the call.",
+      description: "Atomically create a bounded batch of 1 through 50 ordinary items in one exact active content-library group. Each item carries its own title, optional text, optional publication time, type, host, optional status, optional HTTP(S) source URL, and explicit positive sequence or null. An omitted status defaults to draft. An omitted or null publication time uses the current UTC time captured for the batch. Null sequence remains unnumbered and array order never generates sequence. Duplicate non-null sequences reject the complete call without partial writes. This is a general content mutation, not an external-source import or media transfer; it does not download, render, or publish media. A successful result proves new items were created, so do not replay the call.",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -649,7 +649,8 @@ export function registerVideoScriptTools(
                   ],
                 },
                 contentStatus: {
-                  type: "string", enum: ["draft", "uploaded_unlisted", "published", "unused", "obsolete"],
+                  type: "string", enum: ["draft", "unlisted", "published", "unused", "obsolete"],
+                  description: "Lifecycle status. Omit to create the item as a draft.",
                 },
                 contentUrl: {
                   type: ["string", "null"], minLength: 1, maxLength: 2048,
@@ -658,7 +659,7 @@ export function registerVideoScriptTools(
               },
               required: [
                 "sequence", "title", "description", "transcript",
-                "contentHost", "contentType", "contentStatus", "contentUrl",
+                "contentHost", "contentType", "contentUrl",
               ],
             },
           },
@@ -786,7 +787,7 @@ export function registerVideoScriptTools(
                   ],
                 },
                 contentStatus: {
-                  type: "string", enum: ["draft", "uploaded_unlisted", "published", "unused", "obsolete"],
+                  type: "string", enum: ["draft", "unlisted", "published", "unused", "obsolete"],
                 },
                 contentUrl: {
                   type: "string", minLength: 1, maxLength: 2048,

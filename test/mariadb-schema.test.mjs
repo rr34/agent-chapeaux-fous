@@ -73,7 +73,7 @@ test("MariaDB connection settings validate names and ports", () => {
   );
 });
 
-test("the authoritative MariaDB baseline is complete at schema version 68", () => {
+test("the authoritative MariaDB baseline is complete at schema version 69", () => {
   const source = fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8");
   const statements = parseMariaDbScript(source);
   assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 48);
@@ -213,7 +213,7 @@ test("the authoritative MariaDB baseline is complete at schema version 68", () =
   assert.ok(statements.some((statement) => statement.startsWith("CREATE TABLE calendar_routines ")));
   assert.ok(!statements.some((statement) => statement.startsWith("CREATE TABLE calendar_events_todo_join ")));
   assert.doesNotMatch(source, /CREATE TABLE todo_routines\b/u);
-  assert.match(statements.at(-1), /VALUES \(1, 68, 'Chapeaux Fous MariaDB database'\)$/);
+  assert.match(statements.at(-1), /VALUES \(1, 69, 'Chapeaux Fous MariaDB database'\)$/);
   assert.equal(
     requiredDatabaseSchemaVersion,
     readMigrationLedger(path.join(root, "db", "migrations.sql")).at(-1).version,
@@ -247,6 +247,15 @@ test("migration 68 deletes and retires calendar-event/to-do links", () => {
   assert.match(migration.sql, /DELETE FROM object_relationship_edge_index[\s\S]*'todo-event'[\s\S]*'todo-event-owned'/u);
   assert.match(migration.sql, /DROP TABLE IF EXISTS calendar_events_todo_join/u);
   assert.doesNotMatch(migration.sql.slice(migration.sql.indexOf("CREATE OR REPLACE SQL SECURITY INVOKER VIEW object_relationship_edges_source")), /calendar_events_todo_join|todo-event/u);
+});
+
+test("migration 69 defaults new content to draft and renames the unlisted status", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 69);
+  assert.equal(migration.label, "0069:content-draft-default-and-unlisted-status");
+  assert.match(migration.sql, /writer downtime: required/u);
+  assert.match(migration.sql, /SET content_status = 'unlisted'[\s\S]*WHERE content_status = 'uploaded_unlisted'/u);
+  assert.match(migration.sql, /ENUM\('draft', 'unlisted', 'published', 'unused', 'obsolete'\) NOT NULL DEFAULT 'draft'/u);
 });
 
 test("the physical Things migration adds constrained tables and expands the bidirectional edge view", () => {
