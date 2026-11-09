@@ -147,6 +147,8 @@ test("weekly paper replaces the daily plan with pinned to-do groups", () => {
   assert.match(calendarSource, /className="paper-handwriting-space"/);
   assert.match(styles, /\.paper-weekly-todos \{[^}]*border-top: 1px solid/s);
   assert.match(styles, /\.paper-todo-group > h3 \{/);
+  assert.match(styles, /\.paper-todo-cards \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/s);
+  assert.match(styles, /\.paper-todo-card \{[^}]*min-width: 0;/s);
   assert.match(styles, /\.paper-todo-card \{[^}]*border: 1px solid/s);
   assert.match(calendarSource, /<strong className="multiline-item-text">\{todoTitle\(todo\)\}<\/strong>[\s\S]*className="paper-todo-relationships"/);
   assert.match(styles, /\.paper-todo-card header \{[^}]*grid-template-columns: minmax\(0, 1\.25fr\) minmax\(1\.2in, \.75fr\);/s);

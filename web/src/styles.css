@@ -802,8 +802,8 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .paper-todo-group > h3 { margin: 0; padding-bottom: .018in; border-bottom: 1px solid #80877c; color: #252b22; font: 700 6.4pt/1.1 Inter, Arial, sans-serif; letter-spacing: .08em; text-transform: uppercase; break-after: avoid; }
 .paper-todo-empty-lines { display: grid; grid-template-rows: repeat(3, .18in); }
 .paper-todo-empty-lines span { border-bottom: 1px solid #d5d8d0; }
-.paper-todo-cards { display: grid; gap: .055in; margin: 0; padding: 0; list-style: none; }
-.paper-todo-card { min-height: .32in; display: grid; grid-template-columns: .12in minmax(0, 1fr); align-items: start; gap: .055in; padding: .045in .06in .035in; border: 1px solid #484d45; border-radius: .04in; break-inside: avoid; }
+.paper-todo-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .055in; margin: 0; padding: 0; list-style: none; }
+.paper-todo-card { min-width: 0; min-height: .32in; display: grid; grid-template-columns: .12in minmax(0, 1fr); align-items: start; gap: .055in; padding: .045in .06in .035in; border: 1px solid #484d45; border-radius: .04in; break-inside: avoid; }
 .paper-todo-check { box-sizing: border-box; width: .11in; height: .11in; display: grid; place-items: center; margin-top: .005in; border: 1px solid #60675d; color: #4f6544; font-size: 6pt; font-weight: 800; line-height: 1; }
 .paper-todo-card > div { min-width: 0; }
 .paper-todo-card header { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(1.2in, .75fr); align-items: start; gap: .08in; }

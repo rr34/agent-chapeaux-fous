@@ -140,8 +140,8 @@ export function renderTodoChecklistHtml(model, generatedAt = new Date()) {
     .todo-group { margin: 0 0 .2in; page-break-inside: avoid; break-inside: avoid-page; }
     h2 { margin: 0 0 .07in; padding-bottom: .04in; border-bottom: 1px solid #cbd0c6; font: 700 14pt/1.15 Georgia, serif; break-after: avoid; }
     h2 span { margin-left: .05in; color: #71766d; font: 700 7pt Arial, sans-serif; letter-spacing: .05em; text-transform: uppercase; }
-    ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .055in; margin: 0; padding: 0; list-style: none; }
-    li { min-width: 0; min-height: .34in; display: grid; grid-template-columns: max-content .18in minmax(0, 1fr); align-items: start; gap: .07in; padding: .055in .07in; border: 1px solid #d7dbd2; border-radius: .055in; break-inside: avoid; }
+    ul { display: grid; gap: .055in; margin: 0; padding: 0; list-style: none; }
+    li { min-height: .34in; display: grid; grid-template-columns: max-content .18in minmax(0, 1fr); align-items: start; gap: .07in; padding: .055in .07in; border: 1px solid #d7dbd2; border-radius: .055in; break-inside: avoid; }
     li > div { min-width: 0; padding-top: .015in; }
     li > div > strong { display: block; font: 700 9.5pt/1.25 Georgia, serif; overflow-wrap: anywhere; white-space: pre-wrap; }
     li small { display: block; margin-top: .025in; color: #71766d; font-size: 6.7pt; }

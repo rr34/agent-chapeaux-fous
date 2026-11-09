@@ -541,9 +541,8 @@ and the row's latest update instant as **Last changed**.
 The **To do** screen's **Print PDF** action captures its current visible
 projection after the group, text-search, and completed-item filters have been
 applied. It renders those groups and tasks in their current display order as a
-printable checklist with each group's cards in a two-column grid by default,
-wrapping card text as needed. It stores the PDF as a durable file and downloads
-it. It does not independently query or add hidden to-dos while printing.
+printable checklist, stores the PDF as a durable file, and downloads it. It
+does not independently query or add hidden to-dos while printing.
 
 The **Calendar** screen composes a shared React weekly-paper component from the
 authoritative two-week calendar, the Monday-to-Sunday week containing the
@@ -556,8 +555,10 @@ The calendar contains only events. Each seven-day row grows to its busiest day
 and reserves at least three additional event-row heights of blank space below
 it, giving every day in that week matching writing room.
 Below it, a full-width **Pinned to-do groups** section contains the open tasks
-from every group pinned to the paper. The print preview is a transient editable
-copy for browser printing; source calendar and to-do records remain unchanged.
+from every group pinned to the paper. Each group's to-do cards use a two-column
+grid by default and wrap their text within the card. The print preview is a
+transient editable copy for browser printing; source calendar and to-do records
+remain unchanged.
 Choose Letter or A4 and click **Download weekly PDF**
 to render, store, and download the current weekly snapshot. The agent can invoke
 the same behavior through the compatibility tool identity
