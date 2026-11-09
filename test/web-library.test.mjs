@@ -85,6 +85,18 @@ test("Library groups expose an explicit automatic-sequencing setting", () => {
   assert.doesNotMatch(librarySource, /window\.confirm/);
 });
 
+test("Library group headers break their item total down by lifecycle status", () => {
+  const start = appSource.indexOf("function LibraryScreen");
+  const end = appSource.indexOf("\nfunction VideoScriptsScreen", start);
+  const librarySource = appSource.slice(start, end);
+
+  assert.match(appSource, /const libraryContentStatusLabels = \[[\s\S]*\["draft", "Draft"\][\s\S]*\["unlisted", "Unlisted"\][\s\S]*\["published", "Published"\][\s\S]*\["unused", "Unused"\][\s\S]*\["obsolete", "Obsolete"\]/u);
+  assert.match(appSource, /function libraryGroupStatusAttributes\(items: Entity\[\]\)/u);
+  assert.match(appSource, /\{ label: "Items", value: String\(items\.length\) \}/u);
+  assert.match(appSource, /return count \? \[\{ label, value: String\(count\) \}\] : \[\]/u);
+  assert.match(librarySource, /attributes: libraryGroupStatusAttributes\(group\.items\)/u);
+});
+
 test("to-do sequence settings appear only in the shared group editor", () => {
   const start = appSource.indexOf("function TodoScreen");
   const end = appSource.indexOf("\nfunction ThingsScreen", start);

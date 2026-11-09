@@ -60,6 +60,29 @@ const calendarMonthOptions = Array.from({ length: 12 }, (_, index) => ({
     .format(new Date(Date.UTC(2000, index, 1))),
 }));
 
+const libraryContentStatusLabels = [
+  ["draft", "Draft"],
+  ["unlisted", "Unlisted"],
+  ["published", "Published"],
+  ["unused", "Unused"],
+  ["obsolete", "Obsolete"],
+] as const;
+
+function libraryGroupStatusAttributes(items: Entity[]) {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const status = textKey(item, "contentStatus", "status");
+    counts.set(status, (counts.get(status) || 0) + 1);
+  }
+  return [
+    { label: "Items", value: String(items.length) },
+    ...libraryContentStatusLabels.flatMap(([status, label]) => {
+      const count = counts.get(status) || 0;
+      return count ? [{ label, value: String(count) }] : [];
+    }),
+  ];
+}
+
 type NavigationItem = typeof navigation[number];
 
 const navigationSvgIcons: Partial<Record<NavigationItem[0], ReactNode>> = {
@@ -2167,7 +2190,7 @@ function LibraryScreen() {
     {!loading && !groupsLoading && !error && !groupError && Boolean(groups.length) && <div className="library-groups">
       {groups.map((group) => <section className="library-group" key={group.id} aria-label={`${group.name} library group`}>
         {Number.isSafeInteger(Number(group.id)) && Number(group.id) > 0 ? <LibraryGroupCard
-          object={{ id: Number(group.id), type: "video.content_group", label: "Library group", display: group.name, attributes: [{ label: "Items", value: String(group.items.length) }], badges: [group.usesSequence ? "Auto sequence" : "Manual numbering"] }}
+          object={{ id: Number(group.id), type: "video.content_group", label: "Library group", display: group.name, attributes: libraryGroupStatusAttributes(group.items), badges: [group.usesSequence ? "Auto sequence" : "Manual numbering"] }}
           controls={<ObjectSelectionControls identity={contentGroupIdentity({ id: Number(group.id), name: group.name })} subject={`library group ${group.name}`} />}
           actions={[
             { key: "top", label: "Move group to top", onClick: () => void moveContentGroup(Number(group.id), "top") },
