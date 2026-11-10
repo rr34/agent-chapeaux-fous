@@ -756,7 +756,7 @@ export class Ledger {
 
   trace(requestId) {
     return this.store.requireReady().prepare(`
-      SELECT * FROM activity_events FORCE INDEX (activity_events_turn)
+      SELECT * FROM activity_events
       WHERE turn_id = ? ORDER BY event_seq
     `).all(requestId).map(publicEvent);
   }
@@ -786,7 +786,7 @@ export class Ledger {
           ELSE '{}'
         END AS payload_json,
         NULL AS primary_file_id, subject_type, subject_id, error_text
-      FROM activity_events FORCE INDEX (activity_events_turn)
+      FROM activity_events
       WHERE turn_id = ?
         AND event_type IN (${placeholders(requestFeedEventTypes)})
       ORDER BY event_seq
@@ -798,7 +798,7 @@ export class Ledger {
     if (!/^[0-9a-f][0-9a-f-]{7,35}$/.test(candidate)) return { status: "invalid", requestId: null };
     const rows = this.store.requireReady().prepare(`
       SELECT DISTINCT turn_id
-      FROM activity_events FORCE INDEX (activity_events_turn)
+      FROM activity_events
       WHERE turn_id LIKE ?
       ORDER BY turn_id
       LIMIT 2
@@ -1120,13 +1120,13 @@ export class Ledger {
     const rows = this.store.requireReady().prepare(`
       SELECT usage_event.*, response.actor_name AS response_model,
              response.payload_json AS response_payload_json
-      FROM activity_events AS usage_event FORCE INDEX (activity_events_type)
-      LEFT JOIN activity_events AS response FORCE INDEX (activity_events_operation)
+      FROM activity_events AS usage_event
+      LEFT JOIN activity_events AS response
         ON response.operation_id = usage_event.operation_id
        AND response.event_type = 'model.response'
        AND response.event_seq = (
          SELECT MAX(candidate.event_seq)
-         FROM activity_events AS candidate FORCE INDEX (activity_events_operation)
+         FROM activity_events AS candidate
          WHERE candidate.operation_id = usage_event.operation_id
            AND candidate.turn_id <=> usage_event.turn_id
            AND candidate.event_type = 'model.response'
@@ -1317,7 +1317,7 @@ export class Ledger {
       values.push(pattern, pattern, ...responseEventTypes, pattern);
     }
     const received = this.store.requireReady().prepare(`
-      SELECT * FROM activity_events FORCE INDEX (activity_events_type)
+      SELECT * FROM activity_events
       WHERE ${conditions.join(" AND ")}
       ORDER BY event_seq DESC LIMIT ?
     `).all(...values, bounded).map(publicEvent);
@@ -1337,7 +1337,7 @@ export class Ledger {
       FROM activity_events
     `).get()?.event_seq ?? 0);
     const received = database.prepare(`
-      SELECT * FROM activity_events FORCE INDEX (PRIMARY)
+      SELECT * FROM activity_events
       WHERE event_type IN (${placeholders(receivedEventTypes)})
         AND event_seq <= ?
       ORDER BY event_seq DESC LIMIT ?
@@ -1350,7 +1350,7 @@ export class Ledger {
       ? requestIds.map((turn_id) => ({ turn_id }))
       : database.prepare(`
       SELECT DISTINCT turn_id
-      FROM activity_events FORCE INDEX (PRIMARY)
+      FROM activity_events
       WHERE event_seq > ?
         AND event_seq <= ?
         AND turn_id IN (${placeholders(requestIds)})
@@ -1464,7 +1464,7 @@ export class Ledger {
   #recentVideoRequests() {
     return this.store.requireReady().prepare(`
       SELECT turn_id, payload_json
-      FROM activity_events FORCE INDEX (activity_events_type)
+      FROM activity_events
       WHERE event_type = 'request.received'
       ORDER BY event_seq DESC
       LIMIT 1000

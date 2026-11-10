@@ -29,7 +29,7 @@ function requestRow(id, sequence) {
   };
 }
 
-test("recent request loading uses bounded indexes and reuses one video scan", () => {
+test("recent request loading stays bounded without view-incompatible index hints", () => {
   const requests = [requestRow("turn-2", 2), requestRow("turn-1", 1)];
   const calls = [];
   const database = {
@@ -41,7 +41,7 @@ test("recent request loading uses bounded indexes and reuses one video scan", ()
           if (/event_type IN/u.test(sql) && /ORDER BY event_seq DESC LIMIT \?/u.test(sql)) {
             return requests;
           }
-          if (/FORCE INDEX \(activity_events_turn\)/u.test(sql)) {
+          if (/WHERE turn_id = \? ORDER BY event_seq/u.test(sql)) {
             return [requests.find(({ turn_id: id }) => id === parameters[0])];
           }
           throw new Error(`Unexpected SQL: ${sql}`);
@@ -55,8 +55,8 @@ test("recent request loading uses bounded indexes and reuses one video scan", ()
 
   assert.equal(result.length, 2);
   assert.equal(calls.filter(({ sql }) => /LIMIT 1000/u.test(sql)).length, 1);
-  assert.equal(calls.filter(({ sql }) => /FORCE INDEX \(activity_events_type\)/u.test(sql)).length, 2);
-  assert.equal(calls.filter(({ sql }) => /FORCE INDEX \(activity_events_turn\)/u.test(sql)).length, 2);
+  assert.doesNotMatch(calls.map(({ sql }) => sql).join("\n"), /FORCE INDEX/u);
+  assert.equal(calls.filter(({ sql }) => /WHERE turn_id = \? ORDER BY event_seq/u.test(sql)).length, 2);
   const videoScan = calls.find(({ sql }) => /event_type = 'request\.received'/u.test(sql));
   assert.match(videoScan.sql, /SELECT turn_id, payload_json/u);
   assert.doesNotMatch(videoScan.sql, /SELECT \*/u);
@@ -133,7 +133,7 @@ test("initial incremental loading projects only feed fields for recent requests"
           if (/event_seq <= \?/u.test(sql) && /ORDER BY event_seq DESC LIMIT \?/u.test(sql)) {
             return [received];
           }
-          if (/CASE\s+WHEN event_type IN/u.test(sql) && /activity_events_turn/u.test(sql)) {
+          if (/CASE\s+WHEN event_type IN/u.test(sql) && /WHERE turn_id = \?/u.test(sql)) {
             return [received, terminal];
           }
           throw new Error(`Unexpected SQL: ${sql}`);
@@ -163,7 +163,7 @@ test("initial incremental loading projects only feed fields for recent requests"
   assert.doesNotMatch(calls.map(({ sql }) => sql).join("\n"), /LIMIT 1000/u);
 });
 
-test("AI usage avoids the reserved usage alias and uses selective indexes", () => {
+test("AI usage avoids the reserved usage alias and view-incompatible index hints", () => {
   const calls = [];
   const database = {
     prepare(sql) {
@@ -181,8 +181,7 @@ test("AI usage avoids the reserved usage alias and uses selective indexes", () =
   assert.equal(calls.length, 1);
   assert.doesNotMatch(calls[0].sql, /\busage\.\*/u);
   assert.match(calls[0].sql, /usage_event\.\*/u);
-  assert.match(calls[0].sql, /usage_event FORCE INDEX \(activity_events_type\)/u);
-  assert.match(calls[0].sql, /response FORCE INDEX \(activity_events_operation\)/u);
+  assert.doesNotMatch(calls[0].sql, /FORCE INDEX/u);
   assert.deepEqual(calls[0].parameters, [10]);
 });
 
