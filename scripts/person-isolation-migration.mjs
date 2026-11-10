@@ -312,7 +312,7 @@ export async function applyPersonIsolationMigration(connection, databaseName, {
 
   await connection.query("DROP FUNCTION IF EXISTS timev3_current_person_id");
   await connection.query(`CREATE FUNCTION timev3_current_person_id()
-    RETURNS BIGINT UNSIGNED NOT DETERMINISTIC NO SQL RETURN @timev3_person_id`);
+    RETURNS BIGINT UNSIGNED DETERMINISTIC NO SQL RETURN @timev3_person_id`);
 
   for (const table of agentPersonTables) {
     const physical = `${personDataTablePrefix}${table}`;

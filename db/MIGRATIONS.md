@@ -12,6 +12,19 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 71: Person-scoped activity indexes
+
+Marks the session person selector deterministic for the duration of each SQL
+statement and adds physical activity-ledger indexes beginning with `person_id`
+for turn, event-type, and operation reads. These indexes allow MariaDB to merge
+the schema-70 person view while keeping request-feed, trace, and model-usage
+queries bounded to the selected person.
+
+Apply with Agent stopped. Building the indexes reads the complete activity
+ledger and may take time on a large history. Each index statement is replayable;
+after an interruption, keep Agent stopped and rerun the migration before
+verification and restart.
+
 ## Version 70: Direct person data isolation
 
 Assigns every existing private Agent row to person `1`, then converts all 47

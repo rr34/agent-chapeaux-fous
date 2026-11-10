@@ -220,6 +220,20 @@ test("the authoritative MariaDB baseline is complete at schema version 69", () =
   );
 });
 
+test("migration 71 makes person-filtered activity reads indexable", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 71);
+  assert.equal(migration.label, "0071:person-scoped-activity-indexes");
+  assert.match(migration.sql, /timev3_current_person_id\(\)[\s\S]+DETERMINISTIC NO SQL/u);
+  for (const [name, columns] of [
+    ["t3_activity_person_turn", "person_id, turn_id, event_seq"],
+    ["t3_activity_person_type", "person_id, event_type, event_seq"],
+    ["t3_activity_person_operation", "person_id, operation_id, event_seq"],
+  ]) {
+    assert.match(migration.sql, new RegExp(`CREATE INDEX IF NOT EXISTS ${name}\\s+ON person_data_activity_events \\(${columns}\\)`, "u"));
+  }
+});
+
 test("migration 66 removes MariaDB JSON verification while preserving text limits", () => {
   const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
     .find(({ version }) => version === 66);

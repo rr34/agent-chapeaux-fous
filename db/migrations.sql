@@ -16,6 +16,29 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0071: person-scoped-activity-indexes
+-- writer downtime: required. The matching application requires schema 71 and
+-- request-feed reads are already degraded under schema 70 without these keys.
+-- locking: three secondary indexes are built on the physical activity ledger;
+-- keep Agent stopped so no request competes with the index build.
+-- recovery: each CREATE INDEX is replayable. If the function replacement or
+-- an index build fails, keep Agent stopped and rerun the complete migration.
+
+CREATE OR REPLACE FUNCTION timev3_current_person_id()
+RETURNS BIGINT UNSIGNED DETERMINISTIC NO SQL
+RETURN @timev3_person_id;
+
+CREATE INDEX IF NOT EXISTS t3_activity_person_turn
+ON person_data_activity_events (person_id, turn_id, event_seq);
+
+CREATE INDEX IF NOT EXISTS t3_activity_person_type
+ON person_data_activity_events (person_id, event_type, event_seq);
+
+CREATE INDEX IF NOT EXISTS t3_activity_person_operation
+ON person_data_activity_events (person_id, operation_id, event_seq);
+
+-- end migration 0071
+
 -- migration 0070: direct-person-data-isolation
 -- writer downtime: required. Every Agent base table is converted to a private
 -- person-owned physical table behind a person-filtered logical view. The

@@ -1,7 +1,7 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 import { personDataTablePrefix } from "./person-isolation.mjs";
 
-export const requiredDatabaseSchemaVersion = 70;
+export const requiredDatabaseSchemaVersion = 71;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],

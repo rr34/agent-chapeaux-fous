@@ -388,6 +388,38 @@ export async function assertMigrationSpecificIntegrity(
   connection, migration, databaseName, schemaVersion = migration.version,
 ) {
   if (schemaVersion >= 70 && migration.version < 70) return;
+  if (migration.version === 71) {
+    const [routineRows] = await connection.query(`
+      SELECT IS_DETERMINISTIC FROM information_schema.ROUTINES
+       WHERE ROUTINE_SCHEMA = ? AND ROUTINE_NAME = 'timev3_current_person_id'
+         AND ROUTINE_TYPE = 'FUNCTION'
+    `, [databaseName]);
+    if (routineRows[0]?.IS_DETERMINISTIC !== "YES") {
+      throw new Error("Migration 0071 did not make the person selector statement-stable");
+    }
+    const expectedIndexes = new Map([
+      ["t3_activity_person_turn", ["person_id", "turn_id", "event_seq"]],
+      ["t3_activity_person_type", ["person_id", "event_type", "event_seq"]],
+      ["t3_activity_person_operation", ["person_id", "operation_id", "event_seq"]],
+    ]);
+    const [indexRows] = await connection.query(`
+      SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX
+        FROM information_schema.STATISTICS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'person_data_activity_events'
+         AND INDEX_NAME IN ('t3_activity_person_turn', 't3_activity_person_type', 't3_activity_person_operation')
+       ORDER BY INDEX_NAME, SEQ_IN_INDEX
+    `, [databaseName]);
+    const actualIndexes = new Map();
+    for (const row of indexRows) {
+      if (!actualIndexes.has(row.INDEX_NAME)) actualIndexes.set(row.INDEX_NAME, []);
+      actualIndexes.get(row.INDEX_NAME).push(row.COLUMN_NAME);
+    }
+    for (const [name, columns] of expectedIndexes) {
+      if (JSON.stringify(actualIndexes.get(name)) !== JSON.stringify(columns)) {
+        throw new Error(`Migration 0071 did not establish ${name} (${columns.join(", ")})`);
+      }
+    }
+  }
   if (migration.version === 70) {
     await assertPersonIsolationMigration(connection, databaseName);
   }
