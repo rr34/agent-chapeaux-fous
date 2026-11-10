@@ -1,4 +1,8 @@
+import { createHash } from "node:crypto";
+import fs from "node:fs";
 import { agentPersonTables, personDataTablePrefix } from "../src/person-isolation.mjs";
+import { baselineFilename } from "./agent-schema.mjs";
+import { parseMariaDbScript } from "./mariadb-schema.mjs";
 
 function quote(name) {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(name)) throw new Error(`Unsafe MariaDB identifier: ${name}`);
@@ -25,13 +29,163 @@ function grouped(rows, key) {
   return result;
 }
 
+export function canonicalSchema69Artifacts() {
+  const statements = parseMariaDbScript(fs.readFileSync(baselineFilename, "utf8"));
+  const foreignKeys = [];
+  const derivedViews = [];
+  for (const statement of statements) {
+    const table = statement.match(/\bCREATE\s+TABLE\s+`?([A-Za-z_][A-Za-z0-9_]*)`?/iu)?.[1];
+    if (table && agentPersonTables.includes(table)) {
+      const pattern = /CONSTRAINT\s+`?([A-Za-z_][A-Za-z0-9_]*)`?\s+FOREIGN KEY\s*\(([^)]+)\)\s+REFERENCES\s+`?([A-Za-z_][A-Za-z0-9_]*)`?\s*\(([^)]+)\)([^,;\n]*)/giu;
+      for (const match of statement.matchAll(pattern)) {
+        const childColumns = match[2].split(",").map((value) => value.trim().replaceAll("`", ""));
+        const parentColumns = match[4].split(",").map((value) => value.trim().replaceAll("`", ""));
+        const updateRule = match[5].match(/\bON\s+UPDATE\s+(RESTRICT|CASCADE|SET NULL|NO ACTION)/iu)?.[1]?.toUpperCase() ?? "RESTRICT";
+        const deleteRule = match[5].match(/\bON\s+DELETE\s+(RESTRICT|CASCADE|SET NULL|NO ACTION)/iu)?.[1]?.toUpperCase() ?? "RESTRICT";
+        foreignKeys.push(childColumns.map((column, index) => ({
+          TABLE_NAME: table,
+          CONSTRAINT_NAME: match[1],
+          COLUMN_NAME: column,
+          ORDINAL_POSITION: index + 1,
+          REFERENCED_TABLE_NAME: match[3],
+          REFERENCED_COLUMN_NAME: parentColumns[index],
+          UPDATE_RULE: updateRule,
+          DELETE_RULE: deleteRule,
+        })));
+      }
+    }
+    const view = statement.match(/\bCREATE(?:\s+OR\s+REPLACE)?[\s\S]*?\bVIEW\s+`?([A-Za-z_][A-Za-z0-9_]*)`?\s+AS\b/iu)?.[1];
+    if (view && !agentPersonTables.includes(view)) derivedViews.push({ name: view, sql: statement });
+  }
+  if (foreignKeys.length !== 68 || derivedViews.length !== 9) {
+    throw new Error(`Could not reconstruct schema-69 artifacts: found ${foreignKeys.length} foreign keys and ${derivedViews.length} views`);
+  }
+  return { foreignKeys, derivedViews };
+}
+
+async function removePartialForeignKeys(connection, databaseName, canonicalForeignKeys) {
+  const currentRows = await queryRows(connection, `
+    SELECT TABLE_NAME, CONSTRAINT_NAME
+      FROM information_schema.REFERENTIAL_CONSTRAINTS
+     WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME LIKE 'person\\_data\\_%'
+  `, [databaseName]);
+  for (const row of currentRows) {
+    await connection.query(`ALTER TABLE ${quote(row.TABLE_NAME)} DROP FOREIGN KEY ${quote(row.CONSTRAINT_NAME)}`);
+  }
+
+  const constraintNames = new Set(canonicalForeignKeys.map((rows) => rows[0].CONSTRAINT_NAME));
+  const indexRows = await queryRows(connection, `
+    SELECT TABLE_NAME, INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX
+      FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME LIKE 'person\\_data\\_%'
+     ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX
+  `, [databaseName]);
+  for (const rows of grouped(indexRows, (row) => `${row.TABLE_NAME}\0${row.INDEX_NAME}`).values()) {
+    const partialAutomaticIndex = constraintNames.has(rows[0].INDEX_NAME)
+      && rows[0].COLUMN_NAME === "person_id";
+    if (partialAutomaticIndex || rows[0].INDEX_NAME.startsWith("t3_fk_")) {
+      await connection.query(`ALTER TABLE ${quote(rows[0].TABLE_NAME)} DROP INDEX ${quote(rows[0].INDEX_NAME)}`);
+    }
+  }
+
+  const validationTriggers = await queryRows(connection, `
+    SELECT TRIGGER_NAME FROM information_schema.TRIGGERS
+     WHERE TRIGGER_SCHEMA = ? AND TRIGGER_NAME LIKE 't3\\_ref\\_%'
+  `, [databaseName]);
+  for (const row of validationTriggers) await connection.query(`DROP TRIGGER ${quote(row.TRIGGER_NAME)}`);
+}
+
 function portableViewDefinition(sql) {
   return sql.replace(/\s+DEFINER=`[^`]+`@`[^`]+`/iu, "");
+}
+
+function boundedName(prefix, ...parts) {
+  const digest = createHash("sha256").update(parts.join("\0")).digest("hex").slice(0, 16);
+  return `${prefix}_${digest}`;
+}
+
+function referenceValidationTriggerSql({ event, table, constraint, childColumns, parentTable, parentColumns }) {
+  const timing = event === "INSERT" ? "insert" : "update";
+  const ownershipTrigger = `t3_person_${timing}_${table}`.slice(0, 64);
+  const triggerName = boundedName(event === "INSERT" ? "t3_ref_bi" : "t3_ref_bu", table, constraint);
+  const completeReference = childColumns.map((column) => `NEW.${quote(column)} IS NOT NULL`).join(" AND ");
+  const matchingParent = childColumns.map((column, index) => (
+    `parent.${quote(parentColumns[index])} = NEW.${quote(column)}`
+  )).join(" AND ");
+  return `CREATE TRIGGER ${quote(triggerName)}
+    BEFORE ${event} ON ${quote(`${personDataTablePrefix}${table}`)} FOR EACH ROW
+    FOLLOWS ${quote(ownershipTrigger)}
+    BEGIN
+      IF (${completeReference}) AND NOT EXISTS (
+        SELECT 1 FROM ${quote(`${personDataTablePrefix}${parentTable}`)} parent
+         WHERE parent.person_id = NEW.person_id AND ${matchingParent}
+      ) THEN
+        SIGNAL SQLSTATE '45000'
+          SET MESSAGE_TEXT = 'Cross-person reference blocked by ${constraint}';
+      END IF;
+    END`;
+}
+
+export function personIsolationForeignKeyStatements(rows) {
+  if (!Array.isArray(rows) || !rows.length) throw new Error("Foreign-key metadata is required");
+  const first = rows[0];
+  const childColumnNames = rows.map((row) => row.COLUMN_NAME);
+  const parentColumnNames = rows.map((row) => row.REFERENCED_COLUMN_NAME);
+  const childColumns = childColumnNames.map(quote).join(", ");
+  const parentColumns = parentColumnNames.map(quote).join(", ");
+  const childTable = quote(`${personDataTablePrefix}${first.TABLE_NAME}`);
+  const parentTable = quote(`${personDataTablePrefix}${first.REFERENCED_TABLE_NAME}`);
+  const nullableAction = first.UPDATE_RULE === "SET NULL" || first.DELETE_RULE === "SET NULL";
+  if (nullableAction) {
+    return [
+      referenceValidationTriggerSql({
+        event: "INSERT", table: first.TABLE_NAME, constraint: first.CONSTRAINT_NAME,
+        childColumns: childColumnNames, parentTable: first.REFERENCED_TABLE_NAME,
+        parentColumns: parentColumnNames,
+      }),
+      referenceValidationTriggerSql({
+        event: "UPDATE", table: first.TABLE_NAME, constraint: first.CONSTRAINT_NAME,
+        childColumns: childColumnNames, parentTable: first.REFERENCED_TABLE_NAME,
+        parentColumns: parentColumnNames,
+      }),
+      `ALTER TABLE ${childTable}
+        ADD CONSTRAINT ${quote(first.CONSTRAINT_NAME)}
+        FOREIGN KEY (${childColumns})
+        REFERENCES ${parentTable} (${parentColumns})
+        ON UPDATE ${first.UPDATE_RULE} ON DELETE ${first.DELETE_RULE}`,
+    ];
+  }
+  const indexName = boundedName("t3_fk", first.TABLE_NAME, first.CONSTRAINT_NAME);
+  return [
+    `ALTER TABLE ${childTable}
+      ADD KEY ${quote(indexName)} (person_id, ${childColumns})`,
+    `ALTER TABLE ${childTable}
+      ADD CONSTRAINT ${quote(first.CONSTRAINT_NAME)}
+      FOREIGN KEY (person_id, ${childColumns})
+      REFERENCES ${parentTable} (person_id, ${parentColumns})
+      ON UPDATE ${first.UPDATE_RULE} ON DELETE ${first.DELETE_RULE}`,
+  ];
 }
 
 async function queryRows(connection, sql, parameters = []) {
   const [rows] = await connection.query(sql, parameters);
   return rows;
+}
+
+async function installPersonForeignKeys(connection, foreignKeys) {
+  const expected = new Set(agentPersonTables);
+  for (const rows of foreignKeys) {
+    const first = rows[0];
+    if (!expected.has(first.TABLE_NAME) || !expected.has(first.REFERENCED_TABLE_NAME)) {
+      throw new Error(`Unexpected schema-69 foreign key ${first.CONSTRAINT_NAME}`);
+    }
+    // SET NULL cannot include the non-null owner column. It retains the
+    // globally unique ID foreign key and gets ordered same-person validation
+    // triggers; all other relationships use a composite owner+ID key.
+    for (const statement of personIsolationForeignKeyStatements(rows)) {
+      await connection.query(statement);
+    }
+  }
 }
 
 export async function applyPersonIsolationMigration(connection, databaseName, {
@@ -42,7 +196,6 @@ export async function applyPersonIsolationMigration(connection, databaseName, {
   if (!Number.isSafeInteger(personId) || personId < 1) {
     throw new Error("SLAYER_LEGACY_PERSON_ID must be a positive safe integer");
   }
-  const expected = new Set(agentPersonTables);
   const objects = await queryRows(connection, `
     SELECT TABLE_NAME, TABLE_TYPE
       FROM information_schema.TABLES
@@ -53,7 +206,18 @@ export async function applyPersonIsolationMigration(connection, databaseName, {
     types.get(name) === "VIEW" && types.get(`${personDataTablePrefix}${name}`) === "BASE TABLE"
   ));
   if (completed) {
-    output.write("Person-isolated physical tables and logical views already exist; validating replay state.\n");
+    output.write("Detected a partially committed schema-70 conversion; rebuilding its foreign keys and derived views in place.\n");
+    const canonical = canonicalSchema69Artifacts();
+    await removePartialForeignKeys(connection, databaseName, canonical.foreignKeys);
+    await installPersonForeignKeys(connection, canonical.foreignKeys);
+    const existingDerivedViews = canonical.derivedViews
+      .map(({ name }) => name)
+      .filter((name) => types.get(name) === "VIEW");
+    if (existingDerivedViews.length) {
+      await connection.query(`DROP VIEW ${existingDerivedViews.map(quote).join(", ")}`);
+    }
+    for (const view of canonical.derivedViews) await connection.query(view.sql);
+    output.write("Repaired the partial schema-70 conversion in place.\n");
     return;
   }
   const missing = agentPersonTables.filter((name) => types.get(name) !== "BASE TABLE");
@@ -158,19 +322,7 @@ export async function applyPersonIsolationMigration(connection, databaseName, {
       SET NEW.person_id = OLD.person_id`);
   }
 
-  for (const rows of foreignKeys) {
-    const first = rows[0];
-    if (!expected.has(first.TABLE_NAME) || !expected.has(first.REFERENCED_TABLE_NAME)) {
-      throw new Error(`Unexpected schema-69 foreign key ${first.CONSTRAINT_NAME}`);
-    }
-    const childColumns = rows.map((row) => quote(row.COLUMN_NAME)).join(", ");
-    const parentColumns = rows.map((row) => quote(row.REFERENCED_COLUMN_NAME)).join(", ");
-    await connection.query(`ALTER TABLE ${quote(`${personDataTablePrefix}${first.TABLE_NAME}`)}
-      ADD CONSTRAINT ${quote(first.CONSTRAINT_NAME)}
-      FOREIGN KEY (person_id, ${childColumns})
-      REFERENCES ${quote(`${personDataTablePrefix}${first.REFERENCED_TABLE_NAME}`)} (person_id, ${parentColumns})
-      ON UPDATE ${first.UPDATE_RULE} ON DELETE ${first.DELETE_RULE}`);
-  }
+  await installPersonForeignKeys(connection, foreignKeys);
 
   for (const view of viewDefinitions) await connection.query(view.sql);
   output.write(`Assigned schema-69 Agent rows to person_id ${personId} and installed ${agentPersonTables.length} person-filtered logical views.\n`);
@@ -209,9 +361,9 @@ export async function assertPersonIsolationMigration(connection, databaseName) {
   }
 
   const triggers = await queryRows(connection, `
-    SELECT EVENT_OBJECT_TABLE, ACTION_TIMING, EVENT_MANIPULATION
+    SELECT TRIGGER_NAME, EVENT_OBJECT_TABLE, ACTION_TIMING, EVENT_MANIPULATION
       FROM information_schema.TRIGGERS
-     WHERE TRIGGER_SCHEMA = ? AND TRIGGER_NAME LIKE 't3_person\\_%'
+     WHERE TRIGGER_SCHEMA = ? AND TRIGGER_NAME LIKE 't3\\_%'
   `, [databaseName]);
   const triggerKeys = new Set(triggers.map((row) => (
     `${row.EVENT_OBJECT_TABLE}\0${row.ACTION_TIMING}\0${row.EVENT_MANIPULATION}`
@@ -238,15 +390,31 @@ export async function assertPersonIsolationMigration(connection, databaseName) {
   }
 
   const foreignKeyRows = await queryRows(connection, `
-    SELECT TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME, ORDINAL_POSITION,
-           REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
-      FROM information_schema.KEY_COLUMN_USAGE
-     WHERE CONSTRAINT_SCHEMA = ? AND REFERENCED_TABLE_NAME IS NOT NULL
-       AND TABLE_NAME LIKE 'person\\_data\\_%'
-     ORDER BY TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION
+    SELECT k.TABLE_NAME, k.CONSTRAINT_NAME, k.COLUMN_NAME, k.ORDINAL_POSITION,
+           k.REFERENCED_TABLE_NAME, k.REFERENCED_COLUMN_NAME, r.UPDATE_RULE, r.DELETE_RULE
+      FROM information_schema.KEY_COLUMN_USAGE k
+      JOIN information_schema.REFERENTIAL_CONSTRAINTS r
+        ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA
+       AND r.TABLE_NAME = k.TABLE_NAME
+       AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME
+     WHERE k.CONSTRAINT_SCHEMA = ? AND k.REFERENCED_TABLE_NAME IS NOT NULL
+       AND k.TABLE_NAME LIKE 'person\\_data\\_%'
+     ORDER BY k.TABLE_NAME, k.CONSTRAINT_NAME, k.ORDINAL_POSITION
   `, [databaseName]);
+  const triggerNames = new Set(triggers.map((row) => row.TRIGGER_NAME));
   for (const rows of grouped(foreignKeyRows, (row) => `${row.TABLE_NAME}\0${row.CONSTRAINT_NAME}`).values()) {
     const first = rows[0];
+    const logicalTable = first.TABLE_NAME.slice(personDataTablePrefix.length);
+    const nullableAction = first.UPDATE_RULE === "SET NULL" || first.DELETE_RULE === "SET NULL";
+    if (nullableAction) {
+      for (const prefix of ["t3_ref_bi", "t3_ref_bu"]) {
+        const name = boundedName(prefix, logicalTable, first.CONSTRAINT_NAME);
+        if (!triggerNames.has(name)) {
+          throw new Error(`Schema 70 is missing ${name} for nullable reference ${first.CONSTRAINT_NAME}`);
+        }
+      }
+      continue;
+    }
     if (first.COLUMN_NAME !== "person_id" || first.REFERENCED_COLUMN_NAME !== "person_id"
         || !String(first.REFERENCED_TABLE_NAME).startsWith(personDataTablePrefix)) {
       throw new Error(`Schema 70 foreign key ${first.TABLE_NAME}.${first.CONSTRAINT_NAME} is not person-scoped`);

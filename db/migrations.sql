@@ -22,9 +22,11 @@
 -- matching application sets one exact person on every MariaDB operation.
 -- locking: this migration rebuilds unique keys, foreign keys, tables, triggers,
 -- and views across the complete Agent schema. Keep Agent stopped throughout.
--- recovery: MariaDB DDL commits implicitly. If any step fails, keep Agent
--- stopped and restore the required pre-migration backup before retrying. Do not
--- attempt to serve a partially converted schema.
+-- recovery: MariaDB DDL commits implicitly. Keep Agent stopped after failure.
+-- The runner can resume a conversion that reached the complete physical-table
+-- and logical-view stage by rebuilding foreign keys and derived views in place;
+-- earlier mixed states still require the pre-migration backup. Never serve a
+-- partially converted schema.
 
 SELECT 1 AS person_isolation_programmatic_marker;
 

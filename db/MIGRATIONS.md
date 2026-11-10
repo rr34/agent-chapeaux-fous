@@ -26,8 +26,11 @@ This is a writer-downtime migration and its DDL is not transactionally
 rollbackable. Before running it, stop Agent, make and verify a recoverable
 backup of the Agent database, confirm the identity database is initialized and
 contains no people, and set `SLAYER_LEGACY_PERSON_ID=1`. If any migration step
-fails, keep Agent stopped and restore the pre-migration backup; do not retry a
-partially converted schema in place.
+fails, keep Agent stopped. If all person-owned physical tables and logical
+views were installed, rerunning the corrected migration repairs the
+foreign-key and derived-view phase in place. The runner reports that repair
+explicitly. A failure before that complete structural stage still requires the
+pre-migration backup. Never start Agent against a partially converted schema.
 
 With the service stopped and backup confirmed, run:
 
