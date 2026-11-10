@@ -38,4 +38,5 @@ test("identity baseline declares every verified table and keeps Agent data separ
   assert.match(sql, /INSERT INTO identity_meta \(singleton, schema_version\) VALUES \(1, 1\)/u);
   assert.match(sql, /UNIQUE KEY node_pairings_user_code_uq \(user_code_hash\)/u);
   assert.match(sql, /weekly_ai_token_limit\s+BIGINT UNSIGNED NOT NULL DEFAULT 19100000/u);
+  assert.doesNotMatch(sql, /ON UPDATE UTC_TIMESTAMP/u);
 });
