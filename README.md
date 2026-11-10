@@ -136,8 +136,8 @@ contract. `AGENT-TERMINOLOGY.md` remains the numbered canonical glossary.
 
 Time v3 authentication is public email/password registration with email
 verification and password recovery. It lives in this repository and uses the
-same root `.env`, but credential, challenge, session, account/person mapping,
-and node-credential rows live only in the separate `timev3_identity` database.
+same root `.env`, but credential, challenge, session, account, person, and
+node-credential rows live only in the separate `timev3_identity` database.
 Agent domain records remain in the one configured Agent database. TLOM is only
 a reference for the simple delivery experience; its account code and users are
 not imported.
@@ -148,6 +148,11 @@ an account may create and select additional managed people without assigning
 them email addresses or separate login credentials. There are no workspaces,
 organizations, or implied cross-person records. Product access may later be
 granted separately from account creation.
+
+Each person belongs directly to exactly one account through `people.account_id`;
+there is no account/person mapping table or shared-person relationship. The
+account stores one canonical NFKC-trimmed lowercase email in `accounts.email`.
+That same value is used for delivery, exact login lookup, and uniqueness.
 
 Browser sessions use random, revocable, host-local HttpOnly cookies. The auth
 host hands Agent a five-minute, one-use authorization code rather than sharing

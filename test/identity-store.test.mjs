@@ -4,6 +4,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { hashPassword, normalizeAccountEmail, verifyPassword } from "../src/identity-store.mjs";
 import { requiredIdentityShape } from "../scripts/verify-identity-database.mjs";
+import { readMigrationLedger } from "../scripts/database-migrations.mjs";
 
 test("Time v3 passwords use salted Argon2id verifiers", () => {
   const first = hashPassword("correct horse battery staple");
@@ -39,4 +40,16 @@ test("identity baseline declares every verified table and keeps Agent data separ
   assert.match(sql, /UNIQUE KEY node_pairings_user_code_uq \(user_code_hash\)/u);
   assert.match(sql, /weekly_ai_token_limit\s+BIGINT UNSIGNED NOT NULL DEFAULT 19100000/u);
   assert.doesNotMatch(sql, /ON UPDATE UTC_TIMESTAMP/u);
+});
+
+test("identity schema 2 stores canonical email and person ownership once", () => {
+  const filename = fileURLToPath(new URL("../db/identity/migrations.sql", import.meta.url));
+  const migrations = readMigrationLedger(filename);
+  assert.deepEqual(migrations.map(({ version }) => version), [2]);
+  const sql = migrations[0].sql;
+  assert.match(sql, /ADD COLUMN account_id BIGINT UNSIGNED NULL/u);
+  assert.match(sql, /DROP TABLE account_people/u);
+  assert.match(sql, /DROP COLUMN email_normalized/u);
+  assert.match(sql, /ADD UNIQUE KEY accounts_email_uq \(email\)/u);
+  assert.doesNotMatch(sql, /UPDATE identity_meta/u);
 });

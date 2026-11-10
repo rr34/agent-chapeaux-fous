@@ -102,6 +102,13 @@ export class IdentityStore {
       throw new Error("TIMEV3_AUTH_CHALLENGE_SECRET must contain at least 32 bytes");
     }
     this.database = openApplicationDatabase(databaseTarget);
+    const identityMeta = this.database.prepare(`
+      SELECT schema_version FROM identity_meta WHERE singleton = 1
+    `).get();
+    if (Number(identityMeta?.schema_version) !== 2) {
+      this.database.close();
+      throw new Error(`Time v3 Identity schema version 2 is required; found ${identityMeta?.schema_version ?? "none"}`);
+    }
     this.challengeSecret = challengeSecret;
     this.sessionSeconds = Math.max(1, Number(sessionDays)) * 86_400;
     this.weeklyAiTokenLimit = Number(weeklyAiTokenLimit);
@@ -125,11 +132,11 @@ export class IdentityStore {
   accountByEmail(email) {
     return this.database.prepare(`
       SELECT a.account_id, a.display_name AS account_display_name, a.email,
-             a.email_normalized, a.account_status, a.email_verified_at_utc,
+             a.account_status, a.email_verified_at_utc,
              p.algorithm, p.salt, p.password_hash, p.memory_kib, p.passes, p.parallelism
         FROM accounts a
         LEFT JOIN password_credentials p ON p.account_id = a.account_id
-       WHERE a.email_normalized = ?
+       WHERE a.email = ?
     `).get(normalizeAccountEmail(email));
   }
 
@@ -187,13 +194,13 @@ export class IdentityStore {
     const normalizedName = displayName(name);
     const credential = hashPassword(password);
     return this.transaction(() => {
-      if (this.database.prepare("SELECT account_id FROM accounts WHERE email_normalized = ?").get(normalizedEmail)) {
+      if (this.database.prepare("SELECT account_id FROM accounts WHERE email = ?").get(normalizedEmail)) {
         throw identityError("An account already exists for that email address.", 409, "ACCOUNT_EXISTS");
       }
       const inserted = this.database.prepare(`
-        INSERT INTO accounts (display_name, email, email_normalized)
-        VALUES (?, ?, ?)
-      `).run(normalizedName, normalizedEmail, normalizedEmail);
+        INSERT INTO accounts (display_name, email)
+        VALUES (?, ?)
+      `).run(normalizedName, normalizedEmail);
       const accountId = Number(inserted.lastInsertRowid);
       this.database.prepare(`
         INSERT INTO password_credentials
@@ -202,14 +209,10 @@ export class IdentityStore {
       `).run(accountId, credential.salt, credential.hash, credential.memory, credential.passes, credential.parallelism);
       const personInsert = this.database.prepare(`
         INSERT INTO people
-          (display_name, person_kind, created_by_account_id, weekly_ai_token_limit)
+          (display_name, person_kind, account_id, weekly_ai_token_limit)
         VALUES (?, 'primary', ?, ?)
       `).run(normalizedName, accountId, this.weeklyAiTokenLimit);
       const personId = Number(personInsert.lastInsertRowid);
-      this.database.prepare(`
-        INSERT INTO account_people (account_id, person_id, access_role)
-        VALUES (?, ?, 'owner')
-      `).run(accountId, personId);
       const code = this.createChallenge(accountId, "verify_email");
       this.recordSecurityEvent({ accountId, type: "account.register", outcome: "success" });
       return { accountId, personId, displayName: normalizedName, email: normalizedEmail, code };
@@ -273,8 +276,7 @@ export class IdentityStore {
   primaryPerson(accountId) {
     return this.database.prepare(`
       SELECT p.* FROM people p
-      JOIN account_people ap ON ap.person_id = p.person_id
-       WHERE ap.account_id = ? AND p.person_status = 'active'
+       WHERE p.account_id = ? AND p.person_status = 'active'
        ORDER BY p.person_kind = 'primary' DESC, p.person_id LIMIT 1
     `).get(accountId);
   }
@@ -303,8 +305,7 @@ export class IdentityStore {
              p.person_status, p.weekly_ai_token_limit
         FROM auth_sessions s
         JOIN accounts a ON a.account_id = s.account_id
-        JOIN people p ON p.person_id = s.selected_person_id
-        JOIN account_people ap ON ap.account_id = s.account_id AND ap.person_id = s.selected_person_id
+        JOIN people p ON p.person_id = s.selected_person_id AND p.account_id = s.account_id
        WHERE s.token_hash = ? AND s.client_id = ? AND s.revoked_at_utc IS NULL
          AND s.expires_at_utc > UTC_TIMESTAMP(3)
          AND a.account_status = 'active' AND p.person_status = 'active'
@@ -331,16 +332,14 @@ export class IdentityStore {
   authorizedPerson(accountId, personId) {
     return this.database.prepare(`
       SELECT p.* FROM people p
-      JOIN account_people ap ON ap.person_id = p.person_id
-       WHERE ap.account_id = ? AND p.person_id = ? AND p.person_status = 'active'
+       WHERE p.account_id = ? AND p.person_id = ? AND p.person_status = 'active'
     `).get(accountId, personId);
   }
 
   listPeople(accountId) {
     return this.database.prepare(`
       SELECT p.* FROM people p
-      JOIN account_people ap ON ap.person_id = p.person_id
-       WHERE ap.account_id = ? AND p.person_status = 'active'
+       WHERE p.account_id = ? AND p.person_status = 'active'
        ORDER BY p.person_kind = 'primary' DESC, p.person_id
     `).all(accountId).map(publicPerson);
   }
@@ -356,14 +355,10 @@ export class IdentityStore {
     return this.transaction(() => {
       const inserted = this.database.prepare(`
         INSERT INTO people
-          (display_name, person_kind, created_by_account_id, weekly_ai_token_limit)
+          (display_name, person_kind, account_id, weekly_ai_token_limit)
         VALUES (?, 'managed', ?, ?)
       `).run(normalizedName, accountId, this.weeklyAiTokenLimit);
       const personId = Number(inserted.lastInsertRowid);
-      this.database.prepare(`
-        INSERT INTO account_people (account_id, person_id, access_role)
-        VALUES (?, ?, 'owner')
-      `).run(accountId, personId);
       this.recordSecurityEvent({ accountId, type: "person.created", outcome: "success", details: `person_id=${personId}` });
       return publicPerson(this.authorizedPerson(accountId, personId));
     });
