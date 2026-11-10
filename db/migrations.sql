@@ -16,6 +16,20 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0070: direct-person-data-isolation
+-- writer downtime: required. Every Agent base table is converted to a private
+-- person-owned physical table behind a person-filtered logical view. The
+-- matching application sets one exact person on every MariaDB operation.
+-- locking: this migration rebuilds unique keys, foreign keys, tables, triggers,
+-- and views across the complete Agent schema. Keep Agent stopped throughout.
+-- recovery: MariaDB DDL commits implicitly. If any step fails, keep Agent
+-- stopped and restore the required pre-migration backup before retrying. Do not
+-- attempt to serve a partially converted schema.
+
+SELECT 1 AS person_isolation_programmatic_marker;
+
+-- end migration 0070
+
 -- migration 0069: content-draft-default-and-unlisted-status
 -- writer downtime: required. The matching application validates `unlisted`
 -- instead of `uploaded_unlisted`, so application writers and schema vocabulary

@@ -12,6 +12,7 @@ import { repositoryRoot } from "./agent-schema.mjs";
 import { databaseConnectionFromEnvironment } from "./mariadb-schema.mjs";
 import { assertMigrationSpecificIntegrity, migrationsFilename } from "./migrate-database.mjs";
 import { readMigrationLedger } from "./database-migrations.mjs";
+import { personDataTablePrefix } from "../src/person-isolation.mjs";
 
 export function readDatabaseSchemaVersion(database) {
   const row = database.prepare("SELECT schema_version FROM database_meta WHERE singleton = 1").get();
@@ -49,7 +50,8 @@ export async function verifyDatabase(database, integrityConnection = null) {
     ["files", "files_fulltext", ["title", "description", "original_filename"]],
     ["activity_events", "activity_events_fulltext", ["name", "content_text", "source"]],
   ]) {
-    const actual = fullTextIndexes.filter(row => row.table_name === table && row.index_name === index)
+    const physicalTable = schemaVersion >= 70 ? `${personDataTablePrefix}${table}` : table;
+    const actual = fullTextIndexes.filter(row => row.table_name === physicalTable && row.index_name === index)
       .map(row => row.column_name);
     if (JSON.stringify(actual) !== JSON.stringify(columns)) {
       throw new Error(`Required FULLTEXT index ${table}.${index} must cover ${columns.join(", ")}`);

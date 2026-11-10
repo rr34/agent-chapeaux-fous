@@ -137,6 +137,7 @@ test("Time v3 Auth uses a separate identity database while sharing the root envi
     TIMEV3_AUTH_ENABLED: "true",
     TIMEV3_AUTH_PUBLIC_URL: "https://auth.timev3tech.test",
     TIMEV3_AUTH_CHALLENGE_SECRET: "a-separate-challenge-secret-that-is-long-enough",
+    TIMEV3_AUTH_INITIAL_OWNER_EMAIL: "nate@example.test",
     TIMEV3_IDENTITY_MARIADB_ENGINE: "mariadb",
     TIMEV3_IDENTITY_MARIADB_HOST: "identity.internal",
     TIMEV3_IDENTITY_MARIADB_NAME: "timev3_identity",
@@ -148,6 +149,7 @@ test("Time v3 Auth uses a separate identity database while sharing the root envi
   assert.equal(config.authPublicUrl, "https://auth.timev3tech.test/");
   assert.equal(config.accessToken, "");
   assert.equal(config.weeklyAiTokenLimit, 19_100_000);
+  assert.equal(config.authInitialOwnerEmail, "nate@example.test");
   assert.deepEqual(config.identityDatabaseTarget, {
     engine: "mariadb",
     connection: {
@@ -166,6 +168,18 @@ test("Time v3 Auth refuses a short challenge secret", () => {
     TIMEV3_IDENTITY_MARIADB_USER: "timev3_auth_user",
     TIMEV3_IDENTITY_MARIADB_PASSWORD: "identity-password",
   }), /at least 32 bytes/);
+});
+
+test("Time v3 Auth requires a valid initial owner email", () => {
+  assert.throws(() => loadTestConfig({
+    TIMEV3_AUTH_ENABLED: "true",
+    TIMEV3_AUTH_CHALLENGE_SECRET: "a-separate-challenge-secret-that-is-long-enough",
+    TIMEV3_AUTH_INITIAL_OWNER_EMAIL: "not-an-email",
+    TIMEV3_IDENTITY_MARIADB_ENGINE: "mariadb",
+    TIMEV3_IDENTITY_MARIADB_NAME: "timev3_identity",
+    TIMEV3_IDENTITY_MARIADB_USER: "timev3_auth_user",
+    TIMEV3_IDENTITY_MARIADB_PASSWORD: "identity-password",
+  }), /valid email address/u);
 });
 
 test("the identity database can be verified while public auth remains disabled", () => {

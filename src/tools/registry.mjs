@@ -95,6 +95,17 @@ export class ToolRegistry {
     this.tools = new Map();
     this.capabilities = new Map();
     this.contextViews = new Map();
+    this.accessPolicy = () => true;
+  }
+
+  setAccessPolicy(policy) {
+    if (typeof policy !== "function") throw new Error("Tool access policy must be a function");
+    this.accessPolicy = policy;
+    return this;
+  }
+
+  available(tool) {
+    return Boolean(tool && this.accessPolicy(tool));
   }
 
   registerCapability(manifest) {
@@ -270,21 +281,23 @@ export class ToolRegistry {
   }
 
   get(name) {
-    return this.tools.get(name) ?? null;
+    const tool = this.tools.get(name) ?? null;
+    return this.available(tool) ? tool : null;
   }
 
   resolveUpstreamTool(source, upstreamName) {
-    return [...this.tools.values()].find((tool) => (
+    return [...this.tools.values()].filter((tool) => this.available(tool)).find((tool) => (
       tool.source === source && tool.upstreamName === upstreamName
     )) ?? null;
   }
 
   list() {
-    return [...this.tools.values()].map(({ execute: _execute, source, ...tool }) => ({ ...tool, source }));
+    return [...this.tools.values()].filter((tool) => this.available(tool))
+      .map(({ execute: _execute, source, ...tool }) => ({ ...tool, source }));
   }
 
   toolDefinitions() {
-    return [...this.tools.values()].map((tool) => {
+    return [...this.tools.values()].filter((tool) => this.available(tool)).map((tool) => {
       const manifest = this.capabilities.get(tool.capabilityId);
       const capability = manifest
         ? Object.fromEntries(Object.entries(manifest).filter(([name, value]) => (
@@ -318,7 +331,7 @@ export class ToolRegistry {
   }
 
   async execute(name, argumentsObject, context = {}) {
-    const tool = this.tools.get(name);
+    const tool = this.get(name);
     if (!tool) throw new Error(`Unknown tool: ${name}`);
     if (tool.validateArguments !== false) {
       const problem = schemaProblem(argumentsObject, tool.parameters);

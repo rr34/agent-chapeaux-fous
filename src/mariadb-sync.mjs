@@ -1,5 +1,6 @@
 import { Worker } from "node:worker_threads";
 import { deserialize } from "node:v8";
+import { currentPersonId } from "./person-context.mjs";
 
 const responseBytes = 64 * 1024 * 1024;
 
@@ -56,7 +57,7 @@ export class MariaDatabaseSync {
     Atomics.store(control, 0, 0);
     Atomics.store(control, 1, 0);
     this.worker.postMessage({
-      request,
+      request: { ...request, personId: currentPersonId() },
       controlBuffer: this.controlBuffer,
       responseBuffer: this.responseBuffer,
     });

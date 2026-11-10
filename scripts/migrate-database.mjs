@@ -16,6 +16,9 @@ import {
 import {
   objectRelationshipEdgeEndpointTables, objectRelationshipEdgeSourceTables,
 } from "./object-relationship-edge-triggers.mjs";
+import {
+  applyPersonIsolationMigration, assertPersonIsolationMigration,
+} from "./person-isolation-migration.mjs";
 
 export const migrationsFilename = path.join(repositoryRoot, "db/migrations.sql");
 export const migrationLockTimeoutSeconds = 30;
@@ -384,6 +387,10 @@ async function assertVersion32Integrity(connection, databaseName) {
 export async function assertMigrationSpecificIntegrity(
   connection, migration, databaseName, schemaVersion = migration.version,
 ) {
+  if (schemaVersion >= 70 && migration.version < 70) return;
+  if (migration.version === 70) {
+    await assertPersonIsolationMigration(connection, databaseName);
+  }
   if (migration.version === 69) {
     const [columns] = await connection.query(`SELECT COLUMN_TYPE, COLUMN_DEFAULT
       FROM information_schema.COLUMNS
@@ -1655,6 +1662,12 @@ export async function runDatabaseMigrations({
     output.write(`Pending migrations (oldest first): ${pending.map(({ label }) => label).join(", ")}.\n`);
     const previousVersion = currentVersion;
     for (const migration of pending) {
+      if (migration.version === 70) {
+        await applyPersonIsolationMigration(connection, databaseName, {
+          initialPersonId: process.env.SLAYER_LEGACY_PERSON_ID || 1,
+          output,
+        });
+      }
       const statements = splitMariaDbStatements(migration.sql, `migration ${migration.label}`);
       for (const statement of statements) await connection.query(statement);
       await assertMigrationSpecificIntegrity(connection, migration, databaseName);

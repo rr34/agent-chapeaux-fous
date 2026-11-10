@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { currentPersonId } from "./person-context.mjs";
 
 const accountPattern = /^[A-Za-z0-9._-]+$/u;
 const terminalStatuses = new Set(["complete", "error", "cancelled"]);
@@ -25,7 +26,8 @@ function requestId(value) {
 }
 
 function publicRequest(request) {
-  return structuredClone(request);
+  const { personId: _personId, ...visible } = request;
+  return structuredClone(visible);
 }
 
 function historyMode(input) {
@@ -57,12 +59,14 @@ export class MessagesWebSyncRequests {
     this.expireStale();
     const key = accountKey(input.accountKey);
     const existing = [...this.requests.values()].find((request) => (
-      request.accountKey === key && !terminalStatuses.has(request.status)
+      request.personId === currentPersonId()
+      && request.accountKey === key && !terminalStatuses.has(request.status)
     ));
     if (existing) return { ...publicRequest(existing), reused: true };
     const timestamp = this.now();
     const request = {
       requestId: randomUUID(),
+      personId: currentPersonId(),
       accountKey: key,
       historyMode: historyMode(input),
       status: "pending",
@@ -89,7 +93,7 @@ export class MessagesWebSyncRequests {
   get(id) {
     this.expireStale();
     const request = this.requests.get(requestId(id));
-    if (!request) throw Object.assign(new Error("Synchronization request not found"), { statusCode: 404 });
+    if (!request || request.personId !== currentPersonId()) throw Object.assign(new Error("Synchronization request not found"), { statusCode: 404 });
     return publicRequest(request);
   }
 
@@ -97,7 +101,8 @@ export class MessagesWebSyncRequests {
     this.expireStale();
     const key = accountKey(accountKeyValue);
     const request = [...this.requests.values()]
-      .filter((candidate) => candidate.accountKey === key && candidate.status === "pending")
+      .filter((candidate) => candidate.personId === currentPersonId()
+        && candidate.accountKey === key && candidate.status === "pending")
       .toSorted((left, right) => left.createdAtMs - right.createdAtMs)[0];
     return request ? {
       requestId: request.requestId,
@@ -109,7 +114,7 @@ export class MessagesWebSyncRequests {
 
   update(id, input = {}) {
     const request = this.requests.get(requestId(id));
-    if (!request) throw Object.assign(new Error("Synchronization request not found"), { statusCode: 404 });
+    if (!request || request.personId !== currentPersonId()) throw Object.assign(new Error("Synchronization request not found"), { statusCode: 404 });
     const status = String(input.status || request.status);
     if (!allowedStatuses.has(status)) throw Object.assign(new Error("Synchronization status is invalid"), { statusCode: 400 });
     request.status = status;

@@ -5,10 +5,11 @@ function addressText(addresses) {
 }
 
 export class EmailSearchProvider {
-  constructor({ client }) {
+  constructor({ client, available = () => true }) {
     this.id = "email";
     this.description = "Live provider-owned email messages and drafts.";
     this.client = client;
+    this.available = available;
     this.capabilities = { phrase: false, proximity: false, snippets: true };
   }
 

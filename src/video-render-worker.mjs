@@ -4,6 +4,7 @@ import path from "node:path";
 import { renderScriptedInteractionVideo } from "../video/src/render-interaction-video.mjs";
 import { safeMediaPath } from "./request-attachments.mjs";
 import { videoDialogueText, videoSpeechText } from "./video-dialogue.mjs";
+import { currentPersonId, runWithPerson } from "./person-context.mjs";
 
 function dataUrl(bytes, mimeType) {
   return `data:${mimeType || "application/octet-stream"};base64,${bytes.toString("base64")}`;
@@ -98,14 +99,16 @@ export class VideoRenderWorker {
     this.render = render;
     this.running = false;
     this.drainPromise = null;
-    this.wakeRequested = false;
+    this.pendingPersonIds = new Set();
     this.stopped = false;
   }
 
-  start() {
+  start(personIds = [currentPersonId()]) {
     this.stopped = false;
-    this.videoScripts.recoverInterruptedRenderJobs();
-    this.notify();
+    for (const personId of personIds) {
+      runWithPerson(personId, () => this.videoScripts.recoverInterruptedRenderJobs());
+      this.notify(personId);
+    }
   }
 
   async stop() {
@@ -113,9 +116,9 @@ export class VideoRenderWorker {
     await this.drainPromise;
   }
 
-  notify() {
+  notify(personId = currentPersonId()) {
     if (this.stopped) return;
-    this.wakeRequested = true;
+    this.pendingPersonIds.add(Number(personId));
     if (!this.drainPromise) {
       this.drainPromise = this.drain()
         .catch((error) => console.error("[agent-slayer] video render worker failed:", error))
@@ -127,11 +130,14 @@ export class VideoRenderWorker {
     if (this.running || this.stopped) return;
     this.running = true;
     try {
-      do {
-        this.wakeRequested = false;
-        let job;
-        while (!this.stopped && (job = this.videoScripts.claimNextRenderJob())) await this.process(job);
-      } while (this.wakeRequested && !this.stopped);
+      while (this.pendingPersonIds.size && !this.stopped) {
+        const personId = this.pendingPersonIds.values().next().value;
+        this.pendingPersonIds.delete(personId);
+        await runWithPerson(personId, async () => {
+          let job;
+          while (!this.stopped && (job = this.videoScripts.claimNextRenderJob())) await this.process(job);
+        });
+      }
     } finally {
       this.running = false;
     }

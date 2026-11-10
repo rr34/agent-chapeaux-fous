@@ -52,7 +52,7 @@ export function createNativeSearchCoordinator({ store, organizer, ledger }) {
   ] });
 }
 
-export function registerEmailSearchProvider(searchCoordinator, client) {
-  searchCoordinator.register(new EmailSearchProvider({ client }));
+export function registerEmailSearchProvider(searchCoordinator, client, options = {}) {
+  searchCoordinator.register(new EmailSearchProvider({ client, ...options }));
   return searchCoordinator;
 }

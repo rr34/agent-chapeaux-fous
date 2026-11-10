@@ -71,9 +71,11 @@ test("new requests are admitted while TLOM is disconnected", async () => {
   const context = vm.createContext({
     URL,
     http: { createServer: handler => ({ handler }) },
+    enterPersonContext: () => {},
     handlePublicAuthRoute: async () => false,
     serveStatic: async () => false,
     requireAuthorization: () => true,
+    assertAiAllowance: () => ({ used: 0, limit: 1 }),
     config: { authEnabled: false },
     store: { status: { ready: true } },
     mcp: { requiredProblem: () => "tlom integration is unavailable" },
@@ -113,6 +115,7 @@ test("tracker schedule route delegates to Journal scheduling", async () => {
   const context = vm.createContext({
     URL,
     http: { createServer: handler => ({ handler }) },
+    enterPersonContext: () => {},
     handlePublicAuthRoute: async () => false,
     serveStatic: async () => false,
     requireAuthorization: () => true,

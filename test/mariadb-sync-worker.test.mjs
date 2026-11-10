@@ -13,6 +13,7 @@ class FakeConnection {
     this.listeners = new Map();
     this.nextExecuteError = null;
     this.ended = false;
+    this.queries = [];
   }
 
   on(name, listener) {
@@ -26,7 +27,8 @@ class FakeConnection {
     this.listeners.get("error")?.(error);
   }
 
-  async query(sql) {
+  async query(sql, parameters = []) {
+    this.queries.push({ sql, parameters });
     if (/SELECT @@SESSION\.sql_mode/u.test(sql)) {
       return [[{ sql_mode: "STRICT_TRANS_TABLES" }], []];
     }
@@ -157,6 +159,16 @@ test("a failed in-flight command is not replayed and the following command recon
   assert.equal(connections.length, 1);
   assert.deepEqual(await handle(selectConnection), { connection_id: 2 });
   assert.equal(connections.length, 2);
+});
+
+test("the MariaDB worker selects the exact person before each person's operations", async () => {
+  const { connections, handle } = harness();
+  await handle({ type: "init", configuration: { database: "test" } });
+  await handle({ ...selectConnection, personId: 7 });
+  await handle({ ...selectConnection, personId: 7 });
+  await handle({ ...selectConnection, personId: 9 });
+  const selections = connections[0].queries.filter(({ sql }) => sql === "SET @timev3_person_id = ?");
+  assert.deepEqual(selections.map(({ parameters }) => parameters), [[7], [9]]);
 });
 
 test("closing the worker does not reconnect an intentionally closed connection", async () => {

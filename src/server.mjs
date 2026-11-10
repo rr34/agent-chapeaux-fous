@@ -8,7 +8,7 @@ import { createStaticHandler } from "./static-files.mjs";
 import { createGoogleMessagesExtensionArchive } from "./extension-archive.mjs";
 import { createFileArtifactSource } from "./artifact-source.mjs";
 import { ContextBuilder } from "./context.mjs";
-import { requiredDatabaseShape, SlayerDatabase } from "./database.mjs";
+import { SlayerDatabase } from "./database.mjs";
 import { Ledger } from "./ledger.mjs";
 import { JmapClient } from "./jmap-client.mjs";
 import { DailyPaperService } from "./daily-paper.mjs";
@@ -76,12 +76,14 @@ import { timeZoneFromProfileFacts } from "./temporal-consistency.mjs";
 import { IdentityStore } from "./identity-store.mjs";
 import { AuthEmailService } from "./auth-email.mjs";
 import { assertPersonIsolationReady } from "./person-isolation.mjs";
+import { configureDefaultPersonId, currentPersonId, enterPersonContext, runWithPerson } from "./person-context.mjs";
 
 const config = loadConfig();
+configureDefaultPersonId(config.legacyPersonId);
 const store = new SlayerDatabase(config.databaseTarget);
 if (config.authEnabled) {
   if (!store.status.ready) throw new Error(`Time v3 Auth requires the Agent database: ${store.status.reason}`);
-  assertPersonIsolationReady(store.requireReady(), Object.keys(requiredDatabaseShape));
+  assertPersonIsolationReady(store.requireReady());
 }
 const identityStore = config.authEnabled ? new IdentityStore({
   databaseTarget: config.identityDatabaseTarget,
@@ -144,6 +146,11 @@ let videoRenderWorker = null;
 const profileFactQuestions = await loadProfileFactQuestions(config.profileFactQuestionsPath);
 const hatCatalog = await loadHatCatalog(config.hatCatalogPath);
 const registry = new ToolRegistry();
+const legacyIntegrationTool = (tool) => (
+  String(tool.source).startsWith("mcp:")
+  || /^(?:email_|payment_)/u.test(tool.name)
+);
+registry.setAccessPolicy((tool) => currentPersonId() === config.legacyPersonId || !legacyIntegrationTool(tool));
 registerNativeCapabilities(registry, nativeCapabilities);
 const searchCoordinator = store.status.ready
   ? createNativeSearchCoordinator({ store, organizer, ledger })
@@ -209,7 +216,9 @@ await jmap.initialize();
 if (correspondence) registerCorrespondenceTools(registry, correspondence);
 if (jmap.health().ready) {
   registerJmapEmailTools(registry, jmap);
-  if (searchCoordinator) registerEmailSearchProvider(searchCoordinator, jmap);
+  if (searchCoordinator) registerEmailSearchProvider(searchCoordinator, jmap, {
+    available: () => currentPersonId() === config.legacyPersonId,
+  });
 }
 if (searchCoordinator) registerSearchTools(registry, searchCoordinator);
 registerAgentSelfTools(registry, {
@@ -501,8 +510,21 @@ function redirect(response, location, headers = {}) {
 function authorized(request) {
   if (config.authEnabled) {
     const session = identityStore.session(cookies(request)[cookieName("agent")], "agent");
-    if (session) request.timev3Auth = session;
-    return Boolean(session);
+    if (session) {
+      request.timev3Auth = session;
+      enterPersonContext(session.person.personId);
+      return true;
+    }
+    const header = String(request.headers.authorization || "");
+    const node = header.startsWith("Bearer ")
+      ? identityStore.authenticateNode(header.slice(7))
+      : null;
+    if (node) {
+      request.timev3Node = node;
+      enterPersonContext(node.person.personId);
+      return true;
+    }
+    return false;
   }
   if (config.allowUnauthenticated) return true;
   const header = String(request.headers.authorization || "");
@@ -518,6 +540,18 @@ function requireAuthorization(request, response) {
     ? "Sign in to Time v3 Agent to continue"
     : "A valid Time v3 Agent access token is required" });
   return false;
+}
+
+function assertAiAllowance(request) {
+  const person = request.timev3Auth?.person ?? request.timev3Node?.person;
+  const limit = Number(person?.weeklyAiTokenLimit ?? config.weeklyAiTokenLimit);
+  const used = ledger.rollingModelTokens({ days: 7 });
+  if (used >= limit) {
+    throw Object.assign(new Error("This Agent identity has reached its seven-day AI usage limit."), {
+      statusCode: 429, code: "AI_USAGE_LIMIT_REACHED",
+    });
+  }
+  return { used, limit };
 }
 
 async function handlePublicAuthRoute(request, response, url) {
@@ -579,6 +613,7 @@ async function handlePublicAuthRoute(request, response, url) {
     requireRequestOrigin(request, authOrigin);
     if (!config.authRegistrationEnabled) throw Object.assign(new Error("New account registration is temporarily unavailable."), { statusCode: 503 });
     const body = await readJson(request);
+    identityStore.assertRegistrationEmailAllowed(body.email, config.authInitialOwnerEmail);
     const ipLimit = identityStore.rateLimit({ action: "register_ip", subject: metadata.ipAddress, maximum: 10, windowSeconds: 3600 });
     const emailLimit = identityStore.rateLimit({ action: "register_email", subject: body.email, maximum: 4, windowSeconds: 3600 });
     if (!ipLimit.allowed || !emailLimit.allowed) throw Object.assign(new Error("Too many registration attempts. Try again later."), { statusCode: 429 });
@@ -760,6 +795,10 @@ function health() {
 }
 
 const server = http.createServer(async (request, response) => {
+  // HTTP listeners may share an async-resource lineage. Always reset first so
+  // an unauthenticated or capability-URL request cannot inherit another
+  // request's selected person before authorization establishes its own.
+  enterPersonContext(config.legacyPersonId);
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
   try {
     if (await handlePublicAuthRoute(request, response, url)) return;
@@ -839,31 +878,60 @@ const server = http.createServer(async (request, response) => {
         sendJson(response, 404, { error: "Prepared concert audio was not found or has expired" });
         return;
       }
-      if (item.kind === "narration") {
-        const narration = musicNarration.get(item.narrationId);
-        if (!narration) {
-          sendJson(response, 404, { error: "Prepared concert narration was not found or has expired" });
+      await runWithPerson(item.personId, async () => {
+        if (item.kind === "narration") {
+          const narration = musicNarration.get(item.narrationId);
+          if (!narration) {
+            sendJson(response, 404, { error: "Prepared concert narration was not found or has expired" });
+            return;
+          }
+          sendAudioBuffer(request, response, {
+            bytes: narration.bytes,
+            mimeType: narration.mimeType,
+            filename: `prepared-concert-narration-${narration.narrationId}.wav`,
+            aiGenerated: true,
+          });
           return;
         }
-        sendAudioBuffer(request, response, {
-          bytes: narration.bytes,
-          mimeType: narration.mimeType,
-          filename: `prepared-concert-narration-${narration.narrationId}.wav`,
-          aiGenerated: true,
-        });
+        const file = ledger.file(item.fileId);
+        if (!file || file.media_kind !== "audio" || !parseMusicMetadataDescription(file.description).metadata) {
+          sendJson(response, 404, { error: "Prepared concert music was not found" });
+          return;
+        }
+        await sendStoredMusic(request, response, file);
+      });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/daily-paper" && url.searchParams.has("snapshot")) {
+      const snapshot = dailyPaper.renderSnapshotCapability(url.searchParams.get("snapshot"));
+      if (!snapshot) {
+        sendJson(response, 404, { error: "Weekly paper render snapshot is unavailable or expired" });
         return;
       }
-      const file = ledger.file(item.fileId);
-      if (!file || file.media_kind !== "audio" || !parseMusicMetadataDescription(file.description).metadata) {
-        sendJson(response, 404, { error: "Prepared concert music was not found" });
-        return;
-      }
-      await sendStoredMusic(request, response, file);
+      await runWithPerson(snapshot.personId, () => sendJson(response, 200, snapshot.model));
       return;
     }
     if (await serveStatic(request, response)) return;
     if (!requireAuthorization(request, response)) return;
-    if (config.authEnabled && request.method === "GET" && url.pathname === "/api/account/people") {
+    const nodeRestrictedRoute = url.pathname.startsWith("/api/account/")
+      || url.pathname.startsWith("/api/integrations/")
+      || url.pathname.startsWith("/api/payments/")
+      || url.pathname.startsWith("/api/node/")
+      || url.pathname.startsWith("/api/correspondence/email-sync")
+      || /\/invite-draft$/u.test(url.pathname);
+    if (request.timev3Node && nodeRestrictedRoute) {
+      throw Object.assign(new Error("A linked node credential cannot manage accounts or connected services."), { statusCode: 403 });
+    }
+    const legacyIntegrationRoute = url.pathname.startsWith("/api/integrations/")
+      || url.pathname.startsWith("/api/payments/")
+      || url.pathname.startsWith("/api/correspondence/email-sync")
+      || /\/invite-draft$/u.test(url.pathname);
+    const authenticatedPerson = request.timev3Auth?.person ?? request.timev3Node?.person;
+    if (config.authEnabled && legacyIntegrationRoute
+        && authenticatedPerson.personId !== config.legacyPersonId) {
+      throw Object.assign(new Error("That connected service belongs to a different Agent identity."), { statusCode: 403 });
+    }
+    if (request.timev3Auth?.account && request.method === "GET" && url.pathname === "/api/account/people") {
       sendJson(response, 200, {
         account: request.timev3Auth.account,
         selectedPerson: request.timev3Auth.person,
@@ -871,7 +939,7 @@ const server = http.createServer(async (request, response) => {
       });
       return;
     }
-    if (config.authEnabled && request.method === "POST" && url.pathname === "/api/account/people") {
+    if (request.timev3Auth?.account && request.method === "POST" && url.pathname === "/api/account/people") {
       requireRequestOrigin(request, new URL(config.publicUrl).origin);
       const body = await readJson(request);
       sendJson(response, 201, { person: identityStore.createManagedPerson(
@@ -880,7 +948,7 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     const selectedPersonMatch = /^\/api\/account\/people\/(\d+)\/select$/u.exec(url.pathname);
-    if (config.authEnabled && request.method === "POST" && selectedPersonMatch) {
+    if (request.timev3Auth?.account && request.method === "POST" && selectedPersonMatch) {
       requireRequestOrigin(request, new URL(config.publicUrl).origin);
       const person = identityStore.switchPerson(
         request.timev3Auth.sessionId,
@@ -890,7 +958,7 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, { person });
       return;
     }
-    if (config.authEnabled && request.method === "POST" && url.pathname === "/api/node/pairings/approve") {
+    if (request.timev3Auth?.account && request.method === "POST" && url.pathname === "/api/node/pairings/approve") {
       requireRequestOrigin(request, new URL(config.publicUrl).origin);
       const body = await readJson(request);
       sendJson(response, 200, identityStore.approveNodePairing({
@@ -900,14 +968,14 @@ const server = http.createServer(async (request, response) => {
       }));
       return;
     }
-    if (config.authEnabled && request.method === "GET" && url.pathname === "/api/node/devices") {
+    if (request.timev3Auth?.account && request.method === "GET" && url.pathname === "/api/node/devices") {
       sendJson(response, 200, { devices: identityStore.listNodeDevices(
         request.timev3Auth.account.accountId, request.timev3Auth.person.personId,
       ) });
       return;
     }
     const nodeDeviceMatch = /^\/api\/node\/devices\/(\d+)$/u.exec(url.pathname);
-    if (config.authEnabled && request.method === "DELETE" && nodeDeviceMatch) {
+    if (request.timev3Auth?.account && request.method === "DELETE" && nodeDeviceMatch) {
       requireRequestOrigin(request, new URL(config.publicUrl).origin);
       identityStore.revokeNodeDevice(request.timev3Auth.account.accountId,
         request.timev3Auth.person.personId, Number(nodeDeviceMatch[1]));
@@ -1937,6 +2005,7 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/requests") {
+      assertAiAllowance(request);
       // A request may carry a bounded bulk object selection. The ordinary
       // endpoint default is intentionally smaller, but 500 complete identity
       // tuples need a larger explicit envelope.
@@ -1995,6 +2064,7 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/voice") {
+      assertAiAllowance(request);
       let voiceRunLimits = null;
       const encodedRunLimits = url.searchParams.get("runLimits");
       if (encodedRunLimits !== null) {
@@ -2023,8 +2093,12 @@ const server = http.createServer(async (request, response) => {
 
 server.listen(config.port, config.host, () => {
   console.log(`[agent-slayer] ${identity.commit || "uncommitted"}${identity.dirty ? "-dirty" : ""} listening on http://${config.host}:${config.port}`);
-  if (store.status.ready) queue.notify();
-  videoRenderWorker?.start();
+  const startupPersonIds = [...new Set([
+    config.legacyPersonId,
+    ...(identityStore?.activePersonIds() ?? []),
+  ])];
+  if (store.status.ready) for (const personId of startupPersonIds) queue.notify(personId);
+  videoRenderWorker?.start(startupPersonIds);
 });
 
 async function shutdown() {

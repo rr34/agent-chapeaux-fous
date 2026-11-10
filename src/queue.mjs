@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readRequestAttachment, safeMediaPath } from "./request-attachments.mjs";
+import { currentPersonId, runWithPerson } from "./person-context.mjs";
 
 export class RequestCancelledError extends Error {
   constructor(message = "Request cancelled before execution") {
@@ -22,12 +23,12 @@ export class RequestQueue {
     this.maxRequestAttachmentBytes = maxRequestAttachmentBytes;
     this.running = false;
     this.drainScheduled = false;
-    this.wakeRequested = false;
+    this.pendingPersonIds = new Set();
     this.pendingTurnBriefApprovals = new Map();
   }
 
-  notify() {
-    this.wakeRequested = true;
+  notify(personId = currentPersonId()) {
+    this.pendingPersonIds.add(Number(personId));
     if (this.running || this.drainScheduled) return;
     this.drainScheduled = true;
     setImmediate(() => {
@@ -40,11 +41,14 @@ export class RequestQueue {
     if (this.running) return;
     this.running = true;
     try {
-      do {
-        this.wakeRequested = false;
-        let request;
-        while ((request = this.ledger.nextQueuedRequest())) await this.process(request);
-      } while (this.wakeRequested);
+      while (this.pendingPersonIds.size) {
+        const personId = this.pendingPersonIds.values().next().value;
+        this.pendingPersonIds.delete(personId);
+        await runWithPerson(personId, async () => {
+          let request;
+          while ((request = this.ledger.nextQueuedRequest())) await this.process(request);
+        });
+      }
     } finally {
       this.running = false;
     }
@@ -185,6 +189,7 @@ export class RequestQueue {
       this.pendingTurnBriefApprovals.set(request.turnId, {
         approvalId,
         request,
+        personId: currentPersonId(),
         resolve,
       });
     }).then((decision) => {
@@ -202,22 +207,22 @@ export class RequestQueue {
 
   #resolveTurnBriefApproval(requestId, approvalId, decision) {
     const pending = this.pendingTurnBriefApprovals.get(requestId);
-    if (!pending || pending.approvalId !== approvalId) return false;
+    if (!pending || pending.approvalId !== approvalId || pending.personId !== currentPersonId()) return false;
     this.pendingTurnBriefApprovals.delete(requestId);
     const continuing = decision === "continue";
-    this.ledger.append({
-      type: continuing ? "turn.brief.approved" : "turn.brief.cancelled",
-      phase: "end", status: continuing ? "complete" : "cancelled",
-      actorType: "user", actorName: "User",
-      channel: pending.request.channel, turnId: pending.request.turnId,
-      operationId: pending.approvalId,
-      name: continuing ? "Plan approved" : "Plan cancelled",
-      content: continuing
-        ? "The user continued with the displayed plan."
-        : "The user cancelled before execution.",
-      payload: { approvalId: pending.approvalId, decision },
-      subjectType: "turn_brief", subjectId: pending.request.turnId,
-    });
+    runWithPerson(pending.personId, () => this.ledger.append({
+        type: continuing ? "turn.brief.approved" : "turn.brief.cancelled",
+        phase: "end", status: continuing ? "complete" : "cancelled",
+        actorType: "user", actorName: "User",
+        channel: pending.request.channel, turnId: pending.request.turnId,
+        operationId: pending.approvalId,
+        name: continuing ? "Plan approved" : "Plan cancelled",
+        content: continuing
+          ? "The user continued with the displayed plan."
+          : "The user cancelled before execution.",
+        payload: { approvalId: pending.approvalId, decision },
+        subjectType: "turn_brief", subjectId: pending.request.turnId,
+      }));
     pending.resolve(decision);
     return true;
   }

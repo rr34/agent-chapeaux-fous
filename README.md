@@ -168,6 +168,16 @@ and Agent person ownership is migrated and verified. The legacy installation
 token is the rollback boundary during that conversion; enabling account login
 before domain records are person-scoped is prohibited.
 
+Agent schema 70 stores every private domain row in a physical
+`person_data_<table>` table with a direct `person_id`. Existing application SQL
+uses same-named, database-enforced person-filtered views; the MariaDB session
+person is set for every operation. Person-prefixed unique keys and foreign keys
+prevent both duplicate-name collisions between people and cross-person links,
+even if an object ID is guessed. Existing schema-69 rows become person `1`.
+When Auth is first enabled, `TIMEV3_AUTH_INITIAL_OWNER_EMAIL` must register
+before public registration opens to everyone else, ensuring person `1` belongs
+to the existing Agent owner.
+
 ### Reusable object-card contract
 
 Every interactive first-class object surface renders the applicable domain card
@@ -521,7 +531,8 @@ natural language rather than returning a canned help response.
 ## First local run
 
 Requirements: Node.js 22.5 or newer, an OpenAI API project/key with API billing,
-and an initialized MariaDB database matching `db/mariadb/0001-baseline.sql`.
+and an initialized MariaDB database. The bootstrap baseline is schema 69; run
+the migration runner before verification to install the current schema.
 
 ```bash
 cp .env.example .env
@@ -529,6 +540,7 @@ cp .env.example .env
 npm install
 npm run build:web
 npm run install:pdf-browser
+npm run db:migrate
 npm run db:verify
 npm test
 npm start
@@ -1155,9 +1167,10 @@ marked unavailable and is not silently redirected to local database tools.
 
 ## Database and schema changes
 
-No database is committed. MariaDB is the application's only database engine,
-and `db/mariadb/0001-baseline.sql` is the authoritative schema for a fresh
-installation. `npm run db:verify` checks the configured database's required
+No database is committed. MariaDB is the application's only database engine.
+`db/mariadb/0001-baseline.sql` is the schema-69 bootstrap for a fresh
+installation; the migration runner completes programmatic schema 70 before the
+application starts. `npm run db:verify` checks the configured database's required
 shape, schema version, ENUM values, required FULLTEXT indexes, and migration
 integrity without
 mutating data. Incremental changes are stacked newest-first in the single

@@ -216,6 +216,15 @@ export class IdentityStore {
     });
   }
 
+  assertRegistrationEmailAllowed(email, initialOwnerEmail) {
+    const normalized = normalizeAccountEmail(email);
+    const count = Number(this.database.prepare("SELECT COUNT(*) AS count FROM people").get()?.count ?? 0);
+    if (count === 0 && normalized !== normalizeAccountEmail(initialOwnerEmail)) {
+      throw identityError("The initial Time v3 owner account must be registered first.", 403, "INITIAL_OWNER_REQUIRED");
+    }
+    return normalized;
+  }
+
   verifyEmail({ email, code, clientId = "auth", userAgent = null, ipAddress = null }) {
     const account = this.accountByEmail(email);
     if (!account || account.account_status === "deleted") {
@@ -334,6 +343,12 @@ export class IdentityStore {
        WHERE ap.account_id = ? AND p.person_status = 'active'
        ORDER BY p.person_kind = 'primary' DESC, p.person_id
     `).all(accountId).map(publicPerson);
+  }
+
+  activePersonIds() {
+    return this.database.prepare(`
+      SELECT person_id FROM people WHERE person_status = 'active' ORDER BY person_id
+    `).all().map((row) => Number(row.person_id));
   }
 
   createManagedPerson(accountId, name) {

@@ -1,4 +1,5 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
+import { currentPersonId, runWithPerson } from "./person-context.mjs";
 
 function preparedVolume(value) {
   const volume = Number(value);
@@ -50,10 +51,12 @@ export class PreparedConcertService {
     this.concerts = new Map();
   }
 
-  removeConcert(concertId) {
+  removeConcert(concertId, { requireOwner = true } = {}) {
     const concert = this.concerts.get(String(concertId));
-    if (!concert) return false;
-    for (const narrationId of concert.preparedNarrationIds) this.narration.remove(narrationId);
+    if (!concert || (requireOwner && concert.personId !== currentPersonId())) return false;
+    runWithPerson(concert.personId, () => {
+      for (const narrationId of concert.preparedNarrationIds) this.narration.remove(narrationId);
+    });
     this.concerts.delete(concert.concertId);
     return true;
   }
@@ -61,12 +64,12 @@ export class PreparedConcertService {
   prune() {
     const now = this.now();
     for (const [concertId, concert] of this.concerts) {
-      if (concert.expiresAtMs <= now) this.removeConcert(concertId);
+      if (concert.expiresAtMs <= now) this.removeConcert(concertId, { requireOwner: false });
     }
     while (this.concerts.size > this.maximumConcerts) {
       const oldestId = this.concerts.keys().next().value;
       if (!oldestId) break;
-      this.removeConcert(oldestId);
+      this.removeConcert(oldestId, { requireOwner: false });
     }
   }
 
@@ -137,6 +140,7 @@ export class PreparedConcertService {
     this.prune();
     const createdAtMs = this.now();
     const concert = {
+      personId: currentPersonId(),
       concertId: this.createId(),
       playbackToken: this.createToken(),
       voiceVolume: volume,
@@ -153,14 +157,16 @@ export class PreparedConcertService {
 
   get(concertId) {
     this.prune();
-    return this.concerts.get(String(concertId)) ?? null;
+    const concert = this.concerts.get(String(concertId));
+    return concert?.personId === currentPersonId() ? concert : null;
   }
 
   playbackItem(concertId, index, token) {
-    const concert = this.get(concertId);
+    this.prune();
+    const concert = this.concerts.get(String(concertId));
     if (!concert || !sameSecret(token, concert.playbackToken)) return null;
     if (!Number.isSafeInteger(index) || index < 0 || index >= concert.items.length) return null;
-    return concert.items[index];
+    return { ...concert.items[index], personId: concert.personId };
   }
 
   discard(concertId) {

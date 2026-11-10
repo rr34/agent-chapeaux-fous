@@ -213,12 +213,14 @@ export function createMariaDbWorkerHandler({
   let connection = null;
   let configuration = null;
   let transactionActive = false;
+  let selectedPersonId = null;
   const primaryKeys = new Map();
 
   function invalidateConnection(candidate, error = null) {
     if (connection !== candidate) return;
     connection = null;
     transactionActive = false;
+    selectedPersonId = null;
     primaryKeys.clear();
     if (error) {
       reportConnectionError(
@@ -240,6 +242,7 @@ export function createMariaDbWorkerHandler({
       decimalNumbers: true,
     });
     connection = candidate;
+    selectedPersonId = null;
     candidate.on?.("error", (error) => invalidateConnection(candidate, error));
     try {
       await candidate.query("SET time_zone = '+00:00'");
@@ -263,6 +266,14 @@ export function createMariaDbWorkerHandler({
     return connection;
   }
 
+  async function selectPerson(current, personId) {
+    if (personId == null || selectedPersonId === personId) return;
+    const normalized = Number(personId);
+    if (!Number.isSafeInteger(normalized) || normalized < 1) throw new Error("MariaDB person context is invalid");
+    await current.query("SET @timev3_person_id = ?", [normalized]);
+    selectedPersonId = normalized;
+  }
+
   async function tablePrimaryKey(table, current) {
     if (primaryKeys.has(table)) return primaryKeys.get(table);
     const [rows] = await current.execute(
@@ -273,6 +284,19 @@ export function createMariaDbWorkerHandler({
       [table],
     );
     const columns = rows.map(({ COLUMN_NAME }) => COLUMN_NAME);
+    if (!columns.length && !table.startsWith("person_data_")) {
+      const [physicalRows] = await current.execute(
+        `SELECT COLUMN_NAME
+           FROM information_schema.KEY_COLUMN_USAGE
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = 'PRIMARY'
+          ORDER BY ORDINAL_POSITION`,
+        [`person_data_${table}`],
+      );
+      const physicalColumns = physicalRows.map(({ COLUMN_NAME }) => COLUMN_NAME)
+        .filter((name) => name !== "person_id");
+      primaryKeys.set(table, physicalColumns);
+      return physicalColumns;
+    }
     primaryKeys.set(table, columns);
     return columns;
   }
@@ -344,12 +368,14 @@ export function createMariaDbWorkerHandler({
       const current = connection;
       connection = null;
       transactionActive = false;
+      selectedPersonId = null;
       primaryKeys.clear();
       if (current) await current.end();
       return true;
     }
     const current = await activeConnection();
     try {
+      await selectPerson(current, request.personId);
       if (request.type === "exec") {
         await current.query(request.sql);
         if (/^START\s+TRANSACTION\b/iu.test(request.sql)) transactionActive = true;

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import { currentPersonId } from "./person-context.mjs";
 import {
   localCalendarSnapshot,
   localDateForInstant,
@@ -332,6 +333,11 @@ export class DailyPaperService {
   }
 
   renderSnapshot(snapshotId) {
+    const entry = this.renderSnapshots.get(String(snapshotId ?? ""));
+    return entry?.personId === currentPersonId() ? entry.model : null;
+  }
+
+  renderSnapshotCapability(snapshotId) {
     return this.renderSnapshots.get(String(snapshotId ?? "")) ?? null;
   }
 
@@ -347,7 +353,7 @@ export class DailyPaperService {
     const storedName = `${randomUUID()}.pdf`;
     const filename = path.join(directory, storedName);
     const snapshotId = randomUUID();
-    this.renderSnapshots.set(snapshotId, model);
+    this.renderSnapshots.set(snapshotId, { personId: currentPersonId(), model });
     const renderUrl = new URL("/app", this.publicUrl);
     renderUrl.searchParams.set("paper", "daily");
     renderUrl.searchParams.set("snapshot", snapshotId);

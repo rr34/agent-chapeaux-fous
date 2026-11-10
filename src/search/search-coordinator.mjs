@@ -95,7 +95,10 @@ export class SearchCoordinator {
   }
 
   listProviders({ includeInternal = false } = {}) {
-    return [...this.providers.values()].filter((provider) => includeInternal || provider.global !== false).map((provider) => ({
+    return [...this.providers.values()].filter((provider) => (
+      (includeInternal || provider.global !== false)
+      && (typeof provider.available !== "function" || provider.available())
+    )).map((provider) => ({
       id: provider.id,
       description: provider.description ?? `${provider.id} search provider`,
       capabilities: providerCapabilities(provider),
@@ -104,7 +107,9 @@ export class SearchCoordinator {
 
   async searchScope(scope, input) {
     const provider = this.providers.get(scope);
-    if (!provider) throw inputError(`Unknown search scope: ${scope}`);
+    if (!provider || (typeof provider.available === "function" && !provider.available())) {
+      throw inputError(`Unknown search scope: ${scope}`);
+    }
     const query = normalizedQuery(input?.query);
     const mode = input?.mode ?? "terms";
     if (!searchModes.has(mode)) throw inputError("mode must be terms, phrase, or near.");

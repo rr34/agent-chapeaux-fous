@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { currentPersonId } from "./person-context.mjs";
 
 const defaultInstructions = "Speak as a warm, concise concert companion. Use a natural conversational pace, pronounce musical titles carefully, and speak the supplied words verbatim without adding commentary.";
 
@@ -104,6 +105,7 @@ export class MusicNarrationService {
     const narrationId = this.createId();
     const createdAtMs = this.now();
     this.entries.set(narrationId, {
+      personId: currentPersonId(),
       narrationId,
       text,
       bytes: generated.bytes,
@@ -146,6 +148,7 @@ export class MusicNarrationService {
     const narrationId = this.createId();
     const createdAtMs = this.now();
     this.entries.set(narrationId, {
+      personId: currentPersonId(),
       narrationId,
       text,
       bytes,
@@ -172,10 +175,13 @@ export class MusicNarrationService {
 
   get(narrationId) {
     this.prune();
-    return this.entries.get(String(narrationId)) ?? null;
+    const entry = this.entries.get(String(narrationId));
+    return entry?.personId === currentPersonId() ? entry : null;
   }
 
   remove(narrationId) {
-    return this.entries.delete(String(narrationId));
+    const key = String(narrationId);
+    const entry = this.entries.get(key);
+    return entry?.personId === currentPersonId() ? this.entries.delete(key) : false;
   }
 }

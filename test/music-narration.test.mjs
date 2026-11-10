@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { MusicNarrationService } from "../src/music-narration.mjs";
+import { runWithPerson } from "../src/person-context.mjs";
 
 function pcmWav(samples) {
   const bytes = Buffer.alloc(44 + samples.length * 2);
@@ -112,4 +113,17 @@ test("music narration expires temporary audio and bounds the cache", async () =>
   now = 11;
   assert.equal(service.get("narration-2"), null);
   assert.equal(service.get("narration-3"), null);
+});
+
+test("temporary narration is private to the person that generated it", async () => {
+  const service = new MusicNarrationService({
+    speech: { async synthesize() {
+      return { bytes: Buffer.from("private"), mimeType: "audio/wav", durationMs: 1, model: "test", voice: "cedar" };
+    } },
+    createId: () => "private-narration",
+  });
+  const narration = await runWithPerson(41, () => service.create({ text: "Private introduction" }));
+  assert.ok(runWithPerson(41, () => service.get(narration.narrationId)));
+  assert.equal(runWithPerson(42, () => service.get(narration.narrationId)), null);
+  assert.equal(runWithPerson(42, () => service.remove(narration.narrationId)), false);
 });

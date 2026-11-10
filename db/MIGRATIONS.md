@@ -2,14 +2,47 @@
 
 `migrations.sql` is the incremental migration ledger. Add each migration block
 directly below its header, newest first. The runner validates that layout and
-applies pending blocks oldest first. The fresh-install schema remains separate
-in `mariadb/0001-baseline.sql` and must always describe the latest schema.
+applies pending blocks oldest first. `mariadb/0001-baseline.sql` currently
+bootstraps schema 69; fresh installations must run the migration runner once to
+install the programmatic person-isolation conversion in schema 70.
 
 `database_meta.schema_version` is the durable completion marker. The runner
 updates it only after every SQL statement in a block and the migration's
 integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
+
+## Version 70: Direct person data isolation
+
+Assigns every existing private Agent row to person `1`, then converts all 47
+domain tables into `person_data_<table>` physical tables with direct
+`person_id` ownership. Same-named `MERGE` views filter every ordinary read and
+write through the MariaDB session's selected person. Insert/update triggers,
+person-prefixed unique keys, and composite foreign keys preserve ownership and
+prevent cross-person relationships. `database_meta` remains global schema
+metadata.
+
+This is a writer-downtime migration and its DDL is not transactionally
+rollbackable. Before running it, stop Agent, make and verify a recoverable
+backup of the Agent database, confirm the identity database is initialized and
+contains no people, and set `SLAYER_LEGACY_PERSON_ID=1`. If any migration step
+fails, keep Agent stopped and restore the pre-migration backup; do not retry a
+partially converted schema in place.
+
+With the service stopped and backup confirmed, run:
+
+```bash
+SLAYER_MIGRATION_BACKUP_CONFIRMED=1 \
+SLAYER_MIGRATION_WRITERS_STOPPED=1 \
+npm run db:migrate
+npm run db:verify
+npm run identity:verify
+```
+
+After verification, configure `TIMEV3_AUTH_INITIAL_OWNER_EMAIL` with the
+existing owner's email and enable Auth. That email must complete the first
+registration and therefore receives person `1`; subsequent registration is
+public.
 
 ## Version 69: Draft content default and unlisted status
 

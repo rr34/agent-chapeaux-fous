@@ -1,6 +1,7 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
+import { personDataTablePrefix } from "./person-isolation.mjs";
 
-export const requiredDatabaseSchemaVersion = 69;
+export const requiredDatabaseSchemaVersion = 70;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -261,6 +262,11 @@ function enumValues(columnType) {
 
 export function inspectDatabase(database) {
   const problems = [];
+  const meta = database.prepare(`
+    SELECT schema_version FROM database_meta WHERE singleton = 1
+  `).get();
+  const schemaVersion = Number(meta?.schema_version);
+  const personIsolated = schemaVersion >= 70;
   const objects = database.prepare(`
     SELECT TABLE_NAME AS name, TABLE_TYPE AS table_type
     FROM information_schema.TABLES
@@ -270,8 +276,9 @@ export function inspectDatabase(database) {
   const byName = new Map(objects.map((object) => [object.name, object]));
   for (const [name, requiredColumns] of Object.entries(requiredDatabaseShape)) {
     const object = byName.get(name);
-    if (!object || object.table_type !== "BASE TABLE") {
-      problems.push(`Missing required table: ${name}`);
+    const expectedType = personIsolated && name !== "database_meta" ? "VIEW" : "BASE TABLE";
+    if (!object || object.table_type !== expectedType) {
+      problems.push(`Missing required ${expectedType === "VIEW" ? "person view" : "table"}: ${name}`);
       continue;
     }
     const columns = new Set(database.prepare(`
@@ -304,8 +311,11 @@ export function inspectDatabase(database) {
     FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE()
   `).all();
-  const enumsByName = new Map(enumColumns.map((column) => [
-    `${column.table_name}.${column.column_name}`,
+  const relevantEnumColumns = personIsolated
+    ? enumColumns.filter(({ table_name: tableName }) => tableName.startsWith(personDataTablePrefix))
+    : enumColumns;
+  const enumsByName = new Map(relevantEnumColumns.map((column) => [
+    `${column.table_name.startsWith(personDataTablePrefix) ? column.table_name.slice(personDataTablePrefix.length) : column.table_name}.${column.column_name}`,
     column,
   ]));
   for (const [tableName, fields] of Object.entries(requiredEnumColumns)) {
@@ -318,15 +328,16 @@ export function inspectDatabase(database) {
       }
     }
   }
-  const meta = database.prepare(`
-    SELECT schema_version FROM database_meta WHERE singleton = 1
-  `).get();
-  if (Number(meta?.schema_version) !== requiredDatabaseSchemaVersion) {
+  if (schemaVersion !== requiredDatabaseSchemaVersion) {
     problems.push(
       `Expected MariaDB schema version ${requiredDatabaseSchemaVersion}, found ${meta?.schema_version ?? "none"}`,
     );
   }
-  return { ready: problems.length === 0, problems, objects };
+  return {
+    ready: problems.length === 0,
+    problems,
+    objects: objects.filter(({ name }) => !name.startsWith(personDataTablePrefix)),
+  };
 }
 
 export function summarizeDatabaseObjects(objects) {
@@ -380,7 +391,7 @@ export class SlayerDatabase {
       SELECT CASE WHEN TABLE_TYPE = 'BASE TABLE' THEN 'table' ELSE 'view' END AS type,
              TABLE_NAME AS name, TABLE_COMMENT AS comment, NULL AS \`sql\`
       FROM information_schema.TABLES
-      WHERE TABLE_SCHEMA = DATABASE()
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME NOT LIKE 'person\\_data\\_%'
       ORDER BY type, name
     `).all().map(serializable);
   }

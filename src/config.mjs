@@ -117,6 +117,18 @@ export function loadConfig(environment = process.env) {
   if (authEnabled && Buffer.byteLength(authChallengeSecret) < 32) {
     throw new Error("TIMEV3_AUTH_CHALLENGE_SECRET must contain at least 32 bytes when Time v3 Auth is enabled");
   }
+  const legacyPersonId = positiveInteger(environment.SLAYER_LEGACY_PERSON_ID, 1);
+  const authInitialOwnerEmail = environment.TIMEV3_AUTH_INITIAL_OWNER_EMAIL?.normalize("NFKC").trim().toLowerCase() || "";
+  if (authEnabled && legacyPersonId !== 1) {
+    throw new Error("The initial Time v3 Auth conversion requires SLAYER_LEGACY_PERSON_ID=1");
+  }
+  if (authEnabled && !authInitialOwnerEmail) {
+    throw new Error("TIMEV3_AUTH_INITIAL_OWNER_EMAIL is required when Time v3 Auth is enabled");
+  }
+  if (authInitialOwnerEmail && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(authInitialOwnerEmail)
+      || authInitialOwnerEmail.length > 320)) {
+    throw new Error("TIMEV3_AUTH_INITIAL_OWNER_EMAIL must be a valid email address");
+  }
   return {
     repositoryRoot,
     host,
@@ -126,6 +138,7 @@ export function loadConfig(environment = process.env) {
     authPublicUrl: authPublicUrl.toString(),
     authSessionDays: positiveInteger(environment.TIMEV3_AUTH_SESSION_DAYS, 30),
     authRegistrationEnabled: environment.TIMEV3_AUTH_REGISTRATION_ENABLED !== "false",
+    authInitialOwnerEmail,
     authChallengeSecret,
     authEmailFrom: environment.TIMEV3_AUTH_EMAIL_FROM?.trim() || environment.SMTP_FROM?.trim() || "",
     smtpUrl: environment.SMTP_URL?.trim() || "",
@@ -135,6 +148,7 @@ export function loadConfig(environment = process.env) {
     smtpUser: environment.SMTP_USER?.trim() || "",
     smtpPassword: environment.SMTP_PASS || "",
     weeklyAiTokenLimit: positiveInteger(environment.SLAYER_WEEKLY_AI_TOKEN_LIMIT, 19_100_000),
+    legacyPersonId,
     stripeSecretKey: environment.STRIPE_SECRET_KEY?.trim() || "",
     stripeConnectClientId: environment.STRIPE_CONNECT_CLIENT_ID?.trim() || "",
     stripeConnectStateSecret: environment.STRIPE_CONNECT_STATE_SECRET?.trim() || "",

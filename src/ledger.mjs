@@ -1165,6 +1165,23 @@ export class Ledger {
     });
   }
 
+  rollingModelTokens({ days = 7 } = {}) {
+    const selectedDays = Number(days);
+    if (!Number.isSafeInteger(selectedDays) || selectedDays < 1 || selectedDays > 31) {
+      throw new Error("Rolling model-token days must be an integer from 1 to 31");
+    }
+    const row = this.store.requireReady().prepare(`
+      SELECT COALESCE(SUM(CAST(COALESCE(
+        JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.tokenUsage.totalTokens')), '0'
+      ) AS UNSIGNED)), 0) AS total_tokens
+      FROM activity_events
+      WHERE event_type = 'model.usage'
+        AND occurred_at_utc >= DATE_SUB(UTC_TIMESTAMP(3), INTERVAL ? DAY)
+    `).get(selectedDays);
+    const total = Number(row?.total_tokens ?? 0);
+    return Number.isSafeInteger(total) && total >= 0 ? total : Number.MAX_SAFE_INTEGER;
+  }
+
   conversationCheckpoint({ afterEventSeq = 0, beforeRequestId = null, maximumCharacters = 48 * 1024 } = {}) {
     const database = this.store.requireReady();
     const maximum = Number(maximumCharacters);
