@@ -9,6 +9,12 @@ const handlerStart = server.indexOf("const server = http.createServer");
 const healthSource = server.slice(healthStart, handlerStart);
 const requestHandlerSource = server.slice(handlerStart, server.indexOf("\nserver.listen", handlerStart));
 
+test("the path-scoped OAuth state cookie uses a browser-valid secure prefix", () => {
+  assert.match(server, /return `\$\{new URL\(config\.publicUrl\)\.protocol === "https:" \? "__Secure-" : ""\}timev3_auth_state`/u);
+  assert.match(server, /"Path=\/api\/auth\/callback", "HttpOnly", "SameSite=Lax"/u);
+  assert.doesNotMatch(server, /"__Host-" : ""\}timev3_auth_state/u);
+});
+
 function readHealth({ database, model, tlom }) {
   const context = vm.createContext({
     store: { status: database },

@@ -461,7 +461,9 @@ function cookieName(clientId) {
 }
 
 function stateCookieName() {
-  return `${new URL(config.publicUrl).protocol === "https:" ? "__Host-" : ""}timev3_auth_state`;
+  // This cookie is intentionally limited to the callback path. The __Host-
+  // prefix requires Path=/, so HTTPS uses __Secure- instead.
+  return `${new URL(config.publicUrl).protocol === "https:" ? "__Secure-" : ""}timev3_auth_state`;
 }
 
 function sessionCookie(clientId, token, { clear = false } = {}) {
