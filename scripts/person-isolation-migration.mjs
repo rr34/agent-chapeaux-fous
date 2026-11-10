@@ -104,26 +104,20 @@ function boundedName(prefix, ...parts) {
   return `${prefix}_${digest}`;
 }
 
-function referenceValidationTriggerSql({ event, table, constraint, childColumns, parentTable, parentColumns }) {
+function referenceOwnerColumn(table, constraint) {
+  return boundedName("t3_ref_owner", table, constraint);
+}
+
+function referenceOwnerTriggerSql({ event, table, constraint, childColumns }) {
   const timing = event === "INSERT" ? "insert" : "update";
   const ownershipTrigger = `t3_person_${timing}_${table}`.slice(0, 64);
   const triggerName = boundedName(event === "INSERT" ? "t3_ref_bi" : "t3_ref_bu", table, constraint);
   const completeReference = childColumns.map((column) => `NEW.${quote(column)} IS NOT NULL`).join(" AND ");
-  const matchingParent = childColumns.map((column, index) => (
-    `parent.${quote(parentColumns[index])} = NEW.${quote(column)}`
-  )).join(" AND ");
+  const ownerColumn = referenceOwnerColumn(table, constraint);
   return `CREATE TRIGGER ${quote(triggerName)}
     BEFORE ${event} ON ${quote(`${personDataTablePrefix}${table}`)} FOR EACH ROW
     FOLLOWS ${quote(ownershipTrigger)}
-    BEGIN
-      IF (${completeReference}) AND NOT EXISTS (
-        SELECT 1 FROM ${quote(`${personDataTablePrefix}${parentTable}`)} parent
-         WHERE parent.person_id = NEW.person_id AND ${matchingParent}
-      ) THEN
-        SIGNAL SQLSTATE '45000'
-          SET MESSAGE_TEXT = 'Cross-person reference blocked by ${constraint}';
-      END IF;
-    END`;
+    SET NEW.${quote(ownerColumn)} = IF(${completeReference}, NEW.person_id, NULL)`;
 }
 
 export function personIsolationForeignKeyStatements(rows) {
@@ -137,21 +131,30 @@ export function personIsolationForeignKeyStatements(rows) {
   const parentTable = quote(`${personDataTablePrefix}${first.REFERENCED_TABLE_NAME}`);
   const nullableAction = first.UPDATE_RULE === "SET NULL" || first.DELETE_RULE === "SET NULL";
   if (nullableAction) {
+    const ownerColumnName = referenceOwnerColumn(first.TABLE_NAME, first.CONSTRAINT_NAME);
+    const ownerColumn = quote(ownerColumnName);
+    const completeReference = childColumnNames.map((column) => `${quote(column)} IS NOT NULL`).join(" AND ");
+    const indexName = boundedName("t3_fk", first.TABLE_NAME, first.CONSTRAINT_NAME);
     return [
-      referenceValidationTriggerSql({
+      `ALTER TABLE ${childTable}
+        ADD COLUMN IF NOT EXISTS ${ownerColumn} BIGINT UNSIGNED NULL DEFAULT NULL
+          COMMENT 'Internal nullable owner used to scope ${first.CONSTRAINT_NAME} without changing the row owner.'`,
+      `UPDATE ${childTable}
+          SET ${ownerColumn} = IF(${completeReference}, person_id, NULL)`,
+      referenceOwnerTriggerSql({
         event: "INSERT", table: first.TABLE_NAME, constraint: first.CONSTRAINT_NAME,
-        childColumns: childColumnNames, parentTable: first.REFERENCED_TABLE_NAME,
-        parentColumns: parentColumnNames,
+        childColumns: childColumnNames,
       }),
-      referenceValidationTriggerSql({
+      referenceOwnerTriggerSql({
         event: "UPDATE", table: first.TABLE_NAME, constraint: first.CONSTRAINT_NAME,
-        childColumns: childColumnNames, parentTable: first.REFERENCED_TABLE_NAME,
-        parentColumns: parentColumnNames,
+        childColumns: childColumnNames,
       }),
       `ALTER TABLE ${childTable}
+        ADD KEY ${quote(indexName)} (${ownerColumn}, ${childColumns})`,
+      `ALTER TABLE ${childTable}
         ADD CONSTRAINT ${quote(first.CONSTRAINT_NAME)}
-        FOREIGN KEY (${childColumns})
-        REFERENCES ${parentTable} (${parentColumns})
+        FOREIGN KEY (${ownerColumn}, ${childColumns})
+        REFERENCES ${parentTable} (person_id, ${parentColumns})
         ON UPDATE ${first.UPDATE_RULE} ON DELETE ${first.DELETE_RULE}`,
     ];
   }
@@ -179,9 +182,9 @@ async function installPersonForeignKeys(connection, foreignKeys) {
     if (!expected.has(first.TABLE_NAME) || !expected.has(first.REFERENCED_TABLE_NAME)) {
       throw new Error(`Unexpected schema-69 foreign key ${first.CONSTRAINT_NAME}`);
     }
-    // SET NULL cannot include the non-null owner column. It retains the
-    // globally unique ID foreign key and gets ordered same-person validation
-    // triggers; all other relationships use a composite owner+ID key.
+    // SET NULL cannot include the row's non-null owner column. It uses a
+    // hidden nullable owner shadow in its composite key; all other
+    // relationships use the row owner directly.
     for (const statement of personIsolationForeignKeyStatements(rows)) {
       await connection.query(statement);
     }
@@ -407,6 +410,11 @@ export async function assertPersonIsolationMigration(connection, databaseName) {
     const logicalTable = first.TABLE_NAME.slice(personDataTablePrefix.length);
     const nullableAction = first.UPDATE_RULE === "SET NULL" || first.DELETE_RULE === "SET NULL";
     if (nullableAction) {
+      const expectedOwnerColumn = referenceOwnerColumn(logicalTable, first.CONSTRAINT_NAME);
+      if (first.COLUMN_NAME !== expectedOwnerColumn || first.REFERENCED_COLUMN_NAME !== "person_id"
+          || !String(first.REFERENCED_TABLE_NAME).startsWith(personDataTablePrefix)) {
+        throw new Error(`Schema 70 nullable foreign key ${first.TABLE_NAME}.${first.CONSTRAINT_NAME} is not person-scoped`);
+      }
       for (const prefix of ["t3_ref_bi", "t3_ref_bu"]) {
         const name = boundedName(prefix, logicalTable, first.CONSTRAINT_NAME);
         if (!triggerNames.has(name)) {

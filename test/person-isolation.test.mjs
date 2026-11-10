@@ -58,19 +58,22 @@ test("person isolation gives ordinary foreign keys a separately named composite 
   assert.match(statements[1], /REFERENCES `person_data_contacts` \(person_id, `contact_id`\)/u);
 });
 
-test("SET NULL references retain null propagation and add same-person validation triggers", () => {
+test("SET NULL references use a nullable owner shadow without changing the row owner", () => {
   const statements = personIsolationForeignKeyStatements([{
     TABLE_NAME: "activity_events", CONSTRAINT_NAME: "activity_events_primary_file",
     COLUMN_NAME: "primary_file_id", REFERENCED_TABLE_NAME: "files",
     REFERENCED_COLUMN_NAME: "file_id", UPDATE_RULE: "RESTRICT", DELETE_RULE: "SET NULL",
   }]);
-  assert.equal(statements.length, 3);
-  assert.match(statements[0], /BEFORE INSERT[\s\S]+FOLLOWS `t3_person_insert_activity_events`/u);
-  assert.match(statements[1], /BEFORE UPDATE[\s\S]+FOLLOWS `t3_person_update_activity_events`/u);
-  assert.match(statements[0], /parent\.person_id = NEW\.person_id/u);
-  assert.match(statements[2], /FOREIGN KEY \(`primary_file_id`\)/u);
-  assert.doesNotMatch(statements[2], /FOREIGN KEY \(person_id/u);
-  assert.match(statements[2], /ON DELETE SET NULL/u);
+  assert.equal(statements.length, 6);
+  assert.match(statements[0], /ADD COLUMN IF NOT EXISTS `t3_ref_owner_[0-9a-f]{16}` BIGINT UNSIGNED NULL/u);
+  assert.match(statements[1], /SET `t3_ref_owner_[0-9a-f]{16}` = IF\(`primary_file_id` IS NOT NULL, person_id, NULL\)/u);
+  assert.match(statements[2], /BEFORE INSERT[\s\S]+FOLLOWS `t3_person_insert_activity_events`/u);
+  assert.match(statements[3], /BEFORE UPDATE[\s\S]+FOLLOWS `t3_person_update_activity_events`/u);
+  assert.match(statements[2], /SET NEW\.`t3_ref_owner_[0-9a-f]{16}` = IF\(NEW\.`primary_file_id` IS NOT NULL, NEW\.person_id, NULL\)/u);
+  assert.match(statements[4], /ADD KEY `t3_fk_[0-9a-f]{16}` \(`t3_ref_owner_[0-9a-f]{16}`, `primary_file_id`\)/u);
+  assert.match(statements[5], /FOREIGN KEY \(`t3_ref_owner_[0-9a-f]{16}`, `primary_file_id`\)/u);
+  assert.match(statements[5], /REFERENCES `person_data_files` \(person_id, `file_id`\)/u);
+  assert.match(statements[5], /ON DELETE SET NULL/u);
 });
 
 test("a structurally converted schema-69 database resumes the interrupted migration in place", async () => {
