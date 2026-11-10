@@ -559,6 +559,7 @@ function assertAiAllowance(request) {
 async function handlePublicAuthRoute(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/auth/mode") {
     sendJson(response, 200, { mode: config.authEnabled ? "session" : "token",
+      registrationEnabled: config.authEnabled && config.authRegistrationEnabled,
       authUrl: config.authEnabled ? config.authPublicUrl : null,
       agentUrl: config.publicUrl });
     return true;

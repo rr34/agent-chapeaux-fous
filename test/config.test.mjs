@@ -146,6 +146,7 @@ test("Time v3 Auth uses a separate identity database while sharing the root envi
     SLAYER_PUBLIC_URL: "https://agent.timev3tech.test",
   });
   assert.equal(config.authEnabled, true);
+  assert.equal(config.authRegistrationEnabled, false);
   assert.equal(config.authPublicUrl, "https://auth.timev3tech.test/");
   assert.equal(config.accessToken, "");
   assert.equal(config.weeklyAiTokenLimit, 19_100_000);
@@ -157,6 +158,21 @@ test("Time v3 Auth uses a separate identity database while sharing the root envi
       user: "timev3_auth_user", password: "identity-password", database: "timev3_identity",
     },
   });
+});
+
+test("public account registration is closed by default and requires an explicit true value", () => {
+  const common = {
+    TIMEV3_AUTH_ENABLED: "true",
+    TIMEV3_AUTH_CHALLENGE_SECRET: "a-separate-challenge-secret-that-is-long-enough",
+    TIMEV3_AUTH_INITIAL_OWNER_EMAIL: "nate@example.test",
+    TIMEV3_IDENTITY_MARIADB_ENGINE: "mariadb",
+    TIMEV3_IDENTITY_MARIADB_NAME: "timev3_identity",
+    TIMEV3_IDENTITY_MARIADB_USER: "timev3_auth_user",
+    TIMEV3_IDENTITY_MARIADB_PASSWORD: "identity-password",
+  };
+  assert.equal(loadTestConfig(common).authRegistrationEnabled, false);
+  assert.equal(loadTestConfig({ ...common, TIMEV3_AUTH_REGISTRATION_ENABLED: "true" }).authRegistrationEnabled, true);
+  assert.equal(loadTestConfig({ ...common, TIMEV3_AUTH_REGISTRATION_ENABLED: "false" }).authRegistrationEnabled, false);
 });
 
 test("Time v3 Auth refuses a short challenge secret", () => {

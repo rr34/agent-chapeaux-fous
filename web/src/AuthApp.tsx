@@ -31,6 +31,7 @@ export default function AuthApp() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const state = new URLSearchParams(location.search).get("state") || "";
 
   const navigateMode = (next: AuthMode) => {
@@ -54,6 +55,13 @@ export default function AuthApp() {
   };
 
   useEffect(() => {
+    void authRequest<{ registrationEnabled: boolean }>("/api/auth/mode").then((authMode) => {
+      setRegistrationEnabled(authMode.registrationEnabled);
+      if (!authMode.registrationEnabled && modeFromPath() === "register") {
+        navigateMode("login");
+        setMessage("New account registration is currently closed.");
+      }
+    }).catch(() => {});
     void authRequest("/api/auth/session").then(() => continueToAgent()).catch(() => {});
     // The state belongs to the initial Agent redirect and stays fixed for this page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -120,7 +128,7 @@ export default function AuthApp() {
     </form>
     <nav className="auth-links">
       {mode !== "login" && <button type="button" onClick={() => navigateMode("login")}>Sign in</button>}
-      {mode !== "register" && <button type="button" onClick={() => navigateMode("register")}>Create account</button>}
+      {registrationEnabled && mode !== "register" && <button type="button" onClick={() => navigateMode("register")}>Create account</button>}
       {mode === "login" && <button type="button" onClick={() => navigateMode("forgot")}>Forgot password?</button>}
       {mode === "verify" && <button type="button" disabled={busy || !email} onClick={() => void resendVerification()}>Send a new code</button>}
     </nav>

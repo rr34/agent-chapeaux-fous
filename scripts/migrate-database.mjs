@@ -17,7 +17,8 @@ import {
   objectRelationshipEdgeEndpointTables, objectRelationshipEdgeSourceTables,
 } from "./object-relationship-edge-triggers.mjs";
 import {
-  applyPersonIsolationMigration, assertPersonIsolationMigration,
+  applyPersonIsolationMigration, applyShortPersonTablePrefixMigration,
+  assertPersonIsolationMigration, assertShortPersonTablePrefixMigration,
 } from "./person-isolation-migration.mjs";
 
 export const migrationsFilename = path.join(repositoryRoot, "db/migrations.sql");
@@ -405,10 +406,10 @@ export async function assertMigrationSpecificIntegrity(
     const [indexRows] = await connection.query(`
       SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX
         FROM information_schema.STATISTICS
-       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'person_data_activity_events'
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
          AND INDEX_NAME IN ('t3_activity_person_turn', 't3_activity_person_type', 't3_activity_person_operation')
        ORDER BY INDEX_NAME, SEQ_IN_INDEX
-    `, [databaseName]);
+    `, [databaseName, schemaVersion >= 72 ? "p_activity_events" : "person_data_activity_events"]);
     const actualIndexes = new Map();
     for (const row of indexRows) {
       if (!actualIndexes.has(row.INDEX_NAME)) actualIndexes.set(row.INDEX_NAME, []);
@@ -420,7 +421,10 @@ export async function assertMigrationSpecificIntegrity(
       }
     }
   }
-  if (migration.version === 70) {
+  if (migration.version === 72) {
+    await assertShortPersonTablePrefixMigration(connection, databaseName);
+  }
+  if (migration.version === 70 && schemaVersion < 72) {
     await assertPersonIsolationMigration(connection, databaseName);
   }
   if (migration.version === 69) {
@@ -1699,6 +1703,9 @@ export async function runDatabaseMigrations({
           initialPersonId: process.env.SLAYER_LEGACY_PERSON_ID || 1,
           output,
         });
+      }
+      if (migration.version === 72) {
+        await applyShortPersonTablePrefixMigration(connection, databaseName, { output });
       }
       const statements = splitMariaDbStatements(migration.sql, `migration ${migration.label}`);
       for (const statement of statements) await connection.query(statement);

@@ -3,6 +3,7 @@ import { serialize } from "node:v8";
 import mysql from "mysql2/promise";
 import { mariaDbHybridSearch } from "./search/mariadb-search.mjs";
 import { parseUpdateReturning } from "./mariadb-sql.mjs";
+import { personDataTablePrefix } from "./person-isolation.mjs";
 
 export function canonicalUtcDateTime(value) {
   if (value == null) return null;
@@ -284,13 +285,13 @@ export function createMariaDbWorkerHandler({
       [table],
     );
     const columns = rows.map(({ COLUMN_NAME }) => COLUMN_NAME);
-    if (!columns.length && !table.startsWith("person_data_")) {
+    if (!columns.length && !table.startsWith(personDataTablePrefix)) {
       const [physicalRows] = await current.execute(
         `SELECT COLUMN_NAME
            FROM information_schema.KEY_COLUMN_USAGE
           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = 'PRIMARY'
           ORDER BY ORDINAL_POSITION`,
-        [`person_data_${table}`],
+        [`${personDataTablePrefix}${table}`],
       );
       const physicalColumns = physicalRows.map(({ COLUMN_NAME }) => COLUMN_NAME)
         .filter((name) => name !== "person_id");

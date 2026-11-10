@@ -134,7 +134,7 @@ contract. `AGENT-TERMINOLOGY.md` remains the numbered canonical glossary.
 
 ### Time v3 account, person, and node contract
 
-Time v3 authentication is public email/password registration with email
+Time v3 authentication supports public email/password registration with email
 verification and password recovery. It lives in this repository and uses the
 same root `.env`, but credential, challenge, session, account, person, and
 node-credential rows live only in the separate `timev3_identity` database.
@@ -148,6 +148,11 @@ an account may create and select additional managed people without assigning
 them email addresses or separate login credentials. There are no workspaces,
 organizations, or implied cross-person records. Product access may later be
 granted separately from account creation.
+
+`TIMEV3_AUTH_REGISTRATION_ENABLED` independently controls creation of new
+accounts and defaults closed. Closing registration does not affect login,
+email verification, password recovery, existing sessions, or managed people
+belonging to an existing account.
 
 Each person belongs directly to exactly one account through `people.account_id`;
 there is no account/person mapping table or shared-person relationship. The
@@ -173,9 +178,9 @@ and Agent person ownership is migrated and verified. The legacy installation
 token is the rollback boundary during that conversion; enabling account login
 before domain records are person-scoped is prohibited.
 
-Agent schema 70 stores every private domain row in a physical
-`person_data_<table>` table with a direct `person_id`. Existing application SQL
-uses same-named, database-enforced person-filtered views; the MariaDB session
+Agent schema 72 stores every private domain row in a physical `p_<table>` table
+with a direct `person_id`. Existing application SQL uses same-named,
+database-enforced person-filtered views; the MariaDB session
 person is set for every operation. Person-prefixed unique keys and foreign keys
 prevent both duplicate-name collisions between people and cross-person links,
 even if an object ID is guessed. Existing schema-69 rows become person `1`.

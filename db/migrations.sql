@@ -16,6 +16,19 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0072: shorten-person-table-prefix
+-- writer downtime: required. Physical person-owned tables move from the
+-- unnecessarily verbose person_data_* prefix to p_*. The stable domain names
+-- remain database-enforced person-filtered views used by the application.
+-- locking: all person-owned views are replaced and all physical tables are
+-- renamed. Keep Agent stopped for the complete conversion.
+-- recovery: MariaDB DDL commits implicitly. Restore the schema-71 backup if
+-- this coordinated table/view conversion fails before completion.
+
+SELECT 1 AS shorten_person_table_prefix_programmatic_marker;
+
+-- end migration 0072
+
 -- migration 0071: person-scoped-activity-indexes
 -- writer downtime: required. The matching application requires schema 71 and
 -- request-feed reads are already degraded under schema 70 without these keys.

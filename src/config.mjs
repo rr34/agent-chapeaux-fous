@@ -137,7 +137,7 @@ export function loadConfig(environment = process.env) {
     authEnabled,
     authPublicUrl: authPublicUrl.toString(),
     authSessionDays: positiveInteger(environment.TIMEV3_AUTH_SESSION_DAYS, 30),
-    authRegistrationEnabled: environment.TIMEV3_AUTH_REGISTRATION_ENABLED !== "false",
+    authRegistrationEnabled: environment.TIMEV3_AUTH_REGISTRATION_ENABLED === "true",
     authInitialOwnerEmail,
     authChallengeSecret,
     authEmailFrom: environment.TIMEV3_AUTH_EMAIL_FROM?.trim() || environment.SMTP_FROM?.trim() || "",

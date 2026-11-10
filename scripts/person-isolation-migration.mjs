@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
-import { agentPersonTables, personDataTablePrefix } from "../src/person-isolation.mjs";
+import {
+  agentPersonTables,
+  legacyPersonDataTablePrefix as personDataTablePrefix,
+  personDataTablePrefix as shortPersonDataTablePrefix,
+} from "../src/person-isolation.mjs";
 import { baselineFilename } from "./agent-schema.mjs";
 import { parseMariaDbScript } from "./mariadb-schema.mjs";
 
@@ -435,6 +439,115 @@ export async function assertPersonIsolationMigration(connection, databaseName) {
     if (first.COLUMN_NAME !== "person_id" || first.REFERENCED_COLUMN_NAME !== "person_id"
         || !String(first.REFERENCED_TABLE_NAME).startsWith(personDataTablePrefix)) {
       throw new Error(`Schema 70 foreign key ${first.TABLE_NAME}.${first.CONSTRAINT_NAME} is not person-scoped`);
+    }
+  }
+}
+
+export async function applyShortPersonTablePrefixMigration(connection, databaseName, {
+  output = process.stdout,
+} = {}) {
+  const objects = await queryRows(connection, `
+    SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = ?
+  `, [databaseName]);
+  const types = new Map(objects.map((row) => [row.TABLE_NAME, row.TABLE_TYPE]));
+  const invalid = agentPersonTables.filter((table) => (
+    types.get(table) !== "VIEW"
+    || types.get(`${personDataTablePrefix}${table}`) !== "BASE TABLE"
+  ));
+  if (invalid.length) {
+    throw new Error(`Schema 72 requires the complete schema-71 person view layout; invalid: ${invalid.join(", ")}`);
+  }
+
+  const canonical = canonicalSchema69Artifacts();
+  const derived = canonical.derivedViews.map(({ name }) => name).filter((name) => types.get(name) === "VIEW");
+  if (derived.length) await connection.query(`DROP VIEW ${derived.map(quote).join(", ")}`);
+  await connection.query(`DROP VIEW ${agentPersonTables.map(quote).join(", ")}`);
+  await connection.query(`RENAME TABLE ${agentPersonTables.map((table) => (
+    `${quote(`${personDataTablePrefix}${table}`)} TO ${quote(`${shortPersonDataTablePrefix}${table}`)}`
+  )).join(", ")}`);
+
+  for (const table of agentPersonTables) {
+    const physical = `${shortPersonDataTablePrefix}${table}`;
+    const columnRows = await queryRows(connection, `
+      SELECT COLUMN_NAME FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME <> 'person_id'
+       ORDER BY ORDINAL_POSITION
+    `, [databaseName, physical]);
+    const columns = columnRows.map((row) => quote(row.COLUMN_NAME)).join(", ");
+    await connection.query(`CREATE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW ${quote(table)} AS
+      SELECT ${columns} FROM ${quote(physical)}
+       WHERE person_id = timev3_current_person_id()
+      WITH CASCADED CHECK OPTION`);
+  }
+  for (const view of canonical.derivedViews) await connection.query(view.sql);
+  output.write(`Shortened ${agentPersonTables.length} physical person-owned table names from ${personDataTablePrefix}* to ${shortPersonDataTablePrefix}*.\n`);
+}
+
+export async function assertShortPersonTablePrefixMigration(connection, databaseName) {
+  const objects = await queryRows(connection, `
+    SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = ?
+  `, [databaseName]);
+  const types = new Map(objects.map((row) => [row.TABLE_NAME, row.TABLE_TYPE]));
+  for (const table of agentPersonTables) {
+    if (types.get(table) !== "VIEW") throw new Error(`Schema 72 is missing logical person view ${table}`);
+    if (types.has(`${personDataTablePrefix}${table}`)) throw new Error(`Schema 72 retained long table name ${personDataTablePrefix}${table}`);
+    if (types.get(`${shortPersonDataTablePrefix}${table}`) !== "BASE TABLE") {
+      throw new Error(`Schema 72 is missing physical table ${shortPersonDataTablePrefix}${table}`);
+    }
+  }
+  const columns = await queryRows(connection, `
+    SELECT TABLE_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND COLUMN_NAME = 'person_id'
+  `, [databaseName]);
+  const personColumns = new Set(columns.map((row) => row.TABLE_NAME));
+  const missing = agentPersonTables
+    .map((table) => `${shortPersonDataTablePrefix}${table}`)
+    .filter((table) => !personColumns.has(table));
+  if (missing.length) throw new Error(`Schema 72 is missing direct person_id on: ${missing.join(", ")}`);
+
+  const views = await queryRows(connection, `
+    SELECT TABLE_NAME, CHECK_OPTION, VIEW_DEFINITION FROM information_schema.VIEWS
+     WHERE TABLE_SCHEMA = ?
+  `, [databaseName]);
+  const byName = new Map(views.map((view) => [view.TABLE_NAME, view]));
+  for (const table of agentPersonTables) {
+    const view = byName.get(table);
+    if (view?.CHECK_OPTION !== "CASCADED"
+        || !String(view.VIEW_DEFINITION).toLowerCase().includes("timev3_current_person_id")) {
+      throw new Error(`Schema 72 person view ${table} is not person-filtered`);
+    }
+  }
+
+  const triggers = await queryRows(connection, `
+    SELECT EVENT_OBJECT_TABLE, ACTION_TIMING, EVENT_MANIPULATION
+      FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = ?
+  `, [databaseName]);
+  const triggerKeys = new Set(triggers.map((row) => (
+    `${row.EVENT_OBJECT_TABLE}\0${row.ACTION_TIMING}\0${row.EVENT_MANIPULATION}`
+  )));
+  for (const table of agentPersonTables) {
+    const physical = `${shortPersonDataTablePrefix}${table}`;
+    if (!triggerKeys.has(`${physical}\0BEFORE\0INSERT`) || !triggerKeys.has(`${physical}\0BEFORE\0UPDATE`)) {
+      throw new Error(`Schema 72 is missing ownership triggers for ${physical}`);
+    }
+  }
+
+  const foreignKeys = await queryRows(connection, `
+    SELECT TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME, ORDINAL_POSITION,
+           REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+      FROM information_schema.KEY_COLUMN_USAGE
+     WHERE CONSTRAINT_SCHEMA = ? AND REFERENCED_TABLE_NAME IS NOT NULL
+       AND TABLE_NAME LIKE 'p\\_%'
+     ORDER BY TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION
+  `, [databaseName]);
+  for (const rows of grouped(foreignKeys, (row) => `${row.TABLE_NAME}\0${row.CONSTRAINT_NAME}`).values()) {
+    const first = rows[0];
+    if (!first.REFERENCED_TABLE_NAME.startsWith(shortPersonDataTablePrefix)
+        || first.REFERENCED_COLUMN_NAME !== "person_id"
+        || (first.COLUMN_NAME !== "person_id" && !first.COLUMN_NAME.startsWith("t3_ref_owner_"))) {
+      throw new Error(`Schema 72 foreign key ${first.TABLE_NAME}.${first.CONSTRAINT_NAME} is not person-scoped`);
     }
   }
 }

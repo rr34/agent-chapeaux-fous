@@ -1,5 +1,6 @@
-export const personIsolationSchemaVersion = 70;
-export const personDataTablePrefix = "person_data_";
+export const personIsolationSchemaVersion = 72;
+export const legacyPersonDataTablePrefix = "person_data_";
+export const personDataTablePrefix = "p_";
 
 export const agentPersonTables = Object.freeze([
   "files", "activity_events", "activity_event_files_join", "contacts", "contact_methods",
@@ -26,7 +27,9 @@ export function inspectPersonIsolation(database, applicationTables = agentPerson
       FROM information_schema.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME = 'person_id'
   `).all();
-  const scoped = new Set(rows.map((row) => row.table_name.replace(personDataTablePrefix, "")));
+  const scoped = new Set(rows.map((row) => row.table_name
+    .replace(personDataTablePrefix, "")
+    .replace(legacyPersonDataTablePrefix, "")));
   return {
     schemaVersion: Number(meta?.schema_version ?? 0),
     missingTables: names.filter((name) => !scoped.has(name)),

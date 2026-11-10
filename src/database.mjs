@@ -1,7 +1,7 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
-import { personDataTablePrefix } from "./person-isolation.mjs";
+import { legacyPersonDataTablePrefix, personDataTablePrefix } from "./person-isolation.mjs";
 
-export const requiredDatabaseSchemaVersion = 71;
+export const requiredDatabaseSchemaVersion = 72;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -267,6 +267,7 @@ export function inspectDatabase(database) {
   `).get();
   const schemaVersion = Number(meta?.schema_version);
   const personIsolated = schemaVersion >= 70;
+  const physicalPrefix = schemaVersion >= 72 ? personDataTablePrefix : legacyPersonDataTablePrefix;
   const objects = database.prepare(`
     SELECT TABLE_NAME AS name, TABLE_TYPE AS table_type
     FROM information_schema.TABLES
@@ -312,10 +313,10 @@ export function inspectDatabase(database) {
     WHERE TABLE_SCHEMA = DATABASE()
   `).all();
   const relevantEnumColumns = personIsolated
-    ? enumColumns.filter(({ table_name: tableName }) => tableName.startsWith(personDataTablePrefix))
+    ? enumColumns.filter(({ table_name: tableName }) => tableName.startsWith(physicalPrefix))
     : enumColumns;
   const enumsByName = new Map(relevantEnumColumns.map((column) => [
-    `${column.table_name.startsWith(personDataTablePrefix) ? column.table_name.slice(personDataTablePrefix.length) : column.table_name}.${column.column_name}`,
+    `${column.table_name.startsWith(physicalPrefix) ? column.table_name.slice(physicalPrefix.length) : column.table_name}.${column.column_name}`,
     column,
   ]));
   for (const [tableName, fields] of Object.entries(requiredEnumColumns)) {
@@ -336,7 +337,9 @@ export function inspectDatabase(database) {
   return {
     ready: problems.length === 0,
     problems,
-    objects: objects.filter(({ name }) => !name.startsWith(personDataTablePrefix)),
+    objects: objects.filter(({ name }) => (
+      !name.startsWith(personDataTablePrefix) && !name.startsWith(legacyPersonDataTablePrefix)
+    )),
   };
 }
 
@@ -391,7 +394,9 @@ export class SlayerDatabase {
       SELECT CASE WHEN TABLE_TYPE = 'BASE TABLE' THEN 'table' ELSE 'view' END AS type,
              TABLE_NAME AS name, TABLE_COMMENT AS comment, NULL AS \`sql\`
       FROM information_schema.TABLES
-      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME NOT LIKE 'person\\_data\\_%'
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME NOT LIKE 'person\\_data\\_%'
+        AND TABLE_NAME NOT LIKE 'p\\_%'
       ORDER BY type, name
     `).all().map(serializable);
   }

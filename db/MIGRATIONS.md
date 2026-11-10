@@ -12,6 +12,17 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 72: Short person-table prefix
+
+Renames the physical person-owned tables from `person_data_<table>` to the
+shorter `p_<table>` form. The original domain names remain the filtered views
+used by application SQL, because MariaDB does not apply row filtering merely
+because a `person_id` column exists. No domain data or ownership value changes.
+
+Apply with Agent stopped. This coordinated rename replaces the person and
+derived views around the table rename; restore the schema-71 backup if the DDL
+fails before completion.
+
 ## Version 71: Person-scoped activity indexes
 
 Marks the session person selector deterministic for the duration of each SQL

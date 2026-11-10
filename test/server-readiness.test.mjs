@@ -15,6 +15,11 @@ test("the path-scoped OAuth state cookie uses a browser-valid secure prefix", ()
   assert.doesNotMatch(server, /"__Host-" : ""\}timev3_auth_state/u);
 });
 
+test("public registration has an independent server-side gate", () => {
+  assert.match(server, /registrationEnabled: config\.authEnabled && config\.authRegistrationEnabled/u);
+  assert.match(server, /if \(!config\.authRegistrationEnabled\) throw Object\.assign\(new Error\("New account registration is temporarily unavailable\."\)/u);
+});
+
 function readHealth({ database, model, tlom }) {
   const context = vm.createContext({
     store: { status: database },

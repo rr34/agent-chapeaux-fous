@@ -234,6 +234,13 @@ test("migration 71 makes person-filtered activity reads indexable", () => {
   }
 });
 
+test("migration 72 shortens physical person-owned table names", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 72);
+  assert.equal(migration.label, "0072:shorten-person-table-prefix");
+  assert.match(migration.sql, /shorten_person_table_prefix_programmatic_marker/u);
+});
+
 test("migration 66 removes MariaDB JSON verification while preserving text limits", () => {
   const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
     .find(({ version }) => version === 66);

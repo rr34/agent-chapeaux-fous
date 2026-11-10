@@ -5,7 +5,8 @@ import {
   agentPersonTables, assertPersonIsolationReady, inspectPersonIsolation, personIsolationSchemaVersion,
 } from "../src/person-isolation.mjs";
 import {
-  applyPersonIsolationMigration, canonicalSchema69Artifacts, personIsolationForeignKeyStatements,
+  applyPersonIsolationMigration, applyShortPersonTablePrefixMigration,
+  canonicalSchema69Artifacts, personIsolationForeignKeyStatements,
 } from "../scripts/person-isolation-migration.mjs";
 
 function fakeDatabase({ version, tables }) {
@@ -23,16 +24,16 @@ function fakeDatabase({ version, tables }) {
 test("person isolation requires every Agent table and the migration version", () => {
   const applicationTables = ["database_meta", "files", "contacts"];
   assert.deepEqual(inspectPersonIsolation(fakeDatabase({
-    version: personIsolationSchemaVersion, tables: ["files"],
+    version: personIsolationSchemaVersion, tables: ["p_files"],
   }), applicationTables), {
     schemaVersion: personIsolationSchemaVersion,
     missingTables: ["contacts"],
   });
   assert.throws(() => assertPersonIsolationReady(fakeDatabase({
-    version: personIsolationSchemaVersion - 1, tables: ["files", "contacts"],
-  }), applicationTables), /person-isolated schema version 70 is required/);
+    version: personIsolationSchemaVersion - 1, tables: ["p_files", "p_contacts"],
+  }), applicationTables), /person-isolated schema version 72 is required/);
   assert.doesNotThrow(() => assertPersonIsolationReady(fakeDatabase({
-    version: personIsolationSchemaVersion, tables: ["files", "contacts"],
+    version: personIsolationSchemaVersion, tables: ["p_files", "p_contacts"],
   }), applicationTables));
 });
 
@@ -125,4 +126,23 @@ test("a structurally converted schema-69 database resumes the interrupted migrat
   for (const view of canonical.derivedViews) {
     assert.ok(calls.some((sql) => sql === view.sql));
   }
+});
+
+test("schema 72 replaces the long physical prefix with p_ while retaining filtered domain views", async () => {
+  const canonical = canonicalSchema69Artifacts();
+  const objectRows = agentPersonTables.flatMap((name) => [
+    { TABLE_NAME: name, TABLE_TYPE: "VIEW" },
+    { TABLE_NAME: `person_data_${name}`, TABLE_TYPE: "BASE TABLE" },
+  ]).concat(canonical.derivedViews.map(({ name }) => ({ TABLE_NAME: name, TABLE_TYPE: "VIEW" })));
+  const calls = [];
+  const connection = { async query(sql) {
+    calls.push(sql);
+    if (/FROM information_schema\.TABLES/u.test(sql)) return [objectRows, []];
+    if (/FROM information_schema\.COLUMNS/u.test(sql)) return [[{ COLUMN_NAME: "example_id" }], []];
+    return [[], []];
+  } };
+  await applyShortPersonTablePrefixMigration(connection, "agent_test", { output: { write() {} } });
+  assert.ok(calls.some((sql) => /`person_data_files` TO `p_files`/u.test(sql)));
+  assert.ok(calls.some((sql) => /VIEW `files` AS[\s\S]+FROM `p_files`/u.test(sql)));
+  assert.equal(calls.some((sql) => /VIEW `p_files`/u.test(sql)), false);
 });
