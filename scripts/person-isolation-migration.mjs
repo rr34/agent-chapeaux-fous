@@ -93,6 +93,16 @@ async function removePartialForeignKeys(connection, databaseName, canonicalForei
      WHERE TRIGGER_SCHEMA = ? AND TRIGGER_NAME LIKE 't3\\_ref\\_%'
   `, [databaseName]);
   for (const row of validationTriggers) await connection.query(`DROP TRIGGER ${quote(row.TRIGGER_NAME)}`);
+
+  const ownerColumns = await queryRows(connection, `
+    SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME LIKE 'person\\_data\\_%'
+       AND COLUMN_NAME LIKE 't3\\_ref\\_owner\\_%'
+     ORDER BY TABLE_NAME, COLUMN_NAME
+  `, [databaseName]);
+  for (const row of ownerColumns) {
+    await connection.query(`ALTER TABLE ${quote(row.TABLE_NAME)} DROP COLUMN ${quote(row.COLUMN_NAME)}`);
+  }
 }
 
 function portableViewDefinition(sql) {
@@ -120,8 +130,10 @@ function referenceOwnerTriggerSql({ event, table, constraint, childColumns }) {
     SET NEW.${quote(ownerColumn)} = IF(${completeReference}, NEW.person_id, NULL)`;
 }
 
-export function personIsolationForeignKeyStatements(rows) {
+export function personIsolationForeignKeyStatements(rows, { initialPersonId = 1 } = {}) {
   if (!Array.isArray(rows) || !rows.length) throw new Error("Foreign-key metadata is required");
+  const personId = Number(initialPersonId);
+  if (!Number.isSafeInteger(personId) || personId < 1) throw new Error("Initial person ID must be a positive safe integer");
   const first = rows[0];
   const childColumnNames = rows.map((row) => row.COLUMN_NAME);
   const parentColumnNames = rows.map((row) => row.REFERENCED_COLUMN_NAME);
@@ -133,14 +145,11 @@ export function personIsolationForeignKeyStatements(rows) {
   if (nullableAction) {
     const ownerColumnName = referenceOwnerColumn(first.TABLE_NAME, first.CONSTRAINT_NAME);
     const ownerColumn = quote(ownerColumnName);
-    const completeReference = childColumnNames.map((column) => `${quote(column)} IS NOT NULL`).join(" AND ");
     const indexName = boundedName("t3_fk", first.TABLE_NAME, first.CONSTRAINT_NAME);
     return [
       `ALTER TABLE ${childTable}
-        ADD COLUMN IF NOT EXISTS ${ownerColumn} BIGINT UNSIGNED NULL DEFAULT NULL
+        ADD COLUMN ${ownerColumn} BIGINT UNSIGNED NULL DEFAULT ${personId}
           COMMENT 'Internal nullable owner used to scope ${first.CONSTRAINT_NAME} without changing the row owner.'`,
-      `UPDATE ${childTable}
-          SET ${ownerColumn} = IF(${completeReference}, person_id, NULL)`,
       referenceOwnerTriggerSql({
         event: "INSERT", table: first.TABLE_NAME, constraint: first.CONSTRAINT_NAME,
         childColumns: childColumnNames,
@@ -175,7 +184,7 @@ async function queryRows(connection, sql, parameters = []) {
   return rows;
 }
 
-async function installPersonForeignKeys(connection, foreignKeys) {
+async function installPersonForeignKeys(connection, foreignKeys, initialPersonId) {
   const expected = new Set(agentPersonTables);
   for (const rows of foreignKeys) {
     const first = rows[0];
@@ -185,7 +194,7 @@ async function installPersonForeignKeys(connection, foreignKeys) {
     // SET NULL cannot include the row's non-null owner column. It uses a
     // hidden nullable owner shadow in its composite key; all other
     // relationships use the row owner directly.
-    for (const statement of personIsolationForeignKeyStatements(rows)) {
+    for (const statement of personIsolationForeignKeyStatements(rows, { initialPersonId })) {
       await connection.query(statement);
     }
   }
@@ -212,7 +221,7 @@ export async function applyPersonIsolationMigration(connection, databaseName, {
     output.write("Detected a partially committed schema-70 conversion; rebuilding its foreign keys and derived views in place.\n");
     const canonical = canonicalSchema69Artifacts();
     await removePartialForeignKeys(connection, databaseName, canonical.foreignKeys);
-    await installPersonForeignKeys(connection, canonical.foreignKeys);
+    await installPersonForeignKeys(connection, canonical.foreignKeys, personId);
     const existingDerivedViews = canonical.derivedViews
       .map(({ name }) => name)
       .filter((name) => types.get(name) === "VIEW");
@@ -325,7 +334,7 @@ export async function applyPersonIsolationMigration(connection, databaseName, {
       SET NEW.person_id = OLD.person_id`);
   }
 
-  await installPersonForeignKeys(connection, foreignKeys);
+  await installPersonForeignKeys(connection, foreignKeys, personId);
 
   for (const view of viewDefinitions) await connection.query(view.sql);
   output.write(`Assigned schema-69 Agent rows to person_id ${personId} and installed ${agentPersonTables.length} person-filtered logical views.\n`);

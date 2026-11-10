@@ -64,16 +64,16 @@ test("SET NULL references use a nullable owner shadow without changing the row o
     COLUMN_NAME: "primary_file_id", REFERENCED_TABLE_NAME: "files",
     REFERENCED_COLUMN_NAME: "file_id", UPDATE_RULE: "RESTRICT", DELETE_RULE: "SET NULL",
   }]);
-  assert.equal(statements.length, 6);
-  assert.match(statements[0], /ADD COLUMN IF NOT EXISTS `t3_ref_owner_[0-9a-f]{16}` BIGINT UNSIGNED NULL/u);
-  assert.match(statements[1], /SET `t3_ref_owner_[0-9a-f]{16}` = IF\(`primary_file_id` IS NOT NULL, person_id, NULL\)/u);
-  assert.match(statements[2], /BEFORE INSERT[\s\S]+FOLLOWS `t3_person_insert_activity_events`/u);
-  assert.match(statements[3], /BEFORE UPDATE[\s\S]+FOLLOWS `t3_person_update_activity_events`/u);
-  assert.match(statements[2], /SET NEW\.`t3_ref_owner_[0-9a-f]{16}` = IF\(NEW\.`primary_file_id` IS NOT NULL, NEW\.person_id, NULL\)/u);
-  assert.match(statements[4], /ADD KEY `t3_fk_[0-9a-f]{16}` \(`t3_ref_owner_[0-9a-f]{16}`, `primary_file_id`\)/u);
-  assert.match(statements[5], /FOREIGN KEY \(`t3_ref_owner_[0-9a-f]{16}`, `primary_file_id`\)/u);
-  assert.match(statements[5], /REFERENCES `person_data_files` \(person_id, `file_id`\)/u);
-  assert.match(statements[5], /ON DELETE SET NULL/u);
+  assert.equal(statements.length, 5);
+  assert.match(statements[0], /ADD COLUMN `t3_ref_owner_[0-9a-f]{16}` BIGINT UNSIGNED NULL DEFAULT 1/u);
+  assert.doesNotMatch(statements.join("\n"), /^UPDATE\s/imu);
+  assert.match(statements[1], /BEFORE INSERT[\s\S]+FOLLOWS `t3_person_insert_activity_events`/u);
+  assert.match(statements[2], /BEFORE UPDATE[\s\S]+FOLLOWS `t3_person_update_activity_events`/u);
+  assert.match(statements[1], /SET NEW\.`t3_ref_owner_[0-9a-f]{16}` = IF\(NEW\.`primary_file_id` IS NOT NULL, NEW\.person_id, NULL\)/u);
+  assert.match(statements[3], /ADD KEY `t3_fk_[0-9a-f]{16}` \(`t3_ref_owner_[0-9a-f]{16}`, `primary_file_id`\)/u);
+  assert.match(statements[4], /FOREIGN KEY \(`t3_ref_owner_[0-9a-f]{16}`, `primary_file_id`\)/u);
+  assert.match(statements[4], /REFERENCES `person_data_files` \(person_id, `file_id`\)/u);
+  assert.match(statements[4], /ON DELETE SET NULL/u);
 });
 
 test("a structurally converted schema-69 database resumes the interrupted migration in place", async () => {
@@ -102,6 +102,12 @@ test("a structurally converted schema-69 database resumes the interrupted migrat
       if (/FROM information_schema\.TRIGGERS/u.test(sql)) {
         return [[{ TRIGGER_NAME: "t3_ref_bi_deadbeefdeadbeef" }], []];
       }
+      if (/FROM information_schema\.COLUMNS/u.test(sql)) {
+        return [[{
+          TABLE_NAME: "person_data_journal3_entries",
+          COLUMN_NAME: "t3_ref_owner_d78e3bd6eec5d19c",
+        }], []];
+      }
       return [[], []];
     },
   };
@@ -113,6 +119,8 @@ test("a structurally converted schema-69 database resumes the interrupted migrat
   assert.ok(calls.some((sql) => /DROP FOREIGN KEY `activity_events_primary_file`/u.test(sql)));
   assert.ok(calls.some((sql) => /DROP INDEX `activity_events_primary_file`/u.test(sql)));
   assert.ok(calls.some((sql) => /DROP TRIGGER `t3_ref_bi_deadbeefdeadbeef`/u.test(sql)));
+  assert.ok(calls.some((sql) => /DROP COLUMN `t3_ref_owner_d78e3bd6eec5d19c`/u.test(sql)));
+  assert.equal(calls.some((sql) => /^UPDATE `person_data_/u.test(sql)), false);
   assert.equal(calls.filter((sql) => /ADD CONSTRAINT/u.test(sql)).length, canonical.foreignKeys.length);
   for (const view of canonical.derivedViews) {
     assert.ok(calls.some((sql) => sql === view.sql));
