@@ -132,6 +132,55 @@ test("the public URL controls browser OAuth callbacks", () => {
   assert.equal(config.mcpUserConfigPath, "/tmp/agent-slayer-state-test/agent-slayer/mcp-connections.json");
 });
 
+test("Time v3 Auth uses a separate identity database while sharing the root environment file", () => {
+  const config = loadTestConfig({
+    TIMEV3_AUTH_ENABLED: "true",
+    TIMEV3_AUTH_PUBLIC_URL: "https://auth.timev3tech.test",
+    TIMEV3_AUTH_CHALLENGE_SECRET: "a-separate-challenge-secret-that-is-long-enough",
+    TIMEV3_IDENTITY_MARIADB_ENGINE: "mariadb",
+    TIMEV3_IDENTITY_MARIADB_HOST: "identity.internal",
+    TIMEV3_IDENTITY_MARIADB_NAME: "timev3_identity",
+    TIMEV3_IDENTITY_MARIADB_USER: "timev3_auth_user",
+    TIMEV3_IDENTITY_MARIADB_PASSWORD: "identity-password",
+    SLAYER_PUBLIC_URL: "https://agent.timev3tech.test",
+  });
+  assert.equal(config.authEnabled, true);
+  assert.equal(config.authPublicUrl, "https://auth.timev3tech.test/");
+  assert.equal(config.accessToken, "");
+  assert.equal(config.weeklyAiTokenLimit, 19_100_000);
+  assert.deepEqual(config.identityDatabaseTarget, {
+    engine: "mariadb",
+    connection: {
+      host: "identity.internal", port: 3306, socketPath: undefined,
+      user: "timev3_auth_user", password: "identity-password", database: "timev3_identity",
+    },
+  });
+});
+
+test("Time v3 Auth refuses a short challenge secret", () => {
+  assert.throws(() => loadTestConfig({
+    TIMEV3_AUTH_ENABLED: "true",
+    TIMEV3_AUTH_CHALLENGE_SECRET: "short",
+    TIMEV3_IDENTITY_MARIADB_ENGINE: "mariadb",
+    TIMEV3_IDENTITY_MARIADB_NAME: "timev3_identity",
+    TIMEV3_IDENTITY_MARIADB_USER: "timev3_auth_user",
+    TIMEV3_IDENTITY_MARIADB_PASSWORD: "identity-password",
+  }), /at least 32 bytes/);
+});
+
+test("the identity database can be verified while public auth remains disabled", () => {
+  const config = loadTestConfig({
+    SLAYER_ALLOW_UNAUTHENTICATED: "true",
+    TIMEV3_AUTH_ENABLED: "false",
+    TIMEV3_IDENTITY_MARIADB_ENGINE: "mariadb",
+    TIMEV3_IDENTITY_MARIADB_NAME: "timev3_identity",
+    TIMEV3_IDENTITY_MARIADB_USER: "timev3_auth_user",
+    TIMEV3_IDENTITY_MARIADB_PASSWORD: "identity-password",
+  });
+  assert.equal(config.authEnabled, false);
+  assert.equal(config.identityDatabaseTarget.connection.database, "timev3_identity");
+});
+
 test("Stripe Connect secrets stay in server configuration", () => {
   const config = loadTestConfig({
     SLAYER_ALLOW_UNAUTHENTICATED: "true",

@@ -31,26 +31,26 @@ function resolveFromRoot(value, fallback) {
   return path.resolve(repositoryRoot, value?.trim() || fallback);
 }
 
-function databaseConfiguration(environment) {
-  const engine = environment.MARIADB_ENGINE?.trim().toLowerCase();
-  const database = environment.MARIADB_NAME?.trim();
-  const user = environment.MARIADB_USER?.trim();
-  const password = environment.MARIADB_PASSWORD;
+function databaseConfiguration(environment, prefix = "MARIADB") {
+  const engine = environment[`${prefix}_ENGINE`]?.trim().toLowerCase();
+  const database = environment[`${prefix}_NAME`]?.trim();
+  const user = environment[`${prefix}_USER`]?.trim();
+  const password = environment[`${prefix}_PASSWORD`];
   if (engine !== "mariadb") {
-    throw new Error("MARIADB_ENGINE must be mariadb");
+    throw new Error(`${prefix}_ENGINE must be mariadb`);
   }
   if (!database || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(database)) {
-    throw new Error("MARIADB_NAME must be a valid MariaDB database name");
+    throw new Error(`${prefix}_NAME must be a valid MariaDB database name`);
   }
   if (!user || password == null) {
-    throw new Error("MARIADB_USER and MARIADB_PASSWORD are required");
+    throw new Error(`${prefix}_USER and ${prefix}_PASSWORD are required`);
   }
   return {
     engine,
     connection: {
-      host: environment.MARIADB_HOST?.trim() || "localhost",
-      port: positiveInteger(environment.MARIADB_PORT, 3306),
-      socketPath: environment.MARIADB_SOCKET?.trim() || undefined,
+      host: environment[`${prefix}_HOST`]?.trim() || "localhost",
+      port: positiveInteger(environment[`${prefix}_PORT`], 3306),
+      socketPath: environment[`${prefix}_SOCKET`]?.trim() || undefined,
       user,
       password,
       database,
@@ -58,10 +58,31 @@ function databaseConfiguration(environment) {
   };
 }
 
+export function loadIdentityDatabaseTarget(environment = process.env) {
+  return databaseConfiguration(environment, "TIMEV3_IDENTITY_MARIADB");
+}
+
+function publicOrigin(value, fallback, label) {
+  const origin = new URL(value?.trim() || fallback);
+  const loopback = origin.hostname === "localhost"
+    || origin.hostname.endsWith(".localhost")
+    || origin.hostname === "127.0.0.1"
+    || origin.hostname === "[::1]";
+  if (
+    !["http:", "https:"].includes(origin.protocol)
+    || (origin.protocol === "http:" && !loopback)
+    || origin.username || origin.password || origin.pathname !== "/" || origin.search || origin.hash
+  ) {
+    throw new Error(`${label} must be an HTTPS origin (or an HTTP loopback origin) without credentials, a path, query parameters, or a fragment`);
+  }
+  return origin;
+}
+
 export function loadConfig(environment = process.env) {
+  const authEnabled = environment.TIMEV3_AUTH_ENABLED === "true";
   const allowUnauthenticated = environment.SLAYER_ALLOW_UNAUTHENTICATED === "true";
   const accessToken = environment.SLAYER_ACCESS_TOKEN?.trim() || "";
-  if (!allowUnauthenticated && !accessToken) {
+  if (!authEnabled && !allowUnauthenticated && !accessToken) {
     throw new Error(
       "SLAYER_ACCESS_TOKEN is required. Set SLAYER_ALLOW_UNAUTHENTICATED=true only for isolated local development.",
     );
@@ -73,21 +94,47 @@ export function loadConfig(environment = process.env) {
   const host = environment.SLAYER_HOST?.trim() || "127.0.0.1";
   const port = positiveInteger(environment.SLAYER_PORT, 8787);
   const defaultPublicHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
-  const publicUrl = new URL(environment.SLAYER_PUBLIC_URL?.trim() || `http://${defaultPublicHost}:${port}`);
+  const publicUrl = publicOrigin(
+    environment.SLAYER_PUBLIC_URL,
+    `http://${defaultPublicHost}:${port}`,
+    "SLAYER_PUBLIC_URL",
+  );
+  const authPublicUrl = publicOrigin(
+    environment.TIMEV3_AUTH_PUBLIC_URL,
+    `http://auth.localhost:${port}`,
+    "TIMEV3_AUTH_PUBLIC_URL",
+  );
   const databaseTarget = databaseConfiguration(environment);
-  const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
-  if (
-    !["http:", "https:"].includes(publicUrl.protocol)
-    || (publicUrl.protocol === "http:" && !loopbackHosts.has(publicUrl.hostname))
-    || publicUrl.username || publicUrl.password || publicUrl.pathname !== "/" || publicUrl.search || publicUrl.hash
-  ) {
-    throw new Error("SLAYER_PUBLIC_URL must be an HTTPS origin (or an HTTP loopback origin) without credentials, a path, query parameters, or a fragment");
+  const identityDatabaseConfigured = authEnabled || Boolean(
+    environment.TIMEV3_IDENTITY_MARIADB_ENGINE
+    || environment.TIMEV3_IDENTITY_MARIADB_NAME
+    || environment.TIMEV3_IDENTITY_MARIADB_USER,
+  );
+  const identityDatabaseTarget = identityDatabaseConfigured
+    ? loadIdentityDatabaseTarget(environment)
+    : null;
+  const authChallengeSecret = environment.TIMEV3_AUTH_CHALLENGE_SECRET || "";
+  if (authEnabled && Buffer.byteLength(authChallengeSecret) < 32) {
+    throw new Error("TIMEV3_AUTH_CHALLENGE_SECRET must contain at least 32 bytes when Time v3 Auth is enabled");
   }
   return {
     repositoryRoot,
     host,
     port,
     publicUrl: publicUrl.toString(),
+    authEnabled,
+    authPublicUrl: authPublicUrl.toString(),
+    authSessionDays: positiveInteger(environment.TIMEV3_AUTH_SESSION_DAYS, 30),
+    authRegistrationEnabled: environment.TIMEV3_AUTH_REGISTRATION_ENABLED !== "false",
+    authChallengeSecret,
+    authEmailFrom: environment.TIMEV3_AUTH_EMAIL_FROM?.trim() || environment.SMTP_FROM?.trim() || "",
+    smtpUrl: environment.SMTP_URL?.trim() || "",
+    smtpHost: environment.SMTP_HOST?.trim() || "",
+    smtpPort: positiveInteger(environment.SMTP_PORT, 587),
+    smtpSecure: environment.SMTP_SECURE === "true",
+    smtpUser: environment.SMTP_USER?.trim() || "",
+    smtpPassword: environment.SMTP_PASS || "",
+    weeklyAiTokenLimit: positiveInteger(environment.SLAYER_WEEKLY_AI_TOKEN_LIMIT, 19_100_000),
     stripeSecretKey: environment.STRIPE_SECRET_KEY?.trim() || "",
     stripeConnectClientId: environment.STRIPE_CONNECT_CLIENT_ID?.trim() || "",
     stripeConnectStateSecret: environment.STRIPE_CONNECT_STATE_SECRET?.trim() || "",
@@ -95,6 +142,7 @@ export function loadConfig(environment = process.env) {
     accessToken,
     allowUnauthenticated,
     databaseTarget,
+    identityDatabaseTarget,
     mediaRoot: resolveFromRoot(environment.SLAYER_MEDIA_ROOT, "media"),
     systemPromptPath: path.join(repositoryRoot, "config/system-prompt.md"),
     hatCatalogPath: path.join(repositoryRoot, "config/hats.json"),

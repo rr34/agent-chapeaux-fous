@@ -8,6 +8,7 @@ import { ObjectMentionInput, ObjectMentionText } from "./components/ObjectMentio
 import { CalendarEventEditor, ContactEditor, JournalEntryEditor, JournalTrackerEditor, LibraryContentEditor, PhysicalItemEditor, TodoEditor, TodoItem } from "./components/EditableItems";
 import { TrackerSchedule } from "./components/TrackerSchedule";
 import { AccountScreen, CorrespondenceScreen, MusicScreen, useWebMusicPlayer } from "./components/AdditionalScreens";
+import AuthApp from "./AuthApp";
 import { SectionFilter } from "./components/SectionFilter";
 import { Markdown } from "./components/Markdown";
 import { ObjectSelectionProvider, objectSelectionKey, useObjectSelection } from "./components/ObjectSelectionContext";
@@ -571,6 +572,27 @@ function TokenGate({ children }: { children: ReactNode }) {
       <button className="button" disabled={!draft.trim()}>Open workspace</button>
     </form>
   </section></main>;
+}
+
+function AccessGate({ children }: { children: ReactNode }) {
+  const [mode, setMode] = useState<"loading" | "token" | "session">("loading");
+  const [sessionReady, setSessionReady] = useState(false);
+  useEffect(() => {
+    void fetch("/api/auth/mode", { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json() as Promise<{ mode: "token" | "session" }>;
+    }).then(async (result) => {
+      setMode(result.mode);
+      if (result.mode !== "session") return;
+      const session = await fetch("/api/auth/session", { cache: "no-store" });
+      if (!session.ok) { location.replace("/api/auth/start"); return; }
+      setSessionReady(true);
+    }).catch(() => setMode("token"));
+  }, []);
+  if (mode === "loading" || (mode === "session" && !sessionReady)) {
+    return <main className="token-gate"><section className="token-card"><p>Opening Time v3 Agent…</p></section></main>;
+  }
+  return mode === "token" ? <TokenGate>{children}</TokenGate> : <>{children}</>;
 }
 
 interface TraceEvent extends Entity {
@@ -3461,7 +3483,10 @@ function Workspace() {
 }
 
 export default function App() {
+  if (["/login", "/register", "/verify", "/forgot-password", "/reset-password"].includes(location.pathname)) {
+    return <AuthApp />;
+  }
   const isPaper = new URLSearchParams(location.search).get("paper") === "daily";
   if (isPaper) return <DailyPaperRoute />;
-  return <TokenGate><Workspace /></TokenGate>;
+  return <AccessGate><Workspace /></AccessGate>;
 }

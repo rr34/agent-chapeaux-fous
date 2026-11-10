@@ -280,9 +280,100 @@ export function ProfileScreen() {
   })}</div></>;
 }
 
+type AccountPerson = {
+  personId: number;
+  displayName: string;
+  kind: "primary" | "managed";
+  weeklyAiTokenLimit: number;
+};
+
+function IdentitiesScreen() {
+  const { data, error, loading, reload } = useApi<{
+    account: { displayName: string; email: string };
+    selectedPerson: AccountPerson;
+    people: AccountPerson[];
+  }>("/api/account/people");
+  const [displayName, setDisplayName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState("");
+  const [nodeCode, setNodeCode] = useState("");
+  const [nodeAction, setNodeAction] = useState("");
+  const { data: nodeData, error: nodeError, loading: nodesLoading, reload: reloadNodes } = useApi<{
+    devices: Array<{
+      node_device_id: number; device_name: string; hardware_identifier: string | null;
+      token_prefix: string; device_status: "active" | "revoked"; created_at_utc: string;
+      last_seen_at_utc: string | null;
+    }>;
+  }>("/api/node/devices");
+  const createIdentity = async (event: React.FormEvent) => {
+    event.preventDefault(); setSaving(true); setStatus("");
+    try {
+      await api("/api/account/people", { method: "POST", body: JSON.stringify({ displayName }) });
+      setDisplayName(""); setStatus("Managed Agent identity created."); await reload();
+    } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setSaving(false); }
+  };
+  const selectIdentity = async (personId: number) => {
+    setStatus("");
+    try {
+      await api(`/api/account/people/${personId}/select`, { method: "POST", body: "{}" });
+      window.location.assign("/app");
+    } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
+  };
+  const approveNode = async (event: React.FormEvent) => {
+    event.preventDefault(); setNodeAction("approve"); setStatus("");
+    try {
+      const result = await api<{ deviceName: string }>("/api/node/pairings/approve", {
+        method: "POST", body: JSON.stringify({ userCode: nodeCode }),
+      });
+      setNodeCode(""); setStatus(`${result.deviceName} is approved. The node can finish linking now.`);
+      await reloadNodes();
+    } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setNodeAction(""); }
+  };
+  const revokeNode = async (nodeDeviceId: number) => {
+    setNodeAction(`revoke:${nodeDeviceId}`); setStatus("");
+    try {
+      await api(`/api/node/devices/${nodeDeviceId}`, { method: "DELETE" });
+      setStatus("Node access revoked."); await reloadNodes();
+    } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setNodeAction(""); }
+  };
+  return <>
+    {loading && <Loading label="Loading Agent identities" />}
+    {error && <ErrorState error={error} retry={reload} />}
+    {data && <section className="surface"><div className="section-title"><div><p className="eyebrow">Signed-in account</p><h2>{data.account.displayName}</h2><p>{data.account.email}</p></div></div>
+      <div className="integration-list">{data.people.map((person) => <article className={`integration-card${person.personId === data.selectedPerson.personId ? " ready" : ""}`} key={person.personId}>
+        <div><strong>{person.displayName}</strong><span>{person.kind === "primary" ? "Primary identity" : "Managed identity"}{person.personId === data.selectedPerson.personId ? " · Active" : ""}</span></div>
+        {person.personId !== data.selectedPerson.personId && <button className="button button--quiet" type="button" onClick={() => void selectIdentity(person.personId)}>Use identity</button>}
+      </article>)}</div>
+    </section>}
+    <form className="profile-fact-form" onSubmit={(event) => void createIdentity(event)}>
+      <label>New identity label<input required maxLength={200} placeholder="Second Agent" value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label>
+      <button className="button" disabled={saving}>{saving ? "Creating…" : "Create managed identity"}</button>
+    </form>
+    <section className="surface">
+      <div className="section-title"><div><p className="eyebrow">Hardware access</p><h2>Node devices</h2><p>A node belongs to the currently active Agent identity only.</p></div></div>
+      <form className="integration-add-form" onSubmit={(event) => void approveNode(event)}>
+        <label>Pairing code<input required autoComplete="off" maxLength={9} placeholder="ABCD-2345" value={nodeCode} onChange={(event) => setNodeCode(event.target.value.toUpperCase().replace(/[^A-Z0-9-]/gu, "").slice(0, 9))} /></label>
+        <button className="button" disabled={Boolean(nodeAction)}>{nodeAction === "approve" ? "Approving…" : "Approve node"}</button>
+      </form>
+      {nodesLoading && <Loading label="Loading node devices" />}
+      {Boolean(nodeError) && <ErrorState error={nodeError} retry={reloadNodes} />}
+      <div className="integration-list">{(nodeData?.devices || []).map((device) => <article className={`integration-card${device.device_status === "active" ? " ready" : ""}`} key={device.node_device_id}>
+        <div><strong>{device.device_name}</strong><span>{device.device_status === "active" ? `Active · key ${device.token_prefix}…` : "Revoked"}{device.hardware_identifier ? ` · ${device.hardware_identifier}` : ""}{device.last_seen_at_utc ? ` · last used ${new Date(device.last_seen_at_utc).toLocaleString()}` : ""}</span></div>
+        {device.device_status === "active" && <button className="button button--quiet" type="button" disabled={Boolean(nodeAction)} onClick={() => void revokeNode(device.node_device_id)}>{nodeAction === `revoke:${device.node_device_id}` ? "Revoking…" : "Revoke"}</button>}
+      </article>)}</div>
+      {!nodesLoading && !nodeError && !nodeData?.devices.length && <Empty>No node devices are linked to this identity.</Empty>}
+    </section>
+    {status && <p role="status">{status}</p>}
+  </>;
+}
+
 export function AccountScreen({ usage }: { usage: React.ReactNode }) {
-  const [tab, setTab] = useState<"profile" | "usage" | "access">("profile");
+  const [tab, setTab] = useState<"profile" | "identities" | "usage" | "access">("profile");
   const [token, setToken] = useState(getAccessToken());
+  const { data: authMode } = useApi<{ mode: "session" | "token" }>("/api/auth/mode");
   const { data: health, error: integrationError, loading: integrationsLoading, reload: reloadIntegrations } = useApi<{
     integrations?: Record<string, Entity>;
   }>(tab === "access" ? "/health" : null);
@@ -346,10 +437,10 @@ export function AccountScreen({ usage }: { usage: React.ReactNode }) {
     }
   };
   const access = <>
-    <form className="profile-fact-form" onSubmit={(event) => { event.preventDefault(); setAccessToken(token); }}>
+    {authMode?.mode === "session" ? <section className="surface"><p>Your browser uses a revocable Time v3 session stored in a secure, HTTP-only cookie.</p><button className="button button--quiet" type="button" onClick={async () => { await api("/api/auth/logout", { method: "POST", body: "{}" }); location.assign("/api/auth/start"); }}>Sign out</button></section> : <form className="profile-fact-form" onSubmit={(event) => { event.preventDefault(); setAccessToken(token); }}>
       <label>Access token<input type="password" value={token} onChange={(event) => setToken(event.target.value)} /></label>
       <button className="button">Save token</button>
-    </form>
+    </form>}
     <section className="surface account-integrations" aria-labelledby="account-integrations-heading">
       <div className="section-title"><div><p className="eyebrow">Connected services</p><h2 id="account-integrations-heading">Integrations</h2></div><span>{integrations.filter(([, value]) => value.ready).length} connected</span></div>
       {integrationsLoading && <Loading label="Loading integrations" />}
@@ -397,10 +488,11 @@ export function AccountScreen({ usage }: { usage: React.ReactNode }) {
     <header className="page-heading"><div><p className="eyebrow">Identity and service</p><h1>Account</h1><p>Your durable profile, model usage, and this browser’s access.</p></div></header>
     <nav className="account-tabs">
       <button className={tab === "profile" ? "active" : ""} onClick={() => setTab("profile")}>Profile</button>
+      {authMode?.mode === "session" && <button className={tab === "identities" ? "active" : ""} onClick={() => setTab("identities")}>Agent identities</button>}
       <button className={tab === "usage" ? "active" : ""} onClick={() => setTab("usage")}>AI usage</button>
       <button className={tab === "access" ? "active" : ""} onClick={() => setTab("access")}>Access</button>
     </nav>
-    {tab === "profile" ? <ProfileScreen /> : tab === "usage" ? usage : access}
+    {tab === "profile" ? <ProfileScreen /> : tab === "identities" ? <IdentitiesScreen /> : tab === "usage" ? usage : access}
   </>;
 }
 

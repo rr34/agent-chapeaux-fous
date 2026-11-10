@@ -1,4 +1,4 @@
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import http from "node:http";
@@ -8,7 +8,7 @@ import { createStaticHandler } from "./static-files.mjs";
 import { createGoogleMessagesExtensionArchive } from "./extension-archive.mjs";
 import { createFileArtifactSource } from "./artifact-source.mjs";
 import { ContextBuilder } from "./context.mjs";
-import { SlayerDatabase } from "./database.mjs";
+import { requiredDatabaseShape, SlayerDatabase } from "./database.mjs";
 import { Ledger } from "./ledger.mjs";
 import { JmapClient } from "./jmap-client.mjs";
 import { DailyPaperService } from "./daily-paper.mjs";
@@ -73,13 +73,27 @@ import { VideoContentReconciler } from "./video-content-reconcile.mjs";
 import { PhysicalItems } from "./physical-items.mjs";
 import { WebPageClient } from "./web-page-client.mjs";
 import { timeZoneFromProfileFacts } from "./temporal-consistency.mjs";
+import { IdentityStore } from "./identity-store.mjs";
+import { AuthEmailService } from "./auth-email.mjs";
+import { assertPersonIsolationReady } from "./person-isolation.mjs";
 
 const config = loadConfig();
+const store = new SlayerDatabase(config.databaseTarget);
+if (config.authEnabled) {
+  if (!store.status.ready) throw new Error(`Time v3 Auth requires the Agent database: ${store.status.reason}`);
+  assertPersonIsolationReady(store.requireReady(), Object.keys(requiredDatabaseShape));
+}
+const identityStore = config.authEnabled ? new IdentityStore({
+  databaseTarget: config.identityDatabaseTarget,
+  challengeSecret: config.authChallengeSecret,
+  sessionDays: config.authSessionDays,
+  weeklyAiTokenLimit: config.weeklyAiTokenLimit,
+}) : null;
+const authEmail = config.authEnabled ? new AuthEmailService(config) : null;
 const nativeCapabilities = validateNativeCapabilityPackages({
   capabilityRoot: config.capabilityPackagesPath,
 });
 const identity = runtimeIdentity(config.repositoryRoot);
-const store = new SlayerDatabase(config.databaseTarget);
 const ledger = new Ledger(store);
 const organizer = store.status.ready ? new OrganizerStore(config.databaseTarget) : null;
 const correspondenceSync = store.status.ready
@@ -424,7 +438,72 @@ function normalizeAttachmentFileIds(value) {
   return fileIds;
 }
 
+function cookies(request) {
+  return Object.fromEntries(String(request.headers.cookie || "").split(";").map((part) => {
+    const separator = part.indexOf("=");
+    if (separator < 0) return ["", ""];
+    return [part.slice(0, separator).trim(), decodeURIComponent(part.slice(separator + 1).trim())];
+  }).filter(([name]) => name));
+}
+
+function cookieName(clientId) {
+  const secure = new URL(clientId === "auth" ? config.authPublicUrl : config.publicUrl).protocol === "https:";
+  return `${secure ? "__Host-" : ""}timev3_${clientId}`;
+}
+
+function stateCookieName() {
+  return `${new URL(config.publicUrl).protocol === "https:" ? "__Host-" : ""}timev3_auth_state`;
+}
+
+function sessionCookie(clientId, token, { clear = false } = {}) {
+  const origin = new URL(clientId === "auth" ? config.authPublicUrl : config.publicUrl);
+  const parts = [
+    `${cookieName(clientId)}=${clear ? "" : encodeURIComponent(token)}`,
+    "Path=/", "HttpOnly", "SameSite=Lax",
+    ...(origin.protocol === "https:" ? ["Secure"] : []),
+    clear ? "Max-Age=0" : `Max-Age=${config.authSessionDays * 86_400}`,
+  ];
+  return parts.join("; ");
+}
+
+function stateCookie(value, { clear = false } = {}) {
+  const secure = new URL(config.publicUrl).protocol === "https:";
+  return [
+    `${stateCookieName()}=${clear ? "" : encodeURIComponent(value)}`,
+    "Path=/api/auth/callback", "HttpOnly", "SameSite=Lax",
+    ...(secure ? ["Secure"] : []), clear ? "Max-Age=0" : "Max-Age=600",
+  ].join("; ");
+}
+
+function requestIp(request) {
+  const remote = String(request.socket?.remoteAddress ?? "");
+  const loopback = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+  const forwarded = loopback ? String(request.headers["x-forwarded-for"] ?? "").split(",")[0].trim() : "";
+  return (forwarded || remote).slice(0, 64) || null;
+}
+
+function requestAgent(request) {
+  return String(request.headers["user-agent"] ?? "").slice(0, 500) || null;
+}
+
+function requireRequestOrigin(request, expectedOrigin) {
+  const supplied = String(request.headers.origin ?? "");
+  if (supplied !== new URL(expectedOrigin).origin) {
+    throw Object.assign(new Error("The request origin is not allowed."), { statusCode: 403 });
+  }
+}
+
+function redirect(response, location, headers = {}) {
+  response.writeHead(303, { Location: location, "Cache-Control": "no-store", ...headers });
+  response.end();
+}
+
 function authorized(request) {
+  if (config.authEnabled) {
+    const session = identityStore.session(cookies(request)[cookieName("agent")], "agent");
+    if (session) request.timev3Auth = session;
+    return Boolean(session);
+  }
   if (config.allowUnauthenticated) return true;
   const header = String(request.headers.authorization || "");
   if (!header.startsWith("Bearer ")) return false;
@@ -435,7 +514,178 @@ function authorized(request) {
 
 function requireAuthorization(request, response) {
   if (authorized(request)) return true;
-  sendJson(response, 401, { error: "A valid Time v3 Agent access token is required" });
+  sendJson(response, 401, { error: config.authEnabled
+    ? "Sign in to Time v3 Agent to continue"
+    : "A valid Time v3 Agent access token is required" });
+  return false;
+}
+
+async function handlePublicAuthRoute(request, response, url) {
+  if (request.method === "GET" && url.pathname === "/api/auth/mode") {
+    sendJson(response, 200, { mode: config.authEnabled ? "session" : "token",
+      authUrl: config.authEnabled ? config.authPublicUrl : null,
+      agentUrl: config.publicUrl });
+    return true;
+  }
+  if (!config.authEnabled) return false;
+  const authOrigin = new URL(config.authPublicUrl).origin;
+  const agentOrigin = new URL(config.publicUrl).origin;
+  const callbackUri = new URL("/api/auth/callback", config.publicUrl).toString();
+  const metadata = { userAgent: requestAgent(request), ipAddress: requestIp(request) };
+  const requestCookies = cookies(request);
+  const requestHost = new URL(`http://${request.headers.host || "localhost"}`).host;
+  const authHost = requestHost === new URL(config.authPublicUrl).host;
+
+  if (request.method === "GET" && url.pathname === "/" && authHost) {
+    redirect(response, new URL("/login", config.authPublicUrl).toString());
+    return true;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/auth/start") {
+    const state = randomBytes(24).toString("base64url");
+    const destination = new URL("/login", config.authPublicUrl);
+    destination.searchParams.set("client_id", "agent");
+    destination.searchParams.set("state", state);
+    redirect(response, destination.toString(), { "Set-Cookie": stateCookie(state) });
+    return true;
+  }
+  if (request.method === "GET" && url.pathname === "/api/auth/callback") {
+    const state = url.searchParams.get("state") || "";
+    const expectedState = requestCookies[stateCookieName()] || "";
+    const supplied = Buffer.from(state);
+    const expected = Buffer.from(expectedState);
+    if (!state || supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+      throw Object.assign(new Error("The sign-in state is invalid or expired."), { statusCode: 400 });
+    }
+    const created = identityStore.consumeAuthorizationCode({
+      code: url.searchParams.get("code") || "", clientId: "agent", redirectUri: callbackUri, ...metadata,
+    });
+    redirect(response, new URL("/app", config.publicUrl).toString(), {
+      "Set-Cookie": [sessionCookie("agent", created.token), stateCookie("", { clear: true })],
+    });
+    return true;
+  }
+  if (request.method === "GET" && url.pathname === "/api/auth/session") {
+    const clientId = authHost ? "auth" : "agent";
+    const session = identityStore.session(requestCookies[cookieName(clientId)], clientId);
+    if (!session) {
+      sendJson(response, 401, { error: "No active Time v3 session" });
+      return true;
+    }
+    sendJson(response, 200, { ...session, people: identityStore.listPeople(session.account.accountId) });
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/auth/register") {
+    requireRequestOrigin(request, authOrigin);
+    if (!config.authRegistrationEnabled) throw Object.assign(new Error("New account registration is temporarily unavailable."), { statusCode: 503 });
+    const body = await readJson(request);
+    const ipLimit = identityStore.rateLimit({ action: "register_ip", subject: metadata.ipAddress, maximum: 10, windowSeconds: 3600 });
+    const emailLimit = identityStore.rateLimit({ action: "register_email", subject: body.email, maximum: 4, windowSeconds: 3600 });
+    if (!ipLimit.allowed || !emailLimit.allowed) throw Object.assign(new Error("Too many registration attempts. Try again later."), { statusCode: 429 });
+    const registration = identityStore.register(body);
+    const delivery = await authEmail.sendCode({ purpose: "verify_email", email: registration.email,
+      displayName: registration.displayName, code: registration.code });
+    sendJson(response, 201, { accountId: registration.accountId, maskedEmail: delivery.maskedEmail,
+      verificationRequired: true });
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/auth/verify") {
+    requireRequestOrigin(request, authOrigin);
+    const body = await readJson(request);
+    const limit = identityStore.rateLimit({ action: "verify_email", subject: `${metadata.ipAddress}:${body.email}`,
+      maximum: 12, windowSeconds: 3600 });
+    if (!limit.allowed) throw Object.assign(new Error("Too many verification attempts. Try again later."), { statusCode: 429 });
+    const created = identityStore.verifyEmail({ ...body, clientId: "auth", ...metadata });
+    response.setHeader("Set-Cookie", sessionCookie("auth", created.token));
+    sendJson(response, 200, { accountId: created.accountId, person: created.person });
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/auth/resend-verification") {
+    requireRequestOrigin(request, authOrigin);
+    const body = await readJson(request);
+    const limit = identityStore.rateLimit({ action: "resend_verification", subject: `${metadata.ipAddress}:${body.email}`,
+      maximum: 4, windowSeconds: 3600 });
+    if (limit.allowed) {
+      const verification = identityStore.resendVerification(body.email);
+      if (verification) await authEmail.sendCode({ purpose: "verify_email", email: verification.email,
+        displayName: verification.displayName, code: verification.code });
+    }
+    sendJson(response, 200, { message: "If that email has an unverified account, a new code has been sent." });
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/auth/login") {
+    requireRequestOrigin(request, authOrigin);
+    const body = await readJson(request);
+    const limit = identityStore.rateLimit({ action: "login", subject: `${metadata.ipAddress}:${body.email}`,
+      maximum: 10, windowSeconds: 900 });
+    if (!limit.allowed) throw Object.assign(new Error("Too many sign-in attempts. Try again later."), { statusCode: 429 });
+    const created = identityStore.authenticate({ ...body, clientId: "auth", ...metadata });
+    response.setHeader("Set-Cookie", sessionCookie("auth", created.token));
+    sendJson(response, 200, { accountId: created.accountId, person: created.person });
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/auth/authorize") {
+    requireRequestOrigin(request, authOrigin);
+    const session = identityStore.session(requestCookies[cookieName("auth")], "auth");
+    if (!session) throw Object.assign(new Error("Sign in before opening Agent."), { statusCode: 401 });
+    const body = await readJson(request);
+    const state = String(body.state ?? "");
+    if (!/^[A-Za-z0-9_-]{20,200}$/u.test(state)) throw Object.assign(new Error("The sign-in state is invalid."), { statusCode: 400 });
+    const code = identityStore.createAuthorizationCode({ accountId: session.account.accountId,
+      personId: session.person.personId, clientId: "agent", redirectUri: callbackUri });
+    const destination = new URL(callbackUri);
+    destination.searchParams.set("code", code);
+    destination.searchParams.set("state", state);
+    sendJson(response, 200, { redirectUrl: destination.toString() });
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/auth/forgot-password") {
+    requireRequestOrigin(request, authOrigin);
+    const body = await readJson(request);
+    const limit = identityStore.rateLimit({ action: "password_reset", subject: `${metadata.ipAddress}:${body.email}`,
+      maximum: 5, windowSeconds: 3600 });
+    if (limit.allowed) {
+      const reset = identityStore.requestPasswordReset(body.email);
+      if (reset) await authEmail.sendCode({ purpose: "reset_password", email: reset.email,
+        displayName: reset.displayName, code: reset.code });
+    }
+    sendJson(response, 200, { message: "If that email belongs to an active account, a reset code has been sent." });
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/auth/reset-password") {
+    requireRequestOrigin(request, authOrigin);
+    const body = await readJson(request);
+    identityStore.resetPassword(body);
+    sendJson(response, 200, { reset: true });
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/auth/logout") {
+    requireRequestOrigin(request, authHost ? authOrigin : agentOrigin);
+    const clientId = authHost ? "auth" : "agent";
+    identityStore.revokeSession(requestCookies[cookieName(clientId)], clientId);
+    response.setHeader("Set-Cookie", sessionCookie(clientId, "", { clear: true }));
+    sendJson(response, 200, { signedOut: true });
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/node/pairings") {
+    const body = await readJson(request);
+    const limit = identityStore.rateLimit({ action: "node_pairing_start", subject: metadata.ipAddress,
+      maximum: 20, windowSeconds: 3600 });
+    if (!limit.allowed) throw Object.assign(new Error("Too many node pairing attempts. Try again later."), { statusCode: 429 });
+    const pairing = identityStore.beginNodePairing(body);
+    sendJson(response, 201, { ...pairing,
+      verificationUri: new URL("/app", config.publicUrl).toString() });
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/node/pairings/token") {
+    const body = await readJson(request);
+    const limit = identityStore.rateLimit({ action: "node_pairing_poll", subject: `${metadata.ipAddress}:${body.deviceCode}`,
+      maximum: 180, windowSeconds: 900 });
+    if (!limit.allowed) throw Object.assign(new Error("The node is polling too frequently."), { statusCode: 429 });
+    const result = identityStore.exchangeNodePairing(body.deviceCode);
+    sendJson(response, result.pending ? 202 : 200, result);
+    return true;
+  }
   return false;
 }
 
@@ -512,6 +762,7 @@ function health() {
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
   try {
+    if (await handlePublicAuthRoute(request, response, url)) return;
     if (request.method === "GET" && url.pathname === "/api/payments/stripe/oauth/callback") {
       if (!payments) throw Object.assign(new Error("Payments are unavailable while the database is unavailable."), { statusCode: 503 });
       if (url.searchParams.has("error")) {
@@ -612,6 +863,57 @@ const server = http.createServer(async (request, response) => {
     }
     if (await serveStatic(request, response)) return;
     if (!requireAuthorization(request, response)) return;
+    if (config.authEnabled && request.method === "GET" && url.pathname === "/api/account/people") {
+      sendJson(response, 200, {
+        account: request.timev3Auth.account,
+        selectedPerson: request.timev3Auth.person,
+        people: identityStore.listPeople(request.timev3Auth.account.accountId),
+      });
+      return;
+    }
+    if (config.authEnabled && request.method === "POST" && url.pathname === "/api/account/people") {
+      requireRequestOrigin(request, new URL(config.publicUrl).origin);
+      const body = await readJson(request);
+      sendJson(response, 201, { person: identityStore.createManagedPerson(
+        request.timev3Auth.account.accountId, body.displayName,
+      ) });
+      return;
+    }
+    const selectedPersonMatch = /^\/api\/account\/people\/(\d+)\/select$/u.exec(url.pathname);
+    if (config.authEnabled && request.method === "POST" && selectedPersonMatch) {
+      requireRequestOrigin(request, new URL(config.publicUrl).origin);
+      const person = identityStore.switchPerson(
+        request.timev3Auth.sessionId,
+        request.timev3Auth.account.accountId,
+        Number(selectedPersonMatch[1]),
+      );
+      sendJson(response, 200, { person });
+      return;
+    }
+    if (config.authEnabled && request.method === "POST" && url.pathname === "/api/node/pairings/approve") {
+      requireRequestOrigin(request, new URL(config.publicUrl).origin);
+      const body = await readJson(request);
+      sendJson(response, 200, identityStore.approveNodePairing({
+        accountId: request.timev3Auth.account.accountId,
+        personId: request.timev3Auth.person.personId,
+        userCode: body.userCode,
+      }));
+      return;
+    }
+    if (config.authEnabled && request.method === "GET" && url.pathname === "/api/node/devices") {
+      sendJson(response, 200, { devices: identityStore.listNodeDevices(
+        request.timev3Auth.account.accountId, request.timev3Auth.person.personId,
+      ) });
+      return;
+    }
+    const nodeDeviceMatch = /^\/api\/node\/devices\/(\d+)$/u.exec(url.pathname);
+    if (config.authEnabled && request.method === "DELETE" && nodeDeviceMatch) {
+      requireRequestOrigin(request, new URL(config.publicUrl).origin);
+      identityStore.revokeNodeDevice(request.timev3Auth.account.accountId,
+        request.timev3Auth.person.personId, Number(nodeDeviceMatch[1]));
+      sendJson(response, 200, { revoked: true });
+      return;
+    }
     const oauthStartMatch = /^\/api\/integrations\/([A-Za-z0-9_-]+)\/oauth\/start$/.exec(url.pathname);
     if (request.method === "POST" && oauthStartMatch) {
       sendJson(response, 200, await mcp.beginOAuth(oauthStartMatch[1]));
@@ -1734,6 +2036,7 @@ async function shutdown() {
   organizer?.close();
   correspondenceSync?.close();
   messagesWebSync?.close();
+  identityStore?.close();
   store.close();
 }
 

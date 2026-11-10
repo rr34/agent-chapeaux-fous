@@ -71,8 +71,10 @@ test("new requests are admitted while TLOM is disconnected", async () => {
   const context = vm.createContext({
     URL,
     http: { createServer: handler => ({ handler }) },
+    handlePublicAuthRoute: async () => false,
     serveStatic: async () => false,
     requireAuthorization: () => true,
+    config: { authEnabled: false },
     store: { status: { ready: true } },
     mcp: { requiredProblem: () => "tlom integration is unavailable" },
     jmap: { requiredProblem: () => null },
@@ -111,8 +113,10 @@ test("tracker schedule route delegates to Journal scheduling", async () => {
   const context = vm.createContext({
     URL,
     http: { createServer: handler => ({ handler }) },
+    handlePublicAuthRoute: async () => false,
     serveStatic: async () => false,
     requireAuthorization: () => true,
+    config: { authEnabled: false },
     store: { status: { ready: true } },
     readJson: async () => ({ starts_at_utc: "2026-10-04T04:00:00.000Z", recurrence }),
     journalSchedule: {

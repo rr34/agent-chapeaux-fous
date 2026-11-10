@@ -132,6 +132,42 @@ Coding procedures—how Codex should perform repository work—belong in
 Slayer and third-party MCP creators use it as the shared agent/tool integration
 contract. `AGENT-TERMINOLOGY.md` remains the numbered canonical glossary.
 
+### Time v3 account, person, and node contract
+
+Time v3 authentication is public email/password registration with email
+verification and password recovery. It lives in this repository and uses the
+same root `.env`, but credential, challenge, session, account/person mapping,
+and node-credential rows live only in the separate `timev3_identity` database.
+Agent domain records remain in the one configured Agent database. TLOM is only
+a reference for the simple delivery experience; its account code and users are
+not imported.
+
+An account is the email/password login and recovery boundary. A person is the
+direct owner of private Agent data. Registration creates one primary person;
+an account may create and select additional managed people without assigning
+them email addresses or separate login credentials. There are no workspaces,
+organizations, or implied cross-person records. Product access may later be
+granted separately from account creation.
+
+Browser sessions use random, revocable, host-local HttpOnly cookies. The auth
+host hands Agent a five-minute, one-use authorization code rather than sharing
+a parent-domain cookie. Passwords use salted Argon2id verifiers; email codes,
+authorization codes, sessions, and node credentials are stored only as keyed
+or one-way verifiers. Authentication mutations require the exact configured
+origin and persist abuse counters and bounded secret-free security events.
+
+A node starts pairing without a browser and receives a long private device
+code plus a short human code. The currently selected person must approve the
+short code in Agent. The node may then exchange its long code exactly once for
+a revocable credential bound directly to that person. A hardware identifier is
+display/provenance data, never authentication. Changing the selected person
+does not move an existing node.
+
+`TIMEV3_AUTH_ENABLED` remains false until the identity baseline is installed
+and Agent person ownership is migrated and verified. The legacy installation
+token is the rollback boundary during that conversion; enabling account login
+before domain records are person-scoped is prohibited.
+
 ### Reusable object-card contract
 
 Every interactive first-class object surface renders the applicable domain card

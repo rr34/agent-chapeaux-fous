@@ -698,6 +698,11 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .token-card > p { color: var(--muted); }
 .token-card form { display: grid; gap: 14px; margin-top: 24px; }
 .token-card label { display: grid; gap: 6px; font-size: 12px; font-weight: 700; }
+.auth-card { width: min(480px, 100%); }
+.auth-links { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 20px; }
+.auth-links button { padding: 0; border: 0; background: none; color: var(--olive-dark); font: inherit; font-weight: 700; cursor: pointer; }
+.auth-message { margin: 0; color: var(--olive-dark); font-size: 13px; line-height: 1.45; }
+.auth-message--error { color: var(--danger); }
 
 /* The page is a component, not a screenshot: print and preview share this tree. */
 .daily-paper-document { width: max-content; max-width: 100%; margin: 0 auto; }

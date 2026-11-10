@@ -20,7 +20,8 @@
     "test:unit": "node scripts/run-tests.mjs unit",
     "test:integration": "node scripts/run-tests.mjs integration",
     "db:migrate": "node scripts/migrate-database.mjs",
-    "db:verify": "node scripts/verify-database.mjs"
+    "db:verify": "node scripts/verify-database.mjs",
+    "identity:verify": "node scripts/verify-identity-database.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
@@ -32,6 +33,7 @@
     "dompurify": "3.4.14",
     "marked": "18.0.10",
     "mysql2": "3.23.3",
+    "nodemailer": "10.4.0",
     "pdf-lib": "1.17.1",
     "playwright-core": "^1.63.0",
     "re2js": "2.8.6",
