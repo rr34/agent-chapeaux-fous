@@ -61,7 +61,7 @@ test("the React workspace exposes Stripe connection status and invoice history",
   assert.doesNotMatch(appSource, />No receipt<\/option>/);
   assert.match(appSource, /useApi<\{ files: Entity\[\] \}>\("\/api\/files\?limit=500"\)/);
   assert.match(appSource, /paymentMethodPolicy/);
-  assert.match(appSource, /Invoice description <small>Optional<\/small>/);
+  assert.match(appSource, /Invoice description \(Optional\)/);
   assert.match(appSource, /description: description\.trim\(\) \|\| null/);
   assert.match(appSource, /Bank account only \(no credit cards\)/);
   assert.match(appSource, /Credit card and bank account/);
