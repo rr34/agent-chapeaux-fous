@@ -85,8 +85,12 @@ The Payments UI may also present that exact recipient, total, and due date for
 an explicit confirmation and submit the same digest-bound send directly.
 
 Before sending, the invoice total must be positive, one payer contact must have
-a receivable email address, a non-past due date must be set, and Stripe must be
-connected and charge-enabled. Individual lines may be zero dollars so the invoice
+a receivable email address, a valid due date must be set, and Stripe must be
+connected and charge-enabled. Draft creation and editing accept any valid calendar
+date; the Payments UI warns without blocking when a date is past or unusually far
+away. Sending preserves the selected local due date when it gives that date to
+Stripe, which may still reject a due date that violates its provider rules.
+Individual lines may be zero dollars so the invoice
 can explain work or materials that were not charged. Only after the user clearly approves that exact prepared preview may you call
 the returned `payment_invoice_send` tool with the exact returned arguments.
 Never construct, alter, or guess those arguments. Sending creates/finalizes and

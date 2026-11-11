@@ -638,7 +638,7 @@ test("invoice preparation creates an editable unpriced draft without payer, due 
   assert.equal(result.nextAction, null);
 });
 
-test("manual-only preparation stores an explicit source with no task foreign key", async () => {
+test("manual-only preparation accepts a past due date and stores an explicit source with no task foreign key", async () => {
   const writes = { transactions: [], lines: [] };
   const database = {
     exec(sql) { writes.transactions.push(sql); },
@@ -670,7 +670,7 @@ test("manual-only preparation stores an explicit source with no task foreign key
     payerEmail: "ruby@example.test",
     currency: "USD",
     amountMinor: 2500,
-    dueOn: "2099-01-02",
+    dueOn: writes.invoice[3],
     previewDigest: writes.invoice[8],
     preparationExpiresAtUtc: writes.invoice[9],
     lines: [{ amountMinor: 2500 }],
@@ -678,16 +678,25 @@ test("manual-only preparation stores an explicit source with no task foreign key
 
   const result = await payments.prepareInvoice({
     contact_id: 7,
-    due_on: "2099-01-02",
+    due_on: "2020-01-02",
     manual_lines: [{ description: "  Help moving  ", amount_minor: 2500, currency: "usd" }],
   });
 
   assert.deepEqual(writes.transactions, ["START TRANSACTION", "COMMIT"]);
   assert.equal(writes.invoice[1], "USD");
   assert.equal(writes.invoice[2], 2500);
+  assert.equal(writes.invoice[3], "2020-01-02");
   assert.deepEqual(writes.lines, [[91, "manual", null, 1, "Help moving", 2500]]);
   assert.equal(result.invoice.invoiceId, 91);
   assert.equal(result.nextAction, null);
+
+  await assert.rejects(
+    payments.prepareInvoice({
+      due_on: "2026-02-30",
+      manual_lines: [{ description: "Impossible date" }],
+    }),
+    /dueOn must be a valid calendar date/u,
+  );
 });
 
 test("a prepared local invoice can atomically revise existing lines, append a manual line, and invalidate its old digest", () => {
@@ -1128,6 +1137,7 @@ test("sending rejects an incomplete draft before contacting Stripe", async () =>
 test("sending always calls Stripe send after finalization changes the invoice to open", async () => {
   const previewDigest = `sha256:${"f".repeat(64)}`;
   const stripeCalls = [];
+  let stripeInvoiceCreateInput = null;
   let localStatus = "prepared";
   let stripeInvoiceId = null;
   const database = {
@@ -1147,6 +1157,7 @@ test("sending always calls Stripe send after finalization changes the invoice to
   const stripe = {
     invoices: {
       async create(input) {
+        stripeInvoiceCreateInput = input;
         stripeCalls.push(["create", input.payment_settings.payment_method_types]);
         return { id: "in_123", status: "draft" };
       },
@@ -1165,6 +1176,7 @@ test("sending always calls Stripe send after finalization changes the invoice to
     store: { status: { ready: true }, requireReady: () => database },
     config: { stripeSecretKey: "sk_test_example" },
     stripeFactory: () => stripe,
+    timeZone: () => "America/New_York",
   });
   payments.stripeStatus = async () => ({ chargesEnabled: true, accountId: "acct_123" });
   payments.getInvoice = (invoiceId) => ({
@@ -1198,6 +1210,11 @@ test("sending always calls Stripe send after finalization changes the invoice to
     ["finalize", "in_123"],
     ["send", "in_123"],
   ]);
+  assert.equal(stripeInvoiceCreateInput.days_until_due, undefined);
+  assert.equal(
+    stripeInvoiceCreateInput.due_date,
+    Math.floor(Date.parse("2099-01-03T05:00:00.000Z") / 1_000) - 1,
+  );
   assert.equal(result.invoice.status, "open");
   assert.equal(result.idempotentReplay, false);
 });

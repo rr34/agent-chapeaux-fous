@@ -105,9 +105,16 @@ const messagesWebSync = store.status.ready
   ? new MessagesWebSyncService({ databaseTarget: config.databaseTarget })
   : null;
 const messagesWebSyncRequests = new MessagesWebSyncRequests();
-const payments = store.status.ready ? new PaymentService({ store, config, ledger }) : null;
-const journalSchedule = store.status.ready ? new JournalScheduleService(store, ledger) : null;
 const profileFacts = new ProfileFacts({ store, ledger });
+const payments = store.status.ready ? new PaymentService({
+  store,
+  config,
+  ledger,
+  timeZone: () => timeZoneFromProfileFacts(
+    profileFacts.list({ status: "active", limit: null }).facts,
+  ),
+}) : null;
+const journalSchedule = store.status.ready ? new JournalScheduleService(store, ledger) : null;
 const dailyPaperWeather = new DailyPaperWeatherService({ profileFacts });
 const dailyPaper = store.status.ready ? new DailyPaperService({
   organizer,

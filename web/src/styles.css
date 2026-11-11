@@ -559,6 +559,10 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .invoice-create-source > header h3 { margin: 2px 0 0; font: 600 20px/1.1 "Newsreader", Georgia, serif; }
 .invoice-create-source > header > span { color: var(--muted); font-size: 11px; font-weight: 700; }
 .invoice-create-source > header .button { min-height: 34px; padding: 6px 11px; font-size: 12px; }
+.invoice-create-line-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.invoice-create-todo-picker { display: grid; gap: 8px; padding-top: 4px; border-top: 1px solid var(--line); }
+.invoice-create-todo-picker > label { color: var(--muted); font-size: 12px; font-weight: 700; }
+.invoice-date-warning { color: #8a5a18; font-size: 11px; font-weight: 650; line-height: 1.35; }
 .invoice-create-todos { max-height: 260px; display: grid; gap: 6px; overflow: auto; }
 .invoice-create-todos > button { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: var(--paper); text-align: left; }
 .invoice-create-todos > button:hover { border-color: #aeb8a3; background: var(--olive-soft); }
@@ -924,6 +928,8 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .invoice-list-side-actions { min-height: 50px; justify-content: center; border-top: 1px solid var(--line); border-left: 0; }
   .invoice-list-stripe { min-height: 34px; justify-content: center; }
   .invoice-create-grid, .invoice-create-manual-lines > div, .invoice-create-selected-todos > div { grid-template-columns: 1fr; }
+  .invoice-create-source > header { align-items: flex-start; flex-direction: column; }
+  .invoice-create-line-actions { width: 100%; justify-content: flex-start; }
   .invoice-create-manual-lines > div > button { justify-self: start; min-height: 30px; padding-left: 0; }
   .invoice-editor-summary, .invoice-line-editor { grid-template-columns: 1fr; }
   .invoice-line-heading { grid-column: 1; }

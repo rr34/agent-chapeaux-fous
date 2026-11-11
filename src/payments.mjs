@@ -3,6 +3,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import Stripe from "stripe";
 import { chromium } from "playwright-core";
 import { createFileArtifactSource } from "./artifact-source.mjs";
+import { localDateUtcBounds } from "./temporal-consistency.mjs";
 
 const policies = new Set(["ach_only", "card_only", "card_and_ach"]);
 const activeInvoiceStatuses = ["prepared", "sending", "open", "processing", "paid", "failed"];
@@ -36,11 +37,15 @@ function dateOnly(value) {
   const text = String(value ?? "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) throw new PaymentInputError("dueOn must be a YYYY-MM-DD date.");
   const parsed = new Date(`${text}T00:00:00.000Z`);
-  const today = new Date().toISOString().slice(0, 10);
-  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== text || text < today) {
-    throw new PaymentInputError("The invoice due date must be today or later.");
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== text) {
+    throw new PaymentInputError("dueOn must be a valid calendar date in YYYY-MM-DD format.");
   }
   return text;
+}
+
+function stripeDueDate(localDate, timeZone) {
+  const { endsAtUtc } = localDateUtcBounds({ localDate, timeZone });
+  return Math.floor((Date.parse(endsAtUtc) - 1_000) / 1_000);
 }
 
 function optionalDateOnly(value) {
@@ -356,6 +361,7 @@ export class PaymentService {
     renderInvoicePdf = defaultRenderInvoicePdf,
     composePdf = composeInvoicePdf,
     artifactSource = ledger && config?.mediaRoot ? createFileArtifactSource({ ledger, mediaRoot: config.mediaRoot }) : null,
+    timeZone = () => "UTC",
   }) {
     this.store = store;
     this.config = config;
@@ -364,6 +370,7 @@ export class PaymentService {
     this.renderInvoicePdf = renderInvoicePdf;
     this.composePdf = composePdf;
     this.artifactSource = artifactSource;
+    this.timeZone = timeZone;
   }
 
   recordActivity({ type, status = "complete", actorType = "service", actorName = "payments",
@@ -1318,9 +1325,8 @@ export class PaymentService {
         catch (error) { if (error?.code !== "resource_missing") throw error; }
       }
       if (!stripeInvoice) {
-        const today = new Date().toISOString().slice(0, 10);
-        const daysUntilDue = Math.max(0, Math.round((Date.parse(`${invoice.dueOn}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000));
-        stripeInvoice = await stripe.invoices.create({ customer: customerId, collection_method: "send_invoice", days_until_due: daysUntilDue,
+        stripeInvoice = await stripe.invoices.create({ customer: customerId, collection_method: "send_invoice",
+          due_date: stripeDueDate(invoice.dueOn, this.timeZone()),
           description: invoice.description || `Payment for ${invoice.lines.length} invoice item${invoice.lines.length === 1 ? "" : "s"}`,
           payment_settings: { payment_method_types: paymentMethodTypes(invoice.paymentMethodPolicy) },
           metadata: { agent_slayer_invoice_id: String(invoiceId) } },
