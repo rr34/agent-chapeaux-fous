@@ -1592,7 +1592,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
   };
   return <>
     <header className="page-heading calendar-page-heading">
-      <div className="page-heading-copy"><h1>Calendar</h1><p>A shared React view for the screen and the page.</p></div>
+      <div className="page-heading-copy"><h1>Calendar</h1></div>
       <MilestoneStrip events={milestoneData?.events || []} onEdit={setEditingMilestone} />
       <div className="heading-actions"><button className="button" type="button" onClick={() => setAddingEvent(true)}>Add calendar event</button><button className="button button--quiet" onClick={() => void generate()} disabled={generating || !data}>{generating ? "Making PDF…" : "Download weekly PDF"}</button></div>
     </header>
