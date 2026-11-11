@@ -610,7 +610,7 @@ events and personal to-dos remain separate first-class objects; neither owns a
 relationship to the other.
 Calendar events may opt into a milestone display anchored to their start or
 end. The Calendar screen places those explicitly selected events above the
-two-week grid, with countdown, count-up, or automatic relative time. Timed
+two-week grid beside the main Calendar heading, with countdown, count-up, or automatic relative time. Timed
 events show days, hours, minutes, and seconds; all-day events show whole local
 calendar days. Recurring masters contribute only their nearest relevant
 computed occurrence: the next for countdown/automatic display and the most

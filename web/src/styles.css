@@ -364,11 +364,10 @@ textarea { resize: vertical; }
 .trace-event pre { max-height: 60vh; margin: 0; padding: 13px; overflow: auto; border-top: 1px solid var(--line); background: #fffefa; color: var(--ink); font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 
 .calendar-screen { display: grid; gap: 20px; }
-.milestone-strip { display: grid; gap: 12px; }
-.milestone-strip > header { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
-.milestone-strip > header h2 { margin: 0; }
-.milestone-strip > header > span { color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+.calendar-page-heading { display: grid; grid-template-columns: minmax(190px, auto) minmax(280px, 1fr) auto; align-items: end; }
 .milestone-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 9px; }
+.calendar-heading-milestones { min-width: 0; display: flex; align-items: stretch; gap: 9px; overflow-x: auto; padding: 1px 2px 3px; }
+.calendar-heading-milestones .milestone-card { min-width: 270px; }
 .milestone-card { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--paper); }
 .milestone-card > div { min-width: 0; display: grid; gap: 5px; }
 .milestone-card h3 { overflow: hidden; margin: 0; color: var(--ink); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
@@ -841,6 +840,8 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 @page a4 { size: A4; margin: 0; }
 
 @media (max-width: 1200px) {
+  .calendar-page-heading { grid-template-columns: minmax(190px, auto) minmax(0, 1fr); }
+  .calendar-page-heading > .heading-actions { grid-column: 1 / -1; justify-content: flex-end; margin-top: 4px; }
   .page-heading--grouped { grid-template-columns: minmax(240px, .75fr) minmax(0, 1.6fr); }
   .page-heading--grouped .heading-group-yard { grid-column: 2; grid-row: 1 / 3; }
   .page-heading--grouped .heading-actions { grid-column: 1; grid-row: 2; justify-content: flex-start; margin: 14px 28px 0 0; }
@@ -865,6 +866,9 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
   .app-shell { --agent-composer-bottom: 10px; --agent-composer-gap: 24px; }
   .workspace { padding: 24px 14px var(--agent-composer-clearance); }
   .page-heading { align-items: stretch; flex-direction: column; }
+  .calendar-page-heading { display: flex; }
+  .calendar-page-heading > .heading-actions { margin-top: 0; }
+  .calendar-heading-milestones .milestone-card { min-width: min(290px, 86vw); }
   .page-heading--grouped { display: flex; }
   .heading-group-yard { margin: 4px 0 0; padding: 16px 0 0; border-top: 1px solid var(--line); border-left: 0; }
   .heading-group-filter { width: 100%; }

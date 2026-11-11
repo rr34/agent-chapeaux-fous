@@ -60,10 +60,10 @@ This document records its working hardware list.
     - USB-A male to audio
 - **Motor:** Basic 5V motor
 - **Screen:** 2004A-type screen with I2C backpack
-    - screen-1: GND
-    - screen-2: VCC
-    - screen-3: SDA
-    - screen-4: SCL
+    - screen-GND
+    - screen-VCC
+    - screen-SDA
+    - screen-SCL
 
 - **Temperature and humidity sensor:** Taidacent SHT30 RS485 Modbus RTU Temperature and Humidity Sensor Transmitter for PLC and DCS Room Thermocouple Monitoring
 - **Accelerometer:** One module from the HiLetgo 3pcs GY-521 MPU-6050 MPU6050 3 Axis Accelerometer Gyroscope Module, 6 DOF 6-axis Accelerometer Gyroscope Sensor Module, 16 Bit AD Converter Data Output, IIC/I2C for Arduino package

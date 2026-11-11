@@ -1502,13 +1502,10 @@ function AgentScreen({
 
 function MilestoneStrip({ events, onEdit }: { events: CalendarEvent[]; onEdit: (event: CalendarEvent) => void }) {
   if (!events.length) return null;
-  return <section className="surface milestone-strip" aria-labelledby="calendar-milestones-heading">
-    <header><div><p className="eyebrow">Relative time</p><h2 id="calendar-milestones-heading">Milestones</h2></div><span>{events.length} {events.length === 1 ? "event" : "events"}</span></header>
-    <div className="milestone-list">{events.map((event) => <article className="milestone-card" key={`${event.id}-${event.effectiveAnchorUtc}`}>
+  return <div className="milestone-list calendar-heading-milestones" aria-label="Calendar milestones">{events.map((event) => <article className="milestone-card" key={`${event.id}-${event.effectiveAnchorUtc}`}>
       <div><h3>{event.title}</h3><MilestoneTimer event={event} /></div>
       <button className="button button--quiet" type="button" onClick={() => onEdit(event)}>Edit</button>
-    </article>)}</div>
-  </section>;
+    </article>)}</div>;
 }
 
 function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
@@ -1594,9 +1591,11 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
     finally { setGenerating(false); }
   };
   return <>
-    <PageHeading eyebrow="Authoritative calendar" title="Calendar" detail="A shared React view for the screen and the page." actions={
-      <><button className="button" type="button" onClick={() => setAddingEvent(true)}>Add calendar event</button><button className="button button--quiet" onClick={() => void generate()} disabled={generating || !data}>{generating ? "Making PDF…" : "Download weekly PDF"}</button></>
-    } />
+    <header className="page-heading calendar-page-heading">
+      <div className="page-heading-copy"><h1>Calendar</h1><p>A shared React view for the screen and the page.</p></div>
+      <MilestoneStrip events={milestoneData?.events || []} onEdit={setEditingMilestone} />
+      <div className="heading-actions"><button className="button" type="button" onClick={() => setAddingEvent(true)}>Add calendar event</button><button className="button button--quiet" onClick={() => void generate()} disabled={generating || !data}>{generating ? "Making PDF…" : "Download weekly PDF"}</button></div>
+    </header>
     <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchCalendar} searching={loading || calendarSearchLoading} count={matchingEventCount} noun="event" controls={<>
       <SectionSelectFilter label="Year" value={displayYear} onChange={(year) => setDisplayDate(calendarMonthAnchor(year, displayMonth))} disabled={loading}>
         {calendarYearOptions.map((year) => <option value={year} key={year}>{year}</option>)}
@@ -1622,7 +1621,6 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
         : <Empty>No calendar events match the search.</Empty>}
     </section>}
     {data && <div className="calendar-screen">
-      <MilestoneStrip events={milestoneData?.events || []} onEdit={setEditingMilestone} />
       <section className="surface calendar-overview">
         <div className="section-title"><div><p className="eyebrow">Two weeks</p><h2>{data.rangeHeading}</h2></div><div className="calendar-overview-actions"><button className="button button--quiet" type="button" onClick={() => { setSelectedDate(date); setDisplayDate(date); }}>Today</button><button className="button button--quiet" type="button" onClick={() => window.print()}>Print browser view</button></div></div>
         <button className="calendar-range-arrow" type="button" aria-label="Previous week" aria-controls="calendar-grid" title="Previous week" onClick={() => setDisplayDate((current) => shiftLocalDate(current, -7))}>▲</button>
