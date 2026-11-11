@@ -2,6 +2,7 @@ import { formatDisplayTime } from "../../date-format";
 import { SimpleObjectCard } from "./SimpleObjectCard";
 import type { CalendarEvent } from "../../types";
 import type { ObjectCardProps } from "./types";
+import { MilestoneTimer } from "../MilestoneTimer";
 
 function localDate(value: string, timeZone: string) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
@@ -68,8 +69,9 @@ export function CalendarEventCard(props: ObjectCardProps & {
   const { event } = props;
   const timing = event ? calendarEventTiming(event, props.timeZone) : null;
   const linkedContacts = event?.linkedContacts || [];
-  const eventDetails = event && linkedContacts.length
+  const eventDetails = event && (linkedContacts.length || event.milestoneMode)
     ? <div className="calendar-event-expanded-details">
+      {event.milestoneMode && <section><h4>Milestone</h4><MilestoneTimer event={event} /></section>}
       {linkedContacts.length > 0 && <section>
         <h4>Contacts</h4>
         <ul>{linkedContacts.map((contact) => <li key={`${contact.contactId}-${contact.participantRole || "other"}`}>

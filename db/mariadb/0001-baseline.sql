@@ -425,6 +425,8 @@ CREATE TABLE calendar_events (
     is_all_day          TINYINT NOT NULL DEFAULT 0 COMMENT '1 when the event represents a calendar day rather than a precise time; otherwise 0. Format: MariaDB boolean: 0=false, 1=true.',
     status              ENUM('tentative', 'confirmed', 'cancelled') NOT NULL DEFAULT 'confirmed' COMMENT 'Current scheduling state of the event. Format: RFC 5545 VEVENT status. tentative: Event is proposed but not firmly confirmed. confirmed: Event is scheduled to occur. cancelled: Event will not occur. Calendar events happen; completion is represented only by the passage of time, not a stored event status.',
     recurrence_rule     TEXT COMMENT 'iCalendar RRULE describing how the event repeats.',
+    milestone_mode      ENUM('countdown', 'countup', 'automatic') COMMENT 'Optional relative-time presentation. Null omits the event from the milestone strip.',
+    milestone_anchor    ENUM('start', 'end') COMMENT 'Event boundary used by milestone_mode. Required when milestone_mode is set; end requires ends_at_utc.',
     source_event_id     VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Ledger event that caused this calendar record to be created when known.',
     created_at_utc      DATETIME(3) NOT NULL
                         DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this local calendar record was inserted. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
@@ -440,6 +442,7 @@ CREATE TABLE calendar_events (
     CONSTRAINT calendar_events_routine FOREIGN KEY (calendar_routine_id) REFERENCES calendar_routines(calendar_routine_id) ON DELETE RESTRICT,
     CONSTRAINT calendar_events_source FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
     CONSTRAINT calendar_events_all_day CHECK (is_all_day IN (0, 1)),
+    CONSTRAINT calendar_events_milestone_pair CHECK ((milestone_mode IS NULL AND milestone_anchor IS NULL) OR (milestone_mode IS NOT NULL AND milestone_anchor IS NOT NULL AND (milestone_anchor <> 'end' OR ends_at_utc IS NOT NULL))),
     CONSTRAINT calendar_events_routine_pair CHECK ((calendar_routine_id IS NULL) = (routine_occurrence_key IS NULL))
 ) ENGINE=InnoDB COMMENT='Stores every concrete commitment and scheduled event in the user''s one authoritative agent calendar. A row may be independent, imported, or generated from calendar_routines. starts_at_utc and ends_at_utc are UTC instants; time_zone preserves the intended display zone. routine_occurrence_key preserves idempotent generation identity while edits may move the concrete event. Sensitivity: Contains the user''s private schedule, locations, participants, and imported calendar identifiers.';
 

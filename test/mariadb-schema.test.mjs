@@ -79,13 +79,13 @@ test("the authoritative MariaDB baseline is complete at schema version 69", () =
   assert.equal(statements.filter((statement) => /^CREATE TABLE\b/iu.test(statement)).length, 48);
   assert.equal(statements.filter((statement) => /^CREATE (?:SQL SECURITY INVOKER )?VIEW\b/iu.test(statement)).length, 9);
   assert.equal(statements.filter((statement) => /\bCREATE TRIGGER\b/iu.test(statement)).length, 80);
-  assert.equal(source.match(/\bENUM\(/gu)?.length, 36);
-  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 66);
+  assert.equal(source.match(/\bENUM\(/gu)?.length, 38);
+  assert.equal(source.match(/\bCHECK\s*\(/gu)?.length, 67);
   assert.equal(source.match(/^\s+[A-Za-z_][A-Za-z0-9_]*\s+DATETIME\(3\)/gmu)?.length, 93);
   assert.doesNotMatch(source, /\b(?:[A-Za-z_][A-Za-z0-9_]*_at_utc|ask_after|resolved_at|routine_occurrence_key)\s+VARCHAR\(/u);
   assert.equal(
     Object.values(requiredEnumColumns).reduce((count, fields) => count + Object.keys(fields).length, 0),
-    36,
+    38,
   );
   for (const [tableName, fields] of Object.entries(requiredEnumColumns)) {
     const table = statements.find((statement) => statement.startsWith(`CREATE TABLE ${tableName} `));
@@ -239,6 +239,18 @@ test("migration 72 shortens physical person-owned table names", () => {
     .find(({ version }) => version === 72);
   assert.equal(migration.label, "0072:shorten-person-table-prefix");
   assert.match(migration.sql, /shorten_person_table_prefix_programmatic_marker/u);
+});
+
+test("migration 73 adds constrained calendar milestones without a new table", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 73);
+  assert.ok(migration);
+  assert.match(migration.sql, /ALTER TABLE p_calendar_events/u);
+  assert.match(migration.sql, /milestone_mode ENUM\('countdown', 'countup', 'automatic'\)/u);
+  assert.match(migration.sql, /milestone_anchor ENUM\('start', 'end'\)/u);
+  assert.match(migration.sql, /calendar_events_milestone_pair/u);
+  assert.match(migration.sql, /CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW calendar_events/u);
+  assert.doesNotMatch(migration.sql, /CREATE TABLE/u);
 });
 
 test("migration 66 removes MariaDB JSON verification while preserving text limits", () => {

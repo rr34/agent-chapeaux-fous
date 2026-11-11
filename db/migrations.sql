@@ -16,6 +16,40 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0073: calendar-event-milestones
+-- writer downtime: required. The matching application reads and writes the
+-- two milestone columns and requires the refreshed person-filtered view.
+-- locking: one ALTER TABLE takes a metadata lock on the physical calendar
+-- event table; the logical view is replaced immediately afterward.
+-- recovery: MariaDB DDL commits implicitly. Both column additions and the
+-- view replacement are replayable; keep Agent stopped and rerun the complete
+-- migration if it is interrupted before schema version 73 is recorded.
+
+ALTER TABLE p_calendar_events
+  ADD COLUMN IF NOT EXISTS milestone_mode ENUM('countdown', 'countup', 'automatic') NULL
+    COMMENT 'Optional relative-time presentation. Null omits the event from the milestone strip.',
+  ADD COLUMN IF NOT EXISTS milestone_anchor ENUM('start', 'end') NULL
+    COMMENT 'Event boundary used by milestone_mode. Required when milestone_mode is set; end requires ends_at_utc.';
+
+ALTER TABLE p_calendar_events
+  DROP CONSTRAINT IF EXISTS calendar_events_milestone_pair,
+  ADD CONSTRAINT calendar_events_milestone_pair CHECK (
+    (milestone_mode IS NULL AND milestone_anchor IS NULL)
+    OR (milestone_mode IS NOT NULL AND milestone_anchor IS NOT NULL AND (milestone_anchor <> 'end' OR ends_at_utc IS NOT NULL))
+  );
+
+CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW calendar_events AS
+SELECT calendar_event_id, calendar_routine_id, routine_occurrence_key,
+       ical_uid, ical_recurrence_id, title, description, location_text,
+       starts_at_utc, ends_at_utc, time_zone, is_all_day, status,
+       recurrence_rule, milestone_mode, milestone_anchor, source_event_id,
+       created_at_utc, updated_at_utc, ical_single_guard
+FROM p_calendar_events
+WHERE person_id = timev3_current_person_id()
+WITH CASCADED CHECK OPTION;
+
+-- end migration 0073
+
 -- migration 0072: shorten-person-table-prefix
 -- writer downtime: required. Physical person-owned tables move from the
 -- unnecessarily verbose person_data_* prefix to p_*. The stable domain names

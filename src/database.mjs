@@ -1,7 +1,7 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 import { legacyPersonDataTablePrefix, personDataTablePrefix } from "./person-isolation.mjs";
 
-export const requiredDatabaseSchemaVersion = 72;
+export const requiredDatabaseSchemaVersion = 73;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -93,7 +93,7 @@ export const requiredDatabaseShape = {
   ],
   calendar_events: [
     "calendar_event_id", "calendar_routine_id", "routine_occurrence_key", "title", "description", "location_text", "starts_at_utc",
-    "ends_at_utc", "time_zone", "is_all_day", "status", "recurrence_rule",
+    "ends_at_utc", "time_zone", "is_all_day", "status", "recurrence_rule", "milestone_mode", "milestone_anchor",
     "source_event_id", "created_at_utc", "updated_at_utc",
   ],
   calendar_routines: [
@@ -181,7 +181,11 @@ export const requiredEnumColumns = {
     status: ["active", "inactive", "blocked", "deceased"],
   },
   contact_methods: { method_kind: ["email", "phone", "postal_address", "handle", "url", "other"] },
-  calendar_events: { status: ["tentative", "confirmed", "cancelled"] },
+  calendar_events: {
+    status: ["tentative", "confirmed", "cancelled"],
+    milestone_mode: ["countdown", "countup", "automatic"],
+    milestone_anchor: ["start", "end"],
+  },
   calendar_event_contacts_join: { participant_role: ["organizer", "attendee", "customer", "other"] },
   todo_personal: { status: ["todo", "complete", "ignore", "archive", "ai_suggested"] },
   payment_provider_accounts: {

@@ -2,6 +2,7 @@ import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "reac
 import { api, ApiError, downloadAuthenticated, getAccessToken, previewAuthenticated, setAccessToken } from "./api";
 import { useApi, localToday, useRequestFeed } from "./hooks";
 import { CalendarGrid, DailyPaper, DayTimeline } from "./components/DailyPaper";
+import { MilestoneTimer } from "./components/MilestoneTimer";
 import { Empty, ErrorState, Loading } from "./components/State";
 import { RoutineScreen } from "./components/RoutineCalendar";
 import { ObjectMentionInput, ObjectMentionText } from "./components/ObjectMentionInput";
@@ -44,7 +45,7 @@ import {
   type AiPricingBook, type AiUsageCostInput,
 } from "./ai-usage";
 import type {
-  DailyPaperModel, Entity, RequestRecord,
+  CalendarEvent, DailyPaperModel, Entity, RequestRecord,
   PersistedObjectCandidate, SelectedObjectCandidate, StoredFileBinding,
 } from "./types";
 import hatOutlineUrl from "./assets/logo-outline-hat.svg";
@@ -217,6 +218,11 @@ function journalTrackerValues(tracker: Entity): JournalTrackerValuePoint[] {
     const value = "value" in point ? Number(point.value) : Number.NaN;
     return occurredAtUtc && Number.isFinite(value) ? [{ occurredAtUtc, value }] : [];
   });
+}
+
+function journalTrackerLoggedDates(tracker: Entity): string[] {
+  const dates = readKey(tracker, "loggedDates");
+  return Array.isArray(dates) ? dates.filter((date): date is string => typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)) : [];
 }
 
 function cardAttribute(label: string, value: unknown) {
@@ -1494,6 +1500,17 @@ function AgentScreen({
   </>;
 }
 
+function MilestoneStrip({ events, onEdit }: { events: CalendarEvent[]; onEdit: (event: CalendarEvent) => void }) {
+  if (!events.length) return null;
+  return <section className="surface milestone-strip" aria-labelledby="calendar-milestones-heading">
+    <header><div><p className="eyebrow">Relative time</p><h2 id="calendar-milestones-heading">Milestones</h2></div><span>{events.length} {events.length === 1 ? "event" : "events"}</span></header>
+    <div className="milestone-list">{events.map((event) => <article className="milestone-card" key={`${event.id}-${event.effectiveAnchorUtc}`}>
+      <div><h3>{event.title}</h3><MilestoneTimer event={event} /></div>
+      <button className="button button--quiet" type="button" onClick={() => onEdit(event)}>Edit</button>
+    </article>)}</div>
+  </section>;
+}
+
 function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
   generationNotice?: string | null;
   dismissGenerationNotice?: () => void;
@@ -1513,6 +1530,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
   }, [date]);
   const requestParameters = new URLSearchParams({ date: selectedDate, rangeDate: displayDate, timeZone, paperSize: "letter" });
   const { data, error, loading, reload } = useApi<DailyPaperModel>(`/api/daily-paper?${requestParameters}`);
+  const { data: milestoneData, error: milestoneError, reload: reloadMilestones } = useApi<{ events: CalendarEvent[] }>("/api/calendar-milestones");
   const calendarSearchUrl = serverQuery
     ? `/api/calendar-events/search?q=${encodeURIComponent(serverQuery)}&limit=200&includeArchived=${includeArchivedSearch}`
     : null;
@@ -1522,6 +1540,11 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
   const [generating, setGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<unknown>(null);
   const [addingEvent, setAddingEvent] = useState(false);
+  const [editingMilestone, setEditingMilestone] = useState<CalendarEvent | null>(null);
+  useEffect(() => {
+    const timer = window.setInterval(() => void reloadMilestones(), 60_000);
+    return () => window.clearInterval(timer);
+  }, [reloadMilestones]);
   const selectedDay = data?.calendarDays.find((day) => day.localDate === selectedDate);
   const selectedEvents = useMemo(
     () => [...(selectedDay?.events || data?.todayEvents || [])].sort((left, right) => left.startsAtUtc.localeCompare(right.startsAtUtc)),
@@ -1591,6 +1614,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
     />}
     {loading && <Loading label="Composing your day" />}{error && <ErrorState error={error} retry={reload} />}
     {calendarSearchError && <ErrorState error={calendarSearchError} retry={reloadCalendarSearch} />}
+    {milestoneError && <ErrorState error={milestoneError} retry={reloadMilestones} />}
     {serverQuery && !calendarSearchLoading && !calendarSearchError && <section className="surface calendar-search-results">
       <div className="section-title"><div><p className="eyebrow">Server search</p><h2>Matching calendar events</h2></div><span>{visibleCalendarSearchEvents.length} {visibleCalendarSearchEvents.length === 1 ? "event" : "events"}</span></div>
       {visibleCalendarSearchEvents.length
@@ -1598,6 +1622,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
         : <Empty>No calendar events match the search.</Empty>}
     </section>}
     {data && <div className="calendar-screen">
+      <MilestoneStrip events={milestoneData?.events || []} onEdit={setEditingMilestone} />
       <section className="surface calendar-overview">
         <div className="section-title"><div><p className="eyebrow">Two weeks</p><h2>{data.rangeHeading}</h2></div><div className="calendar-overview-actions"><button className="button button--quiet" type="button" onClick={() => { setSelectedDate(date); setDisplayDate(date); }}>Today</button><button className="button button--quiet" type="button" onClick={() => window.print()}>Print browser view</button></div></div>
         <button className="calendar-range-arrow" type="button" aria-label="Previous week" aria-controls="calendar-grid" title="Previous week" onClick={() => setDisplayDate((current) => shiftLocalDate(current, -7))}>▲</button>
@@ -1612,6 +1637,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
       </details>
     </div>}
     {addingEvent && <CalendarEventEditor initialDate={selectedDate} onClose={() => setAddingEvent(false)} onChanged={reload} />}
+    {editingMilestone && <CalendarEventEditor eventId={Number(editingMilestone.seriesId ?? editingMilestone.id)} recurring={Boolean(editingMilestone.seriesId || editingMilestone.recurrenceRule)} onClose={() => setEditingMilestone(null)} onChanged={async () => { await Promise.all([reload(), reloadMilestones()]); }} />}
   </>;
 }
 
@@ -2398,7 +2424,8 @@ function JournalScreen() {
   const [addingEntry, setAddingEntry] = useState(false);
   const [editingEntry, setEditingEntry] = useState<Entity | null>(null);
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
-  const journalParameters = new URLSearchParams({ limit: "500" });
+  const journalTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const journalParameters = new URLSearchParams({ limit: "500", timeZone: journalTimeZone, localDate: localToday(journalTimeZone) });
   if (serverQuery) journalParameters.set("q", serverQuery);
   const { data: trackers, error, loading, reload } = useApi<{ trackers: Entity[] }>(`/api/journal-trackers?${journalParameters}`);
   const { data: entries, error: entryError, loading: entriesLoading, reload: reloadEntries } = useApi<{ entries: Entity[] }>(`/api/journal-entries?${journalParameters}`);
@@ -2472,6 +2499,9 @@ function JournalScreen() {
                 as="li"
                 key={`tracker-${tracker.id}`}
                 values={journalTrackerValues(tracker)}
+                loggedDates={journalTrackerLoggedDates(tracker)}
+                currentStreak={Number(readKey(tracker, "currentStreak") || 0)}
+                longestStreak={Number(readKey(tracker, "longestStreak") || 0)}
                 object={objectCardData({
                   id: Number(tracker.id), type: "journal.tracker", label: "Journal tracker", display: name,
                   attributes: [

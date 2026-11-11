@@ -424,6 +424,21 @@ export async function assertMigrationSpecificIntegrity(
   if (migration.version === 72) {
     await assertShortPersonTablePrefixMigration(connection, databaseName);
   }
+  if (migration.version === 73) {
+    const [columns] = await connection.query(`SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'p_calendar_events'
+        AND COLUMN_NAME IN ('milestone_mode', 'milestone_anchor')`, [databaseName]);
+    const values = new Map(columns.map((column) => [column.COLUMN_NAME, enumValues(column.COLUMN_TYPE)]));
+    if (JSON.stringify(values.get("milestone_mode")) !== JSON.stringify(requiredEnumColumns.calendar_events.milestone_mode)
+        || JSON.stringify(values.get("milestone_anchor")) !== JSON.stringify(requiredEnumColumns.calendar_events.milestone_anchor)) {
+      throw new Error("Migration 0073 did not establish the calendar milestone fields");
+    }
+    const [checks] = await connection.query(`SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS
+      WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME = 'p_calendar_events'
+        AND CONSTRAINT_TYPE = 'CHECK' AND CONSTRAINT_NAME = 'calendar_events_milestone_pair'`, [databaseName]);
+    if (checks.length !== 1) throw new Error("Migration 0073 is missing the calendar milestone pair check");
+  }
   if (migration.version === 70 && schemaVersion < 72) {
     await assertPersonIsolationMigration(connection, databaseName);
   }

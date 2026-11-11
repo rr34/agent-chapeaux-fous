@@ -22,6 +22,8 @@ const dayMilliseconds = 86_400_000;
 const defaultCalendarTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
 const calendarStatuses = new Set(["active", "archived"]);
+const milestoneModes = new Set(["countdown", "countup", "automatic"]);
+const milestoneAnchors = new Set(["start", "end"]);
 const visibleCalendarStorageStatuses = ["tentative", "confirmed"];
 const todoStatuses = new Set(["todo", "complete", "ignore", "archive", "ai_suggested"]);
 const contentTypes = new Set([
@@ -623,6 +625,24 @@ function nextOccurrence(event, afterUtc) {
   return next && (zone ? zonedPartsToUtc(utcParts(next), zone) : next);
 }
 
+function previousOccurrence(event, beforeUtc) {
+  const start = new Date(event.startsAtUtc);
+  const zone = event.timeZone || null;
+  const startParts = zone ? zonedParts(start, zone) : utcParts(start);
+  const rule = localizeUtcUntil(String(event.recurrenceRule).replace(/^RRULE:/i, ""), zone);
+  const parsed = rrulestr(`DTSTART:${basicDateTime(startParts, zone ? "" : "Z")}\nRRULE:${rule}`);
+  const before = new Date(beforeUtc);
+  const beforeParts = zone ? zonedParts(before, zone) : null;
+  const comparison = beforeParts
+    ? new Date(Date.UTC(
+      beforeParts.year, beforeParts.month - 1, beforeParts.day,
+      beforeParts.hour, beforeParts.minute, beforeParts.second,
+    ))
+    : before;
+  const previous = parsed.before(comparison, true);
+  return previous && (zone ? zonedPartsToUtc(utcParts(previous), zone) : previous);
+}
+
 // Logging periods reuse the calendar recurrence implementation and its local-time
 // conversion. Periods are [start, next start), including the last finite period.
 export function currentLoggingPeriod({ startsAtUtc, timeZone, recurrenceRule }, atUtc) {
@@ -685,10 +705,44 @@ function publicCalendarEvent(row) {
     isAllDay: Boolean(row.is_all_day),
     status: visibleCalendarStorageStatuses.includes(row.status) ? "active" : "archived",
     recurrenceRule: row.recurrence_rule,
+    milestoneMode: row.milestone_mode ?? null,
+    milestoneAnchor: row.milestone_anchor ?? null,
     createdAtUtc: row.created_at_utc,
     updatedAtUtc: row.updated_at_utc,
     version: row.updated_at_utc ?? row.created_at_utc,
   };
+}
+
+function validatedMilestone(modeValue, anchorValue, endsAtUtc) {
+  const mode = modeValue == null || modeValue === "" ? null : enumValue(modeValue, milestoneModes, "milestoneMode");
+  const anchor = anchorValue == null || anchorValue === "" ? null : enumValue(anchorValue, milestoneAnchors, "milestoneAnchor");
+  if ((mode === null) !== (anchor === null)) {
+    throw new OrganizerInputError("milestoneMode and milestoneAnchor must both be set or both be null.");
+  }
+  if (anchor === "end" && !endsAtUtc) {
+    throw new OrganizerInputError("An end-anchored milestone requires an event end.");
+  }
+  return { milestoneMode: mode, milestoneAnchor: anchor };
+}
+
+export function loggingStreaks(dateKeys, asOfDate) {
+  const dates = [...new Set(dateKeys)].filter((date) => date <= asOfDate).sort();
+  if (!dates.length) return { currentStreak: 0, longestStreak: 0 };
+  let longestStreak = 1;
+  let run = 1;
+  for (let index = 1; index < dates.length; index += 1) {
+    run = dates[index] === shiftedDateKey(dates[index - 1], 1) ? run + 1 : 1;
+    longestStreak = Math.max(longestStreak, run);
+  }
+  const latest = dates.at(-1);
+  const active = latest === asOfDate || latest === shiftedDateKey(asOfDate, -1);
+  if (!active) return { currentStreak: 0, longestStreak };
+  let currentStreak = 1;
+  for (let index = dates.length - 1; index > 0; index -= 1) {
+    if (dates[index - 1] !== shiftedDateKey(dates[index], -1)) break;
+    currentStreak += 1;
+  }
+  return { currentStreak, longestStreak };
 }
 
 function publicContactMethod(row) {
@@ -2465,6 +2519,91 @@ export class OrganizerStore {
       .slice(0, 2000));
   }
 
+  listCalendarMilestones({ at = new Date().toISOString() } = {}) {
+    const atUtc = isoDateTime(at, "at", { required: true });
+    const atMs = Date.parse(atUtc);
+    const rows = this.database.prepare(`
+      SELECT * FROM calendar_events
+      WHERE status IN ('tentative', 'confirmed')
+        AND milestone_mode IS NOT NULL
+        AND milestone_anchor IS NOT NULL
+      ORDER BY calendar_event_id
+      LIMIT 500
+    `).all().map(publicCalendarEvent);
+    const masterUids = new Set(rows.filter((event) => event.recurrenceRule && event.icalUid).map((event) => event.icalUid));
+    const exceptionsByUid = new Map();
+    if (masterUids.size) {
+      const exceptions = this.database.prepare(`
+        SELECT * FROM calendar_events
+        WHERE status IN ('tentative', 'confirmed')
+          AND ical_uid IS NOT NULL AND ical_recurrence_id IS NOT NULL
+        LIMIT 2000
+      `).all().map(publicCalendarEvent);
+      for (const exception of exceptions) {
+        if (!masterUids.has(exception.icalUid)) continue;
+        const values = exceptionsByUid.get(exception.icalUid) ?? [];
+        values.push(exception);
+        exceptionsByUid.set(exception.icalUid, values);
+      }
+    }
+    const exclusions = this.database.prepare(`
+      SELECT calendar_event_id, excluded_starts_at_utc FROM calendar_event_exclusions
+    `).all();
+    const omittedByMaster = new Map();
+    for (const exclusion of exclusions) {
+      const omitted = omittedByMaster.get(Number(exclusion.calendar_event_id)) ?? new Set();
+      omitted.add(Date.parse(exclusion.excluded_starts_at_utc));
+      omittedByMaster.set(Number(exclusion.calendar_event_id), omitted);
+    }
+    const selected = [];
+    for (const event of rows) {
+      if (event.icalRecurrenceId && masterUids.has(event.icalUid)) continue;
+      const duration = event.endsAtUtc ? Math.max(0, Date.parse(event.endsAtUtc) - Date.parse(event.startsAtUtc)) : 0;
+      let candidates = [event];
+      if (event.recurrenceRule) {
+        const omitted = omittedByMaster.get(Number(event.id)) ?? new Set();
+        const starts = [];
+        let before = atUtc;
+        let after = new Date(atMs - 1).toISOString();
+        for (let attempts = 0; attempts < 200 && starts.length < 2; attempts += 1) {
+          const previous = previousOccurrence(event, before);
+          if (!previous) break;
+          before = new Date(previous.getTime() - 1).toISOString();
+          if (!omitted.has(previous.getTime())) starts.push(previous);
+        }
+        for (let attempts = 0; attempts < 200 && starts.length < 4; attempts += 1) {
+          const next = nextOccurrence(event, after);
+          if (!next) break;
+          after = next.toISOString();
+          if (!omitted.has(next.getTime())) starts.push(next);
+        }
+        candidates = [
+          ...starts.map((start) => recurringOccurrence(event, start, duration)),
+          ...(exceptionsByUid.get(event.icalUid) ?? []).map((exception) => ({
+            ...exception,
+            milestoneMode: event.milestoneMode,
+            milestoneAnchor: event.milestoneAnchor,
+          })),
+        ];
+      }
+      const withAnchors = candidates.map((candidate) => {
+        const effectiveAnchorUtc = event.milestoneAnchor === "end" ? candidate.endsAtUtc : candidate.startsAtUtc;
+        return { candidate, effectiveAnchorUtc, anchorMs: Date.parse(effectiveAnchorUtc || "") };
+      }).filter(({ anchorMs }) => Number.isFinite(anchorMs));
+      const future = withAnchors.filter(({ anchorMs }) => anchorMs >= atMs).sort((left, right) => left.anchorMs - right.anchorMs);
+      const past = withAnchors.filter(({ anchorMs }) => anchorMs < atMs).sort((left, right) => right.anchorMs - left.anchorMs);
+      const chosen = event.milestoneMode === "countup" ? (past[0] ?? future[0]) : (future[0] ?? past[0]);
+      if (chosen) selected.push({ ...chosen.candidate, effectiveAnchorUtc: chosen.effectiveAnchorUtc });
+    }
+    return selected.sort((left, right) => {
+      const leftTime = Date.parse(left.effectiveAnchorUtc);
+      const rightTime = Date.parse(right.effectiveAnchorUtc);
+      const leftFuture = leftTime >= atMs ? 0 : 1;
+      const rightFuture = rightTime >= atMs ? 0 : 1;
+      return leftFuture - rightFuture || (leftFuture === 0 ? leftTime - rightTime : rightTime - leftTime);
+    });
+  }
+
   searchCalendar({ query, includeArchived = false, limit = 100 } = {}) {
     const result = searchCalendarEventRows(this.database, { query, includeArchived, limit });
     return {
@@ -4051,6 +4190,12 @@ export class OrganizerStore {
         AND tracker_id IN (${placeholders})
       ORDER BY occurred_at_utc
     `).all(...trackerIds);
+    const loggedRows = this.database.prepare(`
+      SELECT tracker_id, occurred_at_utc
+      FROM journal3_entries
+      WHERE tracker_id IN (${placeholders})
+      ORDER BY occurred_at_utc
+    `).all(...trackerIds);
     const averagesByTracker = dailyNumericAverages(numericRows, { averageTimeZone, asOfDate });
     const numericHistoryByTracker = new Map();
     for (const row of numericRows) {
@@ -4061,16 +4206,30 @@ export class OrganizerStore {
       });
       numericHistoryByTracker.set(row.tracker_id, history);
     }
+    const loggedDatesByTracker = new Map();
+    for (const row of loggedRows) {
+      const occurredAt = new Date(row.occurred_at_utc);
+      if (!Number.isFinite(occurredAt.getTime())) continue;
+      const dateKey = dateKeyFromParts(zonedParts(occurredAt, averageTimeZone));
+      const dates = loggedDatesByTracker.get(row.tracker_id) ?? new Set();
+      dates.add(dateKey);
+      loggedDatesByTracker.set(row.tracker_id, dates);
+    }
     const emptyAverages = {
       sevenDay: { value: null, dayCount: 0 },
       oneYear: { value: null, dayCount: 0 },
       allTime: { value: null, dayCount: 0 },
     };
-    return trackerRows.map((row) => ({
-      ...publicJournalTracker(row),
-      numericAverages: averagesByTracker.get(row.tracker_id) ?? emptyAverages,
-      numericHistory: numericHistoryByTracker.get(row.tracker_id) ?? [],
-    }));
+    return trackerRows.map((row) => {
+      const loggedDates = [...(loggedDatesByTracker.get(row.tracker_id) ?? [])].sort();
+      return {
+        ...publicJournalTracker(row),
+        numericAverages: averagesByTracker.get(row.tracker_id) ?? emptyAverages,
+        numericHistory: numericHistoryByTracker.get(row.tracker_id) ?? [],
+        loggedDates,
+        ...loggingStreaks(loggedDates, asOfDate),
+      };
+    });
   }
 
   listJournalGroups({ includeArchived = false } = {}) {
@@ -4400,6 +4559,7 @@ export class OrganizerStore {
       status: enumValue(input?.status, calendarStatuses, "status", "active"),
       recurrenceRule: optionalText(input?.recurrenceRule, "recurrenceRule", 2000),
     };
+    Object.assign(event, validatedMilestone(input?.milestoneMode, input?.milestoneAnchor, event.endsAtUtc));
     if (event.endsAtUtc && event.endsAtUtc < event.startsAtUtc) {
       throw new OrganizerInputError("endsAtUtc cannot be earlier than startsAtUtc.");
     }
@@ -4416,12 +4576,12 @@ export class OrganizerStore {
       const result = this.database.prepare(`
         INSERT INTO calendar_events (
           title, description, location_text, starts_at_utc, ends_at_utc,
-          time_zone, is_all_day, status, recurrence_rule
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          time_zone, is_all_day, status, recurrence_rule, milestone_mode, milestone_anchor
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         event.title, event.description, event.location, event.startsAtUtc, event.endsAtUtc,
         event.timeZone, event.isAllDay, event.status === "active" ? "confirmed" : "cancelled",
-        event.recurrenceRule,
+        event.recurrenceRule, event.milestoneMode, event.milestoneAnchor,
       );
       const id = Number(result.lastInsertRowid);
       const created = this.getCalendar(id);
@@ -4504,10 +4664,10 @@ export class OrganizerStore {
       } else {
         eventId = Number(this.database.prepare(`INSERT INTO calendar_events
           (ical_uid, ical_recurrence_id, title, description, location_text, starts_at_utc, ends_at_utc,
-           time_zone, is_all_day, status, updated_at_utc)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING calendar_event_id`)
+           time_zone, is_all_day, status, milestone_mode, milestone_anchor, updated_at_utc)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING calendar_event_id`)
           .get(uid, occurrence, title, description, master.location_text, starts, ends,
-            master.time_zone, master.is_all_day, status, now).calendar_event_id);
+            master.time_zone, master.is_all_day, status, master.milestone_mode, master.milestone_anchor, now).calendar_event_id);
         this.database.prepare(`INSERT INTO calendar_event_contacts_join (calendar_event_id, contact_id, participant_role, response_status)
           SELECT ?, contact_id, participant_role, response_status FROM calendar_event_contacts_join WHERE calendar_event_id = ?`).run(eventId, id);
       }
@@ -4665,6 +4825,11 @@ export class OrganizerStore {
         ? before.recurrenceRule
         : optionalText(input.recurrenceRule, "recurrenceRule", 2000),
     };
+    Object.assign(after, validatedMilestone(
+      input.milestoneMode === undefined ? before.milestoneMode : input.milestoneMode,
+      input.milestoneAnchor === undefined ? before.milestoneAnchor : input.milestoneAnchor,
+      after.endsAtUtc,
+    ));
     if (after.endsAtUtc && after.endsAtUtc < after.startsAtUtc) {
       throw new OrganizerInputError("endsAtUtc cannot be earlier than startsAtUtc.");
     }
@@ -4677,7 +4842,7 @@ export class OrganizerStore {
     }
     const changes = changedFields(before, after, [
       "title", "description", "location", "startsAtUtc", "endsAtUtc", "timeZone", "isAllDay", "status",
-      "recurrenceRule",
+      "recurrenceRule", "milestoneMode", "milestoneAnchor",
     ]);
     if (Object.keys(changes).length === 0) return before;
     const updatedAt = new Date().toISOString();
@@ -4688,14 +4853,14 @@ export class OrganizerStore {
         UPDATE calendar_events
         SET title = ?, description = ?, location_text = ?, starts_at_utc = ?, ends_at_utc = ?,
             time_zone = ?, is_all_day = ?, status = ?, recurrence_rule = ?,
-            updated_at_utc = ?
+            milestone_mode = ?, milestone_anchor = ?, updated_at_utc = ?
         WHERE calendar_event_id = ?
           AND COALESCE(updated_at_utc, created_at_utc) = ?
       `).run(
         after.title, after.description, after.location, after.startsAtUtc, after.endsAtUtc,
         after.timeZone, after.isAllDay ? 1 : 0,
         after.status === "active" ? "confirmed" : "cancelled", after.recurrenceRule,
-        updatedAt, id, before.version,
+        after.milestoneMode, after.milestoneAnchor, updatedAt, id, before.version,
       );
       if (result.changes !== 1) {
         throw new OrganizerInputError("This calendar event changed while you were saving it. Refresh and try again.", 409);

@@ -609,6 +609,8 @@ interface CalendarDraft {
   status: string;
   timeZone: string;
   recurrence: RecurrenceDraft;
+  milestoneMode: "" | "countdown" | "countup" | "automatic";
+  milestoneAnchor: "start" | "end";
 }
 
 function calendarDraft(event: CalendarEvent): CalendarDraft {
@@ -626,6 +628,8 @@ function calendarDraft(event: CalendarEvent): CalendarDraft {
     status: event.status || "active",
     timeZone: event.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone,
     recurrence: recurrenceDraft(event.recurrenceRule, localDateTimeValue(event.startsAtUtc).slice(0, 10)),
+    milestoneMode: event.milestoneMode || "",
+    milestoneAnchor: event.milestoneAnchor || "start",
   };
 }
 
@@ -646,6 +650,8 @@ function newCalendarDraft(initialDate?: string): CalendarDraft {
     status: "active",
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     recurrence: recurrenceDraft(null, date),
+    milestoneMode: "",
+    milestoneAnchor: "start",
   };
 }
 
@@ -781,6 +787,8 @@ export function CalendarEventEditor({ eventId, recurring = false, initialDate, o
           status: draft.status,
           timeZone: draft.timeZone,
           recurrenceRule: buildRecurrenceRule(draft.recurrence),
+          milestoneMode: draft.milestoneMode || null,
+          milestoneAnchor: draft.milestoneMode ? draft.milestoneAnchor : null,
         }),
       });
       await onChanged();
@@ -848,6 +856,19 @@ export function CalendarEventEditor({ eventId, recurring = false, initialDate, o
         <label>Location<input maxLength={1000} value={draft.location} onChange={(change) => setDraft({ ...draft, location: change.target.value })} /></label>
         <label>Notes (optional)<textarea rows={4} value={draft.description} onChange={(change) => setDraft({ ...draft, description: change.target.value })} /></label>
         <RecurrenceEditor value={draft.recurrence} onChange={(recurrence) => setDraft({ ...draft, recurrence })} />
+        <section className="object-editor-related milestone-editor" aria-labelledby="calendar-milestone-heading">
+          <h3 id="calendar-milestone-heading">Milestone</h3>
+          <label>Relative timer<select value={draft.milestoneMode} onChange={(change) => setDraft({ ...draft, milestoneMode: change.target.value as CalendarDraft["milestoneMode"] })}>
+            <option value="">Off</option>
+            <option value="automatic">Automatic · countdown, then count up</option>
+            <option value="countdown">Countdown</option>
+            <option value="countup">Count since</option>
+          </select></label>
+          {draft.milestoneMode && <label>Anchor<select value={draft.milestoneAnchor} onChange={(change) => setDraft({ ...draft, milestoneAnchor: change.target.value as CalendarDraft["milestoneAnchor"] })}>
+            <option value="start">Event starts</option>
+            <option value="end" disabled={!draft.endsAt}>Event ends</option>
+          </select><span className="field-hint">Milestones appear above the Calendar grid.</span></label>}
+        </section>
         <label>Status<select value={draft.status} onChange={(change) => setDraft({ ...draft, status: change.target.value })}><option value="active">Active</option><option value="archived">Archived</option></select></label>
         {!creating && !isRecurring && <section className="object-editor-related" aria-labelledby="calendar-contact-links-heading">
           <h3 id="calendar-contact-links-heading">Contacts and invitations</h3>

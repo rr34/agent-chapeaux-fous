@@ -12,6 +12,20 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 73: Calendar-event milestones
+
+Adds nullable `milestone_mode` and `milestone_anchor` columns to the existing
+person-owned calendar-event table and refreshes its filtered logical view. A
+null pair omits an event from the Calendar milestone strip; a populated pair
+selects countdown, count-up, or automatic display anchored to the event start
+or end. The constraint rejects partial configuration and end anchors on events
+without an end. No new table or first-class object is introduced.
+
+Apply with Agent stopped because the matching application requires schema 73.
+The physical table alteration and logical view replacement take metadata locks.
+If interrupted, keep Agent stopped and rerun the complete replayable migration
+before verification and restart.
+
 ## Version 72: Short person-table prefix
 
 Renames the physical person-owned tables from `person_data_<table>` to the

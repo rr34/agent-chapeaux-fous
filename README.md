@@ -608,6 +608,13 @@ selected date, and active to-do groups pinned to the paper. Pinned groups
 contribute all open tasks and remain as writable sections when empty. Calendar
 events and personal to-dos remain separate first-class objects; neither owns a
 relationship to the other.
+Calendar events may opt into a milestone display anchored to their start or
+end. The Calendar screen places those explicitly selected events above the
+two-week grid, with countdown, count-up, or automatic relative time. Timed
+events show days, hours, minutes, and seconds; all-day events show whole local
+calendar days. Recurring masters contribute only their nearest relevant
+computed occurrence: the next for countdown/automatic display and the most
+recent for count-up display.
 The paper shows the selected Monday-to-Sunday week followed by the next week.
 The calendar contains only events. Each seven-day row grows to its busiest day
 and reserves at least three additional event-row heights of blank space below
@@ -973,7 +980,10 @@ controls which exact tool schemas are callable.
   the name, canonical unit, and existing or new group; saving creates the
   tracker without inventing an initial observation. **Add entry** records an
   observation against an existing tracker or creates its tracker and group in
-  the same native journal operation.
+  the same native journal operation. Each tracker chart keeps latest value,
+  change, current and longest distinct-local-day logging streaks, days logged,
+  and the selected-range daily average in one summary row. Chart points expose
+  their exact date and value through hover, keyboard focus, or touch.
 - `contact_file_import` parses a complete attached CSV or vCard/VCF directly,
   importing up to 10,000 contacts in one transaction without asking the model
   to reproduce every row. The model maps CSV headers from a bounded preview;

@@ -1456,6 +1456,12 @@ const server = http.createServer(async (request, response) => {
       }));
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/calendar-milestones") {
+      sendJson(response, 200, {
+        events: organizer.listCalendarMilestones({ at: url.searchParams.get("at") || new Date().toISOString() }),
+      });
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/calendar-events") {
       sendJson(response, 200, {
         events: organizer.listCalendar({

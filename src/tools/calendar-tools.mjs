@@ -88,6 +88,8 @@ const calendarEventRecordSchema = {
     is_all_day: { description: "1 when the event represents a calendar day rather than a precise time; otherwise 0." },
     status: { description: "Current scheduling state of the event. Calendar events happen; completion is represented only by the passage of time, not a stored event status. tentative: Event is proposed but not firmly confirmed. confirmed: Event is scheduled to occur. cancelled: Event will not occur." },
     recurrence_rule: { description: "iCalendar RRULE describing how the event repeats." },
+    milestone_mode: { description: "Optional relative-time presentation: countdown, countup, or automatic. Null omits the event from the milestone strip." },
+    milestone_anchor: { description: "Event boundary used by the milestone: start or end." },
     source_event_id: { description: "Ledger event that caused this calendar record to be created when known." },
     created_at_utc: { description: "UTC timestamp when this local calendar record was inserted." },
     updated_at_utc: { description: "UTC timestamp of the latest recorded change to this local calendar record." },
@@ -107,7 +109,7 @@ const calendarEventFields = [
   "calendar_event_id", "calendar_routine_id", "routine_occurrence_key",
   "ical_uid", "ical_recurrence_id", "title", "description",
   "location_text", "starts_at_utc", "ends_at_utc", "time_zone", "is_all_day",
-  "status", "recurrence_rule", "source_event_id",
+  "status", "recurrence_rule", "milestone_mode", "milestone_anchor", "source_event_id",
   "created_at_utc", "updated_at_utc",
 ];
 const contactFields = ["contact_id", "display_name", "birth_date"];
@@ -380,6 +382,8 @@ export function registerCalendarTools(
         is_all_day: { type: "boolean", description: "True when the event represents a calendar day rather than a precise time; false otherwise." },
         status: { type: "string", enum: statuses, description: "Current scheduling state of the event. Calendar events happen; completion is represented only by the passage of time, not a stored event status. tentative: Event is proposed but not firmly confirmed. confirmed: Event is scheduled to occur. cancelled: Event will not occur." },
         recurrence: recurrenceSchema,
+        milestone_mode: { type: ["string", "null"], enum: ["countdown", "countup", "automatic", null], description: "Optional milestone timer mode. Null leaves the event out of the milestone strip." },
+        milestone_anchor: { type: ["string", "null"], enum: ["start", "end", null], description: "Boundary used by the milestone. Both milestone fields must be null or populated; end requires ends_at_utc." },
       },
       required: [
         "title", "description", "location_text", "starts_at_utc", "ends_at_utc",
@@ -395,6 +399,10 @@ export function registerCalendarTools(
         throw new Error("ends_at_utc cannot be earlier than starts_at_utc");
       }
       if (!statuses.includes(input.status)) throw new Error("status is invalid");
+      const milestoneMode = input.milestone_mode ?? null;
+      const milestoneAnchor = input.milestone_anchor ?? null;
+      if ((milestoneMode === null) !== (milestoneAnchor === null)) throw new Error("milestone_mode and milestone_anchor must both be null or populated");
+      if (milestoneAnchor === "end" && !endsAtUtc) throw new Error("An end-anchored milestone requires ends_at_utc");
       let timeZone = input.time_zone ? validateTimeZone(input.time_zone) : null;
       let recurrenceRule = null;
       if (input.recurrence) {
@@ -410,15 +418,15 @@ export function registerCalendarTools(
         const inserted = database.prepare(`
           INSERT INTO calendar_events (
             title, description, location_text, starts_at_utc, ends_at_utc,
-            time_zone, is_all_day, status, recurrence_rule
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            time_zone, is_all_day, status, recurrence_rule, milestone_mode, milestone_anchor
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           RETURNING calendar_event_id
         `).get(
           normalizedText(input.title, "title", 500, { required: true }),
           normalizedText(input.description, "description", 10_000),
           normalizedText(input.location_text, "location_text", 1_000),
           startsAtUtc, endsAtUtc, timeZone, input.is_all_day ? 1 : 0, input.status,
-          recurrenceRule,
+          recurrenceRule, milestoneMode, milestoneAnchor,
         );
         let event = calendarEvent(database, inserted.calendar_event_id);
         const sourceEventId = writeEvent(database, ledger, context, {
@@ -465,6 +473,8 @@ export function registerCalendarTools(
         time_zone: { ...optionalText, description: "IANA or provider time-zone name used to display the event in its intended local time." },
         is_all_day: { type: ["boolean", "null"], description: "True when the event represents a calendar day rather than a precise time; false otherwise." },
         status: { type: ["string", "null"], enum: [...statuses, null], description: "Current scheduling state of the event. Calendar events happen; completion is represented only by the passage of time, not a stored event status. tentative: Event is proposed but not firmly confirmed. confirmed: Event is scheduled to occur. cancelled: Event will not occur." },
+        milestone_mode: { type: ["string", "null"], enum: ["countdown", "countup", "automatic", "", null], description: "Null leaves the setting unchanged. Use countdown, countup, or automatic to show it; use an empty string together with an empty milestone_anchor to remove it from the strip." },
+        milestone_anchor: { type: ["string", "null"], enum: ["start", "end", "", null], description: "Null leaves the setting unchanged. Use start or end with a milestone mode; use an empty string with an empty milestone_mode to clear it." },
       },
       required: [
         "calendar_event_id", "scope", "title", "description", "location_text", "starts_at_utc",
@@ -492,10 +502,18 @@ export function registerCalendarTools(
       if (input.time_zone !== null) values.time_zone = input.time_zone ? validateTimeZone(input.time_zone) : null;
       if (input.is_all_day !== null) values.is_all_day = input.is_all_day ? 1 : 0;
       if (input.status !== null) values.status = input.status;
+      if (input.milestone_mode !== null && input.milestone_mode !== undefined) values.milestone_mode = input.milestone_mode || null;
+      if (input.milestone_anchor !== null && input.milestone_anchor !== undefined) values.milestone_anchor = input.milestone_anchor || null;
       if (Object.keys(values).length === 0) throw new Error("No calendar event changes were supplied");
       const prospective = { ...before, ...values };
       if (prospective.ends_at_utc && prospective.ends_at_utc < prospective.starts_at_utc) {
         throw new Error("ends_at_utc cannot be earlier than starts_at_utc");
+      }
+      if ((prospective.milestone_mode == null) !== (prospective.milestone_anchor == null)) {
+        throw new Error("milestone_mode and milestone_anchor must both be cleared or populated");
+      }
+      if (prospective.milestone_anchor === "end" && !prospective.ends_at_utc) {
+        throw new Error("An end-anchored milestone requires ends_at_utc");
       }
       values.updated_at_utc = new Date().toISOString();
       database.exec("START TRANSACTION");

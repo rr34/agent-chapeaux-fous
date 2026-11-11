@@ -24,6 +24,9 @@ export interface CalendarEvent {
   contactId?: number;
   version?: string;
   recurrenceRule?: string | null;
+  milestoneMode?: "countdown" | "countup" | "automatic" | null;
+  milestoneAnchor?: "start" | "end" | null;
+  effectiveAnchorUtc?: string;
   title: string;
   description?: string | null;
   location?: string | null;

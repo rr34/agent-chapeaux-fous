@@ -364,6 +364,18 @@ textarea { resize: vertical; }
 .trace-event pre { max-height: 60vh; margin: 0; padding: 13px; overflow: auto; border-top: 1px solid var(--line); background: #fffefa; color: var(--ink); font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 
 .calendar-screen { display: grid; gap: 20px; }
+.milestone-strip { display: grid; gap: 12px; }
+.milestone-strip > header { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
+.milestone-strip > header h2 { margin: 0; }
+.milestone-strip > header > span { color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+.milestone-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 9px; }
+.milestone-card { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--paper); }
+.milestone-card > div { min-width: 0; display: grid; gap: 5px; }
+.milestone-card h3 { overflow: hidden; margin: 0; color: var(--ink); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.milestone-card .button { flex: 0 0 auto; min-height: 32px; padding: 5px 9px; font-size: 10px; }
+.milestone-timer { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 4px; color: var(--olive-dark); font-variant-numeric: tabular-nums; }
+.milestone-timer strong { color: var(--ink); font: 650 20px/1 "Newsreader", Georgia, serif; }
+.milestone-timer small { color: var(--muted); font-size: 9px; font-weight: 700; }
 .calendar-overview-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 9px; }
 .calendar-range-arrow { width: 100%; height: 30px; min-height: 30px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px; color: var(--muted); background: transparent; font-size: 12px; line-height: 1; cursor: pointer; }
 .calendar-range-arrow:hover { color: var(--olive-dark); background: var(--olive-soft); }
@@ -1007,11 +1019,21 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .tracker-chart-summary .is-positive { color: #3f6f3a; }
 .tracker-chart-summary .is-negative { color: #a44a35; }
 .tracker-chart-summary .is-neutral { color: var(--muted); }
+.tracker-chart-summary .tracker-chart-metric { display: inline-grid; grid-template-columns: auto; gap: 1px; padding-left: 10px; border-left: 1px solid var(--line); color: var(--ink); }
+.tracker-chart-summary .tracker-chart-metric b { font-size: 12px; font-weight: 800; }
+.tracker-chart-summary .tracker-chart-metric small { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
 .tracker-chart-plot { position: relative; min-width: 0; height: 180px; }
 .tracker-chart-plot svg { width: 100%; height: 100%; overflow: visible; color: var(--olive); }
 .tracker-chart-gridline { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .tracker-chart-line { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .tracker-chart-point { fill: var(--paper); stroke: currentColor; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.tracker-chart-point.is-active { fill: var(--olive-dark); }
+.tracker-chart-hit-point { fill: transparent; stroke: transparent; cursor: crosshair; }
+.tracker-chart-hit-point:focus-visible { outline: none; stroke: rgba(104, 116, 90, .35); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.tracker-chart-guide { stroke: rgba(104, 116, 90, .35); stroke-dasharray: 3 3; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.tracker-chart-tooltip { position: absolute; z-index: 3; display: grid; gap: 2px; min-width: max-content; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: var(--paper); box-shadow: 0 5px 16px rgba(42, 48, 37, .16); font-size: 10px; font-variant-numeric: tabular-nums; pointer-events: none; transform: translate(-50%, calc(-100% - 9px)); }
+.tracker-chart-tooltip strong { font-size: 12px; }
+.tracker-chart-tooltip time { color: var(--muted); }
 .tracker-chart-area { color: var(--olive); }
 .tracker-chart-maximum, .tracker-chart-minimum { position: absolute; z-index: 1; right: 4px; padding-left: 4px; color: var(--muted); background: rgba(251, 250, 245, .82); font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; pointer-events: none; }
 .tracker-chart-maximum { top: 2px; }
