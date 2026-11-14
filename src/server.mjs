@@ -97,7 +97,14 @@ const nativeCapabilities = validateNativeCapabilityPackages({
 });
 const identity = runtimeIdentity(config.repositoryRoot);
 const ledger = new Ledger(store);
-const organizer = store.status.ready ? new OrganizerStore(config.databaseTarget) : null;
+const organizer = store.status.ready ? new OrganizerStore(config.databaseTarget, {
+  resolveTimeV3Handle: identityStore ? (value) => {
+    const numeric = Number(value);
+    return Number.isSafeInteger(numeric) && numeric > 0
+      ? identityStore.activePerson(numeric)
+      : identityStore.activePersonByHandle(value);
+  } : null,
+}) : null;
 const correspondenceSync = store.status.ready
   ? new CorrespondenceSyncService({ databaseTarget: config.databaseTarget })
   : null;
@@ -551,6 +558,25 @@ function requireAuthorization(request, response) {
   return false;
 }
 
+function contactScopePersonId(request, url, body = null) {
+  const selected = request.timev3Auth?.person ?? request.timev3Node?.person;
+  const requested = Number(body?.managedPersonId ?? url.searchParams.get("managedPersonId") ?? selected?.personId ?? currentPersonId());
+  if (!Number.isSafeInteger(requested) || requested < 1) {
+    throw Object.assign(new Error("managedPersonId must be a positive person id."), { statusCode: 400 });
+  }
+  if (!selected || requested === selected.personId) return requested;
+  const accountId = request.timev3Auth?.account?.accountId;
+  if (!accountId || !identityStore.canManageContacts(accountId, requested)) {
+    throw Object.assign(new Error("You cannot manage that person's contacts."), { statusCode: 403 });
+  }
+  return requested;
+}
+
+function withContactScope(request, url, body, callback) {
+  const personId = contactScopePersonId(request, url, body);
+  return personId === currentPersonId() ? callback() : runWithPerson(personId, callback);
+}
+
 function assertAiAllowance(request) {
   const person = request.timev3Auth?.person ?? request.timev3Node?.person;
   const limit = Number(person?.weeklyAiTokenLimit ?? config.weeklyAiTokenLimit);
@@ -661,7 +687,7 @@ async function handlePublicAuthRoute(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/auth/login") {
     requireRequestOrigin(request, authOrigin);
     const body = await readJson(request);
-    const limit = identityStore.rateLimit({ action: "login", subject: `${metadata.ipAddress}:${body.email}`,
+    const limit = identityStore.rateLimit({ action: "login", subject: `${metadata.ipAddress}:${body.login ?? body.email}`,
       maximum: 10, windowSeconds: 900 });
     if (!limit.allowed) throw Object.assign(new Error("Too many sign-in attempts. Try again later."), { statusCode: 429 });
     const created = identityStore.authenticate({ ...body, clientId: "auth", ...metadata });
@@ -941,6 +967,18 @@ const server = http.createServer(async (request, response) => {
         && authenticatedPerson.personId !== config.legacyPersonId) {
       throw Object.assign(new Error("That connected service belongs to a different Agent identity."), { statusCode: 403 });
     }
+    if (request.timev3Auth?.person.experience === "light") {
+      const lightRoute = url.pathname.startsWith("/api/contacts")
+        || (url.pathname.startsWith("/api/correspondence")
+          && !url.pathname.includes("sync") && !url.pathname.includes("google-messages"))
+        || url.pathname.startsWith("/api/account/")
+        || url.pathname.startsWith("/api/node/")
+        || url.pathname.startsWith("/api/profile-facts")
+        || url.pathname === "/api/ai-usage";
+      if (!lightRoute) {
+        throw Object.assign(new Error("This light account does not include that part of Agent."), { statusCode: 403 });
+      }
+    }
     if (request.timev3Auth?.account && request.method === "GET" && url.pathname === "/api/account/people") {
       sendJson(response, 200, {
         account: request.timev3Auth.account,
@@ -949,12 +987,51 @@ const server = http.createServer(async (request, response) => {
       });
       return;
     }
-    if (request.timev3Auth?.account && request.method === "POST" && url.pathname === "/api/account/people") {
+    if (request.timev3Auth?.account && request.method === "PATCH" && url.pathname === "/api/account/person/handle") {
       requireRequestOrigin(request, new URL(config.publicUrl).origin);
       const body = await readJson(request);
-      sendJson(response, 201, { person: identityStore.createManagedPerson(
-        request.timev3Auth.account.accountId, body.displayName,
+      sendJson(response, 200, { person: identityStore.setPersonHandle(
+        request.timev3Auth.account.accountId, request.timev3Auth.person.personId, body.handle,
       ) });
+      return;
+    }
+    if (request.timev3Auth?.account && request.method === "GET" && url.pathname === "/api/account/provisioned") {
+      if (request.timev3Auth.person.experience !== "full") {
+        throw Object.assign(new Error("Only a full account can provision or manage other accounts."), { statusCode: 403 });
+      }
+      sendJson(response, 200, { people: identityStore.listProvisionedPeople(request.timev3Auth.account.accountId) });
+      return;
+    }
+    if (request.timev3Auth?.account && request.method === "POST" && url.pathname === "/api/account/provisioned") {
+      if (request.timev3Auth.person.experience !== "full") {
+        throw Object.assign(new Error("Only a full account can provision or manage other accounts."), { statusCode: 403 });
+      }
+      requireRequestOrigin(request, new URL(config.publicUrl).origin);
+      sendJson(response, 201, identityStore.createProvisionedAccount(
+        request.timev3Auth.account.accountId, await readJson(request),
+      ));
+      return;
+    }
+    const provisionedMatch = /^\/api\/account\/provisioned\/(\d+)$/u.exec(url.pathname);
+    if (request.timev3Auth?.account && request.method === "PATCH" && provisionedMatch) {
+      if (request.timev3Auth.person.experience !== "full") {
+        throw Object.assign(new Error("Only a full account can provision or manage other accounts."), { statusCode: 403 });
+      }
+      requireRequestOrigin(request, new URL(config.publicUrl).origin);
+      sendJson(response, 200, { person: identityStore.updateProvisionedPerson(
+        request.timev3Auth.account.accountId, Number(provisionedMatch[1]), await readJson(request),
+      ) });
+      return;
+    }
+    const provisionedPasswordMatch = /^\/api\/account\/provisioned\/(\d+)\/reset-password$/u.exec(url.pathname);
+    if (request.timev3Auth?.account && request.method === "POST" && provisionedPasswordMatch) {
+      if (request.timev3Auth.person.experience !== "full") {
+        throw Object.assign(new Error("Only a full account can recover a provisioned account."), { statusCode: 403 });
+      }
+      requireRequestOrigin(request, new URL(config.publicUrl).origin);
+      sendJson(response, 200, identityStore.resetProvisionedPassword(
+        request.timev3Auth.account.accountId, Number(provisionedPasswordMatch[1]),
+      ));
       return;
     }
     const selectedPersonMatch = /^\/api\/account\/people\/(\d+)\/select$/u.exec(url.pathname);
@@ -1408,11 +1485,11 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "GET" && url.pathname === "/api/contacts") {
       sendJson(response, 200, {
-        contacts: organizer.listContacts({
+        contacts: withContactScope(request, url, null, () => organizer.listContacts({
           scope: url.searchParams.get("scope") || "active",
           limit: url.searchParams.get("limit") || 500,
           query: url.searchParams.get("q"),
-        }),
+        })),
       });
       return;
     }
@@ -1427,38 +1504,69 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/contacts") {
-      sendJson(response, 201, { contact: organizer.createContact(await readJson(request)) });
+      const body = await readJson(request);
+      sendJson(response, 201, { contact: withContactScope(request, url, body, () => organizer.createContact(body)) });
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/contacts/duplicates") {
-      sendJson(response, 200, organizer.listContactDuplicates({
+      sendJson(response, 200, withContactScope(request, url, null, () => organizer.listContactDuplicates({
         limit: url.searchParams.get("limit") || 100,
         offset: url.searchParams.get("offset") || 0,
         contactLimit: 1000,
-      }));
+      })));
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/contacts/merge") {
-      sendJson(response, 200, organizer.mergeContacts(await readJson(request)));
+      const body = await readJson(request);
+      sendJson(response, 200, withContactScope(request, url, body, () => organizer.mergeContacts(body)));
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/contacts/bulk") {
-      sendJson(response, 200, organizer.bulkContacts(await readJson(request, 2 * 1024 * 1024)));
+      const body = await readJson(request, 2 * 1024 * 1024);
+      sendJson(response, 200, withContactScope(request, url, body, () => organizer.bulkContacts(body)));
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/contacts/tags/rename") {
-      sendJson(response, 200, organizer.renameContactTag(await readJson(request)));
+      const body = await readJson(request);
+      sendJson(response, 200, withContactScope(request, url, body, () => organizer.renameContactTag(body)));
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/contacts/copy-timev3") {
+      const body = await readJson(request);
+      const sourceContactId = Number(body.sourceContactId);
+      if (!Number.isSafeInteger(sourceContactId) || sourceContactId < 1) {
+        throw Object.assign(new Error("sourceContactId must be a positive contact id."), { statusCode: 400 });
+      }
+      const source = organizer.getContact(sourceContactId);
+      const method = source?.status === "active"
+        ? source.methods.find((item) => item.kind === "timev3_person" && item.canReceive)
+        : null;
+      if (!source || !method) {
+        throw Object.assign(new Error("Choose one of your active contacts with a Time v3 handle."), { statusCode: 404 });
+      }
+      const targetPersonId = contactScopePersonId(request, url, { managedPersonId: body.managedPersonId });
+      if (targetPersonId === currentPersonId()) {
+        throw Object.assign(new Error("Choose a managed person's contact list."), { statusCode: 400 });
+      }
+      const contact = runWithPerson(targetPersonId, () => organizer.createContact({
+        kind: "person", displayName: source.displayName,
+        methods: [{ kind: "timev3_person", label: "Time v3", value: method.value,
+          isPrimary: true, canReceive: true }],
+      }));
+      sendJson(response, 201, { contact });
       return;
     }
     const contactMatch = /^\/api\/contacts\/(\d+)$/.exec(url.pathname);
     if (request.method === "GET" && contactMatch) {
-      const contact = organizer.getContact(contactMatch[1]);
+      const contact = withContactScope(request, url, null, () => organizer.getContact(contactMatch[1]));
       if (!contact) throw Object.assign(new Error("Contact not found"), { statusCode: 404 });
       sendJson(response, 200, { contact });
       return;
     }
     if (request.method === "PATCH" && contactMatch) {
-      sendJson(response, 200, { contact: organizer.updateContact(contactMatch[1], await readJson(request)) });
+      const body = await readJson(request);
+      sendJson(response, 200, { contact: withContactScope(request, url, body,
+        () => organizer.updateContact(contactMatch[1], body)) });
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/calendar-events/search") {

@@ -78,6 +78,8 @@ function localDateBoundary(value: string) {
 }
 
 export function CorrespondenceScreen() {
+  const { data: authSession } = useApi<{ person: { experience?: "full" | "light" } }>("/api/auth/session");
+  const lightExperience = authSession?.person.experience === "light";
   const [query, setQuery] = useState("");
   const [medium, setMedium] = useState("");
   const [direction, setDirection] = useState("");
@@ -230,8 +232,8 @@ export function CorrespondenceScreen() {
     finally { setSyncingMessages(false); }
   };
   return <>
-    <header className="page-heading"><div><p className="eyebrow">Every channel, one record</p><h1>Correspondence</h1><p>Email, messages, calls, and voicemail consolidated without replacing their authoritative apps.</p></div><div className="heading-actions"><button className="button button--quiet" disabled={downloadingExtension} onClick={() => void downloadExtension()}>{downloadingExtension ? "Downloading…" : "Download Messages extension"}</button><button className="button" disabled={syncing} onClick={() => void sync()}>{syncing ? "Syncing…" : "Sync email"}</button><button className="button" disabled={syncingMessages} onClick={() => setChoosingMessageHistory(true)}>{syncingMessages ? "Syncing…" : "Sync Google Messages"}</button></div></header>
-    {choosingMessageHistory && <div className="object-editor-backdrop"><section className="object-editor message-history-dialog" role="dialog" aria-modal="true" aria-labelledby="message-history-heading"><form onSubmit={(event) => { event.preventDefault(); void syncMessages(); }}><header className="object-editor-heading"><div><p className="eyebrow">Google Messages</p><h2 id="message-history-heading">Choose history range</h2></div></header><label>Messages to synchronize<select autoFocus value={messageHistoryMode} onChange={(event) => setMessageHistoryMode(event.target.value)}><option value="incremental">Since last sync</option><option value="days_30">Last 30 days</option><option value="days_90">Last 90 days</option><option value="days_365">Last year</option><option value="all">All available history</option></select></label><p className="object-editor-note">On the first run, “Since last sync” imports 30 days. Later runs overlap the previous successful sync by two days.</p><footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={() => setChoosingMessageHistory(false)}>Cancel</button><button className="button" type="submit">Start sync</button></footer></form></section></div>}
+    <header className="page-heading"><div><p className="eyebrow">Every channel, one record</p><h1>Correspondence</h1><p>Email, messages, calls, and voicemail consolidated without replacing their authoritative apps.</p></div>{!lightExperience && <div className="heading-actions"><button className="button button--quiet" disabled={downloadingExtension} onClick={() => void downloadExtension()}>{downloadingExtension ? "Downloading…" : "Download Messages extension"}</button><button className="button" disabled={syncing} onClick={() => void sync()}>{syncing ? "Syncing…" : "Sync email"}</button><button className="button" disabled={syncingMessages} onClick={() => setChoosingMessageHistory(true)}>{syncingMessages ? "Syncing…" : "Sync Google Messages"}</button></div>}</header>
+    {!lightExperience && choosingMessageHistory && <div className="object-editor-backdrop"><section className="object-editor message-history-dialog" role="dialog" aria-modal="true" aria-labelledby="message-history-heading"><form onSubmit={(event) => { event.preventDefault(); void syncMessages(); }}><header className="object-editor-heading"><div><p className="eyebrow">Google Messages</p><h2 id="message-history-heading">Choose history range</h2></div></header><label>Messages to synchronize<select autoFocus value={messageHistoryMode} onChange={(event) => setMessageHistoryMode(event.target.value)}><option value="incremental">Since last sync</option><option value="days_30">Last 30 days</option><option value="days_90">Last 90 days</option><option value="days_365">Last year</option><option value="all">All available history</option></select></label><p className="object-editor-note">On the first run, “Since last sync” imports 30 days. Later runs overlap the previous successful sync by two days.</p><footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={() => setChoosingMessageHistory(false)}>Cancel</button><button className="button" type="submit">Start sync</button></footer></form></section></div>}
     <section className="timev3-composer surface" aria-labelledby="timev3-composer-heading">
       <div className="section-title"><div><p className="eyebrow">20 × 4 display</p><h2 id="timev3-composer-heading">Time v3 message</h2><p>The preview uses the same twenty-character wrapping contract as the node.</p></div></div>
       <form className="timev3-composer-layout" onSubmit={(event) => void sendTimeV3(event)}>
@@ -247,7 +249,7 @@ export function CorrespondenceScreen() {
           <div className="lcd-preview-controls"><button className="button button--quiet" type="button" disabled={lcd.offset === 0} onClick={() => setLcdOffset((value) => Math.max(0, value - 1))}>Scroll up</button><span>{lcd.offset + 1}–{Math.min(lcd.offset + 4, lcdDocument.length)} of {lcdDocument.length}</span><button className="button button--quiet" type="button" disabled={lcd.offset >= lcd.maximum} onClick={() => setLcdOffset((value) => Math.min(lcd.maximum, value + 1))}>Scroll down</button></div>
         </div>
       </form>
-      {!timeV3Data?.recipients.length && <p className="object-editor-note">Add a <strong>Time v3 person</strong> detail containing the recipient’s person ID to an existing native contact to approve that recipient.</p>}
+      {!timeV3Data?.recipients.length && <p className="object-editor-note">Add a <strong>Time v3 person</strong> detail containing the recipient’s @handle to an existing contact to approve that recipient.</p>}
     </section>
     <div className="section-filter correspondence-filters">
       <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search subject or body" />
@@ -324,17 +326,62 @@ export function ProfileScreen() {
 type AccountPerson = {
   personId: number;
   displayName: string;
+  handle: string | null;
   kind: "primary" | "managed";
+  experience: "full" | "light";
+  contactPolicy: "self_managed" | "manager_managed";
   weeklyAiTokenLimit: number;
 };
 
+function ProvisionedAccountCard({ item, onChanged }: {
+  item: { account: { accountId: number; status: string }; person: AccountPerson };
+  onChanged: () => Promise<unknown>;
+}) {
+  const [experience, setExperience] = useState(item.person.experience);
+  const [contactPolicy, setContactPolicy] = useState(item.person.contactPolicy);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState("");
+  const [generatedPassword, setGeneratedPassword] = useState("");
+  const save = async () => {
+    setSaving(true); setStatus("");
+    try {
+      await api(`/api/account/provisioned/${item.person.personId}`, {
+        method: "PATCH", body: JSON.stringify({ experience, contactPolicy }),
+      });
+      setStatus("Account policy saved."); await onChanged();
+    } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setSaving(false); }
+  };
+  const resetPassword = async () => {
+    setSaving(true); setStatus(""); setGeneratedPassword("");
+    try {
+      const result = await api<{ generatedPassword: string }>(`/api/account/provisioned/${item.person.personId}/reset-password`, { method: "POST", body: "{}" });
+      setGeneratedPassword(result.generatedPassword);
+      setStatus("Sessions revoked. Copy the new password now."); await onChanged();
+    } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setSaving(false); }
+  };
+  return <article className="integration-card"><div><strong>{item.person.displayName} · {item.person.handle}</strong>
+    <span>Provisioned account</span>
+    <div className="object-editor-grid"><label>Web experience<select value={experience} onChange={(event) => setExperience(event.target.value as "full" | "light")}><option value="light">Light</option><option value="full">Full</option></select></label>
+      <label>Contact management<select value={contactPolicy} onChange={(event) => setContactPolicy(event.target.value as "self_managed" | "manager_managed")}><option value="manager_managed">Managed by me</option><option value="self_managed">Self-managed</option></select></label></div>
+    {status && <small role="status">{status}</small>}{generatedPassword && <p><code>{generatedPassword}</code> <button className="button button--quiet" type="button" onClick={() => void navigator.clipboard.writeText(generatedPassword)}>Copy</button></p>}</div><div><button className="button button--quiet" type="button" disabled={saving} onClick={() => void resetPassword()}>Reset password</button><button className="button button--quiet" type="button" disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save"}</button></div>
+  </article>;
+}
+
 function IdentitiesScreen() {
   const { data, error, loading, reload } = useApi<{
-    account: { displayName: string; email: string };
+    account: { displayName: string; email: string | null };
     selectedPerson: AccountPerson;
     people: AccountPerson[];
   }>("/api/account/people");
+  const { data: provisionedData, reload: reloadProvisioned } = useApi<{
+    people: Array<{ account: { accountId: number; status: string }; person: AccountPerson }>;
+  }>("/api/account/provisioned");
   const [displayName, setDisplayName] = useState("");
+  const [newHandle, setNewHandle] = useState("");
+  const [ownHandle, setOwnHandle] = useState("");
+  const [generatedPassword, setGeneratedPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
   const [nodeCode, setNodeCode] = useState("");
@@ -349,8 +396,18 @@ function IdentitiesScreen() {
   const createIdentity = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setStatus("");
     try {
-      await api("/api/account/people", { method: "POST", body: JSON.stringify({ displayName }) });
-      setDisplayName(""); setStatus("Managed Agent identity created."); await reload();
+      const created = await api<{ generatedPassword: string }>("/api/account/provisioned", { method: "POST", body: JSON.stringify({ displayName, handle: newHandle }) });
+      setDisplayName(""); setNewHandle(""); setGeneratedPassword(created.generatedPassword);
+      setStatus("Light account created. Copy its generated password now; it will not be shown again.");
+      await reloadProvisioned();
+    } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setSaving(false); }
+  };
+  const setHandle = async (event: React.FormEvent) => {
+    event.preventDefault(); setSaving(true); setStatus("");
+    try {
+      await api("/api/account/person/handle", { method: "PATCH", body: JSON.stringify({ handle: ownHandle }) });
+      setOwnHandle(""); setStatus("Time v3 handle set."); await reload();
     } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
     finally { setSaving(false); }
   };
@@ -385,14 +442,17 @@ function IdentitiesScreen() {
     {error && <ErrorState error={error} retry={reload} />}
     {data && <section className="surface"><div className="section-title"><div><p className="eyebrow">Signed-in account</p><h2>{data.account.displayName}</h2><p>{data.account.email}</p></div></div>
       <div className="integration-list">{data.people.map((person) => <article className={`integration-card${person.personId === data.selectedPerson.personId ? " ready" : ""}`} key={person.personId}>
-        <div><strong>{person.displayName}</strong><span>{person.kind === "primary" ? "Primary identity" : "Managed identity"} · Person {person.personId}{person.personId === data.selectedPerson.personId ? " · Active" : ""}</span></div>
+        <div><strong>{person.displayName}{person.handle ? ` · ${person.handle}` : ""}</strong><span>{person.kind === "primary" ? "Primary identity" : "Managed identity"} · Person {person.personId}{person.personId === data.selectedPerson.personId ? " · Active" : ""}</span></div>
         {person.personId !== data.selectedPerson.personId && <button className="button button--quiet" type="button" onClick={() => void selectIdentity(person.personId)}>Use identity</button>}
       </article>)}</div>
+      {!data.selectedPerson.handle && <form className="integration-add-form" onSubmit={(event) => void setHandle(event)}><h3>Choose your Time v3 handle</h3><label>Handle<input required minLength={3} maxLength={33} placeholder="@your_handle" value={ownHandle} onChange={(event) => setOwnHandle(event.target.value)} /></label><p className="field-hint">This is the name other people add to Contacts. It cannot be changed after it is set.</p><button className="button" disabled={saving}>Set handle</button></form>}
     </section>}
-    <form className="profile-fact-form" onSubmit={(event) => void createIdentity(event)}>
-      <label>New identity label<input required maxLength={200} placeholder="Second Agent" value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label>
-      <button className="button" disabled={saving}>{saving ? "Creating…" : "Create managed identity"}</button>
-    </form>
+    {data?.selectedPerson.experience === "full" && <><section className="surface"><div className="section-title"><div><p className="eyebrow">Separate account</p><h2>Create a light account</h2><p>Creation only establishes the account. Manage its experience and contacts afterward.</p></div></div>
+      <form className="integration-add-form" onSubmit={(event) => void createIdentity(event)}><label>Name<input required maxLength={200} placeholder="Vince" value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label><label>Time v3 handle<input required minLength={3} maxLength={33} placeholder="@vince" value={newHandle} onChange={(event) => setNewHandle(event.target.value)} /></label><button className="button" disabled={saving}>{saving ? "Creating…" : "Create light account"}</button></form>
+      {generatedPassword && <div className="auth-message" role="status"><strong>Generated password</strong><p><code>{generatedPassword}</code></p><p>Store it securely and give it directly to the account owner. It disappears when this page reloads.</p><button className="button button--quiet" type="button" onClick={() => void navigator.clipboard.writeText(generatedPassword)}>Copy password</button></div>}
+    </section>
+    <section className="surface"><div className="section-title"><div><p className="eyebrow">Ongoing management</p><h2>Accounts you created</h2><p>These settings are changed here after creation, at any time.</p></div></div><div className="integration-list">{(provisionedData?.people || []).map((item) => <ProvisionedAccountCard key={item.person.personId} item={item} onChanged={reloadProvisioned} />)}</div>{!provisionedData?.people.length && <Empty>No light accounts have been created.</Empty>}</section>
+    </>}
     <section className="surface">
       <div className="section-title"><div><p className="eyebrow">Hardware access</p><h2>Node devices</h2><p>A node belongs to the currently active Agent identity only.</p></div></div>
       <form className="integration-add-form" onSubmit={(event) => void approveNode(event)}>

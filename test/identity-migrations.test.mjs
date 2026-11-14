@@ -15,6 +15,14 @@ function fakeIdentityConnection() {
         return [[{ singleton: 1, schema_version: version }]];
       }
       if (/SELECT TABLE_NAME, COLUMN_NAME, IS_NULLABLE, COLLATION_NAME/u.test(sql)) {
+        if (sql.includes("contact_manager_account_id")) return [[
+          { TABLE_NAME: "accounts", COLUMN_NAME: "email", IS_NULLABLE: "YES", COLLATION_NAME: "utf8mb4_bin" },
+          { TABLE_NAME: "accounts", COLUMN_NAME: "created_by_account_id", IS_NULLABLE: "YES", COLLATION_NAME: null },
+          { TABLE_NAME: "people", COLUMN_NAME: "handle", IS_NULLABLE: "YES", COLLATION_NAME: "ascii_bin" },
+          { TABLE_NAME: "people", COLUMN_NAME: "experience", IS_NULLABLE: "NO", COLLATION_NAME: "utf8mb4_unicode_ci" },
+          { TABLE_NAME: "people", COLUMN_NAME: "contact_policy", IS_NULLABLE: "NO", COLLATION_NAME: "utf8mb4_unicode_ci" },
+          { TABLE_NAME: "people", COLUMN_NAME: "contact_manager_account_id", IS_NULLABLE: "YES", COLLATION_NAME: null },
+        ]];
         return [[
           { TABLE_NAME: "accounts", COLUMN_NAME: "email", IS_NULLABLE: "NO", COLLATION_NAME: "utf8mb4_bin" },
           { TABLE_NAME: "people", COLUMN_NAME: "account_id", IS_NULLABLE: "NO", COLLATION_NAME: null },
@@ -41,8 +49,8 @@ test("identity migration command applies the shared ledger and advances identity
     writersStopped: true,
     output: { write() {} },
   });
-  assert.deepEqual(result, { previousVersion: 1, currentVersion: 2, applied: [2] });
-  assert.equal(fake.currentVersion(), 2);
+  assert.deepEqual(result, { previousVersion: 1, currentVersion: 3, applied: [2, 3] });
+  assert.equal(fake.currentVersion(), 3);
   const versionUpdate = fake.calls.findIndex(({ sql = "" }) => /UPDATE identity_meta SET schema_version/u.test(sql));
   const schemaAlter = fake.calls.findIndex(({ sql = "" }) => /ALTER TABLE account_people/u.test(sql));
   assert.ok(schemaAlter >= 0 && versionUpdate > schemaAlter);

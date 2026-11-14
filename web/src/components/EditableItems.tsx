@@ -108,8 +108,9 @@ function contactDraft(contact: Entity): ContactDraft {
   };
 }
 
-export function ContactEditor({ contactId, onClose, onChanged }: {
+export function ContactEditor({ contactId, managedPersonId, onClose, onChanged }: {
   contactId?: number;
+  managedPersonId?: number | null;
   onClose: () => void;
   onChanged: Changed;
 }) {
@@ -123,7 +124,8 @@ export function ContactEditor({ contactId, onClose, onChanged }: {
   useEffect(() => {
     if (contactId == null) return;
     let active = true;
-    void api<{ contact: Entity }>(`/api/contacts/${contactId}`).then(({ contact: current }) => {
+    const query = managedPersonId ? `?managedPersonId=${managedPersonId}` : "";
+    void api<{ contact: Entity }>(`/api/contacts/${contactId}${query}`).then(({ contact: current }) => {
       if (!active) return;
       setContact(current);
       setDraft(contactDraft(current));
@@ -133,7 +135,7 @@ export function ContactEditor({ contactId, onClose, onChanged }: {
       if (active) setLoading(false);
     });
     return () => { active = false; };
-  }, [contactId]);
+  }, [contactId, managedPersonId]);
 
   const updateMethod = (index: number, update: Partial<ContactMethodDraft>) => {
     if (!draft) return;
@@ -151,7 +153,8 @@ export function ContactEditor({ contactId, onClose, onChanged }: {
     try {
       await api(creating ? "/api/contacts" : `/api/contacts/${contactId}`, {
         method: creating ? "POST" : "PATCH",
-        body: JSON.stringify({ ...(!creating && contact ? { version: contact.version } : {}), ...draft }),
+        body: JSON.stringify({ ...(!creating && contact ? { version: contact.version } : {}),
+          ...(managedPersonId ? { managedPersonId } : {}), ...draft }),
       });
       await onChanged();
       onClose();
@@ -185,7 +188,7 @@ export function ContactEditor({ contactId, onClose, onChanged }: {
           {draft.methods.map((method, index) => <div className="contact-editor-method" key={method.id ?? `new-${index}`}>
             <label>Type<select value={method.kind} onChange={(change) => updateMethod(index, { kind: change.target.value })}><option value="email">Email</option><option value="phone">Phone</option><option value="postal_address">Postal address</option><option value="handle">Handle</option><option value="url">URL</option><option value="timev3_person">Time v3 person</option><option value="other">Other</option></select></label>
             <label>Label<input maxLength={100} placeholder="Work, mobile…" value={method.label} onChange={(change) => updateMethod(index, { label: change.target.value })} /></label>
-            <label className="contact-editor-method-value">Value<input required maxLength={2000} placeholder={method.kind === "timev3_person" ? "Time v3 person ID" : undefined} value={method.value} onChange={(change) => updateMethod(index, { value: change.target.value })} /></label>
+            <label className="contact-editor-method-value">Value<input required maxLength={2000} placeholder={method.kind === "timev3_person" ? "@timev3_handle" : undefined} value={method.value} onChange={(change) => updateMethod(index, { value: change.target.value })} /></label>
             <label className="object-editor-check"><input type="checkbox" checked={method.isPrimary} onChange={(change) => updateMethod(index, { isPrimary: change.target.checked })} /><span>Primary</span></label>
             <label className="object-editor-check"><input type="checkbox" checked={method.canReceive} onChange={(change) => updateMethod(index, { canReceive: change.target.checked })} /><span>Can receive</span></label>
             <button className="button button--quiet contact-editor-remove" type="button" onClick={() => setDraft({ ...draft, methods: draft.methods.filter((_, methodIndex) => methodIndex !== index) })}>Remove</button>

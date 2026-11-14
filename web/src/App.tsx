@@ -1898,10 +1898,19 @@ function ContactsScreen() {
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [contactAction, setContactAction] = useState("");
   const [contactStatus, setContactStatus] = useState("");
+  const [managedPersonId, setManagedPersonId] = useState("");
+  const [copyContactId, setCopyContactId] = useState("");
+  const { data: provisionedData } = useApi<{ people: Array<{ person: {
+    personId: number; displayName: string; handle: string | null; contactPolicy: string;
+  } }> }>("/api/account/provisioned");
   const contactParameters = new URLSearchParams({ scope: "all", limit: "10000" });
   if (serverQuery) contactParameters.set("q", serverQuery);
+  if (managedPersonId) contactParameters.set("managedPersonId", managedPersonId);
   const { data, error, loading, reload } = useApi<{ contacts: Entity[] }>(`/api/contacts?${contactParameters}`);
-  const { data: duplicateData, reload: reloadDuplicates } = useApi<{ groups: Entity[]; groupCount?: number }>("/api/contacts/duplicates?limit=200");
+  const duplicateParameters = new URLSearchParams({ limit: "200" });
+  if (managedPersonId) duplicateParameters.set("managedPersonId", managedPersonId);
+  const { data: duplicateData, reload: reloadDuplicates } = useApi<{ groups: Entity[]; groupCount?: number }>(`/api/contacts/duplicates?${duplicateParameters}`);
+  const { data: ownContactData } = useApi<{ contacts: Entity[] }>(managedPersonId ? "/api/contacts?scope=active&limit=10000" : null);
   const contacts = data?.contacts || [];
   const selectedObjectKeys = new Set((objectSelection?.selections || []).map(objectSelectionKey));
   const selectedContactIds = new Set(contacts
@@ -1936,7 +1945,7 @@ function ContactsScreen() {
     if (!selectedContacts.length || (action === "add_tag" && !bulkTag.trim())) return;
     setContactAction(action); setContactStatus("");
     try {
-      await api("/api/contacts/bulk", { method: "POST", body: JSON.stringify({ action, ...(action === "add_tag" ? { tag: bulkTag } : {}), contacts: selectedContacts.map((contact) => ({ id: Number(contact.id), expectedVersion: contact.version })) }) });
+      await api("/api/contacts/bulk", { method: "POST", body: JSON.stringify({ action, ...(managedPersonId ? { managedPersonId: Number(managedPersonId) } : {}), ...(action === "add_tag" ? { tag: bulkTag } : {}), contacts: selectedContacts.map((contact) => ({ id: Number(contact.id), expectedVersion: contact.version })) }) });
       objectSelection?.changeSelections(selectedContacts.map(contactIdentity), false); setBulkTag(""); setConfirmingContactDelete(false); setContactStatus(action === "delete" ? "Selected contacts deleted." : "Tag added to selected contacts.");
       await Promise.all([reload(), reloadDuplicates()]);
     } catch (caught) { setContactStatus(caught instanceof Error ? caught.message : String(caught)); }
@@ -1948,7 +1957,7 @@ function ContactsScreen() {
     const newTag = renameNextTag.trim();
     if (!newTag || newTag === currentTag) return;
     setContactAction("rename");
-    try { await api("/api/contacts/tags/rename", { method: "POST", body: JSON.stringify({ currentTag, newTag }) }); setContactStatus(`Renamed ${currentTag} to ${newTag}.`); setRenamingTag(false); await reload(); }
+    try { await api("/api/contacts/tags/rename", { method: "POST", body: JSON.stringify({ currentTag, newTag, ...(managedPersonId ? { managedPersonId: Number(managedPersonId) } : {}) }) }); setContactStatus(`Renamed ${currentTag} to ${newTag}.`); setRenamingTag(false); await reload(); }
     catch (caught) { setContactStatus(caught instanceof Error ? caught.message : String(caught)); }
     finally { setContactAction(""); }
   };
@@ -1956,16 +1965,32 @@ function ContactsScreen() {
     const candidates = contacts.filter((contact) => keepContactId === Number(contact.id) || mergeContactIds.includes(Number(contact.id)));
     setContactAction("merge"); setContactStatus("");
     try {
-      await api("/api/contacts/merge", { method: "POST", body: JSON.stringify({ keepContactId, mergeContactIds, versions: Object.fromEntries(candidates.map((contact) => [String(contact.id), contact.version])) }) });
+      await api("/api/contacts/merge", { method: "POST", body: JSON.stringify({ keepContactId, mergeContactIds, ...(managedPersonId ? { managedPersonId: Number(managedPersonId) } : {}), versions: Object.fromEntries(candidates.map((contact) => [String(contact.id), contact.version])) }) });
       setContactStatus("Duplicate contacts merged."); await Promise.all([reload(), reloadDuplicates()]);
     } catch (caught) { setContactStatus(caught instanceof Error ? caught.message : String(caught)); }
     finally { setContactAction(""); }
   };
+  const copyableContacts = (ownContactData?.contacts || []).filter((contact) => ((contact.methods as Entity[] | undefined) || []).some((method) => method.kind === "timev3_person" && method.canReceive !== false));
+  const copyTimeV3Contact = async () => {
+    if (!managedPersonId || !copyContactId) return;
+    setContactAction("copy"); setContactStatus("");
+    try {
+      await api("/api/contacts/copy-timev3", { method: "POST", body: JSON.stringify({
+        managedPersonId: Number(managedPersonId), sourceContactId: Number(copyContactId),
+      }) });
+      setCopyContactId(""); setContactStatus("Time v3 contact copied into the managed account."); await reload();
+    } catch (caught) { setContactStatus(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setContactAction(""); }
+  };
+  const managedPeople = (provisionedData?.people || []).filter(({ person }) => person.contactPolicy === "manager_managed");
   return <><PageHeading eyebrow="People & organizations" title="Contacts" detail="Phone, message, and email links stay native-friendly for the future mobile client." actions={<div className="section-heading-actions">
     <button className="button button--quiet" type="button" disabled={!contactTags.length || Boolean(contactAction)} onClick={() => { const current = selectedTag === "all" ? contactTags[0] : selectedTag; setRenameCurrentTag(current || ""); setRenameNextTag(current || ""); setRenamingTag(true); }}>Rename tag</button>
     <button className="button button--quiet" type="button" disabled={!duplicateData?.groups?.length} onClick={() => setShowDuplicates((current) => !current)}>Review duplicates · {duplicateData?.groups?.length || 0}</button>
     <button className="button" type="button" onClick={() => setAddingContact(true)}>Add contact</button>
   </div>} />
+    {managedPeople.length > 0 && <section className="surface"><label>Contact list<select value={managedPersonId} onChange={(event) => { setManagedPersonId(event.target.value); setEditingContactId(null); setAddingContact(false); }}><option value="">My contacts</option>{managedPeople.map(({ person }) => <option key={person.personId} value={person.personId}>Manage {person.displayName}{person.handle ? ` (${person.handle})` : ""}</option>)}</select></label>
+      {managedPersonId && <div className="integration-add-form"><label>Copy one of my Time v3 contacts<select value={copyContactId} onChange={(event) => setCopyContactId(event.target.value)}><option value="">Choose contact</option>{copyableContacts.map((contact) => <option key={String(contact.id)} value={String(contact.id)}>{String(contact.displayName)}</option>)}</select></label><button className="button button--quiet" type="button" disabled={!copyContactId || Boolean(contactAction)} onClick={() => void copyTimeV3Contact()}>Copy contact</button></div>}
+    </section>}
     {loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}
     {!loading && !error && <>
       <SectionFilter query={query} onChange={setQuery} onSearch={searchContacts} searching={loading} count={visibleContacts.length} noun="contact" controls={<>
@@ -2031,8 +2056,8 @@ function ContactsScreen() {
         </section>)}
       </div>}
     </>}
-    {addingContact && <ContactEditor onClose={() => setAddingContact(false)} onChanged={reload} />}
-    {editingContactId != null && <ContactEditor contactId={editingContactId} onClose={() => setEditingContactId(null)} onChanged={reload} />}
+    {addingContact && <ContactEditor managedPersonId={managedPersonId ? Number(managedPersonId) : null} onClose={() => setAddingContact(false)} onChanged={reload} />}
+    {editingContactId != null && <ContactEditor contactId={editingContactId} managedPersonId={managedPersonId ? Number(managedPersonId) : null} onClose={() => setEditingContactId(null)} onChanged={reload} />}
   </>;
 }
 
@@ -3389,6 +3414,7 @@ function DailyPaperRoute() {
 function Workspace() {
   const fromHash = location.hash.slice(1);
   const [view, setView] = useState(navigation.some(([id]) => id === fromHash) ? fromHash : "agent");
+  const [experience, setExperience] = useState<"full" | "light" | null>(null);
   const musicPlayer = useWebMusicPlayer(view === "music");
   const [calendarGenerationNotice, setCalendarGenerationNotice] = useState<string | null>(null);
   const [agentDraft, setAgentDraft] = useState("");
@@ -3401,6 +3427,23 @@ function Workspace() {
   const [traceRequestId, setTraceRequestId] = useState<string | null>(null);
   const [requestTrace, setRequestTrace] = useState<RequestTrace | null>(null);
   const [traceError, setTraceError] = useState<unknown>(null);
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/auth/session", { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) throw new Error("Token mode");
+      return response.json() as Promise<{ person?: { experience?: "full" | "light" } }>;
+    }).then((session) => { if (active) setExperience(session.person?.experience || "full"); })
+      .catch(() => { if (active) setExperience("full"); });
+    return () => { active = false; };
+  }, []);
+  const visibleNavigation = experience === "light"
+    ? navigation.filter(([id]) => id === "contacts" || id === "correspondence" || id === "account")
+    : navigation;
+  useEffect(() => {
+    if (experience === "light" && !visibleNavigation.some(([id]) => id === view)) {
+      setView("correspondence"); history.replaceState(null, "", "#correspondence");
+    }
+  }, [experience, view, visibleNavigation]);
   const go = (next: string) => { setView(next); history.replaceState(null, "", `#${next}`); };
   const changeObjectSelections = (identities: SelectedObjectCandidate[], selected: boolean) => {
     const identityKeys = new Set(identities.map(objectSelectionKey));
@@ -3504,7 +3547,7 @@ function Workspace() {
   else if (view === "music") screen = <MusicScreen player={musicPlayer} />;
   else if (view === "correspondence") screen = <CorrespondenceScreen />;
   else screen = <GenericScreen kind={view as keyof typeof genericScreens} />;
-  return <ObjectSelectionProvider selections={agentObjectSelections} toggleSelection={toggleObjectSelection} changeSelections={changeObjectSelections}><div className={`app-shell${musicPlayer.queue.length ? " has-music-player" : ""}`}><aside className="sidebar"><a className="brand" href="/app"><img src="/icon.svg" alt="" /><span>Time v3<br />Agent</span></a><nav>{navigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><NavigationIcon id={id} label={label} />{label}</button>)}</nav></aside><main className="workspace">{screen}</main>{musicPlayer.element}<AgentComposer
+  return <ObjectSelectionProvider selections={agentObjectSelections} toggleSelection={toggleObjectSelection} changeSelections={changeObjectSelections}><div className={`app-shell${musicPlayer.queue.length ? " has-music-player" : ""}`}><aside className="sidebar"><a className="brand" href="/app"><img src="/icon.svg" alt="" /><span>Time v3<br />Agent</span></a><nav>{visibleNavigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><NavigationIcon id={id} label={label} />{label}</button>)}</nav></aside><main className="workspace">{screen}</main>{musicPlayer.element}{experience !== "light" && <AgentComposer
     text={agentDraft}
     setText={setAgentDraft}
     selections={agentObjectSelections}
@@ -3519,7 +3562,7 @@ function Workspace() {
       setOptimisticRequests((current) => [request, ...current.filter(({ requestId }) => requestId !== request.requestId)]);
       setRequestRefreshKey((current) => current + 1);
     }}
-  />{traceRequestId && <TracePanel requestId={traceRequestId} trace={requestTrace} error={traceError} onClose={() => setTraceRequestId(null)} />}</div></ObjectSelectionProvider>;
+  />}{traceRequestId && <TracePanel requestId={traceRequestId} trace={requestTrace} error={traceError} onClose={() => setTraceRequestId(null)} />}</div></ObjectSelectionProvider>;
 }
 
 export default function App() {

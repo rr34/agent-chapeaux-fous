@@ -23,6 +23,14 @@ export function normalizeAccountEmail(value) {
   return email;
 }
 
+export function normalizeHandle(value) {
+  const handle = String(value ?? "").normalize("NFKC").trim().replace(/^@/u, "").toLowerCase();
+  if (!/^[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])$/u.test(handle)) {
+    throw identityError("A Time v3 handle must be 3–32 lowercase letters, numbers, underscores, or hyphens, and must begin and end with a letter or number.", 400, "HANDLE_INVALID");
+  }
+  return handle;
+}
+
 function displayName(value, label = "Name") {
   const name = String(value ?? "").normalize("NFKC").trim().replace(/\s+/gu, " ");
   if (!name || name.length > 200) throw identityError(`${label} is required and must be at most 200 characters.`);
@@ -82,6 +90,7 @@ function publicAccount(row) {
     displayName: row.account_display_name,
     email: row.email,
     status: row.account_status,
+    createdByAccountId: row.created_by_account_id == null ? null : Number(row.created_by_account_id),
   };
 }
 
@@ -89,8 +98,12 @@ function publicPerson(row) {
   return {
     personId: Number(row.person_id),
     displayName: row.person_display_name ?? row.display_name,
+    handle: row.handle ? `@${row.handle}` : null,
     kind: row.person_kind,
     status: row.person_status,
+    experience: row.experience,
+    contactPolicy: row.contact_policy,
+    contactManagerAccountId: row.contact_manager_account_id == null ? null : Number(row.contact_manager_account_id),
     weeklyAiTokenLimit: Number(row.weekly_ai_token_limit),
   };
 }
@@ -105,9 +118,9 @@ export class IdentityStore {
     const identityMeta = this.database.prepare(`
       SELECT schema_version FROM identity_meta WHERE singleton = 1
     `).get();
-    if (Number(identityMeta?.schema_version) !== 2) {
+    if (Number(identityMeta?.schema_version) !== 3) {
       this.database.close();
-      throw new Error(`Time v3 Identity schema version 2 is required; found ${identityMeta?.schema_version ?? "none"}`);
+      throw new Error(`Time v3 Identity schema version 3 is required; found ${identityMeta?.schema_version ?? "none"}`);
     }
     this.challengeSecret = challengeSecret;
     this.sessionSeconds = Math.max(1, Number(sessionDays)) * 86_400;
@@ -132,12 +145,30 @@ export class IdentityStore {
   accountByEmail(email) {
     return this.database.prepare(`
       SELECT a.account_id, a.display_name AS account_display_name, a.email,
-             a.account_status, a.email_verified_at_utc,
+             a.account_status, a.email_verified_at_utc, a.created_by_account_id,
              p.algorithm, p.salt, p.password_hash, p.memory_kib, p.passes, p.parallelism
         FROM accounts a
         LEFT JOIN password_credentials p ON p.account_id = a.account_id
        WHERE a.email = ?
     `).get(normalizeAccountEmail(email));
+  }
+
+  accountByLogin(login) {
+    const value = String(login ?? "").normalize("NFKC").trim();
+    if (!value) throw identityError("Enter your email address or Time v3 handle.", 400, "LOGIN_INVALID");
+    if (value.startsWith("@") || !value.includes("@")) {
+      const handle = normalizeHandle(value);
+      return this.database.prepare(`
+        SELECT a.account_id, a.display_name AS account_display_name, a.email,
+               a.account_status, a.email_verified_at_utc, a.created_by_account_id,
+               c.algorithm, c.salt, c.password_hash, c.memory_kib, c.passes, c.parallelism
+          FROM people p
+          JOIN accounts a ON a.account_id = p.account_id
+          LEFT JOIN password_credentials c ON c.account_id = a.account_id
+         WHERE p.handle = ? AND p.person_status = 'active'
+      `).get(handle);
+    }
+    return this.accountByEmail(value);
   }
 
   challengeDigest(accountId, purpose, code) {
@@ -189,13 +220,17 @@ export class IdentityStore {
     `).run(challenge.email_challenge_id);
   }
 
-  register({ name, email, password }) {
+  register({ name, handle, email, password }) {
     const normalizedEmail = normalizeAccountEmail(email);
+    const normalizedHandle = normalizeHandle(handle);
     const normalizedName = displayName(name);
     const credential = hashPassword(password);
     return this.transaction(() => {
       if (this.database.prepare("SELECT account_id FROM accounts WHERE email = ?").get(normalizedEmail)) {
         throw identityError("An account already exists for that email address.", 409, "ACCOUNT_EXISTS");
+      }
+      if (this.database.prepare("SELECT person_id FROM people WHERE handle = ?").get(normalizedHandle)) {
+        throw identityError("That Time v3 handle is already in use.", 409, "HANDLE_EXISTS");
       }
       const inserted = this.database.prepare(`
         INSERT INTO accounts (display_name, email)
@@ -209,13 +244,13 @@ export class IdentityStore {
       `).run(accountId, credential.salt, credential.hash, credential.memory, credential.passes, credential.parallelism);
       const personInsert = this.database.prepare(`
         INSERT INTO people
-          (display_name, person_kind, account_id, weekly_ai_token_limit)
-        VALUES (?, 'primary', ?, ?)
-      `).run(normalizedName, accountId, this.weeklyAiTokenLimit);
+          (display_name, handle, person_kind, account_id, weekly_ai_token_limit)
+        VALUES (?, ?, 'primary', ?, ?)
+      `).run(normalizedName, normalizedHandle, accountId, this.weeklyAiTokenLimit);
       const personId = Number(personInsert.lastInsertRowid);
       const code = this.createChallenge(accountId, "verify_email");
       this.recordSecurityEvent({ accountId, type: "account.register", outcome: "success" });
-      return { accountId, personId, displayName: normalizedName, email: normalizedEmail, code };
+      return { accountId, personId, displayName: normalizedName, handle: `@${normalizedHandle}`, email: normalizedEmail, code };
     });
   }
 
@@ -257,17 +292,18 @@ export class IdentityStore {
     };
   }
 
-  authenticate({ email, password, clientId = "auth", userAgent = null, ipAddress = null }) {
-    const account = this.accountByEmail(email);
+  authenticate({ login, email, password, clientId = "auth", userAgent = null, ipAddress = null }) {
+    let account = null;
+    try { account = this.accountByLogin(login ?? email); } catch {}
     const dummy = {
       algorithm: this.dummyCredential.algorithm, salt: this.dummyCredential.salt,
       password_hash: this.dummyCredential.hash, memory_kib: this.dummyCredential.memory,
       passes: this.dummyCredential.passes, parallelism: this.dummyCredential.parallelism,
     };
     const valid = verifyPassword(password, account?.password_hash ? account : dummy);
-    if (!valid || account.account_status !== "active") {
+    if (!valid || account?.account_status !== "active") {
       this.recordSecurityEvent({ accountId: account?.account_id ?? null, type: "account.login", outcome: "failure", userAgent, ipAddress });
-      throw identityError("Email or password is incorrect.", 401, "LOGIN_INVALID");
+      throw identityError("Email, handle, or password is incorrect.", 401, "LOGIN_INVALID");
     }
     this.recordSecurityEvent({ accountId: account.account_id, type: "account.login", outcome: "success", userAgent, ipAddress });
     return this.createSession({ accountId: account.account_id, clientId, userAgent, ipAddress });
@@ -293,7 +329,10 @@ export class IdentityStore {
       VALUES (?, ?, ?, ?, DATE_ADD(UTC_TIMESTAMP(3), INTERVAL ? SECOND), ?, ?)
     `).run(accountId, person.person_id, clientId, tokenDigest(token), this.sessionSeconds,
       String(userAgent ?? "").slice(0, 500) || null, String(ipAddress ?? "").slice(0, 64) || null);
-    return { token, sessionId: Number(inserted.lastInsertRowid), accountId: Number(accountId), person: publicPerson(person) };
+    const account = this.database.prepare(`SELECT account_id, display_name AS account_display_name,
+      email, account_status, created_by_account_id FROM accounts WHERE account_id = ?`).get(accountId);
+    return { token, sessionId: Number(inserted.lastInsertRowid), accountId: Number(accountId),
+      account: publicAccount(account), person: publicPerson(person) };
   }
 
   session(token, clientId) {
@@ -301,8 +340,10 @@ export class IdentityStore {
     const row = this.database.prepare(`
       SELECT s.auth_session_id, s.account_id, s.selected_person_id, s.client_id,
              a.display_name AS account_display_name, a.email, a.account_status,
+             a.created_by_account_id,
              p.person_id, p.display_name AS person_display_name, p.person_kind,
-             p.person_status, p.weekly_ai_token_limit
+             p.handle, p.person_status, p.experience, p.contact_policy,
+             p.contact_manager_account_id, p.weekly_ai_token_limit
         FROM auth_sessions s
         JOIN accounts a ON a.account_id = s.account_id
         JOIN people p ON p.person_id = s.selected_person_id AND p.account_id = s.account_id
@@ -346,6 +387,16 @@ export class IdentityStore {
     return row ? publicPerson(row) : null;
   }
 
+  activePersonByHandle(handle) {
+    let normalized;
+    try { normalized = normalizeHandle(handle); } catch { return null; }
+    const row = this.database.prepare(`
+      SELECT p.* FROM people p
+       WHERE p.handle = ? AND p.person_status = 'active'
+    `).get(normalized);
+    return row ? publicPerson(row) : null;
+  }
+
   listPeople(accountId) {
     return this.database.prepare(`
       SELECT p.* FROM people p
@@ -358,6 +409,113 @@ export class IdentityStore {
     return this.database.prepare(`
       SELECT person_id FROM people WHERE person_status = 'active' ORDER BY person_id
     `).all().map((row) => Number(row.person_id));
+  }
+
+  setPersonHandle(accountId, personId, handle) {
+    const normalized = normalizeHandle(handle);
+    return this.transaction(() => {
+      const person = this.authorizedPerson(accountId, personId);
+      if (!person) throw identityError("That Agent identity is unavailable.", 404, "PERSON_UNAVAILABLE");
+      if (person.handle && person.handle !== normalized) {
+        throw identityError("A Time v3 handle cannot be changed after it is set.", 409, "HANDLE_IMMUTABLE");
+      }
+      const owner = this.database.prepare("SELECT person_id FROM people WHERE handle = ?").get(normalized);
+      if (owner && Number(owner.person_id) !== Number(personId)) {
+        throw identityError("That Time v3 handle is already in use.", 409, "HANDLE_EXISTS");
+      }
+      this.database.prepare("UPDATE people SET handle = ? WHERE person_id = ?").run(normalized, personId);
+      this.recordSecurityEvent({ accountId, type: "person.handle_set", outcome: "success", details: `person_id=${Number(personId)}` });
+      return publicPerson(this.authorizedPerson(accountId, personId));
+    });
+  }
+
+  createProvisionedAccount(creatorAccountId, { displayName: requestedName, handle }) {
+    const normalizedName = displayName(requestedName, "Account name");
+    const normalizedHandle = normalizeHandle(handle);
+    const generatedPassword = randomBytes(18).toString("base64url");
+    const credential = hashPassword(generatedPassword);
+    return this.transaction(() => {
+      const creator = this.database.prepare("SELECT account_id FROM accounts WHERE account_id = ? AND account_status = 'active'").get(creatorAccountId);
+      if (!creator) throw identityError("The creating account is unavailable.", 403, "ACCOUNT_UNAVAILABLE");
+      if (this.database.prepare("SELECT person_id FROM people WHERE handle = ?").get(normalizedHandle)) {
+        throw identityError("That Time v3 handle is already in use.", 409, "HANDLE_EXISTS");
+      }
+      const inserted = this.database.prepare(`INSERT INTO accounts
+        (display_name, email, account_status, created_by_account_id)
+        VALUES (?, NULL, 'active', ?)`).run(normalizedName, creatorAccountId);
+      const accountId = Number(inserted.lastInsertRowid);
+      this.database.prepare(`INSERT INTO password_credentials
+        (account_id, algorithm, salt, password_hash, memory_kib, passes, parallelism)
+        VALUES (?, 'argon2id', ?, ?, ?, ?, ?)`).run(accountId, credential.salt, credential.hash,
+        credential.memory, credential.passes, credential.parallelism);
+      const personInsert = this.database.prepare(`INSERT INTO people
+        (display_name, handle, person_kind, account_id, experience, contact_policy,
+         contact_manager_account_id, weekly_ai_token_limit)
+        VALUES (?, ?, 'primary', ?, 'light', 'manager_managed', ?, ?)`).run(
+        normalizedName, normalizedHandle, accountId, creatorAccountId, this.weeklyAiTokenLimit,
+      );
+      const personId = Number(personInsert.lastInsertRowid);
+      this.recordSecurityEvent({ accountId: creatorAccountId, type: "account.provisioned", outcome: "success",
+        details: `account_id=${accountId};person_id=${personId}` });
+      return { accountId, person: publicPerson(this.authorizedPerson(accountId, personId)), generatedPassword };
+    });
+  }
+
+  listProvisionedPeople(creatorAccountId) {
+    return this.database.prepare(`SELECT p.*, a.account_id AS provisioned_account_id,
+        a.display_name AS account_display_name, a.email, a.account_status,
+        a.created_by_account_id
+      FROM accounts a JOIN people p ON p.account_id = a.account_id AND p.person_kind = 'primary'
+      WHERE a.created_by_account_id = ? AND a.account_status <> 'deleted'
+      ORDER BY p.display_name, p.person_id`).all(creatorAccountId).map((row) => ({
+        account: publicAccount(row), person: publicPerson(row),
+      }));
+  }
+
+  updateProvisionedPerson(creatorAccountId, personId, { experience, contactPolicy }) {
+    if (!["full", "light"].includes(experience)) throw identityError("experience must be full or light.");
+    if (!["self_managed", "manager_managed"].includes(contactPolicy)) {
+      throw identityError("contactPolicy must be self_managed or manager_managed.");
+    }
+    return this.transaction(() => {
+      const person = this.database.prepare(`SELECT p.* FROM people p JOIN accounts a ON a.account_id = p.account_id
+        WHERE p.person_id = ? AND p.person_kind = 'primary' AND p.person_status = 'active'
+          AND a.created_by_account_id = ? AND a.account_status = 'active' FOR UPDATE`).get(personId, creatorAccountId);
+      if (!person) throw identityError("That provisioned account is unavailable.", 404, "PERSON_UNAVAILABLE");
+      const managerId = contactPolicy === "manager_managed" ? creatorAccountId : null;
+      this.database.prepare(`UPDATE people SET experience = ?, contact_policy = ?,
+        contact_manager_account_id = ? WHERE person_id = ?`).run(experience, contactPolicy, managerId, personId);
+      this.recordSecurityEvent({ accountId: creatorAccountId, type: "person.policy_changed", outcome: "success",
+        details: `person_id=${Number(personId)};experience=${experience};contact_policy=${contactPolicy}` });
+      return publicPerson(this.database.prepare("SELECT * FROM people WHERE person_id = ?").get(personId));
+    });
+  }
+
+  resetProvisionedPassword(creatorAccountId, personId) {
+    const generatedPassword = randomBytes(18).toString("base64url");
+    const credential = hashPassword(generatedPassword);
+    return this.transaction(() => {
+      const person = this.database.prepare(`SELECT p.person_id, p.account_id FROM people p
+        JOIN accounts a ON a.account_id = p.account_id
+        WHERE p.person_id = ? AND p.person_kind = 'primary' AND p.person_status = 'active'
+          AND a.created_by_account_id = ? AND a.account_status = 'active' FOR UPDATE`).get(personId, creatorAccountId);
+      if (!person) throw identityError("That provisioned account is unavailable.", 404, "PERSON_UNAVAILABLE");
+      this.database.prepare(`UPDATE password_credentials SET algorithm = 'argon2id', salt = ?,
+        password_hash = ?, memory_kib = ?, passes = ?, parallelism = ?, changed_at_utc = UTC_TIMESTAMP(3)
+        WHERE account_id = ?`).run(credential.salt, credential.hash, credential.memory,
+        credential.passes, credential.parallelism, person.account_id);
+      this.database.prepare(`UPDATE auth_sessions SET revoked_at_utc = UTC_TIMESTAMP(3)
+        WHERE account_id = ? AND revoked_at_utc IS NULL`).run(person.account_id);
+      this.recordSecurityEvent({ accountId: creatorAccountId, type: "account.setup_password_reset", outcome: "success",
+        details: `account_id=${Number(person.account_id)};person_id=${Number(personId)}` });
+      return { generatedPassword };
+    });
+  }
+
+  canManageContacts(managerAccountId, personId) {
+    return Boolean(this.database.prepare(`SELECT person_id FROM people
+      WHERE person_id = ? AND person_status = 'active' AND contact_policy = 'manager_managed'
+        AND contact_manager_account_id = ?`).get(personId, managerAccountId));
   }
 
   createManagedPerson(accountId, name) {

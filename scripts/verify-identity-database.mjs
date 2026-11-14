@@ -6,9 +6,9 @@ import { openApplicationDatabase } from "../src/database-connection.mjs";
 
 export const requiredIdentityShape = Object.freeze({
   identity_meta: ["singleton", "schema_version"],
-  accounts: ["account_id", "display_name", "email", "account_status", "email_verified_at_utc"],
+  accounts: ["account_id", "display_name", "email", "account_status", "email_verified_at_utc", "created_by_account_id"],
   password_credentials: ["account_id", "algorithm", "salt", "password_hash", "memory_kib", "passes", "parallelism"],
-  people: ["person_id", "display_name", "person_kind", "person_status", "account_id", "weekly_ai_token_limit"],
+  people: ["person_id", "display_name", "handle", "person_kind", "person_status", "account_id", "experience", "contact_policy", "contact_manager_account_id", "weekly_ai_token_limit"],
   auth_sessions: ["auth_session_id", "account_id", "selected_person_id", "client_id", "token_hash", "expires_at_utc", "revoked_at_utc"],
   email_challenges: ["email_challenge_id", "account_id", "challenge_purpose", "code_hash", "attempts", "expires_at_utc", "consumed_at_utc"],
   authorization_codes: ["authorization_code_id", "account_id", "person_id", "client_id", "code_hash", "redirect_uri", "expires_at_utc", "consumed_at_utc"],
@@ -41,11 +41,11 @@ export function verifyIdentityDatabase(database) {
   const meta = columns.has("identity_meta")
     ? database.prepare("SELECT singleton, schema_version FROM identity_meta").all()
     : [];
-  if (meta.length !== 1 || Number(meta[0]?.singleton) !== 1 || Number(meta[0]?.schema_version) !== 2) {
-    problems.push("identity_meta must contain exactly schema version 2");
+  if (meta.length !== 1 || Number(meta[0]?.singleton) !== 1 || Number(meta[0]?.schema_version) !== 3) {
+    problems.push("identity_meta must contain exactly schema version 3");
   }
   if (problems.length) throw new Error(`Time v3 Identity database is not ready:\n- ${problems.join("\n- ")}`);
-  return { tableCount: Object.keys(requiredIdentityShape).length, schemaVersion: 2 };
+  return { tableCount: Object.keys(requiredIdentityShape).length, schemaVersion: 3 };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

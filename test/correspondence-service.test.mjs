@@ -83,6 +83,37 @@ test("native Time v3 delivery writes paired person-owned correspondence in one t
   assert.equal(result.received_correspondence_id, 42);
 });
 
+test("manager-managed recipients reject unknown native senders without partial delivery", () => {
+  const executions = [];
+  let insertedMessages = 0;
+  const database = {
+    exec(sql) { executions.push(sql); },
+    prepare(sql) {
+      if (sql.includes("method.normalized_value AS person_id")) return { get: () => ({
+        contact_id: 7, display_name: "Protected child", contact_method_id: 31, person_id: "2",
+      }) };
+      if (sql.includes("SELECT contact.contact_id, contact.status")) return { all: () => [] };
+      if (sql.includes("INSERT INTO correspondence\n")) return { run: () => ({ lastInsertRowid: ++insertedMessages }) };
+      if (sql.includes("INSERT INTO correspondence_participants_join")) return { run: () => ({ changes: 1 }) };
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  };
+  const people = new Map([
+    [1, { personId: 1, displayName: "Sender", handle: "@sender", contactPolicy: "self_managed" }],
+    [2, { personId: 2, displayName: "Protected child", handle: "@child", contactPolicy: "manager_managed" }],
+  ]);
+  const service = new CorrespondenceService({
+    store: { requireReady: () => database }, jmap: {},
+    identityStore: { activePerson: (id) => people.get(id) || null },
+    ledger: { append: () => "event-1" },
+  });
+  assert.throws(
+    () => runWithPerson(1, () => service.sendTimeV3Text({ contactId: 7, text: "Unknown sender" })),
+    /recipient is unavailable/u,
+  );
+  assert.deepEqual(executions, ["START TRANSACTION", "ROLLBACK"]);
+});
+
 test("SMS drafts select one exact receivable phone without sending or persisting correspondence", () => {
   const service = smsFixture([
     { contact_method_id: 31, label: "home", value: "+1 555 010 1000", is_primary: 0 },

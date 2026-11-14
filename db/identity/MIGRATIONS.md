@@ -22,13 +22,16 @@ npm run identity:migrate
 npm run identity:verify
 ```
 
-To upgrade an existing version-1 identity database, stop the Agent service so
+To upgrade an existing identity database, stop the Agent service so
 there are no identity writers, retain a recoverable database backup, and run
 the `identity:migrate` command above. Restart only after
 `npm run identity:verify` succeeds. Identity migrations live newest-first in
 the single `db/identity/migrations.sql` ledger and are applied oldest-first.
 Migration 2 deliberately stops if a person is shared by multiple accounts or
 has no account mapping; do not discard or guess ownership if that guard fails.
+Migration 3 adds unique Time v3 handles and creator-managed light-account
+policy without adding a table. Existing people remain full and self-managed;
+their handles intentionally remain unset until the owner chooses them.
 
 Do not apply `db/mariadb/0001-baseline.sql` to this database. That schema owns
 Agent data and belongs only in the configured `MARIADB_NAME` database.

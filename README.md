@@ -134,7 +134,7 @@ contract. `AGENT-TERMINOLOGY.md` remains the numbered canonical glossary.
 
 ### Time v3 account, person, and node contract
 
-Time v3 authentication supports public email/password registration with email
+Time v3 authentication supports public handle/email/password registration with email
 verification and password recovery. It lives in this repository and uses the
 same root `.env`, but credential, challenge, session, account, person, and
 node-credential rows live only in the separate `timev3_identity` database.
@@ -142,22 +142,50 @@ Agent domain records remain in the one configured Agent database. TLOM is only
 a reference for the simple delivery experience; its account code and users are
 not imported.
 
-An account is the email/password login and recovery boundary. A person is the
-direct owner of private Agent data. Registration creates one primary person;
-an account may create and select additional managed people without assigning
-them email addresses or separate login credentials. There are no workspaces,
-organizations, or implied cross-person records. Product access may later be
-granted separately from account creation.
+An account is the password login boundary and, when present, its email is the
+recovery boundary. A person is the direct owner of private Agent data and has a
+unique lowercase Time v3 handle for human lookup and login; `person_id` remains
+the machine identity used in persistence and authorization. Public registration
+creates one primary person and requires an email, handle, and email verification.
+Names are display-only and never identify a person for a write or delivery.
+There are no workspaces, organizations, shared people, or implied cross-person
+records.
+
+A full account may provision a separate normal account with one primary person.
+Provisioning asks only for a name and handle, creates a light,
+manager-contact-policy account, and returns a generated password once. It
+does not collect policy or contacts during creation. The generated password is
+immediately usable and is not subject to a mandatory reset. Its experience and contact policy are
+maintained later through the same ongoing account-management surface. A
+self-managed light adult and a manager-managed light child use the same account
+shape; the contact policy is the relevant distinction.
 
 `TIMEV3_AUTH_REGISTRATION_ENABLED` independently controls creation of new
 accounts and defaults closed. Closing registration does not affect login,
-email verification, password recovery, existing sessions, or managed people
-belonging to an existing account.
+email verification, password recovery, existing sessions, or creator-provisioned
+accounts.
 
 Each person belongs directly to exactly one account through `people.account_id`;
-there is no account/person mapping table or shared-person relationship. The
-account stores one canonical NFKC-trimmed lowercase email in `accounts.email`.
-That same value is used for delivery, exact login lookup, and uniqueness.
+there is no account/person mapping table or shared-person relationship. An
+account may have one nullable canonical NFKC-trimmed lowercase email; email
+remains unique when present. A person's handle is unique, is stored without the
+presentation `@`, and may be set once. Login accepts either the email or handle.
+
+A manager-managed person's approved contacts are ordinary person-owned contact
+rows, not live references to the manager's contacts. The assigned manager may
+use the normal Contacts surface in that person's scope, including selectively
+copying a manager-owned contact that already has a Time v3 handle. The copy
+contains the display name and Time v3 identity only. The manager does not gain
+access to the person's correspondence. The creator may generate a replacement
+password for a provisioned account; doing so revokes its active browser sessions
+but does not mandate another password change. A managed person may send only to active
+contacts and rejects unknown inbound native senders; there is no mutual-contact
+acceptance or automatic contact creation for that policy.
+
+The light web experience exposes Contacts, Correspondence, and essential Account
+and node access. Hiding navigation is not the authorization boundary: matching
+server routes enforce the restriction. Changing an account to full or switching
+its contact policy is an explicit later management action.
 
 Browser sessions use random, revocable, host-local HttpOnly cookies. The auth
 host hands Agent a five-minute, one-use authorization code rather than sharing
@@ -527,8 +555,9 @@ may choose only an active native contact with a receivable `timev3_person`
 method whose normalized value is an active Time v3 person id. Delivery writes
 one outbound row for the sender and one inbound row for the recipient with the
 same opaque external identity. A first accepted message may create the sender's
-native contact for the recipient, but it never bypasses a blocked native
-contact. Text is escaped into the canonical correspondence body. Voice will use
+native contact for a self-managed recipient, but it never bypasses a blocked
+native contact and never auto-adds a sender for a manager-managed recipient.
+Text is escaped into the canonical correspondence body. Voice will use
 an Ogg/Opus recording joined through the existing correspondence-file
 relationship rather than a separate correspondence medium.
 

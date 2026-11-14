@@ -118,10 +118,12 @@ function normalizedContactMethod(kind, value) {
   if (kind === "email") return value.toLowerCase();
   if (kind === "timev3_person") {
     const personId = Number(value);
-    if (!Number.isSafeInteger(personId) || personId < 1) {
-      throw new OrganizerInputError("A Time v3 person contact method must contain a positive person id.");
+    if (Number.isSafeInteger(personId) && personId > 0) return String(personId);
+    const handle = String(value).normalize("NFKC").trim().replace(/^@/u, "").toLowerCase();
+    if (!/^[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])$/u.test(handle)) {
+      throw new OrganizerInputError("A Time v3 contact method must contain a valid @handle.");
     }
-    return String(personId);
+    return `@${handle}`;
   }
   if (kind === "phone") {
     const digits = value.replace(/\D/g, "");
@@ -137,7 +139,7 @@ function contactMethodBoolean(value, label, fallback) {
   throw new OrganizerInputError(`${label} must be a boolean.`);
 }
 
-function contactMethods(value) {
+function contactMethods(value, resolveTimeV3Handle = null) {
   if (value == null) return null;
   if (!Array.isArray(value) || value.length > 100) {
     throw new OrganizerInputError("methods must be an array of at most 100 contact methods.");
@@ -157,6 +159,14 @@ function contactMethods(value) {
       canReceive: contactMethodBoolean(method.canReceive, `methods[${index}].canReceive`, true),
     };
     item.normalizedValue = normalizedContactMethod(item.kind, item.value);
+    if (item.kind === "timev3_person" && resolveTimeV3Handle) {
+      const person = resolveTimeV3Handle(item.value);
+      if (!person?.personId || !person?.handle) {
+        throw new OrganizerInputError("That Time v3 handle is unavailable.", 404);
+      }
+      item.value = person.handle;
+      item.normalizedValue = String(person.personId);
+    }
     const key = `${item.kind}\u0000${item.normalizedValue}`;
     if (seen.has(key)) throw new OrganizerInputError("Duplicate contact methods are not allowed.");
     seen.add(key);
@@ -295,7 +305,7 @@ function contactAddressUpdates(value) {
   });
 }
 
-function contactMethodUpdates(value) {
+function contactMethodUpdates(value, resolveTimeV3Handle = null) {
   if (!Array.isArray(value) || value.length < 1 || value.length > 100) {
     throw new OrganizerInputError("updates must contain 1 through 100 contact method updates.");
   }
@@ -320,7 +330,7 @@ function contactMethodUpdates(value) {
       value: update.value,
       isPrimary: update.isPrimary,
       canReceive: update.canReceive,
-    }]);
+    }], resolveTimeV3Handle);
     if (action === "add" && method.id !== null) {
       throw new OrganizerInputError(`updates[${index}].methodId must be null when action is add.`);
     }
@@ -758,6 +768,7 @@ function publicContactMethod(row) {
     kind: row.method_kind,
     label: row.label,
     value: row.value,
+    normalizedValue: row.normalized_value,
     isPrimary: Boolean(row.is_primary),
     canReceive: Boolean(row.can_receive),
   };
@@ -1036,9 +1047,10 @@ function changedFields(before, after, fields) {
 }
 
 export class OrganizerStore {
-  constructor(databaseTarget) {
+  constructor(databaseTarget, { resolveTimeV3Handle = null } = {}) {
     this.databaseTarget = databaseTarget;
     this.database = openApplicationDatabase(databaseTarget);
+    this.resolveTimeV3Handle = resolveTimeV3Handle;
   }
 
   close() {
@@ -1446,7 +1458,7 @@ export class OrganizerStore {
       status: enumValue(input?.status, contactStatuses, "status", "active"),
       birthDate: contactBirthDate(input?.birthDate),
       notes: optionalText(input?.notes, "notes", 10_000),
-      methods: contactMethods(input?.methods) ?? [],
+      methods: contactMethods(input?.methods, this.resolveTimeV3Handle) ?? [],
       tags: contactTags(input?.tags) ?? [],
     };
     const now = new Date().toISOString();
@@ -1505,7 +1517,7 @@ export class OrganizerStore {
       status: enumValue(input?.status, contactStatuses, "status", before.status),
       birthDate: input?.birthDate === undefined ? before.birthDate : contactBirthDate(input.birthDate),
       notes: input?.notes === undefined ? before.notes : optionalText(input.notes, "notes", 10_000),
-      methods: contactMethods(input?.methods),
+      methods: contactMethods(input?.methods, this.resolveTimeV3Handle),
       tags: contactTags(input?.tags),
     };
     const candidate = new Date().toISOString();
@@ -1705,7 +1717,7 @@ export class OrganizerStore {
   }
 
   updateContactMethods(input, activity = {}) {
-    const updates = contactMethodUpdates(input?.updates);
+    const updates = contactMethodUpdates(input?.updates, this.resolveTimeV3Handle);
     this.database.exec("START TRANSACTION");
     try {
       const plans = updates.map((update) => {
@@ -1715,7 +1727,7 @@ export class OrganizerStore {
         }
         const exactMethod = contact.methods.find((method) => (
           method.kind === update.method.kind
-          && normalizedContactMethod(method.kind, method.value) === update.method.normalizedValue
+          && (method.normalizedValue ?? normalizedContactMethod(method.kind, method.value)) === update.method.normalizedValue
         ));
         let target = null;
         let status = "updated";
@@ -1729,7 +1741,7 @@ export class OrganizerStore {
           }
           const unchanged = target.kind === update.method.kind
             && target.label === update.method.label
-            && normalizedContactMethod(target.kind, target.value) === update.method.normalizedValue
+            && (target.normalizedValue ?? normalizedContactMethod(target.kind, target.value)) === update.method.normalizedValue
             && target.isPrimary === update.method.isPrimary
             && target.canReceive === update.method.canReceive;
           if (unchanged) status = "unchanged";
@@ -2269,7 +2281,7 @@ export class OrganizerStore {
     const methodByKey = new Map();
     for (const [contactIndex, contact] of records.entries()) {
       for (const method of contact.methods) {
-        const key = `${method.kind}\u0000${normalizedContactMethod(method.kind, method.value)}`;
+        const key = `${method.kind}\u0000${method.normalizedValue ?? normalizedContactMethod(method.kind, method.value)}`;
         const existing = methodByKey.get(key);
         if (existing) {
           if (!existing.label && method.label) existing.label = method.label;
@@ -2322,7 +2334,7 @@ export class OrganizerStore {
       now,
       keepId,
     );
-    this.#replaceContactMethods(keepId, contactMethods(combinedMethods));
+    this.#replaceContactMethods(keepId, contactMethods(combinedMethods, this.resolveTimeV3Handle));
     this.#replaceContactTags(keepId, tagValues);
     const result = this.#contact(keepId);
     this.#activity({

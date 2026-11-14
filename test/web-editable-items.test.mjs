@@ -66,7 +66,7 @@ test("contacts use one complete editor for creation and versioned edits", () => 
   assert.match(app, /onEdit=\{\(\) => setEditingContactId/);
   assert.match(items, /export function ContactEditor/);
   assert.match(items, /export function CalendarEventEditor/);
-  assert.match(items, /api<\{ contact: Entity \}>\(`\/api\/contacts\/\$\{contactId\}`\)/);
+  assert.match(items, /api<\{ contact: Entity \}>\(`\/api\/contacts\/\$\{contactId\}\$\{query\}`\)/);
   assert.match(items, /creating \? "\/api\/contacts" : `\/api\/contacts\/\$\{contactId\}`/);
   assert.match(items, /method: creating \? "POST" : "PATCH"/);
   assert.match(items, /version: contact\.version/);

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { hashPassword, normalizeAccountEmail, verifyPassword } from "../src/identity-store.mjs";
+import { hashPassword, normalizeAccountEmail, normalizeHandle, verifyPassword } from "../src/identity-store.mjs";
 import { requiredIdentityShape } from "../scripts/verify-identity-database.mjs";
 import { readMigrationLedger } from "../scripts/database-migrations.mjs";
 
@@ -29,6 +29,13 @@ test("account email normalization is exact and bounded", () => {
   assert.throws(() => normalizeAccountEmail("not-an-email"), /valid email/);
 });
 
+test("Time v3 handles have one canonical human-facing form", () => {
+  assert.equal(normalizeHandle("  @Grandma_Neaner "), "grandma_neaner");
+  assert.equal(normalizeHandle("vince-node"), "vince-node");
+  assert.throws(() => normalizeHandle("two words"), /handle/i);
+  assert.throws(() => normalizeHandle("ab"), /handle/i);
+});
+
 test("identity baseline declares every verified table and keeps Agent data separate", () => {
   const filename = fileURLToPath(new URL("../db/identity/0001-baseline.sql", import.meta.url));
   const sql = fs.readFileSync(filename, "utf8");
@@ -42,14 +49,18 @@ test("identity baseline declares every verified table and keeps Agent data separ
   assert.doesNotMatch(sql, /ON UPDATE UTC_TIMESTAMP/u);
 });
 
-test("identity schema 2 stores canonical email and person ownership once", () => {
+test("identity migrations store direct ownership, handles, and managed-account policy", () => {
   const filename = fileURLToPath(new URL("../db/identity/migrations.sql", import.meta.url));
   const migrations = readMigrationLedger(filename);
-  assert.deepEqual(migrations.map(({ version }) => version), [2]);
-  const sql = migrations[0].sql;
-  assert.match(sql, /ADD COLUMN account_id BIGINT UNSIGNED NULL/u);
-  assert.match(sql, /DROP TABLE account_people/u);
-  assert.match(sql, /DROP COLUMN email_normalized/u);
-  assert.match(sql, /ADD UNIQUE KEY accounts_email_uq \(email\)/u);
-  assert.doesNotMatch(sql, /UPDATE identity_meta/u);
+  assert.deepEqual(migrations.map(({ version }) => version), [2, 3]);
+  const ownership = migrations.find(({ version }) => version === 2).sql;
+  assert.match(ownership, /ADD COLUMN account_id BIGINT UNSIGNED NULL/u);
+  assert.match(ownership, /DROP TABLE account_people/u);
+  assert.match(ownership, /DROP COLUMN email_normalized/u);
+  assert.match(ownership, /ADD UNIQUE KEY accounts_email_uq \(email\)/u);
+  const policy = migrations.find(({ version }) => version === 3).sql;
+  assert.match(policy, /ADD COLUMN handle VARCHAR\(32\)/u);
+  assert.match(policy, /ADD UNIQUE KEY people_handle_uq \(handle\)/u);
+  assert.match(policy, /ADD COLUMN contact_policy ENUM\('self_managed', 'manager_managed'\)/u);
+  assert.doesNotMatch(`${ownership}\n${policy}`, /UPDATE identity_meta/u);
 });

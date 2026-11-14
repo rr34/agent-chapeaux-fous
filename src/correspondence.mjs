@@ -240,6 +240,9 @@ export class CorrespondenceService {
           throw Object.assign(new Error("The Time v3 recipient is unavailable."), { statusCode: 404 });
         }
         let senderMethod = knownSenderMethods.find(({ status }) => status === "active") ?? null;
+        if (!senderMethod && target.contactPolicy === "manager_managed") {
+          throw Object.assign(new Error("The Time v3 recipient is unavailable."), { statusCode: 404 });
+        }
         if (!senderMethod && knownSenderMethods.length === 0) {
           const contact = database.prepare(`INSERT INTO contacts
             (contact_kind, display_name, status, source, external_id)
@@ -248,7 +251,7 @@ export class CorrespondenceService {
           const method = database.prepare(`INSERT INTO contact_methods
             (contact_id, method_kind, label, value, normalized_value, is_primary, can_receive)
             VALUES (?, 'timev3_person', 'Time v3', ?, ?, 1, 1)`).run(
-            createdContactId, String(senderPersonId), String(senderPersonId),
+            createdContactId, sender.handle || String(senderPersonId), String(senderPersonId),
           );
           senderMethod = { contact_id: createdContactId, contact_method_id: Number(method.lastInsertRowid) };
         }

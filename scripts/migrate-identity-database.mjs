@@ -48,6 +48,27 @@ export async function readCurrentIdentitySchemaVersion(connection, databaseName)
 }
 
 async function assertMigrationIntegrity(connection, migration, databaseName) {
+  if (migration.version === 3) {
+    const [columns] = await connection.query(`
+      SELECT TABLE_NAME, COLUMN_NAME, IS_NULLABLE, COLLATION_NAME
+        FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND (
+         (TABLE_NAME = 'accounts' AND COLUMN_NAME IN ('email', 'created_by_account_id'))
+         OR (TABLE_NAME = 'people' AND COLUMN_NAME IN ('handle', 'experience', 'contact_policy', 'contact_manager_account_id'))
+       )
+    `, [databaseName]);
+    const byName = new Map(columns.map((row) => [`${row.TABLE_NAME}.${row.COLUMN_NAME}`, row]));
+    const required = [
+      "accounts.email", "accounts.created_by_account_id",
+      "people.handle", "people.experience", "people.contact_policy", "people.contact_manager_account_id",
+    ];
+    if (required.some((name) => !byName.has(name))
+      || byName.get("accounts.email").IS_NULLABLE !== "YES"
+      || byName.get("people.handle").COLLATION_NAME !== "ascii_bin") {
+      throw new Error("Identity migration 0003 did not establish handles and managed-account policy");
+    }
+    return;
+  }
   if (migration.version !== 2) return;
   const [columns] = await connection.query(`
     SELECT TABLE_NAME, COLUMN_NAME, IS_NULLABLE, COLLATION_NAME

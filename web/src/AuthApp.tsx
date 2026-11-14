@@ -25,6 +25,8 @@ function modeFromPath(): AuthMode {
 export default function AuthApp() {
   const [mode, setMode] = useState<AuthMode>(modeFromPath());
   const [name, setName] = useState("");
+  const [handle, setHandle] = useState("");
+  const [login, setLogin] = useState("");
   const [email, setEmail] = useState(() => sessionStorage.getItem("timev3-auth-email") || "");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -71,7 +73,7 @@ export default function AuthApp() {
     event.preventDefault(); setBusy(true); setError(""); setMessage("");
     try {
       if (mode === "register") {
-        await authRequest("/api/auth/register", { name, email, password });
+        await authRequest("/api/auth/register", { name, handle, email, password });
         sessionStorage.setItem("timev3-auth-email", email.trim());
         setPassword(""); navigateMode("verify");
         setMessage("Enter the six-digit code sent to your email.");
@@ -80,7 +82,8 @@ export default function AuthApp() {
         sessionStorage.removeItem("timev3-auth-email");
         await continueToAgent();
       } else if (mode === "login") {
-        await authRequest("/api/auth/login", { email, password });
+        await authRequest("/api/auth/login", { login, password });
+        setPassword("");
         await continueToAgent();
       } else if (mode === "forgot") {
         await authRequest("/api/auth/forgot-password", { email });
@@ -119,7 +122,9 @@ export default function AuthApp() {
     <p className="eyebrow">Time v3 account</p><h1>{titles[mode][0]}</h1><p>{titles[mode][1]}</p>
     <form onSubmit={submit}>
       {mode === "register" && <label>Name<input autoFocus autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} /></label>}
-      <label>Email<input autoFocus={mode !== "register"} type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+      {mode === "register" && <label>Time v3 handle<input autoComplete="username" placeholder="@grandma_neaner" value={handle} onChange={(event) => setHandle(event.target.value)} /></label>}
+      {mode === "login" && <label>Email or Time v3 handle<input autoFocus autoComplete="username" placeholder="name@example.com or @handle" value={login} onChange={(event) => setLogin(event.target.value)} /></label>}
+      {mode !== "login" && <label>Email<input autoFocus={mode !== "register"} type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>}
       {(mode === "verify" || mode === "reset") && <label>Six-digit code<input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/gu, "").slice(0, 6))} /></label>}
       {(mode === "login" || mode === "register" || mode === "reset") && <label>Password<input type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={12} value={password} onChange={(event) => setPassword(event.target.value)} /></label>}
       {error && <p className="auth-message auth-message--error" role="alert">{error}</p>}
