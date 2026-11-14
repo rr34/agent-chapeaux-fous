@@ -8,6 +8,12 @@ text-and-link renderer, Time v3 message reading, MPU-6050 motion display, and
 Ogg/Opus recording support. Every process start returns to the top of the root
 menu; navigation state is deliberately not restored.
 
+Messages opens the approved Time v3 contacts in alphabetical order. Enter or
+right opens the selected contact at the most recent message. Right moves toward
+older messages, left moves back toward newer messages, and up/down scrolls a
+long current message. Backspace first returns to the contact list and then to
+the root menu. Sent and received messages share the same history.
+
 The motion view refreshes five times per second and has four fixed pages. The
 keypad's left and right arrow keys move between acceleration, gyroscope,
 orientation, and temperature. Backspace returns toward the root menu. Number

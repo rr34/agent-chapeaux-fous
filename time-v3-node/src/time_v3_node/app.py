@@ -45,6 +45,11 @@ class NodeApplication:
         self._motion_read_failed = False
         self._calibrating_gyroscope = False
         self._pairing_task: asyncio.Task | None = None
+        self.message_contacts: list[dict] = []
+        self.message_contact_index = 0
+        self.message_items: list[dict] = []
+        self.message_index = 0
+        self.message_notice = ""
 
     def home(self) -> None:
         self.screen = "home"
@@ -54,17 +59,8 @@ class NodeApplication:
     async def open_current(self) -> None:
         selected = self.menu.current
         if selected == "Messages":
-            if not self.client:
-                self.document = LcdDocument("NETWORK NOT SET UP")
-            else:
-                try:
-                    messages = await asyncio.to_thread(self.client.messages, 20)
-                    latest = messages[0] if messages else None
-                    self.document = LcdDocument(plain_body(latest.get("body")) if latest else "NO MESSAGES")
-                except Exception:
-                    logger.exception("Could not load Time v3 messages")
-                    self.document = LcdDocument("MESSAGES UNAVAILABLE")
-            self.screen = "document"
+            await self.open_messages()
+            return
         elif selected == "Accelerometer":
             self.screen = "motion"
             self.motion_page = 0
@@ -81,6 +77,89 @@ class NodeApplication:
             self.document = LcdDocument("TIME V3 NODE\nREADY")
             self.screen = "document"
         self.show_document()
+
+    async def open_messages(self) -> None:
+        self.message_contacts = []
+        self.message_contact_index = 0
+        self.message_items = []
+        self.message_index = 0
+        self.message_notice = ""
+        if not self.client:
+            self.message_notice = "NETWORK NOT SET UP"
+        else:
+            try:
+                contacts = await asyncio.to_thread(self.client.recipients)
+                self.message_contacts = sorted(
+                    contacts,
+                    key=lambda contact: (str(contact.get("display_name", "")).casefold(),
+                                         int(contact.get("person_id", 0))),
+                )
+            except Exception:
+                logger.exception("Could not load Time v3 contacts")
+                self.message_notice = "CONTACTS UNAVAILABLE"
+        self.screen = "message_contacts"
+        self.show_message_contacts()
+
+    def show_message_contacts(self) -> None:
+        if self.message_notice:
+            self.display.show(LcdDocument(self.message_notice).viewport().rows)
+            return
+        if not self.message_contacts:
+            self.display.show(LcdDocument("NO TIME V3 CONTACTS").viewport().rows)
+            return
+        selected = min(self.message_contact_index, len(self.message_contacts) - 1)
+        first = min(max(0, selected - 1), max(0, len(self.message_contacts) - 4))
+        rows = []
+        for index in range(first, first + 4):
+            if index >= len(self.message_contacts):
+                rows.append(" " * 20)
+                continue
+            marker = ">" if index == selected else " "
+            name = str(self.message_contacts[index].get("display_name") or "UNKNOWN CONTACT")
+            rows.append(f"{marker}{name[:19]:<19}")
+        self.display.show(tuple(rows))
+
+    async def open_message_contact(self) -> None:
+        if not self.client or not self.message_contacts:
+            return
+        contact = self.message_contacts[self.message_contact_index]
+        self.message_items = []
+        self.message_index = 0
+        self.offset = 0
+        self.message_notice = ""
+        try:
+            self.message_items = await asyncio.to_thread(
+                self.client.conversation, int(contact["person_id"]), 200,
+            )
+        except Exception:
+            logger.exception("Could not load Time v3 conversation")
+            self.message_notice = "MESSAGES UNAVAILABLE"
+        self.screen = "message_item"
+        self.show_message_item()
+
+    def show_message_item(self) -> None:
+        contact = self.message_contacts[self.message_contact_index] if self.message_contacts else {}
+        name = str(contact.get("display_name") or "CONTACT")
+        if self.message_notice:
+            body_rows = LcdDocument(self.message_notice).render_rows()
+            header = name[:20]
+        elif not self.message_items:
+            body_rows = ["NO MESSAGES"]
+            header = name[:20]
+        else:
+            item = self.message_items[self.message_index]
+            direction = "FROM" if item.get("direction") == "inbound" else "TO"
+            prefix = f"{self.message_index + 1}/{len(self.message_items)} {direction} "
+            header = f"{prefix}{name[:max(0, 20 - len(prefix))]}"
+            body_rows = LcdDocument(plain_body(item.get("body"))).render_rows()
+        maximum = max(0, len(body_rows) - 3)
+        self.offset = min(maximum, max(0, self.offset))
+        visible = [header[:20].ljust(20)]
+        visible.extend(
+            (body_rows[self.offset + index] if self.offset + index < len(body_rows) else "")[:20].ljust(20)
+            for index in range(3)
+        )
+        self.display.show(tuple(visible))
 
     async def start_pairing(self) -> None:
         if not self.client:
@@ -193,6 +272,36 @@ class NodeApplication:
             elif action == "down": self.menu.move(1)
             elif action in {"select", "right"}: await self.open_current()
             self.display.show(self.menu.rows()) if self.screen == "home" else None
+        elif self.screen == "message_contacts":
+            if action == "back":
+                self.home()
+            elif action == "up" and self.message_contacts:
+                self.message_contact_index = (self.message_contact_index - 1) % len(self.message_contacts)
+                self.show_message_contacts()
+            elif action == "down" and self.message_contacts:
+                self.message_contact_index = (self.message_contact_index + 1) % len(self.message_contacts)
+                self.show_message_contacts()
+            elif action in {"select", "right"}:
+                await self.open_message_contact()
+        elif self.screen == "message_item":
+            if action == "back":
+                self.screen = "message_contacts"
+                self.message_notice = ""
+                self.show_message_contacts()
+            elif action == "right" and self.message_index < len(self.message_items) - 1:
+                self.message_index += 1
+                self.offset = 0
+                self.show_message_item()
+            elif action == "left" and self.message_index > 0:
+                self.message_index -= 1
+                self.offset = 0
+                self.show_message_item()
+            elif action == "up":
+                self.offset -= 1
+                self.show_message_item()
+            elif action == "down":
+                self.offset += 1
+                self.show_message_item()
         elif self.screen == "motion":
             if action == "back":
                 self.home()

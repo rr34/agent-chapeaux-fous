@@ -6,22 +6,33 @@ export function useApi<T>(url: string | null, refreshMs = 0) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(Boolean(url));
+  const requestNumber = useRef(0);
   const reload = useCallback(async () => {
-    if (!url) return;
+    const currentRequest = ++requestNumber.current;
+    if (!url) {
+      setData(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     try {
       setError(null);
-      setData(await api<T>(url));
+      const result = await api<T>(url);
+      if (requestNumber.current === currentRequest) setData(result);
     } catch (caught) {
-      setError(caught);
+      if (requestNumber.current === currentRequest) setError(caught);
     } finally {
-      setLoading(false);
+      if (requestNumber.current === currentRequest) setLoading(false);
     }
   }, [url]);
   useEffect(() => {
     void reload();
-    if (!refreshMs) return;
-    const timer = window.setInterval(() => void reload(), refreshMs);
-    return () => window.clearInterval(timer);
+    const timer = refreshMs ? window.setInterval(() => void reload(), refreshMs) : null;
+    return () => {
+      requestNumber.current += 1;
+      if (timer != null) window.clearInterval(timer);
+    };
   }, [reload, refreshMs]);
   return { data, error, loading, reload, setData };
 }

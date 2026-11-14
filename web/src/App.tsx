@@ -574,7 +574,7 @@ function TokenGate({ children }: { children: ReactNode }) {
     <p className="eyebrow">Private workspace</p><h1>Welcome back.</h1>
     <p>Enter the access token for this Time v3 Agent installation.</p>
     <form onSubmit={(event) => { event.preventDefault(); setAccessToken(draft); update(draft.trim()); }}>
-      <label>Access token<input autoFocus type="password" value={draft} onChange={(event) => setDraft(event.target.value)} /></label>
+      <label>Access token<input autoFocus name="access-token" type="password" autoComplete="off" value={draft} onChange={(event) => setDraft(event.target.value)} /></label>
       <button className="button" disabled={!draft.trim()}>Open workspace</button>
     </form>
   </section></main>;

@@ -26,6 +26,10 @@ class TimeV3Client:
     def recipients(self) -> list[dict]:
         return self._json("/api/correspondence/timev3-recipients").get("recipients", [])
 
+    def conversation(self, person_id: int, limit: int = 200) -> list[dict]:
+        query = urlencode({"personId": person_id, "limit": limit})
+        return self._json(f"/api/correspondence/timev3-conversation?{query}").get("items", [])
+
     def send_text(self, contact_id: int, text: str) -> dict:
         return self._json(
             "/api/correspondence/timev3-messages", "POST",

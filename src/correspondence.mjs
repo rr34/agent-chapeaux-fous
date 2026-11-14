@@ -184,6 +184,19 @@ export class CorrespondenceService {
     })).filter((recipient) => this.identityStore?.activePerson(recipient.person_id));
   }
 
+  timeV3Conversation({ personId, limit = 200 }) {
+    const recipientPersonId = positiveId(personId, "personId");
+    const recipient = this.timeV3Recipients()
+      .find((candidate) => candidate.person_id === recipientPersonId);
+    if (!recipient) {
+      throw Object.assign(new Error("That Time v3 contact is unavailable."), { statusCode: 404 });
+    }
+    return {
+      ...this.list({ medium: "timev3", timeV3PersonId: recipientPersonId, limit }),
+      recipient,
+    };
+  }
+
   sendTimeV3Text({ contactId, text }, context = {}) {
     if (!this.identityStore) throw Object.assign(new Error("Time v3 identity is required for native messages."), { statusCode: 503 });
     const senderPersonId = currentPersonId();
@@ -326,7 +339,7 @@ export class CorrespondenceService {
   list({
     q = "", medium = null, direction = null, mailboxId = null,
     occurredFromUtc = null, occurredBeforeUtc = null, participantTag = null,
-    groupBy = "none", limit = 100, offset = 0,
+    groupBy = "none", timeV3PersonId = null, limit = 100, offset = 0,
   } = {}) {
     limit = Math.min(200, Math.max(1, Number(limit) || 100));
     offset = Math.max(0, Number(offset) || 0);
@@ -344,6 +357,11 @@ export class CorrespondenceService {
       values.push(`%${q.trim()}%`, `%${q.trim()}%`);
     }
     if (medium) { where.push("correspondence.medium = ?"); values.push(medium); }
+    if (timeV3PersonId != null) {
+      const personId = positiveId(timeV3PersonId, "Time v3 person id");
+      where.push("correspondence.medium = 'timev3' AND correspondence.thread_key = ?");
+      values.push(`timev3:${personId}`);
+    }
     if (direction) { where.push("correspondence.direction = ?"); values.push(direction); }
     if (occurredFromUtc) {
       where.push("correspondence.occurred_at_utc >= ?");

@@ -145,6 +145,61 @@ class MenuAndMotionTests(unittest.TestCase):
         )):
             asyncio.run(exercise())
 
+    def test_messages_choose_alphabetical_contact_and_browse_newest_to_oldest(self):
+        class Display:
+            def __init__(self):
+                self.rows = ()
+
+            def show(self, rows):
+                self.rows = rows
+
+        class Client:
+            def recipients(self):
+                return [
+                    {"display_name": "Zelda", "person_id": 9},
+                    {"display_name": "Alex", "person_id": 2},
+                ]
+
+            def conversation(self, person_id, limit):
+                self.requested = (person_id, limit)
+                return [
+                    {"direction": "inbound", "body": "Newest message"},
+                    {"direction": "outbound", "body": "Older message"},
+                ]
+
+        async def exercise():
+            display = Display()
+            client = Client()
+            application = NodeApplication(display, object(), client=client)
+            await application.open_current()
+            self.assertEqual(application.screen, "message_contacts")
+            self.assertEqual(display.rows[0].strip(), ">Alex")
+            self.assertEqual(display.rows[1].strip(), "Zelda")
+
+            await application.action("select")
+            self.assertEqual(client.requested, (2, 200))
+            self.assertEqual(application.screen, "message_item")
+            self.assertEqual(display.rows[0].strip(), "1/2 FROM Alex")
+            self.assertEqual(display.rows[1].strip(), "Newest message")
+
+            await application.action("right")
+            self.assertEqual(display.rows[0].strip(), "2/2 TO Alex")
+            self.assertEqual(display.rows[1].strip(), "Older message")
+            await application.action("right")
+            self.assertEqual(display.rows[0].strip(), "2/2 TO Alex")
+            await application.action("left")
+            self.assertEqual(display.rows[0].strip(), "1/2 FROM Alex")
+
+            await application.action("back")
+            self.assertEqual(application.screen, "message_contacts")
+            await application.action("back")
+            self.assertEqual(application.screen, "home")
+
+        with patch("time_v3_node.app.asyncio.to_thread", new=AsyncMock(
+            side_effect=lambda function, *arguments: function(*arguments),
+        )):
+            asyncio.run(exercise())
+
 
 if __name__ == "__main__":
     unittest.main()

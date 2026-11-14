@@ -37,6 +37,9 @@ test("managed accounts expose explicit password and contact management", () => {
   assert.match(accountSource, /\/set-password/u);
   assert.doesNotMatch(accountSource, />Reset password<\/button>/u);
   assert.match(accountSource, />Manage contacts<\/button>/u);
+  assert.match(accountSource, /<form className="managed-account-password"/u);
+  assert.match(accountSource, /name="username" autoComplete="username"/u);
+  assert.equal(accountSource.match(/autoComplete="new-password"/gu)?.length, 2);
 });
 
 test("ordinary navigation defaults Contacts back to the signed-in person's list", () => {

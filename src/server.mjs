@@ -1172,6 +1172,17 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, { recipients: correspondence.timeV3Recipients() });
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/correspondence/timev3-conversation") {
+      const personId = url.searchParams.get("personId");
+      if (!/^\d+$/u.test(personId || "")) {
+        throw Object.assign(new Error("personId must be a positive person id."), { statusCode: 400 });
+      }
+      sendJson(response, 200, correspondence.timeV3Conversation({
+        personId,
+        limit: url.searchParams.get("limit") || 200,
+      }));
+      return;
+    }
     if (request.method === "POST" && url.pathname === "/api/correspondence/timev3-messages") {
       const person = request.timev3Auth?.person ?? request.timev3Node?.person;
       sendJson(response, 201, correspondence.sendTimeV3Text(await readJson(request), {

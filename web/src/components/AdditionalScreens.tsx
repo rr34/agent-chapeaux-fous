@@ -60,6 +60,16 @@ function correspondenceMediumGroup(medium: string) {
   return ["sms", "mms", "rcs", "imessage", "timev3"].includes(medium) ? "messages" : medium;
 }
 
+function timeV3ConversationTarget(item: CorrespondenceItem) {
+  if (item.medium !== "timev3") return null;
+  const participant = item.participants.find(({ address }) => /^timev3:\d+$/u.test(address));
+  if (!participant) return null;
+  return {
+    personId: Number(participant.address.slice("timev3:".length)),
+    displayName: participant.display_name || "Time v3 contact",
+  };
+}
+
 function syncDuration(milliseconds: number) {
   const totalSeconds = Math.max(0, Math.round(milliseconds / 1000));
   const hours = Math.floor(totalSeconds / 3600);
@@ -101,9 +111,14 @@ export function CorrespondenceScreen() {
   const [timeV3Text, setTimeV3Text] = useState("");
   const [lcdOffset, setLcdOffset] = useState(0);
   const [sendingTimeV3, setSendingTimeV3] = useState(false);
+  const [nativeConversation, setNativeConversation] = useState<{ personId: number; displayName: string } | null>(null);
   const { data: timeV3Data, reload: reloadTimeV3Recipients } = useApi<{
     recipients: Array<{ contact_id: number; display_name: string; person_id: number }>;
   }>("/api/correspondence/timev3-recipients");
+  const { data: nativeConversationData, error: nativeConversationError, loading: nativeConversationLoading } = useApi<{
+    items: CorrespondenceItem[];
+    recipient: { contact_id: number; display_name: string; person_id: number };
+  }>(nativeConversation ? `/api/correspondence/timev3-conversation?personId=${nativeConversation.personId}&limit=200` : null);
   const lcdDocument = useMemo(() => renderLcdDocument(timeV3Text), [timeV3Text]);
   const lcd = useMemo(() => lcdViewport(lcdDocument, lcdOffset), [lcdDocument, lcdOffset]);
   const parameters = new URLSearchParams({ limit: "200", offset: String(page * 200) });
@@ -235,6 +250,16 @@ export function CorrespondenceScreen() {
   return <>
     <header className="page-heading"><div><p>Correspondence consolidates every channel—email, messages, calls, and voicemail—into one record without replacing their authoritative apps.</p></div>{!lightExperience && <div className="heading-actions"><button className="button button--quiet" disabled={downloadingExtension} onClick={() => void downloadExtension()}>{downloadingExtension ? "Downloading…" : "Download Messages extension"}</button><button className="button" disabled={syncing} onClick={() => void sync()}>{syncing ? "Syncing…" : "Sync email"}</button><button className="button" disabled={syncingMessages} onClick={() => setChoosingMessageHistory(true)}>{syncingMessages ? "Syncing…" : "Sync Google Messages"}</button></div>}</header>
     {!lightExperience && choosingMessageHistory && <div className="object-editor-backdrop"><section className="object-editor message-history-dialog" role="dialog" aria-modal="true" aria-labelledby="message-history-heading"><form onSubmit={(event) => { event.preventDefault(); void syncMessages(); }}><header className="object-editor-heading"><div><p className="eyebrow">Google Messages</p><h2 id="message-history-heading">Choose history range</h2></div></header><label>Messages to synchronize<select autoFocus value={messageHistoryMode} onChange={(event) => setMessageHistoryMode(event.target.value)}><option value="incremental">Since last sync</option><option value="days_30">Last 30 days</option><option value="days_90">Last 90 days</option><option value="days_365">Last year</option><option value="all">All available history</option></select></label><p className="object-editor-note">On the first run, “Since last sync” imports 30 days. Later runs overlap the previous successful sync by two days.</p><footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={() => setChoosingMessageHistory(false)}>Cancel</button><button className="button" type="submit">Start sync</button></footer></form></section></div>}
+    {nativeConversation && <div className="object-editor-backdrop"><section className="object-editor native-conversation-dialog" role="dialog" aria-modal="true" aria-labelledby="native-conversation-heading">
+      <header className="object-editor-heading"><div><p className="eyebrow">Time v3 conversation</p><h2 id="native-conversation-heading">{nativeConversation.displayName}</h2></div><button className="button button--quiet" type="button" onClick={() => setNativeConversation(null)}>Close</button></header>
+      {nativeConversationLoading && <Loading label="Loading conversation" />}
+      {Boolean(nativeConversationError) && <ErrorState error={nativeConversationError} />}
+      {!nativeConversationLoading && !nativeConversationError && !nativeConversationData?.items.length && <Empty>No messages in this conversation.</Empty>}
+      {!nativeConversationLoading && !nativeConversationError && Boolean(nativeConversationData?.items.length) && <div className="native-conversation-messages">{nativeConversationData!.items.slice().reverse().map((message) => <article className={`native-conversation-message native-conversation-message--${message.direction}`} key={message.correspondence_id}>
+        <div><strong>{message.direction === "outbound" ? "You" : nativeConversation.displayName}</strong><time dateTime={message.occurred_at_utc}>{formatDisplayDate(message.occurred_at_utc)}</time></div>
+        <p>{correspondencePreview(message.body) || "Empty message"}</p>
+      </article>)}</div>}
+    </section></div>}
     <section className="timev3-composer surface" aria-labelledby="timev3-composer-heading">
       <div className="section-title"><div><p className="eyebrow">20 × 4 display</p><h2 id="timev3-composer-heading">Time v3 message</h2><p>The preview uses the same twenty-character wrapping contract as the node.</p></div></div>
       <form className="timev3-composer-layout" onSubmit={(event) => void sendTimeV3(event)}>
@@ -250,7 +275,7 @@ export function CorrespondenceScreen() {
           <div className="lcd-preview-controls"><button className="button button--quiet" type="button" disabled={lcd.offset === 0} onClick={() => setLcdOffset((value) => Math.max(0, value - 1))}>Scroll up</button><span>{lcd.offset + 1}–{Math.min(lcd.offset + 4, lcdDocument.length)} of {lcdDocument.length}</span><button className="button button--quiet" type="button" disabled={lcd.offset >= lcd.maximum} onClick={() => setLcdOffset((value) => Math.min(lcd.maximum, value + 1))}>Scroll down</button></div>
         </div>
       </form>
-      {!timeV3Data?.recipients.length && <p className="object-editor-note">Add a <strong>Time v3 person</strong> detail containing the recipient’s @handle to an existing contact to approve that recipient.</p>}
+      {!timeV3Data?.recipients.length && <p className="object-editor-note">Add a <strong>Time v3 handle</strong> detail containing the recipient’s @handle to an existing contact to approve that recipient.</p>}
     </section>
     <div className="section-filter correspondence-filters">
       <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search subject or body" />
@@ -295,7 +320,7 @@ export function CorrespondenceScreen() {
         ...item.mailboxes.map((value) => value.name),
         ...(item.linked_todos.length ? [`${item.linked_todos.length} linked to-do${item.linked_todos.length === 1 ? "" : "s"}`] : []),
         ...(item.linked_calendar_events.length ? [`${item.linked_calendar_events.length} linked event${item.linked_calendar_events.length === 1 ? "" : "s"}`] : [])],
-    }} controls={<ObjectSelectionControls identity={correspondenceIdentity(item)} subject={`correspondence ${item.display}`} />} details={item.linked_todos.length || item.linked_calendar_events.length ? <>
+    }} controls={<ObjectSelectionControls identity={correspondenceIdentity(item)} subject={`correspondence ${item.display}`} />} actions={timeV3ConversationTarget(item) ? [{ key: "conversation", label: "View conversation", onClick: () => setNativeConversation(timeV3ConversationTarget(item)) }] : []} details={item.linked_todos.length || item.linked_calendar_events.length ? <>
       {item.linked_todos.length > 0 && <section><h4>Linked to-dos</h4><ul>{item.linked_todos.map((todo) => <li key={todo.todo_id}>{todo.text}</li>)}</ul></section>}
       {item.linked_calendar_events.length > 0 && <section><h4>Linked calendar events</h4><ul>{item.linked_calendar_events.map((event) => <li key={event.calendar_event_id}>{event.title} · {formatDisplayDate(event.starts_at_utc, { timeZone: event.time_zone || undefined })}</li>)}</ul></section>}
     </> : undefined} />)}</ul></section>)}</div>}
@@ -354,7 +379,8 @@ function ProvisionedAccountCard({ item, onChanged }: {
     } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
     finally { setSaving(false); }
   };
-  const setAccountPassword = async () => {
+  const setAccountPassword = async (event?: React.FormEvent) => {
+    event?.preventDefault();
     if (password !== passwordConfirmation) {
       setStatus("The password confirmation does not match.");
       return;
@@ -373,8 +399,12 @@ function ProvisionedAccountCard({ item, onChanged }: {
     <span>Provisioned account</span>
     <div className="object-editor-grid"><label>Web experience<select value={experience} onChange={(event) => setExperience(event.target.value as "full" | "light")}><option value="light">Light</option><option value="full">Full</option></select></label>
       <label>Contact management<select value={contactPolicy} onChange={(event) => setContactPolicy(event.target.value as "self_managed" | "manager_managed")}><option value="manager_managed">Managed by me</option><option value="self_managed">Self-managed</option></select></label></div>
-    <div className="object-editor-grid"><label>Set password<input type="password" autoComplete="new-password" minLength={12} maxLength={1024} value={password} onChange={(event) => setPassword(event.target.value)} /></label><label>Confirm password<input type="password" autoComplete="new-password" minLength={12} maxLength={1024} value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} /></label></div>
-    {status && <small role="status">{status}</small>}</div><div>{item.person.contactPolicy === "manager_managed" && <button className="button button--quiet" type="button" onClick={() => location.assign(`/app?managedPersonId=${item.person.personId}#contacts`)}>Manage contacts</button>}<button className="button button--quiet" type="button" disabled={saving || password.length < 12 || password !== passwordConfirmation} onClick={() => void setAccountPassword()}>Set password</button><button className="button button--quiet" type="button" disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save"}</button></div>
+    <form className="managed-account-password" onSubmit={(event) => void setAccountPassword(event)}>
+      <input className="visually-hidden" tabIndex={-1} aria-hidden="true" name="username" autoComplete="username" value={item.person.handle || ""} readOnly />
+      <div className="object-editor-grid"><label>Set password<input name="new-password" type="password" autoComplete="new-password" minLength={12} maxLength={1024} value={password} onChange={(event) => setPassword(event.target.value)} /></label><label>Confirm password<input name="new-password-confirmation" type="password" autoComplete="new-password" minLength={12} maxLength={1024} value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} /></label></div>
+      <button className="button button--quiet" type="submit" disabled={saving || password.length < 12 || password !== passwordConfirmation}>Set password</button>
+    </form>
+    {status && <small role="status">{status}</small>}</div><div>{item.person.contactPolicy === "manager_managed" && <button className="button button--quiet" type="button" onClick={() => location.assign(`/app?managedPersonId=${item.person.personId}#contacts`)}>Manage contacts</button>}<button className="button button--quiet" type="button" disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save"}</button></div>
   </article>;
 }
 
@@ -539,7 +569,7 @@ export function AccountScreen({ usage }: { usage: React.ReactNode }) {
   };
   const access = <>
     {authMode?.mode === "session" ? <section className="surface"><p>Your browser uses a revocable Time v3 session stored in a secure, HTTP-only cookie.</p><button className="button button--quiet" type="button" onClick={async () => { await api("/api/auth/logout", { method: "POST", body: "{}" }); location.assign("/api/auth/start"); }}>Sign out</button></section> : <form className="profile-fact-form" onSubmit={(event) => { event.preventDefault(); setAccessToken(token); }}>
-      <label>Access token<input type="password" value={token} onChange={(event) => setToken(event.target.value)} /></label>
+      <label>Access token<input name="access-token" type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} /></label>
       <button className="button">Save token</button>
     </form>}
     <section className="surface account-integrations" aria-labelledby="account-integrations-heading">
@@ -568,7 +598,7 @@ export function AccountScreen({ usage }: { usage: React.ReactNode }) {
           <label>Name<input required pattern="[A-Za-z0-9_-]+" value={integrationDraft.name} onChange={(event) => setIntegrationDraft({ ...integrationDraft, name: event.target.value })} /></label>
           <label>Server URL<input required type="url" value={integrationDraft.url} onChange={(event) => setIntegrationDraft({ ...integrationDraft, url: event.target.value })} /></label>
         </div>
-        <label>Bearer token<input required type="password" value={integrationDraft.token} onChange={(event) => setIntegrationDraft({ ...integrationDraft, token: event.target.value })} /></label>
+        <label>Bearer token<input required name="bearer-token" type="password" autoComplete="off" value={integrationDraft.token} onChange={(event) => setIntegrationDraft({ ...integrationDraft, token: event.target.value })} /></label>
         <button className="button" disabled={Boolean(integrationAction)}>{integrationAction === "add" ? "Connecting…" : "Connect integration"}</button>
       </form>
       {integrationStatus && <p role="status" className="account-tool-refresh-status">{integrationStatus}</p>}

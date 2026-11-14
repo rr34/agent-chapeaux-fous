@@ -31,6 +31,26 @@ test("native Time v3 recipients are approved native contacts with active identit
   }]);
 });
 
+test("native Time v3 conversations include both directions for one approved person", () => {
+  const database = { prepare: () => ({ all: () => [
+    { contact_id: 7, display_name: "Alex Rivera", contact_method_id: 31, person_id: "12" },
+  ] }) };
+  const service = new CorrespondenceService({
+    store: { requireReady: () => database }, ledger: {}, jmap: {},
+    identityStore: { activePerson: (personId) => personId === 12 ? { personId, displayName: "Alex Rivera" } : null },
+  });
+  let listedWith = null;
+  service.list = (options) => {
+    listedWith = options;
+    return { items: [{ correspondence_id: 1, direction: "inbound" }, { correspondence_id: 2, direction: "outbound" }] };
+  };
+  const result = service.timeV3Conversation({ personId: 12, limit: 50 });
+  assert.deepEqual(listedWith, { medium: "timev3", timeV3PersonId: 12, limit: 50 });
+  assert.deepEqual(result.items.map(({ direction }) => direction), ["inbound", "outbound"]);
+  assert.equal(result.recipient.person_id, 12);
+  assert.throws(() => service.timeV3Conversation({ personId: 99 }), /contact is unavailable/u);
+});
+
 test("native Time v3 delivery writes paired person-owned correspondence in one transaction", () => {
   const messages = [];
   const participants = [];
