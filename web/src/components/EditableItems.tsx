@@ -72,6 +72,38 @@ interface ContactDraft {
   tags: string[];
 }
 
+const contactMethodKindOrder = ["email", "phone", "postal_address", "url", "timev3_person", "other"];
+
+function contactMethodDrafts(methods: Entity[]): ContactMethodDraft[] {
+  const primaryKinds = new Set<string>();
+  return methods.map((method) => {
+    const kind = method.kind === "handle" ? "other" : String(method.kind || "other");
+    const requestedPrimary = Boolean(method.isPrimary);
+    const isPrimary = requestedPrimary && !primaryKinds.has(kind);
+    if (isPrimary) primaryKinds.add(kind);
+    return {
+      ...(method.id == null ? {} : { id: Number(method.id) }),
+      kind,
+      label: String(method.label || ""),
+      value: String(method.value || ""),
+      isPrimary,
+      canReceive: method.canReceive !== false,
+    };
+  });
+}
+
+function displayedContactMethods(methods: ContactMethodDraft[]) {
+  return methods.map((method, index) => ({ method, index })).toSorted((left, right) => {
+    const leftKind = contactMethodKindOrder.indexOf(left.method.kind);
+    const rightKind = contactMethodKindOrder.indexOf(right.method.kind);
+    const kindDifference = (leftKind < 0 ? contactMethodKindOrder.length : leftKind)
+      - (rightKind < 0 ? contactMethodKindOrder.length : rightKind);
+    if (kindDifference !== 0) return kindDifference;
+    const primaryDifference = Number(right.method.isPrimary) - Number(left.method.isPrimary);
+    return primaryDifference || left.index - right.index;
+  });
+}
+
 function newContactDraft(): ContactDraft {
   return {
     kind: "person",
@@ -97,14 +129,7 @@ function contactDraft(contact: Entity): ContactDraft {
     status: String(contact.status || "active"),
     birthDate: String(contact.birthDate || ""),
     notes: String(contact.notes || ""),
-    methods: ((contact.methods as Entity[] | undefined) || []).map((method) => ({
-      ...(method.id == null ? {} : { id: Number(method.id) }),
-      kind: method.kind === "handle" ? "other" : String(method.kind || "other"),
-      label: String(method.label || ""),
-      value: String(method.value || ""),
-      isPrimary: Boolean(method.isPrimary),
-      canReceive: method.canReceive !== false,
-    })),
+    methods: contactMethodDrafts((contact.methods as Entity[] | undefined) || []),
     tags: ((contact.tags as string[] | undefined) || []).map(String),
   };
 }
@@ -140,9 +165,17 @@ export function ContactEditor({ contactId, managedPersonId, onClose, onChanged }
 
   const updateMethod = (index: number, update: Partial<ContactMethodDraft>) => {
     if (!draft) return;
+    const currentMethod = draft.methods[index];
+    if (!currentMethod) return;
+    const nextKind = update.kind ?? currentMethod.kind;
+    const nextIsPrimary = update.isPrimary ?? currentMethod.isPrimary;
     setDraft({
       ...draft,
-      methods: draft.methods.map((method, methodIndex) => methodIndex === index ? { ...method, ...update } : method),
+      methods: draft.methods.map((method, methodIndex) => {
+        if (methodIndex === index) return { ...method, ...update };
+        if (nextIsPrimary && method.kind === nextKind) return { ...method, isPrimary: false };
+        return method;
+      }),
     });
   };
 
@@ -186,7 +219,7 @@ export function ContactEditor({ contactId, managedPersonId, onClose, onChanged }
         <section className="contact-editor-section" aria-labelledby="contact-methods-heading">
           <div className="contact-editor-section-heading"><h3 id="contact-methods-heading">Contact details</h3><button className="button button--quiet" type="button" disabled={draft.methods.length >= 100} onClick={() => setDraft({ ...draft, methods: [...draft.methods, { kind: "email", label: "", value: "", isPrimary: false, canReceive: true }] })}>Add detail</button></div>
           {!draft.methods.length && <p className="contact-empty">No contact details yet.</p>}
-          {draft.methods.map((method, index) => <div className="contact-editor-method" key={method.id ?? `new-${index}`}>
+          {displayedContactMethods(draft.methods).map(({ method, index }) => <div className="contact-editor-method" key={method.id ?? `new-${index}`}>
             <label>Type<select value={method.kind} onChange={(change) => updateMethod(index, { kind: change.target.value })}><option value="email">Email</option><option value="phone">Phone</option><option value="postal_address">Postal address</option><option value="url">URL</option><option value="timev3_person">Time v3 handle</option><option value="other">Other</option></select></label>
             <label>Label<input maxLength={100} placeholder="Work, mobile…" value={method.label} onChange={(change) => updateMethod(index, { label: change.target.value })} /></label>
             <label className="contact-editor-method-value">Value{method.kind === "timev3_person"

@@ -6,6 +6,7 @@ const accountSource = fs.readFileSync(
   new URL("../web/src/components/AdditionalScreens.tsx", import.meta.url),
   "utf8",
 );
+const appSource = fs.readFileSync(new URL("../web/src/App.tsx", import.meta.url), "utf8");
 const authSource = fs.readFileSync(new URL("../web/src/AuthApp.tsx", import.meta.url), "utf8");
 const handleInputSource = fs.readFileSync(
   new URL("../web/src/components/HandleInput.tsx", import.meta.url),
@@ -36,6 +37,11 @@ test("managed accounts expose explicit password and contact management", () => {
   assert.match(accountSource, /\/set-password/u);
   assert.doesNotMatch(accountSource, />Reset password<\/button>/u);
   assert.match(accountSource, />Manage contacts<\/button>/u);
+});
+
+test("ordinary navigation defaults Contacts back to the signed-in person's list", () => {
+  assert.match(appSource, /const go = \(next: string\) => \{[\s\S]*searchParams\.delete\("managedPersonId"\);[\s\S]*setView\(next\);/u);
+  assert.match(appSource, /<option value="">My contacts<\/option>/u);
 });
 
 test("Time v3 handle fields render a fixed prefix outside user input", () => {

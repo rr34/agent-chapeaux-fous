@@ -222,6 +222,23 @@ test("contacts support searchable-page data, multiple methods, and safe edits", 
   }
 });
 
+test("contacts allow only one primary method of each type", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.target);
+  try {
+    assert.throws(() => organizer.createContact({
+      displayName: "Alex Rivera",
+      methods: [
+        { kind: "email", value: "alex.personal@example.test", isPrimary: true },
+        { kind: "email", value: "alex.work@example.test", isPrimary: true },
+      ],
+    }), /Only one primary email contact method is allowed/);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("mobile contacts identify the canonical contacts linked to one Android device", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.target);
@@ -388,6 +405,7 @@ test("contact merges combine methods and tags while retaining inactive source re
       tags: ["Library"],
       methods: [
         { kind: "email", value: "JORDAN@example.test" },
+        { kind: "email", value: "jordan.work@example.test", isPrimary: true },
         { kind: "phone", value: "+1 555 010 0199" },
       ],
     });
@@ -400,7 +418,8 @@ test("contact merges combine methods and tags while retaining inactive source re
     assert.notEqual(merged.contact.version, kept.version);
     assert.equal(merged.contact.familyName, "Lee");
     assert.equal(merged.contact.birthDate, "1985-03-12");
-    assert.deepEqual(merged.contact.methods.map(({ kind }) => kind), ["email", "phone"]);
+    assert.deepEqual(merged.contact.methods.map(({ kind }) => kind), ["email", "email", "phone"]);
+    assert.equal(merged.contact.methods.filter(({ kind, isPrimary }) => kind === "email" && isPrimary).length, 1);
     assert.deepEqual(merged.contact.tags, ["Friend", "Library"]);
     assert.equal(organizer.listContacts().length, 1);
     const source = organizer.listContacts({ scope: "all" }).find(({ id }) => id === duplicate.id);

@@ -75,6 +75,9 @@ test("contacts use one complete editor for creation and versioned edits", () => 
   assert.match(items, /Add detail/);
   assert.match(items, /value="postal_address">Postal address/);
   assert.match(items, /methods: \[\.\.\.draft\.methods,/);
+  assert.match(items, /displayedContactMethods\(draft\.methods\)\.map/);
+  assert.match(items, /primaryDifference = Number\(right\.method\.isPrimary\) - Number\(left\.method\.isPrimary\)/);
+  assert.match(items, /nextIsPrimary && method\.kind === nextKind/);
   assert.match(items, /Add tag/);
   assert.match(server, /request\.method === "GET" && contactMatch/);
 });

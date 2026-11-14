@@ -145,6 +145,7 @@ function contactMethods(value, resolveTimeV3Handle = null) {
     throw new OrganizerInputError("methods must be an array of at most 100 contact methods.");
   }
   const seen = new Set();
+  const primaryKinds = new Set();
   return value.map((method, index) => {
     if (!method || typeof method !== "object" || Array.isArray(method)) {
       throw new OrganizerInputError(`methods[${index}] must be an object.`);
@@ -158,6 +159,12 @@ function contactMethods(value, resolveTimeV3Handle = null) {
       isPrimary: contactMethodBoolean(method.isPrimary, `methods[${index}].isPrimary`, false),
       canReceive: contactMethodBoolean(method.canReceive, `methods[${index}].canReceive`, true),
     };
+    if (item.isPrimary) {
+      if (primaryKinds.has(item.kind)) {
+        throw new OrganizerInputError(`Only one primary ${item.kind} contact method is allowed.`);
+      }
+      primaryKinds.add(item.kind);
+    }
     item.normalizedValue = normalizedContactMethod(item.kind, item.value);
     if (item.kind === "timev3_person" && resolveTimeV3Handle) {
       const person = resolveTimeV3Handle(item.value);
@@ -2293,6 +2300,12 @@ export class OrganizerStore {
         combinedMethods.push(combined);
         methodByKey.set(key, combined);
       }
+    }
+    const primaryKinds = new Set();
+    for (const method of combinedMethods) {
+      if (!method.isPrimary) continue;
+      if (primaryKinds.has(method.kind)) method.isPrimary = false;
+      else primaryKinds.add(method.kind);
     }
     const tagValues = contactTags(records.flatMap((contact) => contact.tags));
     const notes = [];

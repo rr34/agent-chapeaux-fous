@@ -1043,7 +1043,9 @@ controls which exact tool schemas are callable.
   the application processes the full verified file. `contact_import` remains
   available for up to 200 contacts supplied as structured data without a file.
   Stable source IDs make replays idempotent, and each contact can retain multiple
-  methods, notes, and reusable overlapping tags. `contact_duplicate_list` gives
+  methods, notes, and reusable overlapping tags. A contact has at most one primary
+  method of each kind. Contact editors group methods by kind and put that kind's
+  primary method first. `contact_duplicate_list` gives
   the model the same candidate groups shown by the Contacts review UI. Exact
   normalized names are candidates directly; different full names require both
   a shared normalized name word and an exact email or phone. Partial-name

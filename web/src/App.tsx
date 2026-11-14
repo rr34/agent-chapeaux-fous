@@ -3447,7 +3447,13 @@ function Workspace() {
       setView("correspondence"); history.replaceState(null, "", "#correspondence");
     }
   }, [experience, view, visibleNavigation]);
-  const go = (next: string) => { setView(next); history.replaceState(null, "", `#${next}`); };
+  const go = (next: string) => {
+    const nextUrl = new URL(location.href);
+    nextUrl.searchParams.delete("managedPersonId");
+    nextUrl.hash = next;
+    history.replaceState(null, "", `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+    setView(next);
+  };
   const changeObjectSelections = (identities: SelectedObjectCandidate[], selected: boolean) => {
     const identityKeys = new Set(identities.map(objectSelectionKey));
     if (!selected) {
