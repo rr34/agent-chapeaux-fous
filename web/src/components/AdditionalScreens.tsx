@@ -7,8 +7,8 @@ import { Empty, ErrorState, Loading } from "./State";
 import { ObjectSelectionControls } from "./ObjectSelectionControls";
 import { ObjectCard } from "./object-cards/ObjectCard";
 import { formatDisplayDate } from "../date-format";
-import { lcdViewport, renderLcdDocument } from "../lcd-document";
 import { HandleInput } from "./HandleInput";
+import { LcdPreviewCard } from "./LcdPreviewCard";
 
 type Participant = { role: string; address: string; display_name: string | null; contact_id: number | null };
 type CorrespondenceMailbox = { mailbox_id: string; name: string; role: string | null; parent_mailbox_id: string | null };
@@ -67,6 +67,7 @@ function timeV3ConversationTarget(item: CorrespondenceItem) {
   return {
     personId: Number(participant.address.slice("timev3:".length)),
     displayName: participant.display_name || "Time v3 contact",
+    contactId: participant.contact_id,
   };
 }
 
@@ -107,20 +108,21 @@ export function CorrespondenceScreen() {
   const [messageHistoryMode, setMessageHistoryMode] = useState("incremental");
   const [downloadingExtension, setDownloadingExtension] = useState(false);
   const [notice, setNotice] = useState("");
-  const [timeV3ContactId, setTimeV3ContactId] = useState("");
   const [timeV3Text, setTimeV3Text] = useState("");
-  const [lcdOffset, setLcdOffset] = useState(0);
+  const [timeV3Status, setTimeV3Status] = useState("");
   const [sendingTimeV3, setSendingTimeV3] = useState(false);
-  const [nativeConversation, setNativeConversation] = useState<{ personId: number; displayName: string } | null>(null);
+  const [choosingTimeV3Conversation, setChoosingTimeV3Conversation] = useState(false);
+  const [chosenTimeV3PersonId, setChosenTimeV3PersonId] = useState("");
+  const [nativeConversation, setNativeConversation] = useState<{
+    personId: number; displayName: string; contactId: number | null;
+  } | null>(null);
   const { data: timeV3Data, reload: reloadTimeV3Recipients } = useApi<{
     recipients: Array<{ contact_id: number; display_name: string; person_id: number }>;
   }>("/api/correspondence/timev3-recipients");
-  const { data: nativeConversationData, error: nativeConversationError, loading: nativeConversationLoading } = useApi<{
+  const { data: nativeConversationData, error: nativeConversationError, loading: nativeConversationLoading, reload: reloadNativeConversation } = useApi<{
     items: CorrespondenceItem[];
     recipient: { contact_id: number; display_name: string; person_id: number };
   }>(nativeConversation ? `/api/correspondence/timev3-conversation?personId=${nativeConversation.personId}&limit=200` : null);
-  const lcdDocument = useMemo(() => renderLcdDocument(timeV3Text), [timeV3Text]);
-  const lcd = useMemo(() => lcdViewport(lcdDocument, lcdOffset), [lcdDocument, lcdOffset]);
   const parameters = new URLSearchParams({ limit: "200", offset: String(page * 200) });
   if (query.trim()) parameters.set("q", query.trim());
   if (medium) parameters.set("medium", medium);
@@ -135,7 +137,6 @@ export function CorrespondenceScreen() {
     mailboxes: CorrespondenceMailbox[]; contact_tags: CorrespondenceContactTag[]; has_more: boolean;
   }>(`/api/correspondence?${parameters}`);
   useEffect(() => { setPage(0); }, [query, medium, direction, mailbox, participantTag, occurredFromDate, occurredBeforeDate, groupBy]);
-  useEffect(() => { setLcdOffset((value) => Math.min(value, Math.max(0, lcdDocument.length - 4))); }, [lcdDocument.length]);
   const groups = useMemo(() => {
     const grouped = new Map<string, CorrespondenceItem[]>();
     for (const item of data?.items || []) {
@@ -147,6 +148,15 @@ export function CorrespondenceScreen() {
     }
     return [...grouped.entries()];
   }, [data?.items, groupBy]);
+  const openNativeConversation = (target: { personId: number; displayName: string; contactId: number | null }) => {
+    setNativeConversation(target);
+    setChoosingTimeV3Conversation(false);
+    setChosenTimeV3PersonId("");
+    setTimeV3Text("");
+    setTimeV3Status("");
+  };
+  const nativeConversationContactId = nativeConversationData?.recipient.contact_id ?? nativeConversation?.contactId;
+  const nativeConversationDisplayName = nativeConversationData?.recipient.display_name ?? nativeConversation?.displayName ?? "";
   const sync = async () => {
     setSyncing(true); setNotice("");
     try {
@@ -181,16 +191,29 @@ export function CorrespondenceScreen() {
   };
   const sendTimeV3 = async (event: React.FormEvent) => {
     event.preventDefault();
-    setSendingTimeV3(true); setNotice("");
+    const contactId = nativeConversationContactId;
+    if (!contactId) return;
+    setSendingTimeV3(true); setTimeV3Status("");
     try {
       await api("/api/correspondence/timev3-messages", {
         method: "POST",
-        body: JSON.stringify({ contactId: Number(timeV3ContactId), text: timeV3Text }),
+        body: JSON.stringify({ contactId, text: timeV3Text }),
       });
-      setTimeV3Text(""); setLcdOffset(0); setNotice("Time v3 message delivered.");
-      await Promise.all([reload(), reloadTimeV3Recipients()]);
-    } catch (caught) { setNotice(caught instanceof Error ? caught.message : String(caught)); }
+      setTimeV3Text(""); setTimeV3Status("Message delivered.");
+      await Promise.all([reload(), reloadTimeV3Recipients(), reloadNativeConversation()]);
+    } catch (caught) { setTimeV3Status(caught instanceof Error ? caught.message : String(caught)); }
     finally { setSendingTimeV3(false); }
+  };
+  const chooseTimeV3Conversation = (event: React.FormEvent) => {
+    event.preventDefault();
+    const recipient = (timeV3Data?.recipients || [])
+      .find((candidate) => String(candidate.person_id) === chosenTimeV3PersonId);
+    if (!recipient) return;
+    openNativeConversation({
+      personId: recipient.person_id,
+      displayName: recipient.display_name,
+      contactId: recipient.contact_id,
+    });
   };
   const syncMessages = async () => {
     setChoosingMessageHistory(false);
@@ -248,35 +271,32 @@ export function CorrespondenceScreen() {
     finally { setSyncingMessages(false); }
   };
   return <>
-    <header className="page-heading"><div><p>Correspondence consolidates every channel—email, messages, calls, and voicemail—into one record without replacing their authoritative apps.</p></div>{!lightExperience && <div className="heading-actions"><button className="button button--quiet" disabled={downloadingExtension} onClick={() => void downloadExtension()}>{downloadingExtension ? "Downloading…" : "Download Messages extension"}</button><button className="button" disabled={syncing} onClick={() => void sync()}>{syncing ? "Syncing…" : "Sync email"}</button><button className="button" disabled={syncingMessages} onClick={() => setChoosingMessageHistory(true)}>{syncingMessages ? "Syncing…" : "Sync Google Messages"}</button></div>}</header>
+    <header className="page-heading"><div><p>Correspondence consolidates every channel—email, messages, calls, and voicemail—into one record without replacing their authoritative apps.</p></div><div className="heading-actions"><button className="button button--quiet" type="button" onClick={() => setChoosingTimeV3Conversation(true)}>Time v3 conversation</button>{!lightExperience && <><button className="button button--quiet" disabled={downloadingExtension} onClick={() => void downloadExtension()}>{downloadingExtension ? "Downloading…" : "Download Messages extension"}</button><button className="button" disabled={syncing} onClick={() => void sync()}>{syncing ? "Syncing…" : "Sync email"}</button><button className="button" disabled={syncingMessages} onClick={() => setChoosingMessageHistory(true)}>{syncingMessages ? "Syncing…" : "Sync Google Messages"}</button></>}</div></header>
     {!lightExperience && choosingMessageHistory && <div className="object-editor-backdrop"><section className="object-editor message-history-dialog" role="dialog" aria-modal="true" aria-labelledby="message-history-heading"><form onSubmit={(event) => { event.preventDefault(); void syncMessages(); }}><header className="object-editor-heading"><div><p className="eyebrow">Google Messages</p><h2 id="message-history-heading">Choose history range</h2></div></header><label>Messages to synchronize<select autoFocus value={messageHistoryMode} onChange={(event) => setMessageHistoryMode(event.target.value)}><option value="incremental">Since last sync</option><option value="days_30">Last 30 days</option><option value="days_90">Last 90 days</option><option value="days_365">Last year</option><option value="all">All available history</option></select></label><p className="object-editor-note">On the first run, “Since last sync” imports 30 days. Later runs overlap the previous successful sync by two days.</p><footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={() => setChoosingMessageHistory(false)}>Cancel</button><button className="button" type="submit">Start sync</button></footer></form></section></div>}
+    {choosingTimeV3Conversation && <div className="object-editor-backdrop"><section className="object-editor message-history-dialog" role="dialog" aria-modal="true" aria-labelledby="choose-timev3-conversation-heading"><form onSubmit={chooseTimeV3Conversation}>
+      <header className="object-editor-heading"><div><h2 id="choose-timev3-conversation-heading">Time v3 conversation</h2></div></header>
+      <label>Contact<select autoFocus required value={chosenTimeV3PersonId} onChange={(event) => setChosenTimeV3PersonId(event.target.value)}><option value="">Choose contact</option>{(timeV3Data?.recipients || []).map((recipient) => <option key={`${recipient.contact_id}:${recipient.person_id}`} value={recipient.person_id}>{recipient.display_name}</option>)}</select></label>
+      {!timeV3Data?.recipients.length && <p className="object-editor-note">No contacts have a valid Time v3 handle.</p>}
+      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={() => setChoosingTimeV3Conversation(false)}>Cancel</button><button className="button" type="submit" disabled={!chosenTimeV3PersonId}>Open</button></footer>
+    </form></section></div>}
     {nativeConversation && <div className="object-editor-backdrop"><section className="object-editor native-conversation-dialog" role="dialog" aria-modal="true" aria-labelledby="native-conversation-heading">
-      <header className="object-editor-heading"><div><p className="eyebrow">Time v3 conversation</p><h2 id="native-conversation-heading">{nativeConversation.displayName}</h2></div><button className="button button--quiet" type="button" onClick={() => setNativeConversation(null)}>Close</button></header>
+      <header className="object-editor-heading"><div><h2 id="native-conversation-heading">{nativeConversationDisplayName}</h2></div><button className="button button--quiet" type="button" onClick={() => setNativeConversation(null)}>Close</button></header>
       {nativeConversationLoading && <Loading label="Loading conversation" />}
       {Boolean(nativeConversationError) && <ErrorState error={nativeConversationError} />}
       {!nativeConversationLoading && !nativeConversationError && !nativeConversationData?.items.length && <Empty>No messages in this conversation.</Empty>}
       {!nativeConversationLoading && !nativeConversationError && Boolean(nativeConversationData?.items.length) && <div className="native-conversation-messages">{nativeConversationData!.items.slice().reverse().map((message) => <article className={`native-conversation-message native-conversation-message--${message.direction}`} key={message.correspondence_id}>
-        <div><strong>{message.direction === "outbound" ? "You" : nativeConversation.displayName}</strong><time dateTime={message.occurred_at_utc}>{formatDisplayDate(message.occurred_at_utc)}</time></div>
+        <div><strong>{message.direction === "outbound" ? "You" : nativeConversationDisplayName}</strong><time dateTime={message.occurred_at_utc}>{formatDisplayDate(message.occurred_at_utc)}</time></div>
         <p>{correspondencePreview(message.body) || "Empty message"}</p>
       </article>)}</div>}
-    </section></div>}
-    <section className="timev3-composer surface" aria-labelledby="timev3-composer-heading">
-      <div className="section-title"><div><p className="eyebrow">20 × 4 display</p><h2 id="timev3-composer-heading">Time v3 message</h2><p>The preview uses the same twenty-character wrapping contract as the node.</p></div></div>
-      <form className="timev3-composer-layout" onSubmit={(event) => void sendTimeV3(event)}>
+      <form className="timev3-composer-layout native-conversation-composer" onSubmit={(event) => void sendTimeV3(event)}>
         <div className="timev3-composer-fields">
-          <label>Recipient<select required value={timeV3ContactId} onChange={(event) => setTimeV3ContactId(event.target.value)}><option value="">Choose an approved Time v3 contact</option>{(timeV3Data?.recipients || []).map((recipient) => <option key={`${recipient.contact_id}:${recipient.person_id}`} value={recipient.contact_id}>{recipient.display_name}</option>)}</select></label>
-          <label>Message<textarea required rows={8} maxLength={20_000} value={timeV3Text} onChange={(event) => setTimeV3Text(event.target.value)} placeholder="Type exactly what the node should display." /></label>
-          <button className="button" disabled={sendingTimeV3 || !timeV3ContactId || !timeV3Text.trim()}>{sendingTimeV3 ? "Sending…" : "Send Time v3 message"}</button>
+          <label>Message<textarea required rows={8} maxLength={20_000} value={timeV3Text} onChange={(event) => setTimeV3Text(event.target.value)} /></label>
+          <button className="button" disabled={sendingTimeV3 || !nativeConversationContactId || !timeV3Text.trim()}>{sendingTimeV3 ? "Sending…" : "Send"}</button>
+          {timeV3Status && <small role="status">{timeV3Status}</small>}
         </div>
-        <div className="lcd-preview-wrap">
-          <div className="lcd-preview" role="img" aria-label={`LCD preview, rows ${lcd.offset + 1} through ${Math.min(lcd.offset + 4, lcdDocument.length)} of ${lcdDocument.length}`}>
-            {lcd.rows.map((row, index) => <span key={index}>{row}</span>)}
-          </div>
-          <div className="lcd-preview-controls"><button className="button button--quiet" type="button" disabled={lcd.offset === 0} onClick={() => setLcdOffset((value) => Math.max(0, value - 1))}>Scroll up</button><span>{lcd.offset + 1}–{Math.min(lcd.offset + 4, lcdDocument.length)} of {lcdDocument.length}</span><button className="button button--quiet" type="button" disabled={lcd.offset >= lcd.maximum} onClick={() => setLcdOffset((value) => Math.min(lcd.maximum, value + 1))}>Scroll down</button></div>
-        </div>
+        <LcdPreviewCard text={timeV3Text} />
       </form>
-      {!timeV3Data?.recipients.length && <p className="object-editor-note">Add a <strong>Time v3 handle</strong> detail containing the recipient’s @handle to an existing contact to approve that recipient.</p>}
-    </section>
+    </section></div>}
     <div className="section-filter correspondence-filters">
       <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search subject or body" />
       <select value={medium} onChange={(event) => setMedium(event.target.value)}><option value="">All media</option>{["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "timev3", "other"].map((value) => <option key={value}>{value}</option>)}</select>
@@ -320,7 +340,7 @@ export function CorrespondenceScreen() {
         ...item.mailboxes.map((value) => value.name),
         ...(item.linked_todos.length ? [`${item.linked_todos.length} linked to-do${item.linked_todos.length === 1 ? "" : "s"}`] : []),
         ...(item.linked_calendar_events.length ? [`${item.linked_calendar_events.length} linked event${item.linked_calendar_events.length === 1 ? "" : "s"}`] : [])],
-    }} controls={<ObjectSelectionControls identity={correspondenceIdentity(item)} subject={`correspondence ${item.display}`} />} actions={timeV3ConversationTarget(item) ? [{ key: "conversation", label: "View conversation", onClick: () => setNativeConversation(timeV3ConversationTarget(item)) }] : []} details={item.linked_todos.length || item.linked_calendar_events.length ? <>
+    }} controls={<ObjectSelectionControls identity={correspondenceIdentity(item)} subject={`correspondence ${item.display}`} />} actions={timeV3ConversationTarget(item) ? [{ key: "conversation", label: "View conversation", onClick: () => { const target = timeV3ConversationTarget(item); if (target) openNativeConversation(target); } }] : []} details={item.linked_todos.length || item.linked_calendar_events.length ? <>
       {item.linked_todos.length > 0 && <section><h4>Linked to-dos</h4><ul>{item.linked_todos.map((todo) => <li key={todo.todo_id}>{todo.text}</li>)}</ul></section>}
       {item.linked_calendar_events.length > 0 && <section><h4>Linked calendar events</h4><ul>{item.linked_calendar_events.map((event) => <li key={event.calendar_event_id}>{event.title} · {formatDisplayDate(event.starts_at_utc, { timeZone: event.time_zone || undefined })}</li>)}</ul></section>}
     </> : undefined} />)}</ul></section>)}</div>}

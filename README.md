@@ -561,9 +561,9 @@ same opaque external identity. A first accepted message may create the sender's
 native contact for a self-managed recipient, but it never bypasses a blocked
 native contact and never auto-adds a sender for a manager-managed recipient.
 The node lists approved contacts alphabetically and reads each contact's paired
-inbound and outbound history newest-first. Left and right move only within that
-conversation; Backspace returns from a message to contact selection before it
-returns to the root menu.
+inbound and outbound history newest-first. A message body uses all four LCD
+rows. Left and right move only within that conversation; Backspace returns from
+a message to contact selection before it returns to the root menu.
 Text is escaped into the canonical correspondence body. Voice will use
 an Ogg/Opus recording joined through the existing correspondence-file
 relationship rather than a separate correspondence medium.
@@ -1554,9 +1554,11 @@ The same Correspondence screen owns native Time v3 composition. Its LCD preview
 uses the node's exact 20×4 wrapping rules. Native delivery is available only to
 contacts explicitly given a receivable Time v3 person method; it creates paired
 outbound and inbound person-owned correspondence rather than mutating a
-provider mirror. A native correspondence item can open a bounded conversation
-view containing only that approved person's inbound and outbound Time v3
-messages.
+provider mirror. Any approved Time v3 contact can open a bounded conversation
+view, including before the first message, containing only that person's inbound
+and outbound Time v3 messages. Composition lives in that view beside the exact
+LCD preview. The preview remains a reusable component for later message and
+Time v3 page editors rather than being owned by correspondence composition.
 
 The web-only **Music** section follows Files in navigation, reads the same
 authenticated library as mobile, groups recordings by release or work, and

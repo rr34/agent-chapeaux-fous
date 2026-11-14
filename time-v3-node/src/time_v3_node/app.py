@@ -138,27 +138,19 @@ class NodeApplication:
         self.show_message_item()
 
     def show_message_item(self) -> None:
-        contact = self.message_contacts[self.message_contact_index] if self.message_contacts else {}
-        name = str(contact.get("display_name") or "CONTACT")
         if self.message_notice:
             body_rows = LcdDocument(self.message_notice).render_rows()
-            header = name[:20]
         elif not self.message_items:
             body_rows = ["NO MESSAGES"]
-            header = name[:20]
         else:
             item = self.message_items[self.message_index]
-            direction = "FROM" if item.get("direction") == "inbound" else "TO"
-            prefix = f"{self.message_index + 1}/{len(self.message_items)} {direction} "
-            header = f"{prefix}{name[:max(0, 20 - len(prefix))]}"
             body_rows = LcdDocument(plain_body(item.get("body"))).render_rows()
-        maximum = max(0, len(body_rows) - 3)
+        maximum = max(0, len(body_rows) - 4)
         self.offset = min(maximum, max(0, self.offset))
-        visible = [header[:20].ljust(20)]
-        visible.extend(
+        visible = [
             (body_rows[self.offset + index] if self.offset + index < len(body_rows) else "")[:20].ljust(20)
-            for index in range(3)
-        )
+            for index in range(4)
+        ]
         self.display.show(tuple(visible))
 
     async def start_pairing(self) -> None:

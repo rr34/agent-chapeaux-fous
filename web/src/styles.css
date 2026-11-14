@@ -1078,7 +1078,6 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .correspondence-filters input, .correspondence-filters select { min-width: 0; }
 .correspondence-pages { display: flex; align-items: center; justify-content: center; gap: .75rem; margin-top: 1rem; }
 .correspondence-sync-status { white-space: pre-line; }
-.timev3-composer { margin-bottom: 1rem; }
 .timev3-composer-layout { display: grid; grid-template-columns: minmax(16rem, 1fr) minmax(20rem, 1fr); gap: 1.25rem; align-items: start; }
 .timev3-composer-fields { display: grid; gap: .75rem; }
 .timev3-composer-fields label { display: grid; gap: .35rem; }
@@ -1089,12 +1088,13 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .lcd-preview-controls { display: flex; gap: .65rem; align-items: center; justify-content: center; flex-wrap: wrap; color: var(--muted); font-size: .85rem; }
 .message-history-dialog { width: min(460px, 100%); }
 .native-conversation-dialog { width: min(680px, 100%); display: grid; gap: 16px; }
-.native-conversation-messages { display: flex; flex-direction: column; gap: 10px; }
+.native-conversation-messages { max-height: min(40vh, 24rem); display: flex; flex-direction: column; gap: 10px; padding-right: 4px; overflow-y: auto; }
 .native-conversation-message { width: min(82%, 34rem); display: grid; gap: 5px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: white; }
 .native-conversation-message--outbound { align-self: flex-end; border-color: #9fad91; background: var(--olive-soft); }
 .native-conversation-message--inbound { align-self: flex-start; }
 .native-conversation-message > div { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 11px; }
 .native-conversation-message p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
+.native-conversation-composer { padding-top: 16px; border-top: 1px solid var(--line); }
 .managed-account-password { display: grid; gap: 8px; margin-top: 8px; }
 .managed-account-password > .button { justify-self: start; }
 .message-sync-progress { display: grid; gap: .45rem; margin: 0 0 .8rem; padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }

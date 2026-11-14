@@ -163,7 +163,7 @@ class MenuAndMotionTests(unittest.TestCase):
             def conversation(self, person_id, limit):
                 self.requested = (person_id, limit)
                 return [
-                    {"direction": "inbound", "body": "Newest message"},
+                    {"direction": "inbound", "body": "Newest message\nline two\nline three\nline four\nline five"},
                     {"direction": "outbound", "body": "Older message"},
                 ]
 
@@ -179,16 +179,18 @@ class MenuAndMotionTests(unittest.TestCase):
             await application.action("select")
             self.assertEqual(client.requested, (2, 200))
             self.assertEqual(application.screen, "message_item")
-            self.assertEqual(display.rows[0].strip(), "1/2 FROM Alex")
-            self.assertEqual(display.rows[1].strip(), "Newest message")
+            self.assertEqual(display.rows[0].strip(), "Newest message")
+            self.assertEqual(display.rows[3].strip(), "line four")
+            await application.action("down")
+            self.assertEqual(display.rows[0].strip(), "line two")
+            self.assertEqual(display.rows[3].strip(), "line five")
 
             await application.action("right")
-            self.assertEqual(display.rows[0].strip(), "2/2 TO Alex")
-            self.assertEqual(display.rows[1].strip(), "Older message")
+            self.assertEqual(display.rows[0].strip(), "Older message")
             await application.action("right")
-            self.assertEqual(display.rows[0].strip(), "2/2 TO Alex")
+            self.assertEqual(display.rows[0].strip(), "Older message")
             await application.action("left")
-            self.assertEqual(display.rows[0].strip(), "1/2 FROM Alex")
+            self.assertEqual(display.rows[0].strip(), "Newest message")
 
             await application.action("back")
             self.assertEqual(application.screen, "message_contacts")

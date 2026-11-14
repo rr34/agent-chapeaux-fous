@@ -148,6 +148,7 @@ test("calendar routine cards own event-style timing and omit the redundant type 
 test("correspondence cards own compact channel, direction, and content presentation", () => {
   const correspondence = fs.readFileSync(path.join(cardsRoot, "CorrespondenceCard.tsx"), "utf8");
   const screen = fs.readFileSync(path.join(root, "web/src/components/AdditionalScreens.tsx"), "utf8");
+  const lcdPreview = fs.readFileSync(path.join(root, "web/src/components/LcdPreviewCard.tsx"), "utf8");
   const service = fs.readFileSync(path.join(root, "src/correspondence.mjs"), "utf8");
   const network = fs.readFileSync(path.join(root, "src/object-network.mjs"), "utf8");
   const styles = fs.readFileSync(path.join(root, "web/src/styles.css"), "utf8");
@@ -168,6 +169,10 @@ test("correspondence cards own compact channel, direction, and content presentat
   assert.match(screen, /function timeV3ConversationTarget/);
   assert.match(screen, /label: "View conversation"/);
   assert.match(screen, /native-conversation-message--\$\{message\.direction\}/);
+  assert.match(screen, /<LcdPreviewCard text=\{timeV3Text\} \/>/);
+  assert.doesNotMatch(screen, /<section className="timev3-composer surface"/);
+  assert.match(lcdPreview, /export function LcdPreviewCard/);
+  assert.match(lcdPreview, /renderLcdDocument\(text\)/);
   assert.match(service, /call_disposition: row\.call_disposition \?\? null/);
   assert.match(network, /attribute\("Call disposition", row\.call_disposition\)/);
   assert.match(styles, /\.first-class-object-card\.correspondence-card > \.first-class-object-content > \.first-class-object-label,[\s\S]*\.compact-object-card\.correspondence-card > \.compact-object-identity > span:first-child \{ display: none; \}/);
