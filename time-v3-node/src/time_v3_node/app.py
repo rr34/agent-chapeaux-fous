@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from contextlib import suppress
 from html import unescape
 from re import sub
 
@@ -9,9 +10,10 @@ from .client import TimeV3Client
 from .document import LcdDocument
 from .hardware import Display, Keypad, Mpu6050
 from .menu import Menu
-from .motion import RelativeOrientation
+from .motion import MOTION_PAGE_COUNT, RelativeOrientation
 
 logger = logging.getLogger(__name__)
+MOTION_REFRESH_SECONDS = 0.2
 
 
 def plain_body(value: str | None) -> str:
@@ -29,6 +31,8 @@ class NodeApplication:
         self.offset = 0
         self.document = LcdDocument()
         self.orientation = RelativeOrientation()
+        self.motion_page = 0
+        self._motion_read_failed = False
 
     def home(self) -> None:
         self.screen = "home"
@@ -50,17 +54,11 @@ class NodeApplication:
                     self.document = LcdDocument("MESSAGES UNAVAILABLE")
             self.screen = "document"
         elif selected == "Accelerometer":
-            if not self.motion:
-                self.document = LcdDocument("SENSOR NOT READY")
-            else:
-                try:
-                    sample = self.motion.read()
-                    _, _, yaw = self.orientation.update(sample)
-                    self.document = LcdDocument(sample.display_text(yaw))
-                except OSError:
-                    logger.exception("Could not read the MPU-6050")
-                    self.document = LcdDocument("SENSOR READ FAILED\n+ TO RETRY")
-            self.screen = "document"
+            self.screen = "motion"
+            self.motion_page = 0
+            self.orientation.zero()
+            self.show_motion()
+            return
         elif selected == "Internet":
             self.document = LcdDocument("NO APPROVED PAGES\nLOADED")
             self.screen = "document"
@@ -74,6 +72,27 @@ class NodeApplication:
         self.offset = viewport.offset
         self.display.show(viewport.rows)
 
+    def show_motion(self) -> None:
+        if not self.motion:
+            self.display.show(("MOTION SENSOR       ", "NOT READY           ", "                    ", "0 HOME              "))
+            return
+        try:
+            sample = self.motion.read()
+            _, _, yaw = self.orientation.update(sample)
+            self._motion_read_failed = False
+            self.display.show(tuple(row[:20].ljust(20) for row in sample.display_page(self.motion_page, yaw)))
+        except OSError:
+            if not self._motion_read_failed:
+                logger.exception("Could not read the MPU-6050")
+            self._motion_read_failed = True
+            self.display.show(("MOTION SENSOR       ", "READ FAILED         ", "RETRYING...         ", "0 HOME              "))
+
+    async def refresh_motion(self) -> None:
+        while True:
+            await asyncio.sleep(MOTION_REFRESH_SECONDS)
+            if self.screen == "motion":
+                self.show_motion()
+
     async def action(self, action: str) -> None:
         if action == "home":
             self.home()
@@ -82,6 +101,18 @@ class NodeApplication:
             elif action == "down": self.menu.move(1)
             elif action in {"select", "right"}: await self.open_current()
             self.display.show(self.menu.rows()) if self.screen == "home" else None
+        elif self.screen == "motion":
+            if action == "back":
+                self.home()
+            elif action == "left":
+                self.motion_page = (self.motion_page - 1) % MOTION_PAGE_COUNT
+                self.show_motion()
+            elif action == "right":
+                self.motion_page = (self.motion_page + 1) % MOTION_PAGE_COUNT
+                self.show_motion()
+            elif action == "select":
+                self.orientation.zero()
+                self.show_motion()
         elif action == "back":
             self.home()
         elif action == "up":
@@ -90,11 +121,15 @@ class NodeApplication:
         elif action == "down":
             self.offset += 1
             self.show_document()
-        elif action == "record" and self.menu.current == "Accelerometer":
-            await self.open_current()
 
     async def run(self) -> None:
         self.home()
-        async for action in self.keypad.actions():
-            await self.action(action)
+        refresh_task = asyncio.create_task(self.refresh_motion())
+        try:
+            async for action in self.keypad.actions():
+                await self.action(action)
+        finally:
+            refresh_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await refresh_task
 

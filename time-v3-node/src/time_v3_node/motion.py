@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from math import atan2, degrees, sqrt
 from time import monotonic
 
+MOTION_PAGE_COUNT = 4
+
 
 @dataclass(frozen=True)
 class MotionSample:
@@ -23,23 +25,37 @@ class MotionSample:
     def pitch(self) -> float:
         return degrees(atan2(-self.accel_x, sqrt(self.accel_y**2 + self.accel_z**2)))
 
-    def display_text(self, yaw: float) -> str:
-        """Render the six motion channels and their orientation interpretation."""
-        rows = [
-            f"AX {self.accel_x:+.3f} g",
-            f"AY {self.accel_y:+.3f} g",
-            f"AZ {self.accel_z:+.3f} g",
-            f"GX {self.gyro_x:+.2f} deg/s",
-            f"GY {self.gyro_y:+.2f} deg/s",
-            f"GZ {self.gyro_z:+.2f} deg/s",
-            f"ROLL {self.roll:+.1f} deg",
-            f"PITCH {self.pitch:+.1f} deg",
-            f"YAW {yaw:+.1f} deg",
-        ]
-        if self.temperature_c is not None:
-            rows.append(f"TEMP {self.temperature_c:+.1f} C")
-        rows.append("+ TO REFRESH")
-        return "\n".join(rows)
+    def display_page(self, page: int, yaw: float) -> tuple[str, str, str, str]:
+        """Render one complete motion page without requiring vertical scrolling."""
+        selected = page % MOTION_PAGE_COUNT
+        if selected == 0:
+            return (
+                "ACCELERATION 1/4",
+                f"AX {self.accel_x:+.3f} g",
+                f"AY {self.accel_y:+.3f} g",
+                f"AZ {self.accel_z:+.3f} g",
+            )
+        if selected == 1:
+            return (
+                "GYROSCOPE 2/4",
+                f"GX {self.gyro_x:+.2f} deg/s",
+                f"GY {self.gyro_y:+.2f} deg/s",
+                f"GZ {self.gyro_z:+.2f} deg/s",
+            )
+        if selected == 2:
+            return (
+                "ORIENTATION 3/4",
+                f"ROLL {self.roll:+.1f} deg",
+                f"PITCH {self.pitch:+.1f} deg",
+                f"YAW {yaw:+.1f} 5=ZERO",
+            )
+        temperature = "TEMP unavailable" if self.temperature_c is None else f"TEMP {self.temperature_c:+.1f} C"
+        return (
+            "MOTION HELP 4/4",
+            temperature,
+            "4/6 CHANGE PAGE",
+            "0 HOME 5 ZERO YAW",
+        )
 
 
 class RelativeOrientation:
