@@ -109,6 +109,63 @@ test("singleton inputs may choose one verified object while explicit batch selec
   }), null);
 });
 
+test("complete explicit selections may be distributed across same-type role bindings", () => {
+  const selectedContacts = [{
+    mention: "those contacts", type: "contacts.contact", source: "native:contacts",
+    objects: [
+      { id: 135, ref: "agent-slayer://contacts/135", display: "Luzia Ruffing" },
+      { id: 587, ref: "agent-slayer://contacts/587", display: "Luzia" },
+    ],
+    sourceEventSeqs: [58_444],
+  }];
+  const mergeTool = {
+    ...tool,
+    name: "contact_merge",
+    source: "local",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      properties: {
+        merges: { type: "array", items: {
+          type: "object", properties: {
+            keep_contact_id: { type: "integer" },
+            merge_contacts: { type: "array", items: {
+              type: "object", properties: { contact_id: { type: "integer" } },
+            } },
+          },
+        } },
+      },
+    },
+    metadata: { [objectInputBindingsMetadataKey]: {
+      protocol: "agent-slayer.object-input-bindings", version: 1,
+      bindings: [
+        {
+          path: "/merges/*/keep_contact_id", objectType: "contacts.contact",
+          value: "id", role: "merge_destination",
+        },
+        {
+          path: "/merges/*/merge_contacts/*/contact_id", objectType: "contacts.contact",
+          value: "id", role: "merge_source",
+        },
+      ],
+    } },
+  };
+
+  assert.equal(objectInputBindingProblem({
+    toolDefinition: mergeTool,
+    argumentsObject: {
+      merges: [{ keep_contact_id: 587, merge_contacts: [{ contact_id: 135 }] }],
+    },
+    selectedGroups: selectedContacts,
+    completeGroups: selectedContacts,
+  }), null);
+  assert.match(objectInputBindingProblem({
+    toolDefinition: mergeTool,
+    argumentsObject: { merges: [{ keep_contact_id: 587, merge_contacts: [] }] },
+    selectedGroups: selectedContacts,
+    completeGroups: selectedContacts,
+  }), /must include the complete explicit.*Luzia Ruffing/u);
+});
+
 test("a batch may use a verified subset of ordinary observed intent bindings", () => {
   const selectedBatch = [{
     ...selected[0],

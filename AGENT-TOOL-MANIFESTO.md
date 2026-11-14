@@ -585,12 +585,14 @@ lets the read verify an exact user- or application-supplied ID and does not
 carry into downstream consuming tools.
 
 For a batch-shaped input every supplied member is checked. An explicit composer
-selection remains complete and cannot be silently shortened. Ordinary observed
-bindings and orientation-created sets may be used in the exact subset and
-shape expressed by the accepted action; a singleton call is not rejected just
-because other verified objects of the same type exist. The input contract
-enforces identity continuity only. Authorization, freshness, business
-validation, and result meaning remain with the owning tool.
+selection remains complete and cannot be silently shortened. Completeness is
+evaluated across all mapped inputs for the same object type, not independently
+at each role-specific path. Ordinary observed bindings and orientation-created
+sets may be used in the exact subset and shape expressed by the accepted action;
+a singleton call is not rejected just because other verified objects of the
+same type exist. The input contract enforces identity continuity only.
+Authorization, freshness, business validation, and result meaning remain with
+the owning tool.
 
 ## 2A.3. Object and relationship set contract
 

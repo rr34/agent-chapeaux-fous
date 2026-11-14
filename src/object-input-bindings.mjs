@@ -91,32 +91,14 @@ export function objectInputBindingProblem({
   const contract = toolDefinition?.metadata?.[objectInputBindingsMetadataKey];
   if (!contract) return null;
   for (const binding of contract.bindings) {
-    const segments = pointerSegments(binding.path);
     const supplied = valuesAt(argumentsObject, pointerSegments(binding.path))
       .filter((value) => value !== undefined && value !== null);
     if (!supplied.length) continue;
-    const selectedReferences = referencesFor(
-      toolDefinition, binding.objectType, selectedGroups, [],
-    );
-    const completeReferences = referencesFor(
-      toolDefinition, binding.objectType, completeGroups, [],
-    );
     const references = referencesFor(
       toolDefinition, binding.objectType, selectedGroups, observedGroups,
     );
     const allowed = new Set(references.map((object) => object[binding.value]));
     const invalid = supplied.find((value) => !allowed.has(value));
-    if (invalid === undefined && selectedReferences.length) {
-      if (segments.includes("*") && completeReferences.length) {
-        const suppliedSet = new Set(supplied);
-        const missing = completeReferences
-          .filter((object) => !suppliedSet.has(object[binding.value]));
-        if (missing.length) {
-          const exact = modelReferences(missing, binding);
-          return `${toolDefinition.name}${binding.path} must include the complete explicit ${binding.objectType} selection; missing ${binding.value} values for ${JSON.stringify(exact)}`;
-        }
-      }
-    }
     if (invalid === undefined) continue;
     if (!references.length && binding.allowUnbound === true) continue;
     if (!references.length) {
@@ -124,6 +106,28 @@ export function objectInputBindingProblem({
     }
     const exact = modelReferences(references, binding);
     return `${toolDefinition.name}${binding.path} must use an exact verified ${binding.value} from the available ${binding.objectType} bindings: ${JSON.stringify(exact)}`;
+  }
+
+  for (const objectType of new Set(contract.bindings.map((binding) => binding.objectType))) {
+    const bindings = contract.bindings.filter((binding) => binding.objectType === objectType);
+    if (!bindings.some((binding) => pointerSegments(binding.path).includes("*"))) continue;
+    const selectedReferences = referencesFor(toolDefinition, objectType, selectedGroups, []);
+    const completeReferences = referencesFor(toolDefinition, objectType, completeGroups, []);
+    if (!selectedReferences.length || !completeReferences.length) continue;
+    const suppliedByBinding = bindings.map((binding) => ({
+      binding,
+      supplied: new Set(valuesAt(argumentsObject, pointerSegments(binding.path))
+        .filter((value) => value !== undefined && value !== null)),
+    }));
+    if (!suppliedByBinding.some(({ supplied }) => supplied.size)) continue;
+    const missing = completeReferences.filter((object) => !suppliedByBinding.some(
+      ({ binding, supplied }) => supplied.has(object[binding.value]),
+    ));
+    if (missing.length) {
+      const exact = modelReferences(missing, bindings[0]);
+      const paths = bindings.map(({ path }) => path).join(", ");
+      return `${toolDefinition.name} object inputs (${paths}) must include the complete explicit ${objectType} selection; missing values for ${JSON.stringify(exact)}`;
+    }
   }
   return null;
 }
