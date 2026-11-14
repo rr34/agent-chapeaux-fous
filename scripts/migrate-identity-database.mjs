@@ -11,6 +11,15 @@ import {
 
 export const identityMigrationsFilename = path.join(repositoryRoot, "db/identity/migrations.sql");
 export const identityMigrationLockTimeoutSeconds = 30;
+const resumableIdentity4ErrorCodes = new Set([
+  "ER_BAD_FIELD_ERROR",
+  "ER_CANT_DROP_FIELD_OR_KEY",
+  "ER_DUP_FIELDNAME",
+  "ER_DUP_KEYNAME",
+  "ER_MULTIPLE_PRI_KEY",
+  "ER_NO_SUCH_TABLE",
+  "ER_BAD_TABLE_ERROR",
+]);
 
 function lockName(databaseName) {
   const value = `timev3-identity:migrations:${databaseName}`;
@@ -120,6 +129,12 @@ async function assertMigrationIntegrity(connection, migration, databaseName) {
 
 async function assertMigrationPreconditions(connection, migration) {
   if (migration.version !== 4) return;
+  const [columns] = await connection.query(`
+    SELECT COUNT(*) AS legacy_account_column_count
+      FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'people' AND COLUMN_NAME = 'account_id'
+  `);
+  if (Number(columns[0]?.legacy_account_column_count) === 0) return;
   const [rows] = await connection.query(`
     SELECT COUNT(*) AS invalid_count
       FROM (
@@ -132,6 +147,21 @@ async function assertMigrationPreconditions(connection, migration) {
   `);
   if (Number(rows[0]?.invalid_count) !== 0) {
     throw new Error("Identity migration 0004 requires exactly one person for every account; repair the account/person mapping before retrying");
+  }
+}
+
+async function applyMigrationStatement(connection, migration, statement, output) {
+  try {
+    await connection.query(statement);
+  } catch (error) {
+    // Migration 0004 consists of statement-sized, implicitly committed phases.
+    // If a run was interrupted, rerunning encounters only these narrow schema
+    // errors on phases that completed before identity_meta could advance.
+    if (migration.version === 4 && resumableIdentity4ErrorCodes.has(error?.code)) {
+      output.write(`Identity migration 0004 skipped an already-applied phase (${error.code}).\n`);
+      return;
+    }
+    throw error;
   }
 }
 
@@ -185,7 +215,7 @@ export async function runIdentityMigrations({
     for (const migration of pending) {
       await assertMigrationPreconditions(connection, migration);
       for (const statement of splitMariaDbStatements(migration.sql, `identity migration ${migration.label}`)) {
-        await connection.query(statement);
+        await applyMigrationStatement(connection, migration, statement, output);
       }
       await assertMigrationIntegrity(connection, migration, databaseName);
       await advanceVersion(connection, currentVersion, migration);

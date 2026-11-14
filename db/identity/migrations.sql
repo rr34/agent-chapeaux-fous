@@ -69,7 +69,7 @@ ALTER TABLE auth_sessions
   DROP COLUMN account_id,
   CHANGE COLUMN selected_person_id person_id BIGINT UNSIGNED NOT NULL,
   ADD KEY auth_sessions_person_idx (person_id, revoked_at_utc, expires_at_utc),
-  ADD CONSTRAINT auth_sessions_person_fk FOREIGN KEY (person_id)
+  ADD CONSTRAINT auth_sessions_identity_fk FOREIGN KEY (person_id)
     REFERENCES people(person_id) ON DELETE CASCADE;
 
 ALTER TABLE email_challenges

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { runIdentityMigrations } from "../scripts/migrate-identity-database.mjs";
 
-function fakeIdentityConnection(initialVersion = 1, invalidAccountCount = 0) {
+function fakeIdentityConnection(initialVersion = 1, invalidAccountCount = 0, resumeErrors = false) {
   const calls = [];
   let version = initialVersion;
   const connection = {
@@ -11,6 +11,7 @@ function fakeIdentityConnection(initialVersion = 1, invalidAccountCount = 0) {
       if (/GET_LOCK/u.test(sql)) return [[{ acquired: 1 }]];
       if (/RELEASE_LOCK/u.test(sql)) return [[{ released: 1 }]];
       if (/COUNT\(\*\) AS table_count/u.test(sql)) return [[{ table_count: 1 }]];
+      if (/COUNT\(\*\) AS legacy_account_column_count/u.test(sql)) return [[{ legacy_account_column_count: 1 }]];
       if (/COUNT\(\*\) AS invalid_count/u.test(sql)) return [[{ invalid_count: invalidAccountCount }]];
       if (/SELECT singleton, schema_version FROM identity_meta/u.test(sql)) {
         return [[{ singleton: 1, schema_version: version }]];
@@ -40,6 +41,17 @@ function fakeIdentityConnection(initialVersion = 1, invalidAccountCount = 0) {
       if (/UPDATE identity_meta SET schema_version/u.test(sql)) {
         version = Number(params[0]);
         return [{ affectedRows: 1 }, []];
+      }
+      if (resumeErrors) {
+        const completedPhase = [
+          [/ALTER TABLE people\s+ADD UNIQUE KEY people_one_person_per_account_uq/u, "ER_DUP_KEYNAME"],
+          [/ALTER TABLE people\s+MODIFY COLUMN person_status/u, "ER_DUP_FIELDNAME"],
+          [/ALTER TABLE people\s+ADD UNIQUE KEY people_email_uq/u, "ER_DUP_KEYNAME"],
+          [/ALTER TABLE password_credentials\s+ADD COLUMN person_id/u, "ER_BAD_FIELD_ERROR"],
+          [/UPDATE password_credentials c/u, "ER_BAD_FIELD_ERROR"],
+          [/ALTER TABLE password_credentials\s+DROP FOREIGN KEY/u, "ER_CANT_DROP_FIELD_OR_KEY"],
+        ].find(([pattern]) => pattern.test(sql));
+        if (completedPhase) throw Object.assign(new Error("already applied"), { code: completedPhase[1] });
       }
       return [{ affectedRows: 1 }, []];
     },
@@ -108,4 +120,19 @@ test("account consolidation refuses ambiguous account-to-person mappings before 
     output: { write() {} },
   }), /exactly one person for every account/u);
   assert.equal(fake.calls.some(({ sql = "" }) => /ALTER TABLE people/u.test(sql)), false);
+});
+
+test("account consolidation resumes after statement-sized DDL phases committed", async () => {
+  const fake = fakeIdentityConnection(3, 0, true);
+  const output = [];
+  const result = await runIdentityMigrations({
+    connectionSettings: { database: "timev3_identity" },
+    connect: async () => fake.connection,
+    backupConfirmed: true,
+    writersStopped: true,
+    output: { write(value) { output.push(value); } },
+  });
+  assert.deepEqual(result, { previousVersion: 3, currentVersion: 4, applied: [4] });
+  assert.match(output.join(""), /skipped an already-applied phase/u);
+  assert.ok(fake.calls.some(({ sql = "" }) => /auth_sessions_identity_fk/u.test(sql)));
 });
