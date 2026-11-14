@@ -1023,15 +1023,17 @@ const server = http.createServer(async (request, response) => {
       ) });
       return;
     }
-    const provisionedPasswordMatch = /^\/api\/account\/provisioned\/(\d+)\/reset-password$/u.exec(url.pathname);
+    const provisionedPasswordMatch = /^\/api\/account\/provisioned\/(\d+)\/set-password$/u.exec(url.pathname);
     if (request.timev3Auth?.account && request.method === "POST" && provisionedPasswordMatch) {
       if (request.timev3Auth.person.experience !== "full") {
-        throw Object.assign(new Error("Only a full account can recover a provisioned account."), { statusCode: 403 });
+        throw Object.assign(new Error("Only a full account can set a provisioned account password."), { statusCode: 403 });
       }
       requireRequestOrigin(request, new URL(config.publicUrl).origin);
-      sendJson(response, 200, identityStore.resetProvisionedPassword(
-        request.timev3Auth.account.accountId, Number(provisionedPasswordMatch[1]),
-      ));
+      const body = await readJson(request);
+      identityStore.setProvisionedPassword(
+        request.timev3Auth.account.accountId, Number(provisionedPasswordMatch[1]), body.password,
+      );
+      sendJson(response, 200, { passwordSet: true });
       return;
     }
     const selectedPersonMatch = /^\/api\/account\/people\/(\d+)\/select$/u.exec(url.pathname);

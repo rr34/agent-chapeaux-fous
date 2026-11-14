@@ -41,8 +41,7 @@ input, and audio devices.
 ```text
 TIMEV3_LCD_ADDRESS=0xNN
 TIMEV3_KEYPAD_DEVICE=/dev/input/by-id/replace-with-the-keypad
-TIMEV3_SERVER_URL=https://agent.example.com
-TIMEV3_NODE_TOKEN=tv3n_replace_after_pairing
+TIMEV3_SERVER_URL=https://agent.timev3tech.com
 ```
 
 Replace `0xNN` with the LCD backpack address observed on the assembled hardware;
@@ -50,6 +49,25 @@ Replace `0xNN` with the LCD backpack address observed on the assembled hardware;
 guess it. The MPU-6050 address is `0x69` as declared there. The keypad adapter
 requests Num Lock on and also accepts navigation key codes, so either reported
 Num Lock form produces the same actions.
+
+## Pair a node with an account
+
+Pairing requires `TIMEV3_SERVER_URL`, but it does not require a token in the
+environment file. After deploying the current source and systemd unit:
+
+1. On the node, use the arrow keys and Enter to open **Pair node**. The LCD
+   displays a short code for ten minutes.
+2. Sign in at `https://agent.timev3tech.com/login`. Open **Account**, then
+   **Agent identities**, and find **Node devices** for the currently selected
+   Agent identity.
+3. Enter the LCD code in **Pairing code** and select **Approve node**. The node
+   detects approval automatically and changes to **NODE LINKED**.
+
+The node credential is written with mode `0600` to
+`/var/lib/time-v3-node/node-token`. The systemd unit creates and preserves that
+private state directory, so normal WSL-to-Pi source updates do not replace the
+credential. Do not copy the token into Git. `TIMEV3_NODE_TOKEN` remains
+available as an explicit environment override for recovery or diagnostics.
 
 ## Local tests
 
@@ -145,8 +163,9 @@ sudo journalctl -u time-v3-node.service -n 50 --no-pager
 
 Reinstalling the unit and reloading systemd are safe when it has not changed
 and ensure that service changes are never accidentally omitted. The persistent
-LCD address, keypad path, server URL, and private node credential are not part
-of this copy and must never be committed. The currently assembled node was
+LCD address, keypad path, and server URL are not part of this copy. The private
+node credential is also outside the copy in the systemd state directory, and
+must never be committed. The currently assembled node was
 observed at LCD address `0x27`, MPU-6050 address `0x69`, RTC address `0x68`,
 and keypad path `/dev/input/by-id/usb-13ba_0001-event-kbd`.
 

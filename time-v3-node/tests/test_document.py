@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from time_v3_node.app import MOTION_REFRESH_SECONDS, NodeApplication
 from time_v3_node.document import LcdDocument, LcdLink, wrap_text
@@ -100,6 +101,49 @@ class MenuAndMotionTests(unittest.TestCase):
 
     def test_motion_refresh_interval_is_five_hertz(self):
         self.assertEqual(MOTION_REFRESH_SECONDS, 0.2)
+
+    def test_node_pairing_displays_code_and_persists_credential(self):
+        class Display:
+            def __init__(self):
+                self.rows = ()
+
+            def show(self, rows):
+                self.rows = rows
+
+        class Client:
+            token = ""
+
+            def begin_pairing(self, device_name, hardware_identifier):
+                self.started_with = (device_name, hardware_identifier)
+                return {"userCode": "ABCD-2345", "deviceCode": "private", "interval": 0}
+
+            def poll_pairing(self, device_code):
+                self.polled_with = device_code
+                return {"pending": False, "token": "tv3n_private", "personId": 1}
+
+        async def exercise():
+            display = Display()
+            client = Client()
+            persisted = []
+            application = NodeApplication(
+                display, object(), client=client, device_name="vince-node",
+                hardware_identifier="machine-id", persist_node_token=persisted.append,
+            )
+            application.menu.selected = 3
+            await application.open_current()
+            self.assertEqual(application.screen, "pairing")
+            self.assertEqual(display.rows[1].strip(), "ABCD-2345")
+            await application._pairing_task
+            self.assertEqual(client.started_with, ("vince-node", "machine-id"))
+            self.assertEqual(client.polled_with, "private")
+            self.assertEqual(client.token, "tv3n_private")
+            self.assertEqual(persisted, ["tv3n_private"])
+            self.assertEqual(display.rows[0].strip(), "NODE LINKED")
+
+        with patch("time_v3_node.app.asyncio.to_thread", new=AsyncMock(
+            side_effect=lambda function, *arguments: function(*arguments),
+        )):
+            asyncio.run(exercise())
 
 
 if __name__ == "__main__":

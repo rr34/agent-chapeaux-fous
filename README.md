@@ -176,7 +176,7 @@ rows, not live references to the manager's contacts. The assigned manager may
 use the normal Contacts surface in that person's scope, including selectively
 copying a manager-owned contact that already has a Time v3 handle. The copy
 contains the display name and Time v3 identity only. The manager does not gain
-access to the person's correspondence. The creator may generate a replacement
+access to the person's correspondence. The creator may set a replacement
 password for a provisioned account; doing so revokes its active browser sessions
 but does not mandate another password change. A managed person may send only to active
 contacts and rejects unknown inbound native senders; there is no mutual-contact
@@ -1468,10 +1468,24 @@ SLAYER_MIGRATION_WRITERS_STOPPED=1 \
 npm run db:migrate
 npm run db:verify
 
+# If the update changes db/identity/migrations.sql, run this pair too (or
+# instead, when only the identity database changed):
+SLAYER_MIGRATION_BACKUP_CONFIRMED=1 \
+SLAYER_MIGRATION_WRITERS_STOPPED=1 \
+npm run identity:migrate
+npm run identity:verify
+
 systemctl --user start agent-slayer.service
 systemctl --user status agent-slayer.service --no-pager
 journalctl --user -u agent-slayer.service -n 100 --no-pager
 ```
+
+The Agent and Identity databases have independent migration ledgers. Run the
+`db:*` pair when `db/migrations.sql` changed, the `identity:*` pair when
+`db/identity/migrations.sql` changed, and both pairs when both ledgers changed.
+The current handle/light-account update requires the `identity:*` pair. Both
+migration runners use the same backup-confirmed and writers-stopped flags shown
+above.
 
 Do not start the service if migration or verification fails. MariaDB DDL may
 commit implicitly, so each migration must state its own safe replay and recovery

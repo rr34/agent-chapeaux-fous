@@ -491,9 +491,8 @@ export class IdentityStore {
     });
   }
 
-  resetProvisionedPassword(creatorAccountId, personId) {
-    const generatedPassword = randomBytes(18).toString("base64url");
-    const credential = hashPassword(generatedPassword);
+  setProvisionedPassword(creatorAccountId, personId, password) {
+    const credential = hashPassword(password);
     return this.transaction(() => {
       const person = this.database.prepare(`SELECT p.person_id, p.account_id FROM people p
         JOIN accounts a ON a.account_id = p.account_id
@@ -506,9 +505,9 @@ export class IdentityStore {
         credential.passes, credential.parallelism, person.account_id);
       this.database.prepare(`UPDATE auth_sessions SET revoked_at_utc = UTC_TIMESTAMP(3)
         WHERE account_id = ? AND revoked_at_utc IS NULL`).run(person.account_id);
-      this.recordSecurityEvent({ accountId: creatorAccountId, type: "account.setup_password_reset", outcome: "success",
+      this.recordSecurityEvent({ accountId: creatorAccountId, type: "account.password_set", outcome: "success",
         details: `account_id=${Number(person.account_id)};person_id=${Number(personId)}` });
-      return { generatedPassword };
+      return true;
     });
   }
 

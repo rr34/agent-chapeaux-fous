@@ -232,7 +232,7 @@ export function CorrespondenceScreen() {
     finally { setSyncingMessages(false); }
   };
   return <>
-    <header className="page-heading"><div><p className="eyebrow">Every channel, one record</p><h1>Correspondence</h1><p>Email, messages, calls, and voicemail consolidated without replacing their authoritative apps.</p></div>{!lightExperience && <div className="heading-actions"><button className="button button--quiet" disabled={downloadingExtension} onClick={() => void downloadExtension()}>{downloadingExtension ? "Downloading…" : "Download Messages extension"}</button><button className="button" disabled={syncing} onClick={() => void sync()}>{syncing ? "Syncing…" : "Sync email"}</button><button className="button" disabled={syncingMessages} onClick={() => setChoosingMessageHistory(true)}>{syncingMessages ? "Syncing…" : "Sync Google Messages"}</button></div>}</header>
+    <header className="page-heading"><div><p>Correspondence consolidates every channel—email, messages, calls, and voicemail—into one record without replacing their authoritative apps.</p></div>{!lightExperience && <div className="heading-actions"><button className="button button--quiet" disabled={downloadingExtension} onClick={() => void downloadExtension()}>{downloadingExtension ? "Downloading…" : "Download Messages extension"}</button><button className="button" disabled={syncing} onClick={() => void sync()}>{syncing ? "Syncing…" : "Sync email"}</button><button className="button" disabled={syncingMessages} onClick={() => setChoosingMessageHistory(true)}>{syncingMessages ? "Syncing…" : "Sync Google Messages"}</button></div>}</header>
     {!lightExperience && choosingMessageHistory && <div className="object-editor-backdrop"><section className="object-editor message-history-dialog" role="dialog" aria-modal="true" aria-labelledby="message-history-heading"><form onSubmit={(event) => { event.preventDefault(); void syncMessages(); }}><header className="object-editor-heading"><div><p className="eyebrow">Google Messages</p><h2 id="message-history-heading">Choose history range</h2></div></header><label>Messages to synchronize<select autoFocus value={messageHistoryMode} onChange={(event) => setMessageHistoryMode(event.target.value)}><option value="incremental">Since last sync</option><option value="days_30">Last 30 days</option><option value="days_90">Last 90 days</option><option value="days_365">Last year</option><option value="all">All available history</option></select></label><p className="object-editor-note">On the first run, “Since last sync” imports 30 days. Later runs overlap the previous successful sync by two days.</p><footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={() => setChoosingMessageHistory(false)}>Cancel</button><button className="button" type="submit">Start sync</button></footer></form></section></div>}
     <section className="timev3-composer surface" aria-labelledby="timev3-composer-heading">
       <div className="section-title"><div><p className="eyebrow">20 × 4 display</p><h2 id="timev3-composer-heading">Time v3 message</h2><p>The preview uses the same twenty-character wrapping contract as the node.</p></div></div>
@@ -341,7 +341,8 @@ function ProvisionedAccountCard({ item, onChanged }: {
   const [contactPolicy, setContactPolicy] = useState(item.person.contactPolicy);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
-  const [generatedPassword, setGeneratedPassword] = useState("");
+  const [password, setPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const save = async () => {
     setSaving(true); setStatus("");
     try {
@@ -352,12 +353,18 @@ function ProvisionedAccountCard({ item, onChanged }: {
     } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
     finally { setSaving(false); }
   };
-  const resetPassword = async () => {
-    setSaving(true); setStatus(""); setGeneratedPassword("");
+  const setAccountPassword = async () => {
+    if (password !== passwordConfirmation) {
+      setStatus("The password confirmation does not match.");
+      return;
+    }
+    setSaving(true); setStatus("");
     try {
-      const result = await api<{ generatedPassword: string }>(`/api/account/provisioned/${item.person.personId}/reset-password`, { method: "POST", body: "{}" });
-      setGeneratedPassword(result.generatedPassword);
-      setStatus("Sessions revoked. Copy the new password now."); await onChanged();
+      await api(`/api/account/provisioned/${item.person.personId}/set-password`, {
+        method: "POST", body: JSON.stringify({ password }),
+      });
+      setPassword(""); setPasswordConfirmation("");
+      setStatus("Password set and existing sessions revoked."); await onChanged();
     } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
     finally { setSaving(false); }
   };
@@ -365,7 +372,8 @@ function ProvisionedAccountCard({ item, onChanged }: {
     <span>Provisioned account</span>
     <div className="object-editor-grid"><label>Web experience<select value={experience} onChange={(event) => setExperience(event.target.value as "full" | "light")}><option value="light">Light</option><option value="full">Full</option></select></label>
       <label>Contact management<select value={contactPolicy} onChange={(event) => setContactPolicy(event.target.value as "self_managed" | "manager_managed")}><option value="manager_managed">Managed by me</option><option value="self_managed">Self-managed</option></select></label></div>
-    {status && <small role="status">{status}</small>}{generatedPassword && <p><code>{generatedPassword}</code> <button className="button button--quiet" type="button" onClick={() => void navigator.clipboard.writeText(generatedPassword)}>Copy</button></p>}</div><div><button className="button button--quiet" type="button" disabled={saving} onClick={() => void resetPassword()}>Reset password</button><button className="button button--quiet" type="button" disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save"}</button></div>
+    <div className="object-editor-grid"><label>Set password<input type="password" autoComplete="new-password" minLength={12} maxLength={1024} value={password} onChange={(event) => setPassword(event.target.value)} /></label><label>Confirm password<input type="password" autoComplete="new-password" minLength={12} maxLength={1024} value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} /></label></div>
+    {status && <small role="status">{status}</small>}</div><div>{item.person.contactPolicy === "manager_managed" && <button className="button button--quiet" type="button" onClick={() => location.assign(`/app?managedPersonId=${item.person.personId}#contacts`)}>Manage contacts</button>}<button className="button button--quiet" type="button" disabled={saving || password.length < 12 || password !== passwordConfirmation} onClick={() => void setAccountPassword()}>Set password</button><button className="button button--quiet" type="button" disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save"}</button></div>
   </article>;
 }
 
@@ -451,7 +459,7 @@ function IdentitiesScreen() {
       <form className="integration-add-form" onSubmit={(event) => void createIdentity(event)}><label>Name<input required maxLength={200} placeholder="Vince" value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label><label>Time v3 handle<input required minLength={3} maxLength={33} placeholder="@vince" value={newHandle} onChange={(event) => setNewHandle(event.target.value)} /></label><button className="button" disabled={saving}>{saving ? "Creating…" : "Create light account"}</button></form>
       {generatedPassword && <div className="auth-message" role="status"><strong>Generated password</strong><p><code>{generatedPassword}</code></p><p>Store it securely and give it directly to the account owner. It disappears when this page reloads.</p><button className="button button--quiet" type="button" onClick={() => void navigator.clipboard.writeText(generatedPassword)}>Copy password</button></div>}
     </section>
-    <section className="surface"><div className="section-title"><div><p className="eyebrow">Ongoing management</p><h2>Accounts you created</h2><p>These settings are changed here after creation, at any time.</p></div></div><div className="integration-list">{(provisionedData?.people || []).map((item) => <ProvisionedAccountCard key={item.person.personId} item={item} onChanged={reloadProvisioned} />)}</div>{!provisionedData?.people.length && <Empty>No light accounts have been created.</Empty>}</section>
+    <section className="surface"><div className="section-title"><div><h2>Managed Accounts</h2></div></div><div className="integration-list">{(provisionedData?.people || []).map((item) => <ProvisionedAccountCard key={item.person.personId} item={item} onChanged={reloadProvisioned} />)}</div>{!provisionedData?.people.length && <Empty>No light accounts have been created.</Empty>}</section>
     </>}
     <section className="surface">
       <div className="section-title"><div><p className="eyebrow">Hardware access</p><h2>Node devices</h2><p>A node belongs to the currently active Agent identity only.</p></div></div>

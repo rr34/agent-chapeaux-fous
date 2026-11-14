@@ -1898,7 +1898,10 @@ function ContactsScreen() {
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [contactAction, setContactAction] = useState("");
   const [contactStatus, setContactStatus] = useState("");
-  const [managedPersonId, setManagedPersonId] = useState("");
+  const [managedPersonId, setManagedPersonId] = useState(() => {
+    const requested = new URLSearchParams(location.search).get("managedPersonId") || "";
+    return /^\d+$/u.test(requested) ? requested : "";
+  });
   const [copyContactId, setCopyContactId] = useState("");
   const { data: provisionedData } = useApi<{ people: Array<{ person: {
     personId: number; displayName: string; handle: string | null; contactPolicy: string;

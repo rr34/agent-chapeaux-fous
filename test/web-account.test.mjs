@@ -22,3 +22,10 @@ test("the authentication screen hides public account creation when registration 
   assert.match(authSource, /New account registration is currently closed\./u);
   assert.match(authSource, /authRequest<\{ registrationEnabled: boolean \}>\("\/api\/auth\/mode"\)/u);
 });
+
+test("managed accounts expose explicit password and contact management", () => {
+  assert.match(accountSource, />Set password<\/button>/u);
+  assert.match(accountSource, /\/set-password/u);
+  assert.doesNotMatch(accountSource, />Reset password<\/button>/u);
+  assert.match(accountSource, />Manage contacts<\/button>/u);
+});
