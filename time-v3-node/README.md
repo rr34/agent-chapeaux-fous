@@ -8,9 +8,14 @@ text-and-link renderer, Time v3 message reading, MPU-6050 motion display, and
 Ogg/Opus recording support. Every process start returns to the top of the root
 menu; navigation state is deliberately not restored.
 
-The motion view refreshes five times per second and has four fixed pages. Use
-keypad `4` and `6` to move between acceleration, gyroscope, orientation, and
-temperature/help. Keypad `5` resets relative yaw to zero, and `0` returns home.
+The motion view refreshes five times per second and has four fixed pages. The
+keypad's left and right arrow keys move between acceleration, gyroscope,
+orientation, and temperature. Backspace returns toward the root menu. Number
+keys are not navigation controls. On the gyroscope page, `0` samples the
+stationary sensor for about one second and subtracts the resulting three-axis
+bias. On the orientation page, `0` resets relative yaw to zero. The MPU-6050
+has no magnetometer, so yaw remains relative and will still accumulate some
+residual drift after calibration.
 
 ## Headless Wi-Fi workflow
 

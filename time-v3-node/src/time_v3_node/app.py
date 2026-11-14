@@ -10,10 +10,12 @@ from .client import TimeV3Client
 from .document import LcdDocument
 from .hardware import Display, Keypad, Mpu6050
 from .menu import Menu
-from .motion import MOTION_PAGE_COUNT, RelativeOrientation
+from .motion import GyroscopeBias, MOTION_PAGE_COUNT, RelativeOrientation
 
 logger = logging.getLogger(__name__)
 MOTION_REFRESH_SECONDS = 0.2
+GYRO_CALIBRATION_SAMPLES = 100
+GYRO_CALIBRATION_INTERVAL_SECONDS = 0.01
 
 
 def plain_body(value: str | None) -> str:
@@ -31,8 +33,10 @@ class NodeApplication:
         self.offset = 0
         self.document = LcdDocument()
         self.orientation = RelativeOrientation()
+        self.gyroscope_bias = GyroscopeBias()
         self.motion_page = 0
         self._motion_read_failed = False
+        self._calibrating_gyroscope = False
 
     def home(self) -> None:
         self.screen = "home"
@@ -63,7 +67,7 @@ class NodeApplication:
             self.document = LcdDocument("NO APPROVED PAGES\nLOADED")
             self.screen = "document"
         else:
-            self.document = LcdDocument("TIME V3 NODE\nREADY\n0 RETURNS HOME")
+            self.document = LcdDocument("TIME V3 NODE\nREADY")
             self.screen = "document"
         self.show_document()
 
@@ -74,10 +78,12 @@ class NodeApplication:
 
     def show_motion(self) -> None:
         if not self.motion:
-            self.display.show(("MOTION SENSOR       ", "NOT READY           ", "                    ", "0 HOME              "))
+            self.display.show(("MOTION SENSOR       ", "NOT READY           ", "                    ", "                    "))
+            return
+        if self._calibrating_gyroscope:
             return
         try:
-            sample = self.motion.read()
+            sample = self.gyroscope_bias.apply(self.motion.read())
             _, _, yaw = self.orientation.update(sample)
             self._motion_read_failed = False
             self.display.show(tuple(row[:20].ljust(20) for row in sample.display_page(self.motion_page, yaw)))
@@ -85,7 +91,27 @@ class NodeApplication:
             if not self._motion_read_failed:
                 logger.exception("Could not read the MPU-6050")
             self._motion_read_failed = True
-            self.display.show(("MOTION SENSOR       ", "READ FAILED         ", "RETRYING...         ", "0 HOME              "))
+            self.display.show(("MOTION SENSOR       ", "READ FAILED         ", "RETRYING...         ", "                    "))
+
+    async def zero_gyroscope(self) -> None:
+        if not self.motion or self._calibrating_gyroscope:
+            return
+        self._calibrating_gyroscope = True
+        self.display.show(("GYROSCOPE ZERO      ", "KEEP DEVICE STILL   ", "SAMPLING...         ", "                    "))
+        samples = []
+        try:
+            for _ in range(GYRO_CALIBRATION_SAMPLES):
+                samples.append(self.motion.read())
+                await asyncio.sleep(GYRO_CALIBRATION_INTERVAL_SECONDS)
+            self.gyroscope_bias.calibrate(samples)
+            self.orientation.zero()
+            self._motion_read_failed = False
+        except OSError:
+            logger.exception("Could not calibrate the MPU-6050 gyroscope")
+            self._motion_read_failed = True
+        finally:
+            self._calibrating_gyroscope = False
+            self.show_motion()
 
     async def refresh_motion(self) -> None:
         while True:
@@ -94,9 +120,7 @@ class NodeApplication:
                 self.show_motion()
 
     async def action(self, action: str) -> None:
-        if action == "home":
-            self.home()
-        elif self.screen == "home":
+        if self.screen == "home":
             if action == "up": self.menu.move(-1)
             elif action == "down": self.menu.move(1)
             elif action in {"select", "right"}: await self.open_current()
@@ -110,7 +134,9 @@ class NodeApplication:
             elif action == "right":
                 self.motion_page = (self.motion_page + 1) % MOTION_PAGE_COUNT
                 self.show_motion()
-            elif action == "select":
+            elif action == "zero" and self.motion_page == 1:
+                await self.zero_gyroscope()
+            elif action == "zero" and self.motion_page == 2:
                 self.orientation.zero()
                 self.show_motion()
         elif action == "back":

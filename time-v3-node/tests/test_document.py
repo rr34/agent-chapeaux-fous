@@ -3,8 +3,9 @@ import unittest
 
 from time_v3_node.app import MOTION_REFRESH_SECONDS, NodeApplication
 from time_v3_node.document import LcdDocument, LcdLink, wrap_text
+from time_v3_node.hardware import KEY_ACTIONS
 from time_v3_node.menu import Menu
-from time_v3_node.motion import MotionSample, RelativeOrientation
+from time_v3_node.motion import GyroscopeBias, MotionSample, RelativeOrientation
 
 
 class DocumentTests(unittest.TestCase):
@@ -45,12 +46,31 @@ class MenuAndMotionTests(unittest.TestCase):
         sample = MotionSample(0.1, -0.2, 1.0, 2.0, -3.0, 4.0, 22.5)
         pages = [sample.display_page(index, 5.0) for index in range(4)]
         self.assertEqual([page[0] for page in pages], [
-            "ACCELERATION 1/4", "GYROSCOPE 2/4", "ORIENTATION 3/4", "MOTION HELP 4/4",
+            "ACCELERATION 1/4", "GYROSCOPE 2/4", "ORIENTATION 3/4", "TEMPERATURE 4/4",
         ])
         self.assertEqual([row[:2] for row in pages[0][1:]], ["AX", "AY", "AZ"])
         self.assertEqual([row[:2] for row in pages[1][1:]], ["GX", "GY", "GZ"])
         self.assertTrue(pages[2][3].startswith("YAW "))
+        self.assertFalse(any(token in row for page in pages for row in page
+            for token in (" HOME", "=ZERO", "CHANGE PAGE")))
         self.assertTrue(all(len(page) == 4 and all(len(row) <= 20 for row in page) for page in pages))
+
+    def test_stationary_gyro_bias_is_removed_from_all_three_axes(self):
+        calibration = GyroscopeBias()
+        calibration.calibrate([
+            MotionSample(0, 0, 1, 0.4, -0.2, 0.6),
+            MotionSample(0, 0, 1, 0.6, 0.0, 0.4),
+        ])
+        corrected = calibration.apply(MotionSample(0, 0, 1, 0.5, -0.1, 0.5))
+        self.assertAlmostEqual(corrected.gyro_x, 0)
+        self.assertAlmostEqual(corrected.gyro_y, 0)
+        self.assertAlmostEqual(corrected.gyro_z, 0)
+
+    def test_numbers_do_not_navigate_and_zero_is_a_sensor_action(self):
+        self.assertNotIn("home", KEY_ACTIONS.values())
+        self.assertNotIn("KEY_KP5", KEY_ACTIONS)
+        self.assertEqual(KEY_ACTIONS["KEY_KP0"], "zero")
+        self.assertEqual(KEY_ACTIONS["KEY_BACKSPACE"], "back")
 
     def test_motion_view_navigation_and_yaw_reset(self):
         class Display:
@@ -74,7 +94,7 @@ class MenuAndMotionTests(unittest.TestCase):
         asyncio.run(application.action("right"))
         self.assertTrue(display.rows[0].startswith("ORIENTATION"))
         application.orientation.yaw = 42
-        asyncio.run(application.action("select"))
+        asyncio.run(application.action("zero"))
         self.assertEqual(application.orientation.yaw, 0)
         self.assertIn("+0.0", display.rows[3])
 

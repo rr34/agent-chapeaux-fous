@@ -65,8 +65,9 @@ KEY_ACTIONS = {
     "KEY_KP2": "down", "KEY_DOWN": "down",
     "KEY_KP4": "left", "KEY_LEFT": "left",
     "KEY_KP6": "right", "KEY_RIGHT": "right",
-    "KEY_KP5": "select", "KEY_KPENTER": "select", "KEY_ENTER": "select",
-    "KEY_BACKSPACE": "back", "KEY_KP0": "home", "KEY_0": "home",
+    "KEY_KPENTER": "select", "KEY_ENTER": "select",
+    "KEY_BACKSPACE": "back",
+    "KEY_KP0": "zero", "KEY_0": "zero", "KEY_INSERT": "zero",
     "KEY_KPPLUS": "record", "KEY_KPDOT": "stop",
 }
 
