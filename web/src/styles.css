@@ -1087,7 +1087,7 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .lcd-preview span { display: block; width: 20ch; height: 1.4em; overflow: hidden; }
 .lcd-preview-controls { display: flex; gap: .65rem; align-items: center; justify-content: center; flex-wrap: wrap; color: var(--muted); font-size: .85rem; }
 .message-history-dialog { width: min(460px, 100%); }
-.native-conversation-dialog { width: min(680px, 100%); display: grid; gap: 16px; }
+.native-conversation-dialog { width: min(900px, 100%); display: grid; gap: 16px; }
 .native-conversation-messages { max-height: min(40vh, 24rem); display: flex; flex-direction: column; gap: 10px; padding-right: 4px; overflow-y: auto; }
 .native-conversation-message { width: min(82%, 34rem); display: grid; gap: 5px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: white; }
 .native-conversation-message--outbound { align-self: flex-end; border-color: #9fad91; background: var(--olive-soft); }
