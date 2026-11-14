@@ -35,7 +35,7 @@ export function registerCorrespondenceTools(rootRegistry, service) {
     description: "List or group the local synchronized correspondence mirror. Filters combine subject/body text, inclusive occurred-from and exclusive occurred-before UTC instants, medium, direction, provider mailbox, and one exact contact-tag label or slug on a known participant. group_by=none returns complete correspondence items with participants, mailboxes, unread state, and linked objects. group_by=contact returns one bounded summary per matching active participant contact with correspondence count, earliest and latest occurrence, media, directions, and current tags. Use contact grouping for questions such as which tagged customers had correspondence in a period. JMAP and phone sources remain authoritative.",
     parameters: { type: "object", additionalProperties: false, properties: {
       q: { type: "string", maxLength: 500 },
-      medium: { type: ["string", "null"], enum: ["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "other", null] },
+      medium: { type: ["string", "null"], enum: ["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "timev3", "other", null] },
       direction: { type: ["string", "null"], enum: ["inbound", "outbound", null] },
       mailbox_id: { type: ["string", "null"], maxLength: 255 },
       occurred_from_utc: { type: ["string", "null"], format: "date-time", description: "Inclusive lower UTC occurrence boundary." },

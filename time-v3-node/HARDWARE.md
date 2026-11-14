@@ -10,9 +10,9 @@ This document records its working hardware list.
     - power3: Black  wire 5VDC output
     - power4: Yellow wire 5VDC output
 **Computer**, Raspberry Pi Zero 2W
-    - pi-1: micro USB power
-    - pi-2: micro USB communications
-    - pi-3: micro HDMI
+    - pi-micro-usb-power
+    - pi-micro-usb-comm
+    - pi-micro-hdmi
     - pi-pinout-1: 3.3V power
     - pi-pinout-2: 5V power
     - pi-pinout-3: GPIO 2, I2C SDA
@@ -90,6 +90,25 @@ This document records its working hardware list.
 - **Headphone jack:** 5Pcs 3.5mm TRS Audio Jack PCB Adapter to 5Pin Header
 - **Bluetooth:** To be determined
 - **USB:** Mouse and keyboard
+- **Number Keypad**
+    - numpad-num-lock
+    - numpad-/
+    - numpad-*
+    - numpad--
+    - numpad-+
+    - numpad-backspace
+    - numpad-enter
+    - numpad-.
+    - numpad-0
+    - numpad-1
+    - numpad-2
+    - numpad-3
+    - numpad-4
+    - numpad-5
+    - numpad-6
+    - numpad-7
+    - numpad-8
+    - numpad-9
 - **HDMI**
 **USB Splitter**: Raspberry Pi SKU: 734046 Mfr Part#: SC1636 Raspberry Pi USB 3.0 Hub USB C
 
@@ -107,7 +126,7 @@ address `0x69` so it does not conflict with the DS3231 at `0x68`.
     - `ds3231-+`
     - the level converter's low-voltage supply (`LV`)
 - `pi-pinout-2` (5V) connects to:
-    - `screen-2`
+    - `screen-VCC`
     - the level converter's high-voltage supply (`HV`)
 - `pi-pinout-3` (GPIO 2, I2C SDA) connects to:
     - `accel-SDA`
@@ -120,7 +139,7 @@ address `0x69` so it does not conflict with the DS3231 at `0x68`.
 - `pi-pinout-6` (GND) connects to:
     - `accel-GND`
     - `ds3231--`
-    - `screen-1`
+    - `screen-GND`
     - the level converter's ground
 
 The listed power and ground connections may use a shared distribution rail.
@@ -131,10 +150,10 @@ Pins 1, 2, 3, 5, and 6 must retain their stated voltages and signals.
 The PCF8574T screen backpack is powered at 5V. Its SDA and SCL lines must not
 connect directly to the Pi's 3.3V GPIO pins.
 
-- Level converter high-voltage SDA (`HV-SDA` or `HV1`) connects to `screen-3`.
-- Level converter high-voltage SCL (`HV-SCL` or `HV2`) connects to `screen-4`.
-- `screen-2` connects to 5V at `pi-pinout-2`.
-- `screen-1` connects to the common ground at `pi-pinout-6`.
+- Level converter high-voltage SDA (`HV-SDA` or `HV1`) connects to `screen-SDA`.
+- Level converter high-voltage SCL (`HV-SCL` or `HV2`) connects to `screen-SCL`.
+- `screen-VCC` connects to 5V at `pi-pinout-2`.
+- `screen-GND` connects to the common ground at `pi-pinout-6`.
 
 Use a bidirectional, open-drain-compatible I2C level converter, such as a
 BSS138-based module. An ordinary unidirectional logic converter or resistor
@@ -154,9 +173,10 @@ divider is not suitable for SDA.
 
 ### USB audio connections
 
-- Power the Pi through `pi-1`, its dedicated micro-USB power connector.
+- Power the Pi through `pi-micro-usb-power`, its dedicated micro-USB power
+  connector.
 - Connect the powered USB hub's upstream USB plug through a micro-USB OTG
-  adapter to `pi-2`, the Pi's micro-USB communications port.
+  adapter to `pi-micro-usb-comm`, the Pi's micro-USB communications port.
 - Power the USB hub through the hub's USB-C power input.
 - Connect the Kiseer microphone's USB-A plug to one downstream hub port.
 - Connect the USB sound card/speaker's USB-A plug to another downstream hub

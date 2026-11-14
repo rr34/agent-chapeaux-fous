@@ -439,6 +439,22 @@ export async function assertMigrationSpecificIntegrity(
         AND CONSTRAINT_TYPE = 'CHECK' AND CONSTRAINT_NAME = 'calendar_events_milestone_pair'`, [databaseName]);
     if (checks.length !== 1) throw new Error("Migration 0073 is missing the calendar milestone pair check");
   }
+  if (migration.version === 74) {
+    const [columns] = await connection.query(`SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE
+      FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND (
+        (TABLE_NAME IN ('p_correspondence', 'p_correspondence_source_aliases') AND COLUMN_NAME = 'medium')
+        OR (TABLE_NAME = 'p_contact_methods' AND COLUMN_NAME = 'method_kind'))`, [databaseName]);
+    const values = new Map(columns.map((column) => [`${column.TABLE_NAME}.${column.COLUMN_NAME}`, enumValues(column.COLUMN_TYPE)]));
+    for (const [name, expected] of [
+      ["p_correspondence.medium", requiredEnumColumns.correspondence.medium],
+      ["p_correspondence_source_aliases.medium", requiredEnumColumns.correspondence_source_aliases.medium],
+      ["p_contact_methods.method_kind", requiredEnumColumns.contact_methods.method_kind],
+    ]) {
+      if (JSON.stringify(values.get(name)) !== JSON.stringify(expected)) {
+        throw new Error(`Migration 0074 did not establish ${name}`);
+      }
+    }
+  }
   if (migration.version === 70 && schemaVersion < 72) {
     await assertPersonIsolationMigration(connection, databaseName);
   }
@@ -1334,7 +1350,11 @@ export async function assertMigrationSpecificIntegrity(
       FROM information_schema.COLUMNS
       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'correspondence'`, [databaseName]);
     const byName = new Map(correspondenceColumns.map((row) => [row.COLUMN_NAME, row]));
-    for (const [field, values] of Object.entries(requiredEnumColumns.correspondence)) {
+    const historicalCorrespondenceEnums = {
+      ...requiredEnumColumns.correspondence,
+      medium: requiredEnumColumns.correspondence.medium.filter((value) => value !== "timev3"),
+    };
+    for (const [field, values] of Object.entries(historicalCorrespondenceEnums)) {
       if (byName.get(field)?.DATA_TYPE !== "enum"
           || JSON.stringify(enumValues(byName.get(field)?.COLUMN_TYPE)) !== JSON.stringify(values)) {
         throw new Error(`Migration 0045 did not establish correspondence.${field}`);

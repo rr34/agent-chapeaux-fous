@@ -163,7 +163,7 @@ test("correspondence cards own compact channel, direction, and content presentat
   assert.match(correspondence, /medium === "email" \? " correspondence-card--email"/);
   assert.match(screen, /\{ label: "Medium", value: item\.medium \}/);
   assert.match(screen, /\{ label: "Call disposition", value: item\.call_disposition \}/);
-  assert.match(screen, /\["sms", "mms", "rcs", "imessage"\]\.includes\(medium\) \? "messages" : medium/);
+  assert.match(screen, /\["sms", "mms", "rcs", "imessage", "timev3"\]\.includes\(medium\) \? "messages" : medium/);
   assert.match(screen, /groupBy === "medium" \? correspondenceMediumGroup\(item\.medium\)/);
   assert.match(service, /call_disposition: row\.call_disposition \?\? null/);
   assert.match(network, /attribute\("Call disposition", row\.call_disposition\)/);

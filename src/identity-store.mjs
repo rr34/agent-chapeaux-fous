@@ -336,6 +336,16 @@ export class IdentityStore {
     `).get(accountId, personId);
   }
 
+  activePerson(personId) {
+    const id = Number(personId);
+    if (!Number.isSafeInteger(id) || id < 1) return null;
+    const row = this.database.prepare(`
+      SELECT p.* FROM people p
+       WHERE p.person_id = ? AND p.person_status = 'active'
+    `).get(id);
+    return row ? publicPerson(row) : null;
+  }
+
   listPeople(accountId) {
     return this.database.prepare(`
       SELECT p.* FROM people p

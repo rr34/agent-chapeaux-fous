@@ -253,6 +253,17 @@ test("migration 73 adds constrained calendar milestones without a new table", ()
   assert.doesNotMatch(migration.sql, /CREATE TABLE/u);
 });
 
+test("migration 74 adds native Time v3 messaging without a new table", () => {
+  const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
+    .find(({ version }) => version === 74);
+  assert.ok(migration);
+  assert.match(migration.sql, /ALTER TABLE p_correspondence/u);
+  assert.match(migration.sql, /'timev3'/u);
+  assert.match(migration.sql, /ALTER TABLE p_contact_methods/u);
+  assert.match(migration.sql, /'timev3_person'/u);
+  assert.doesNotMatch(migration.sql, /CREATE TABLE/u);
+});
+
 test("migration 66 removes MariaDB JSON verification while preserving text limits", () => {
   const migration = readMigrationLedger(path.join(root, "db", "migrations.sql"))
     .find(({ version }) => version === 66);
@@ -438,7 +449,9 @@ test("the forward correspondence migration recreates the confirmed-empty family 
   const migration = readMigrationLedger(path.join(root, "db", "migrations.sql")).find(item => item.version === 45);
   const baseline = parseMariaDbScript(baselineBeforeJournalLevels(
     fs.readFileSync(path.join(root, "db", "mariadb", "0001-baseline.sql"), "utf8")));
-  const normalize = sql => sql.replaceAll("correspondence_files_join", "correspondence_files").replace(/^\s*--.*$/gmu, "").replace(/\s+/gu, " ").trim().replace(/;$/u, "");
+  const normalize = sql => sql.replaceAll("correspondence_files_join", "correspondence_files")
+    .replace(", 'timev3'", "").replace(/ COMMENT '(?:''|[^'])*'/gu, "")
+    .replace(/^\s*--.*$/gmu, "").replace(/\s+/gu, " ").trim().replace(/;$/u, "");
   const recreated = splitMariaDbStatements(migration.sql).filter((statement) => /^CREATE TABLE (?:correspondence(?:_files(?:_join)?|_participants)?|jmap_email_sync_state|todo_correspondence_join|calendar_events_correspondence_join)\b/u.test(statement));
   assert.equal(recreated.length, 6);
   for (const statement of recreated) {

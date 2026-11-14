@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { CorrespondenceService } from "../src/correspondence.mjs";
+import { currentPersonId, runWithPerson } from "../src/person-context.mjs";
 
 function smsFixture(methods) {
   const database = {
@@ -15,6 +16,72 @@ function smsFixture(methods) {
   };
   return new CorrespondenceService({ store: { requireReady: () => database }, ledger: {}, jmap: {} });
 }
+
+test("native Time v3 recipients are approved native contacts with active identities", () => {
+  const database = { prepare: () => ({ all: () => [
+    { contact_id: 7, display_name: "Alex Rivera", contact_method_id: 31, person_id: "12" },
+    { contact_id: 8, display_name: "Unavailable", contact_method_id: 32, person_id: "13" },
+  ] }) };
+  const service = new CorrespondenceService({
+    store: { requireReady: () => database }, ledger: {}, jmap: {},
+    identityStore: { activePerson: (personId) => personId === 12 ? { personId, displayName: "Alex Rivera" } : null },
+  });
+  assert.deepEqual(service.timeV3Recipients(), [{
+    contact_id: 7, display_name: "Alex Rivera", contact_method_id: 31, person_id: 12,
+  }]);
+});
+
+test("native Time v3 delivery writes paired person-owned correspondence in one transaction", () => {
+  const messages = [];
+  const participants = [];
+  const contacts = [];
+  const methods = [];
+  const events = [];
+  const executions = [];
+  let nextMessageId = 40;
+  const database = {
+    exec(sql) { executions.push(sql); },
+    prepare(sql) {
+      if (sql.includes("method.normalized_value AS person_id")) return { get: () => ({
+        contact_id: 7, display_name: "Recipient", contact_method_id: 31, person_id: "2",
+      }) };
+      if (sql.includes("SELECT contact.contact_id, contact.status")) return { all: () => [] };
+      if (sql.includes("INSERT INTO contacts")) return { run: (...args) => {
+        contacts.push({ owner: currentPersonId(), args }); return { lastInsertRowid: 8 };
+      } };
+      if (sql.includes("INSERT INTO contact_methods")) return { run: (...args) => {
+        methods.push({ owner: currentPersonId(), args }); return { lastInsertRowid: 32 };
+      } };
+      if (sql.includes("INSERT INTO correspondence\n")) return { run: (...args) => {
+        nextMessageId += 1; messages.push({ owner: currentPersonId(), args, id: nextMessageId });
+        return { lastInsertRowid: nextMessageId };
+      } };
+      if (sql.includes("INSERT INTO correspondence_participants_join")) return { run: (...args) => {
+        participants.push({ owner: currentPersonId(), args }); return { changes: 1 };
+      } };
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  };
+  const people = new Map([[1, { personId: 1, displayName: "Sender" }], [2, { personId: 2, displayName: "Recipient" }]]);
+  const service = new CorrespondenceService({
+    store: { requireReady: () => database }, jmap: {},
+    identityStore: { activePerson: (id) => people.get(id) || null },
+    ledger: { append: (event) => { events.push({ owner: currentPersonId(), event }); return `event-${currentPersonId()}`; } },
+  });
+  const result = runWithPerson(1, () => service.sendTimeV3Text({ contactId: 7, text: "Hello <node>" }));
+  assert.deepEqual(messages.map(({ owner, args }) => ({ owner, direction: args[0], body: args[3] })), [
+    { owner: 1, direction: "outbound", body: "Hello &lt;node&gt;" },
+    { owner: 2, direction: "inbound", body: "Hello &lt;node&gt;" },
+  ]);
+  assert.equal(messages[0].args[2], messages[1].args[2]);
+  assert.deepEqual(contacts.map(({ owner }) => owner), [2]);
+  assert.deepEqual(methods.map(({ owner }) => owner), [2]);
+  assert.deepEqual(participants.map(({ owner }) => owner), [1, 2]);
+  assert.deepEqual(events.map(({ owner }) => owner), [1, 2]);
+  assert.deepEqual(executions, ["START TRANSACTION", "COMMIT"]);
+  assert.equal(result.sent_correspondence_id, 41);
+  assert.equal(result.received_correspondence_id, 42);
+});
 
 test("SMS drafts select one exact receivable phone without sending or persisting correspondence", () => {
   const service = smsFixture([

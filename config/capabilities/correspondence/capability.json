@@ -4,7 +4,7 @@
   "version": 1,
   "id": "correspondence",
   "title": "Correspondence",
-  "summary": "Read synchronized email, messages, calls, and voicemail; link correspondence to to-dos or calendar events; and prepare unsent SMS handoffs.",
+  "summary": "Read synchronized and native Time v3 correspondence; link correspondence to to-dos or calendar events; and prepare unsent SMS handoffs.",
   "aliases": ["correspondence", "communications", "messages", "calls", "sms draft"],
   "readOnlyTools": ["correspondence_list", "sms_draft_create"],
   "dependentTools": ["calendar_event_search", "contact_lookup_batch", "email_mailbox_list", "todo_list"],
@@ -13,7 +13,7 @@
       "id": "correspondence.item",
       "kind": "object",
       "management": "provider",
-      "reason": "JMAP, explicit Android synchronization, and explicit Google Messages for Web synchronization own correspondence creation and updates; the local consolidated view is readable but not independently editable."
+      "reason": "JMAP, phone synchronization, Google Messages synchronization, and the native Time v3 delivery service own correspondence creation. The consolidated record is not independently editable."
     },
     {
       "id": "correspondence.todo",

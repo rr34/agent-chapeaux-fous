@@ -178,7 +178,7 @@ CREATE TABLE contact_methods (
 
     contact_method_id  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for this contact method.',
     contact_id         BIGINT UNSIGNED NOT NULL COMMENT 'Contact that owns this address or reachable identity.',
-    method_kind        ENUM('email', 'phone', 'postal_address', 'handle', 'url', 'other') NOT NULL COMMENT 'Kind of address or identity stored in value. email: Email address. phone: Telephone number. postal_address: Physical mailing or street address. handle: Username or service-specific handle. url: Web address. other: Contact identity not covered by the named kinds.',
+    method_kind        ENUM('email', 'phone', 'postal_address', 'handle', 'url', 'timev3_person', 'other') NOT NULL COMMENT 'Kind of address or identity stored in value. email: Email address. phone: Telephone number. postal_address: Physical mailing or street address. handle: Username or service-specific handle. url: Web address. timev3_person: Approved Time v3 person id stored canonically in normalized_value. other: Contact identity not covered by the named kinds.',
     label              VARCHAR(255) COMMENT 'Human-facing qualifier such as home, work, mobile, or billing.',
     value              TEXT NOT NULL COMMENT 'Original address, number, handle, URL, or other contact value as supplied.',
     normalized_value   VARCHAR(512) COMMENT 'Canonicalized representation used for reliable lookup and matching while value preserves the original.',
@@ -1002,7 +1002,7 @@ CREATE TABLE correspondence (
     -- fk:correspondence_reply importantRules: ["Deleting the referenced row preserves this row and clears the reference."]
 
     correspondence_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for this message or call.',
-    medium            ENUM('email', 'sms', 'mms', 'rcs', 'imessage', 'whatsapp', 'chat', 'call', 'voicemail', 'other') NOT NULL COMMENT 'Communication medium represented by this row. email: Email message. sms: SMS text message. mms: Multimedia messaging service message. rcs: Rich Communication Services message. imessage: Apple iMessage communication. whatsapp: WhatsApp message. chat: Message from another chat platform. call: Telephone or application call. voicemail: Recorded or transcribed voicemail. other: Communication medium not covered by the named values.',
+    medium            ENUM('email', 'sms', 'mms', 'rcs', 'imessage', 'whatsapp', 'chat', 'call', 'voicemail', 'timev3', 'other') NOT NULL COMMENT 'Communication medium represented by this row. email: Email message. sms: SMS text message. mms: Multimedia messaging service message. rcs: Rich Communication Services message. imessage: Apple iMessage communication. whatsapp: WhatsApp message. chat: Message from another chat platform. call: Telephone or application call. voicemail: Recorded or transcribed voicemail. timev3: Native person-to-person Time v3 correspondence. other: Communication medium not covered by the named values.',
     direction         ENUM('inbound', 'outbound') NOT NULL COMMENT 'Direction relative to the user. inbound: Received from another participant. outbound: Sent or initiated by the user; an unsent draft is outbound with delivery_status draft.',
     source_account_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Source-local mailbox, phone identity, SIM, or service account through which the communication was handled. It scopes provider identifiers and does not contain an authentication secret.',
     thread_key        VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Provider or local conversation identifier grouping related messages.',
@@ -1044,7 +1044,7 @@ CREATE TABLE correspondence_source_aliases (
 
     correspondence_source_alias_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Stable local identifier for one additional provider observation of a canonical correspondence record.',
     correspondence_id BIGINT UNSIGNED NOT NULL COMMENT 'Canonical correspondence record also observed through this additional source identity.',
-    medium ENUM('email', 'sms', 'mms', 'rcs', 'imessage', 'whatsapp', 'chat', 'call', 'voicemail', 'other') NOT NULL COMMENT 'Communication medium assigned to this source observation. It normally equals the canonical medium; an observation with incomplete transport evidence may alias a canonical SMS or MMS record after conservative content, participant, direction, and time matching.',
+    medium ENUM('email', 'sms', 'mms', 'rcs', 'imessage', 'whatsapp', 'chat', 'call', 'voicemail', 'timev3', 'other') NOT NULL COMMENT 'Communication medium assigned to this source observation. It normally equals the canonical medium; an observation with incomplete transport evidence may alias a canonical SMS or MMS record after conservative content, participant, direction, and time matching.',
     source_account_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Additional phone, SIM, or service account that observed the canonical communication.',
     thread_key VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Source-local conversation identifier observed on this additional device.',
     external_id VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Provider-assigned identifier on this additional source device.',

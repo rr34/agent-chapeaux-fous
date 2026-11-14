@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { currentPersonId, runWithPerson } from "./person-context.mjs";
+
 function positiveId(value, label) {
   const id = Number(value);
   if (!Number.isSafeInteger(id) || id < 1) throw new Error(`${label} must be a positive integer`);
@@ -157,14 +160,125 @@ function participantRows(message) {
 const emailSyncBatchSize = 100;
 
 export class CorrespondenceService {
-  constructor({ store, ledger, jmap }) {
+  constructor({ store, ledger, jmap, identityStore = null }) {
     this.store = store;
     this.ledger = ledger;
     this.jmap = jmap;
+    this.identityStore = identityStore;
     this.emailSyncProgress = { status: "idle", phase: null, processed: 0, total: null };
   }
 
   get database() { return this.store.requireReady(); }
+
+  timeV3Recipients() {
+    return this.database.prepare(`SELECT contact.contact_id, contact.display_name,
+        method.contact_method_id, method.normalized_value AS person_id
+      FROM contacts AS contact JOIN contact_methods AS method USING (contact_id)
+      WHERE contact.status = 'active' AND method.method_kind = 'timev3_person'
+        AND method.can_receive = 1
+      ORDER BY contact.display_name, contact.contact_id, method.contact_method_id`).all().map((row) => ({
+      contact_id: Number(row.contact_id),
+      display_name: row.display_name,
+      contact_method_id: Number(row.contact_method_id),
+      person_id: Number(row.person_id),
+    })).filter((recipient) => this.identityStore?.activePerson(recipient.person_id));
+  }
+
+  sendTimeV3Text({ contactId, text }, context = {}) {
+    if (!this.identityStore) throw Object.assign(new Error("Time v3 identity is required for native messages."), { statusCode: 503 });
+    const senderPersonId = currentPersonId();
+    const normalizedContactId = positiveId(contactId, "contactId");
+    if (typeof text !== "string" || !text.trim() || text.length > 20_000) {
+      throw Object.assign(new Error("text must contain 1 through 20,000 characters"), { statusCode: 400 });
+    }
+    const body = canonicalHtml(text);
+    const recipient = this.database.prepare(`SELECT contact.contact_id, contact.display_name,
+        method.contact_method_id, method.normalized_value AS person_id
+      FROM contacts AS contact JOIN contact_methods AS method USING (contact_id)
+      WHERE contact.contact_id = ? AND contact.status = 'active'
+        AND method.method_kind = 'timev3_person' AND method.can_receive = 1
+      ORDER BY method.is_primary DESC, method.contact_method_id LIMIT 1`).get(normalizedContactId);
+    if (!recipient) throw Object.assign(new Error("Choose an active contact with a receivable Time v3 person method."), { statusCode: 404 });
+    const recipientPersonId = positiveId(recipient.person_id, "recipient person id");
+    if (recipientPersonId === senderPersonId) throw Object.assign(new Error("A Time v3 message recipient must be another person."), { statusCode: 409 });
+    const sender = this.identityStore.activePerson(senderPersonId);
+    const target = this.identityStore.activePerson(recipientPersonId);
+    if (!sender || !target) throw Object.assign(new Error("The Time v3 recipient is unavailable."), { statusCode: 404 });
+
+    const externalId = randomUUID();
+    const occurredAt = new Date().toISOString();
+    const database = this.database;
+    const insertMessage = database.prepare(`INSERT INTO correspondence
+      (medium, direction, source_account_key, thread_key, external_id, body,
+       delivery_status, occurred_at_utc, sent_at_utc, received_at_utc, source_event_id)
+      VALUES ('timev3', ?, 'timev3', ?, ?, ?, 'delivered', ?, ?, ?, ?)`);
+    const insertParticipant = database.prepare(`INSERT INTO correspondence_participants_join
+      (correspondence_id, participant_role, contact_id, contact_method_id, address_value, display_name)
+      VALUES (?, ?, ?, ?, ?, ?)`);
+
+    database.exec("START TRANSACTION");
+    try {
+      const senderEventId = this.ledger.append({
+        type: "correspondence.timev3_sent", status: "complete",
+        actorType: context.actorType || "user", actorName: context.actorName || sender.displayName,
+        source: context.source || "timev3", channel: context.channel || "web",
+        name: "Time v3 message sent", content: text,
+        payload: { externalId, recipientPersonId },
+      });
+      const sent = insertMessage.run("outbound", `timev3:${recipientPersonId}`, externalId,
+        body, occurredAt, occurredAt, occurredAt, senderEventId);
+      const sentId = Number(sent.lastInsertRowid);
+      insertParticipant.run(sentId, "recipient", Number(recipient.contact_id),
+        Number(recipient.contact_method_id), `timev3:${recipientPersonId}`, target.displayName);
+
+      const receivedId = runWithPerson(recipientPersonId, () => {
+        const knownSenderMethods = database.prepare(`SELECT contact.contact_id, contact.status, method.contact_method_id
+          FROM contacts AS contact JOIN contact_methods AS method USING (contact_id)
+          WHERE method.method_kind = 'timev3_person'
+            AND method.normalized_value = ? ORDER BY method.is_primary DESC, method.contact_method_id`).all(String(senderPersonId));
+        if (knownSenderMethods.some(({ status }) => status === "blocked")) {
+          throw Object.assign(new Error("The Time v3 recipient is unavailable."), { statusCode: 404 });
+        }
+        let senderMethod = knownSenderMethods.find(({ status }) => status === "active") ?? null;
+        if (!senderMethod && knownSenderMethods.length === 0) {
+          const contact = database.prepare(`INSERT INTO contacts
+            (contact_kind, display_name, status, source, external_id)
+            VALUES ('person', ?, 'active', 'timev3', ?)`).run(sender.displayName, `person:${senderPersonId}`);
+          const createdContactId = Number(contact.lastInsertRowid);
+          const method = database.prepare(`INSERT INTO contact_methods
+            (contact_id, method_kind, label, value, normalized_value, is_primary, can_receive)
+            VALUES (?, 'timev3_person', 'Time v3', ?, ?, 1, 1)`).run(
+            createdContactId, String(senderPersonId), String(senderPersonId),
+          );
+          senderMethod = { contact_id: createdContactId, contact_method_id: Number(method.lastInsertRowid) };
+        }
+        const recipientEventId = this.ledger.append({
+          type: "correspondence.timev3_received", status: "complete",
+          actorType: "external", actorName: sender.displayName, source: "timev3", channel: "timev3",
+          name: "Time v3 message received", content: text,
+          payload: { externalId, senderPersonId },
+        });
+        const received = insertMessage.run("inbound", `timev3:${senderPersonId}`, externalId,
+          body, occurredAt, occurredAt, occurredAt, recipientEventId);
+        const id = Number(received.lastInsertRowid);
+        insertParticipant.run(id, "sender", senderMethod?.contact_id == null ? null : Number(senderMethod.contact_id),
+          senderMethod?.contact_method_id == null ? null : Number(senderMethod.contact_method_id),
+          `timev3:${senderPersonId}`, sender.displayName);
+        return id;
+      });
+      database.exec("COMMIT");
+      return {
+        external_id: externalId,
+        sent_correspondence_id: sentId,
+        received_correspondence_id: receivedId,
+        recipient: { contact_id: normalizedContactId, person_id: recipientPersonId, display_name: target.displayName },
+        occurred_at_utc: occurredAt,
+      };
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
 
   emailSyncStatus() {
     if (this.emailSyncProgress.status !== "idle") return structuredClone(this.emailSyncProgress);

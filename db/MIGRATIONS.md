@@ -12,6 +12,17 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 74: Native Time v3 correspondence
+
+Adds the `timev3` correspondence medium and `timev3_person` contact-method
+kind to the existing person-owned tables. An approved native recipient remains
+an ordinary contact; its Time v3 method stores the target person id. No table or
+first-class object is introduced.
+
+Apply with Agent stopped. The three enum-only physical table alterations take
+metadata locks. If interrupted, keep Agent stopped and rerun the complete
+replayable migration before verification and restart.
+
 ## Version 73: Calendar-event milestones
 
 Adds nullable `milestone_mode` and `milestone_anchor` columns to the existing

@@ -7,6 +7,7 @@ import { Empty, ErrorState, Loading } from "./State";
 import { ObjectSelectionControls } from "./ObjectSelectionControls";
 import { ObjectCard } from "./object-cards/ObjectCard";
 import { formatDisplayDate } from "../date-format";
+import { lcdViewport, renderLcdDocument } from "../lcd-document";
 
 type Participant = { role: string; address: string; display_name: string | null; contact_id: number | null };
 type CorrespondenceMailbox = { mailbox_id: string; name: string; role: string | null; parent_mailbox_id: string | null };
@@ -55,7 +56,7 @@ function correspondencePreview(value: string | null) {
 }
 
 function correspondenceMediumGroup(medium: string) {
-  return ["sms", "mms", "rcs", "imessage"].includes(medium) ? "messages" : medium;
+  return ["sms", "mms", "rcs", "imessage", "timev3"].includes(medium) ? "messages" : medium;
 }
 
 function syncDuration(milliseconds: number) {
@@ -93,6 +94,15 @@ export function CorrespondenceScreen() {
   const [messageHistoryMode, setMessageHistoryMode] = useState("incremental");
   const [downloadingExtension, setDownloadingExtension] = useState(false);
   const [notice, setNotice] = useState("");
+  const [timeV3ContactId, setTimeV3ContactId] = useState("");
+  const [timeV3Text, setTimeV3Text] = useState("");
+  const [lcdOffset, setLcdOffset] = useState(0);
+  const [sendingTimeV3, setSendingTimeV3] = useState(false);
+  const { data: timeV3Data, reload: reloadTimeV3Recipients } = useApi<{
+    recipients: Array<{ contact_id: number; display_name: string; person_id: number }>;
+  }>("/api/correspondence/timev3-recipients");
+  const lcdDocument = useMemo(() => renderLcdDocument(timeV3Text), [timeV3Text]);
+  const lcd = useMemo(() => lcdViewport(lcdDocument, lcdOffset), [lcdDocument, lcdOffset]);
   const parameters = new URLSearchParams({ limit: "200", offset: String(page * 200) });
   if (query.trim()) parameters.set("q", query.trim());
   if (medium) parameters.set("medium", medium);
@@ -107,6 +117,7 @@ export function CorrespondenceScreen() {
     mailboxes: CorrespondenceMailbox[]; contact_tags: CorrespondenceContactTag[]; has_more: boolean;
   }>(`/api/correspondence?${parameters}`);
   useEffect(() => { setPage(0); }, [query, medium, direction, mailbox, participantTag, occurredFromDate, occurredBeforeDate, groupBy]);
+  useEffect(() => { setLcdOffset((value) => Math.min(value, Math.max(0, lcdDocument.length - 4))); }, [lcdDocument.length]);
   const groups = useMemo(() => {
     const grouped = new Map<string, CorrespondenceItem[]>();
     for (const item of data?.items || []) {
@@ -149,6 +160,19 @@ export function CorrespondenceScreen() {
       setNotice("Extension downloaded. Extract the ZIP, then use Load unpacked in brave://extensions and select the extracted folder.");
     } catch (caught) { setNotice(caught instanceof Error ? caught.message : String(caught)); }
     finally { setDownloadingExtension(false); }
+  };
+  const sendTimeV3 = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSendingTimeV3(true); setNotice("");
+    try {
+      await api("/api/correspondence/timev3-messages", {
+        method: "POST",
+        body: JSON.stringify({ contactId: Number(timeV3ContactId), text: timeV3Text }),
+      });
+      setTimeV3Text(""); setLcdOffset(0); setNotice("Time v3 message delivered.");
+      await Promise.all([reload(), reloadTimeV3Recipients()]);
+    } catch (caught) { setNotice(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setSendingTimeV3(false); }
   };
   const syncMessages = async () => {
     setChoosingMessageHistory(false);
@@ -208,9 +232,26 @@ export function CorrespondenceScreen() {
   return <>
     <header className="page-heading"><div><p className="eyebrow">Every channel, one record</p><h1>Correspondence</h1><p>Email, messages, calls, and voicemail consolidated without replacing their authoritative apps.</p></div><div className="heading-actions"><button className="button button--quiet" disabled={downloadingExtension} onClick={() => void downloadExtension()}>{downloadingExtension ? "Downloading…" : "Download Messages extension"}</button><button className="button" disabled={syncing} onClick={() => void sync()}>{syncing ? "Syncing…" : "Sync email"}</button><button className="button" disabled={syncingMessages} onClick={() => setChoosingMessageHistory(true)}>{syncingMessages ? "Syncing…" : "Sync Google Messages"}</button></div></header>
     {choosingMessageHistory && <div className="object-editor-backdrop"><section className="object-editor message-history-dialog" role="dialog" aria-modal="true" aria-labelledby="message-history-heading"><form onSubmit={(event) => { event.preventDefault(); void syncMessages(); }}><header className="object-editor-heading"><div><p className="eyebrow">Google Messages</p><h2 id="message-history-heading">Choose history range</h2></div></header><label>Messages to synchronize<select autoFocus value={messageHistoryMode} onChange={(event) => setMessageHistoryMode(event.target.value)}><option value="incremental">Since last sync</option><option value="days_30">Last 30 days</option><option value="days_90">Last 90 days</option><option value="days_365">Last year</option><option value="all">All available history</option></select></label><p className="object-editor-note">On the first run, “Since last sync” imports 30 days. Later runs overlap the previous successful sync by two days.</p><footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={() => setChoosingMessageHistory(false)}>Cancel</button><button className="button" type="submit">Start sync</button></footer></form></section></div>}
+    <section className="timev3-composer surface" aria-labelledby="timev3-composer-heading">
+      <div className="section-title"><div><p className="eyebrow">20 × 4 display</p><h2 id="timev3-composer-heading">Time v3 message</h2><p>The preview uses the same twenty-character wrapping contract as the node.</p></div></div>
+      <form className="timev3-composer-layout" onSubmit={(event) => void sendTimeV3(event)}>
+        <div className="timev3-composer-fields">
+          <label>Recipient<select required value={timeV3ContactId} onChange={(event) => setTimeV3ContactId(event.target.value)}><option value="">Choose an approved Time v3 contact</option>{(timeV3Data?.recipients || []).map((recipient) => <option key={`${recipient.contact_id}:${recipient.person_id}`} value={recipient.contact_id}>{recipient.display_name}</option>)}</select></label>
+          <label>Message<textarea required rows={8} maxLength={20_000} value={timeV3Text} onChange={(event) => setTimeV3Text(event.target.value)} placeholder="Type exactly what the node should display." /></label>
+          <button className="button" disabled={sendingTimeV3 || !timeV3ContactId || !timeV3Text.trim()}>{sendingTimeV3 ? "Sending…" : "Send Time v3 message"}</button>
+        </div>
+        <div className="lcd-preview-wrap">
+          <div className="lcd-preview" role="img" aria-label={`LCD preview, rows ${lcd.offset + 1} through ${Math.min(lcd.offset + 4, lcdDocument.length)} of ${lcdDocument.length}`}>
+            {lcd.rows.map((row, index) => <span key={index}>{row}</span>)}
+          </div>
+          <div className="lcd-preview-controls"><button className="button button--quiet" type="button" disabled={lcd.offset === 0} onClick={() => setLcdOffset((value) => Math.max(0, value - 1))}>Scroll up</button><span>{lcd.offset + 1}–{Math.min(lcd.offset + 4, lcdDocument.length)} of {lcdDocument.length}</span><button className="button button--quiet" type="button" disabled={lcd.offset >= lcd.maximum} onClick={() => setLcdOffset((value) => Math.min(lcd.maximum, value + 1))}>Scroll down</button></div>
+        </div>
+      </form>
+      {!timeV3Data?.recipients.length && <p className="object-editor-note">Add a <strong>Time v3 person</strong> detail containing the recipient’s person ID to an existing native contact to approve that recipient.</p>}
+    </section>
     <div className="section-filter correspondence-filters">
       <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search subject or body" />
-      <select value={medium} onChange={(event) => setMedium(event.target.value)}><option value="">All media</option>{["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "other"].map((value) => <option key={value}>{value}</option>)}</select>
+      <select value={medium} onChange={(event) => setMedium(event.target.value)}><option value="">All media</option>{["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "timev3", "other"].map((value) => <option key={value}>{value}</option>)}</select>
       <select value={direction} onChange={(event) => setDirection(event.target.value)}><option value="">All directions</option><option>inbound</option><option>outbound</option></select>
       <select aria-label="Email mailbox" value={mailbox} onChange={(event) => setMailbox(event.target.value)}><option value="">All mailboxes</option>{(data?.mailboxes || []).map((value) => <option key={value.mailbox_id} value={value.mailbox_id}>{value.name}</option>)}</select>
       <select aria-label="Participant contact tag" value={participantTag} onChange={(event) => setParticipantTag(event.target.value)}><option value="">All contact tags</option>{(data?.contact_tags || []).map((tag) => <option key={tag.slug} value={tag.slug}>{tag.label} ({tag.contact_count})</option>)}</select>
@@ -344,7 +385,7 @@ function IdentitiesScreen() {
     {error && <ErrorState error={error} retry={reload} />}
     {data && <section className="surface"><div className="section-title"><div><p className="eyebrow">Signed-in account</p><h2>{data.account.displayName}</h2><p>{data.account.email}</p></div></div>
       <div className="integration-list">{data.people.map((person) => <article className={`integration-card${person.personId === data.selectedPerson.personId ? " ready" : ""}`} key={person.personId}>
-        <div><strong>{person.displayName}</strong><span>{person.kind === "primary" ? "Primary identity" : "Managed identity"}{person.personId === data.selectedPerson.personId ? " · Active" : ""}</span></div>
+        <div><strong>{person.displayName}</strong><span>{person.kind === "primary" ? "Primary identity" : "Managed identity"} · Person {person.personId}{person.personId === data.selectedPerson.personId ? " · Active" : ""}</span></div>
         {person.personId !== data.selectedPerson.personId && <button className="button button--quiet" type="button" onClick={() => void selectIdentity(person.personId)}>Use identity</button>}
       </article>)}</div>
     </section>}

@@ -3,7 +3,7 @@ import { formatDisplayDate } from "../../date-format";
 import { SimpleObjectCard } from "./SimpleObjectCard";
 import type { ObjectCardProps } from "./types";
 
-const media = new Set(["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "other"]);
+const media = new Set(["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "timev3", "other"]);
 const directions = new Set(["inbound", "outbound"]);
 
 function normalized(value: string | undefined) {
@@ -31,7 +31,7 @@ function compactDate(props: ObjectCardProps) {
 function MediumIcon({ medium }: { medium: string }) {
   if (medium === "email") return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m4 7 8 6 8-6" /></svg>;
   if (medium === "mms") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 3v-4.5A2 2 0 0 1 3 15V6a2 2 0 0 1 2-2Z" /><circle cx="9" cy="9" r="1.4" /><path d="m7 15 3-3 2.5 2 2.5-3 3 4" /></svg>;
-  if (["sms", "rcs", "imessage", "whatsapp", "chat"].includes(medium)) return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 3v-4.5A2 2 0 0 1 3 15V6a2 2 0 0 1 2-2Z" /><path d="M8 9h8M8 13h5" /></svg>;
+  if (["sms", "rcs", "imessage", "whatsapp", "chat", "timev3"].includes(medium)) return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 3v-4.5A2 2 0 0 1 3 15V6a2 2 0 0 1 2-2Z" /><path d="M8 9h8M8 13h5" /></svg>;
   if (medium === "voicemail") return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="12" r="4" /><circle cx="17" cy="12" r="4" /><path d="M7 16h10" /></svg>;
   if (medium === "call") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 3.5 10 8 7.8 10a15.5 15.5 0 0 0 6.2 6.2l2-2.2 4.5 2.8-.8 3a2 2 0 0 1-2 1.5A15.5 15.5 0 0 1 2.7 6.3a2 2 0 0 1 1.5-2Z" /></svg>;
   return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="18" cy="12" r="1" /></svg>;

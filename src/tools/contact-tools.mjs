@@ -98,7 +98,7 @@ const contactMethodRecordSchema = {
     method_ref: { description: "Stable Agent Slayer reference for this exact contact method." },
     method_display: { description: "Compact human-facing label and value for this contact method." },
     contact_id: { description: "Contact that owns this address or reachable identity." },
-    method_kind: { description: "Kind of address or identity stored in value. email: Email address. phone: Telephone number. postal_address: Physical mailing or street address. handle: Username or service-specific handle. url: Web address. other: Contact identity not covered by the named kinds." },
+    method_kind: { description: "Kind of address or identity stored in value, including an approved timev3_person recipient." },
     label: { description: "Human-facing qualifier such as home, work, mobile, or billing." },
     value: { description: "Original address, number, handle, URL, or other contact value as supplied." },
     normalized_value: { description: "Canonicalized representation used for reliable lookup and matching while value preserves the original." },
@@ -116,7 +116,7 @@ const resolvedContactMethodSchema = {
     contact_method_id: { type: "integer", minimum: 1, description: "Stable native contact-method primary ID." },
     method_ref: { type: "string", description: "Stable Agent Slayer reference for this exact contact method." },
     method_display: { type: "string", description: "Human-facing contact-method label and value." },
-    kind: { type: "string", enum: ["email", "phone", "postal_address", "handle", "url", "other"], description: "Kind of contact method; postal_address identifies a physical mailing or street address." },
+    kind: { type: "string", enum: ["email", "phone", "postal_address", "handle", "url", "timev3_person", "other"], description: "Kind of contact method; timev3_person identifies an approved native recipient." },
     label: { type: ["string", "null"], description: "Human-facing qualifier such as home, work, mobile, or billing." },
     value: { type: "string", description: "Original address or reachable identity as supplied." },
     isPrimary: { type: "boolean", description: "True when this is the preferred method of its kind." },
@@ -204,7 +204,7 @@ const contactTagUnlinkBatchOutputSchema = contactTagBatchOutputSchema({
 const nullableString = { type: ["string", "null"] };
 const contactKinds = new Set(["person", "organization", "service"]);
 const contactStatuses = new Set(["active", "inactive", "blocked", "deceased"]);
-const methodKinds = new Set(["email", "phone", "postal_address", "handle", "url", "other"]);
+const methodKinds = new Set(["email", "phone", "postal_address", "handle", "url", "timev3_person", "other"]);
 const contactFields = [
   "contact_id", "contact_kind", "display_name", "given_name", "family_name",
   "organization_name", "is_self", "status", "birth_date", "notes", "source",
@@ -254,6 +254,13 @@ function booleanValue(value, label) {
 
 function normalizedMethodValue(kind, value) {
   if (kind === "email") return value.toLowerCase();
+  if (kind === "timev3_person") {
+    const personId = Number(value);
+    if (!Number.isSafeInteger(personId) || personId < 1) {
+      throw new Error("A Time v3 person contact method must contain a positive person id");
+    }
+    return String(personId);
+  }
   if (kind === "phone") {
     const digits = value.replace(/\D/g, "");
     return value.startsWith("+") ? `+${digits}` : digits;
@@ -657,7 +664,7 @@ export function registerContactTools(
                 items: {
                   type: "object", additionalProperties: false,
                   properties: {
-                    method_kind: { type: "string", enum: ["email", "phone", "postal_address", "handle", "url", "other"], description: "Kind of address or identity stored in value. email: Email address. phone: Telephone number. postal_address: Physical mailing or street address. handle: Username or service-specific handle. url: Web address. other: Contact identity not covered by the named kinds." },
+                    method_kind: { type: "string", enum: ["email", "phone", "postal_address", "handle", "url", "timev3_person", "other"], description: "Kind of reachable identity; timev3_person contains an approved native recipient person id." },
                     label: { ...nullableString, maxLength: 100, description: "Human-facing qualifier such as home, work, mobile, or billing." },
                     value: { type: "string", minLength: 1, maxLength: 2000, description: "Original address, number, handle, URL, or other contact value as supplied." },
                     is_primary: { type: "boolean", description: "True when this is the preferred contact method of its kind for the contact; false otherwise." },
@@ -737,7 +744,7 @@ export function registerContactTools(
                 additionalProperties: false,
                 properties: {
                   column: { type: "string", minLength: 1, maxLength: 500 },
-                  method_kind: { type: "string", enum: ["email", "phone", "postal_address", "handle", "url", "other"], description: "Kind of address or identity stored in value. email: Email address. phone: Telephone number. postal_address: Physical mailing or street address. handle: Username or service-specific handle. url: Web address. other: Contact identity not covered by the named kinds." },
+                  method_kind: { type: "string", enum: ["email", "phone", "postal_address", "handle", "url", "timev3_person", "other"], description: "Kind of reachable identity; timev3_person contains an approved native recipient person id." },
                   label: { ...nullableString, maxLength: 100, description: "Human-facing qualifier such as home, work, mobile, or billing." },
                   is_primary: { type: "boolean", description: "True when this is the preferred contact method of its kind for the contact; false otherwise." },
                   can_receive: { type: "boolean", description: "True when the agent may use this method as a delivery destination; false otherwise." },
@@ -1222,7 +1229,7 @@ export function registerContactTools(
 
   registry.register({
     name: "contact_method_set",
-    description: "Atomically add or replace one standard contact method on each of 1 through 100 existing visible contacts. Supports email, phone, postal_address, handle, URL, and other methods. Resolve contacts and replacement methods with contact_search first and supply current contact versions. The complete batch validates before writing, preserves every sibling method and contact field, rejects normalized duplicates, and is safe to replay.",
+    description: "Atomically add or replace one standard contact method on each of 1 through 100 existing visible contacts. Supports email, phone, postal_address, handle, URL, approved Time v3 people, and other methods. Resolve contacts and replacement methods with contact_search first and supply current contact versions. The complete batch validates before writing, preserves every sibling method and contact field, rejects normalized duplicates, and is safe to replay.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1237,7 +1244,7 @@ export function registerContactTools(
               expected_version: { type: "string", minLength: 1 },
               action: { type: "string", enum: ["add", "replace"] },
               contact_method_id: { type: ["integer", "null"], minimum: 1 },
-              method_kind: { type: "string", enum: ["email", "phone", "postal_address", "handle", "url", "other"] },
+              method_kind: { type: "string", enum: ["email", "phone", "postal_address", "handle", "url", "timev3_person", "other"] },
               label: { type: ["string", "null"], maxLength: 100 },
               value: { type: "string", minLength: 1, maxLength: 2000 },
               is_primary: { type: "boolean" },

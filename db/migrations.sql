@@ -16,6 +16,29 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0074: native-timev3-correspondence
+-- writer downtime: required. The matching application recognizes the new
+-- correspondence medium and contact-method kind as soon as it starts.
+-- locking: three enum-only ALTER TABLE operations take metadata locks on the
+-- physical correspondence, source-alias, and contact-method tables.
+-- recovery: MariaDB DDL commits implicitly. Every MODIFY COLUMN is replayable;
+-- keep Agent stopped and rerun the complete migration if it is interrupted
+-- before schema version 74 is recorded.
+
+ALTER TABLE p_correspondence
+  MODIFY COLUMN medium ENUM('email', 'sms', 'mms', 'rcs', 'imessage', 'whatsapp', 'chat', 'call', 'voicemail', 'timev3', 'other') NOT NULL
+    COMMENT 'Communication medium represented by this row. email: Email message. sms: SMS text message. mms: Multimedia messaging service message. rcs: Rich Communication Services message. imessage: Apple iMessage communication. whatsapp: WhatsApp message. chat: Message from another chat platform. call: Telephone or application call. voicemail: Recorded or transcribed voicemail. timev3: Native person-to-person Time v3 correspondence. other: Communication medium not covered by the named values.';
+
+ALTER TABLE p_correspondence_source_aliases
+  MODIFY COLUMN medium ENUM('email', 'sms', 'mms', 'rcs', 'imessage', 'whatsapp', 'chat', 'call', 'voicemail', 'timev3', 'other') NOT NULL
+    COMMENT 'Communication medium assigned to this source observation. It normally equals the canonical medium; an observation with incomplete transport evidence may alias a canonical SMS or MMS record after conservative content, participant, direction, and time matching.';
+
+ALTER TABLE p_contact_methods
+  MODIFY COLUMN method_kind ENUM('email', 'phone', 'postal_address', 'handle', 'url', 'timev3_person', 'other') NOT NULL
+    COMMENT 'Kind of address or identity stored in value. email: Email address. phone: Telephone number. postal_address: Physical mailing or street address. handle: Username or service-specific handle. url: Web address. timev3_person: Approved Time v3 person id stored canonically in normalized_value. other: Contact identity not covered by the named kinds.';
+
+-- end migration 0074
+
 -- migration 0073: calendar-event-milestones
 -- writer downtime: required. The matching application reads and writes the
 -- two milestone columns and requires the refreshed person-filtered view.

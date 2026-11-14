@@ -1073,6 +1073,15 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .correspondence-filters input, .correspondence-filters select { min-width: 0; }
 .correspondence-pages { display: flex; align-items: center; justify-content: center; gap: .75rem; margin-top: 1rem; }
 .correspondence-sync-status { white-space: pre-line; }
+.timev3-composer { margin-bottom: 1rem; }
+.timev3-composer-layout { display: grid; grid-template-columns: minmax(16rem, 1fr) minmax(20rem, 1fr); gap: 1.25rem; align-items: start; }
+.timev3-composer-fields { display: grid; gap: .75rem; }
+.timev3-composer-fields label { display: grid; gap: .35rem; }
+.timev3-composer-fields textarea { resize: vertical; }
+.lcd-preview-wrap { display: grid; gap: .65rem; justify-items: center; }
+.lcd-preview { box-sizing: content-box; width: 20ch; min-width: 20ch; display: grid; grid-template-rows: repeat(4, 1.4em); padding: 1.15rem 1.25rem; overflow: hidden; border: 10px solid #263126; border-radius: 8px; background: #b7ce83; box-shadow: inset 0 0 18px rgb(36 54 22 / 28%), 0 8px 24px rgb(22 31 19 / 18%); color: #20351d; font-family: "Courier New", monospace; font-size: clamp(18px, 2.4vw, 28px); font-weight: 700; line-height: 1.4; letter-spacing: 0; white-space: pre; }
+.lcd-preview span { display: block; width: 20ch; height: 1.4em; overflow: hidden; }
+.lcd-preview-controls { display: flex; gap: .65rem; align-items: center; justify-content: center; flex-wrap: wrap; color: var(--muted); font-size: .85rem; }
 .message-history-dialog { width: min(460px, 100%); }
 .message-sync-progress { display: grid; gap: .45rem; margin: 0 0 .8rem; padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
 .message-sync-progress-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
@@ -1197,7 +1206,7 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .music-player-timeline input:focus-visible { outline: 3px solid rgba(182, 76, 45, .35); outline-offset: 4px; box-shadow: 0 0 0 1px #2f382a; }
 .music-player-timeline > div { display: flex; justify-content: space-between; color: #444c3d; font: 700 11px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; font-variant-numeric: tabular-nums; }
 @media (max-width: 800px) {
-  .correspondence-filters, .profile-fact-form { grid-template-columns: 1fr; }
+  .correspondence-filters, .profile-fact-form, .timev3-composer-layout { grid-template-columns: 1fr; }
   .account-tool-refresh { grid-template-columns: 1fr; }
   .account-tool-refresh-status { grid-column: 1; }
   .usage-summary, .usage-pricing-form { grid-template-columns: 1fr; }

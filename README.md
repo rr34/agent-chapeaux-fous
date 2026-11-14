@@ -510,6 +510,27 @@ queue entries.
 
 The Raspberry Pi hardware description for The Time v3 Node lives in
 [`time-v3-node/HARDWARE.md`](time-v3-node/HARDWARE.md).
+That file is the sole hardware and pinout authority. Node software lives beside
+it under `time-v3-node/`; copied thermostat code is an isolated legacy snapshot
+and is not a hardware or implementation input.
+
+The node is a headless Python appliance with one flat 20×4 character menu. Its
+text-and-link renderer is the display contract for physical LCD output and web
+previews: prose wraps at twenty characters, vertical navigation moves one
+rendered row, and a link occupies one row with at most nineteen label characters
+plus a right-facing marker. Node Internet content is restricted to approved
+Time v3 pages using that text-and-link model; arbitrary HTML, CSS, scripts,
+forms, and external browsing are outside the node contract.
+
+Native person-to-person messages use correspondence medium `timev3`. A sender
+may choose only an active native contact with a receivable `timev3_person`
+method whose normalized value is an active Time v3 person id. Delivery writes
+one outbound row for the sender and one inbound row for the recipient with the
+same opaque external identity. A first accepted message may create the sender's
+native contact for the recipient, but it never bypasses a blocked native
+contact. Text is escaped into the canonical correspondence body. Voice will use
+an Ogg/Opus recording joined through the existing correspondence-file
+relationship rather than a separate correspondence medium.
 
 
 ## Hats and the user manual
@@ -1476,6 +1497,12 @@ exposed by the selection and network controls. These links organize local
 objects without modifying provider correspondence or the linked endpoint.
 Calendar events and personal to-dos deliberately have no direct relationship.
 Phone synchronization remains mobile-only.
+
+The same Correspondence screen owns native Time v3 composition. Its LCD preview
+uses the node's exact 20×4 wrapping rules. Native delivery is available only to
+contacts explicitly given a receivable Time v3 person method; it creates paired
+outbound and inbound person-owned correspondence rather than mutating a
+provider mirror.
 
 The web-only **Music** section follows Files in navigation, reads the same
 authenticated library as mobile, groups recordings by release or work, and

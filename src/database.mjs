@@ -1,7 +1,7 @@
 import { openApplicationDatabase } from "./database-connection.mjs";
 import { legacyPersonDataTablePrefix, personDataTablePrefix } from "./person-isolation.mjs";
 
-export const requiredDatabaseSchemaVersion = 73;
+export const requiredDatabaseSchemaVersion = 74;
 
 export const requiredDatabaseShape = {
   database_meta: ["singleton", "schema_version"],
@@ -180,7 +180,7 @@ export const requiredEnumColumns = {
     contact_kind: ["person", "organization", "service"],
     status: ["active", "inactive", "blocked", "deceased"],
   },
-  contact_methods: { method_kind: ["email", "phone", "postal_address", "handle", "url", "other"] },
+  contact_methods: { method_kind: ["email", "phone", "postal_address", "handle", "url", "timev3_person", "other"] },
   calendar_events: {
     status: ["tentative", "confirmed", "cancelled"],
     milestone_mode: ["countdown", "countup", "automatic"],
@@ -218,13 +218,13 @@ export const requiredEnumColumns = {
   },
   profile_facts: { fact_status: ["active", "archived"] },
   correspondence: {
-    medium: ["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "other"],
+    medium: ["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "timev3", "other"],
     direction: ["inbound", "outbound"],
     delivery_status: ["draft", "sent", "delivered", "failed", "unknown"],
     call_disposition: ["answered", "missed"],
   },
   correspondence_source_aliases: {
-    medium: ["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "other"],
+    medium: ["email", "sms", "mms", "rcs", "imessage", "whatsapp", "chat", "call", "voicemail", "timev3", "other"],
   },
   correspondence_files_join: { attachment_role: ["attachment", "inline", "recording", "other"] },
   correspondence_participants_join: { participant_role: ["from", "to", "cc", "bcc", "reply_to", "sender", "recipient"] },

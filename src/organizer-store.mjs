@@ -34,7 +34,7 @@ const contentHosts = new Set(["youtube", "vimeo", "spotify", "mytlomdotcom", "no
 const contentStatuses = new Set(["draft", "unlisted", "published", "unused", "obsolete"]);
 const contactKinds = new Set(["person", "organization", "service"]);
 const contactStatuses = new Set(["active", "inactive", "blocked", "deceased"]);
-const contactMethodKinds = new Set(["email", "phone", "postal_address", "handle", "url", "other"]);
+const contactMethodKinds = new Set(["email", "phone", "postal_address", "handle", "url", "timev3_person", "other"]);
 const contactAddressActions = new Set(["add", "replace"]);
 
 export class OrganizerInputError extends Error {
@@ -116,6 +116,13 @@ function contactBirthDate(value) {
 
 function normalizedContactMethod(kind, value) {
   if (kind === "email") return value.toLowerCase();
+  if (kind === "timev3_person") {
+    const personId = Number(value);
+    if (!Number.isSafeInteger(personId) || personId < 1) {
+      throw new OrganizerInputError("A Time v3 person contact method must contain a positive person id.");
+    }
+    return String(personId);
+  }
   if (kind === "phone") {
     const digits = value.replace(/\D/g, "");
     return value.startsWith("+") ? `+${digits}` : digits;

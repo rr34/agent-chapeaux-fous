@@ -5,6 +5,11 @@ rendered RCS and other web-visible message evidence. The consolidated local row
 may contain source observations from both paths. Do not claim that a local mirror
 mutation changed a provider.
 
+Native `timev3` rows are delivered by the authenticated Time v3 web or node
+client between exact person identities. An ordinary native contact is eligible
+only when it has a receivable `timev3_person` method. This capability currently
+reads those messages but does not give the model a native-message sending tool.
+
 Link or unlink exact correspondence and to-do pairs with one bounded
 `correspondence_todo_link_set` call. Link or unlink exact correspondence and
 saved calendar-event pairs with one bounded

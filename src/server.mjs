@@ -186,7 +186,7 @@ const jmap = new JmapClient({
   required: config.jmapRequired,
   timeoutMs: config.jmapTimeoutMs,
 });
-const correspondence = store.status.ready ? new CorrespondenceService({ store, ledger, jmap }) : null;
+const correspondence = store.status.ready ? new CorrespondenceService({ store, ledger, jmap, identityStore }) : null;
 if (store.status.ready) {
   registerCalendarTools(registry, store, organizer, ledger, searchCoordinator);
   registerContactTools(registry, store, organizer, ledger, searchCoordinator);
@@ -1098,6 +1098,19 @@ const server = http.createServer(async (request, response) => {
         groupBy: url.searchParams.get("groupBy") || "none",
         limit: url.searchParams.get("limit") || 100,
         offset: url.searchParams.get("offset") || 0,
+      }));
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/correspondence/timev3-recipients") {
+      sendJson(response, 200, { recipients: correspondence.timeV3Recipients() });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/correspondence/timev3-messages") {
+      const person = request.timev3Auth?.person ?? request.timev3Node?.person;
+      sendJson(response, 201, correspondence.sendTimeV3Text(await readJson(request), {
+        actorType: "user", actorName: person?.displayName || "Time v3 user",
+        source: request.timev3Node ? "timev3_node" : "timev3_web",
+        channel: request.timev3Node ? "node" : "web",
       }));
       return;
     }
