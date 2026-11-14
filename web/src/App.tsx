@@ -265,10 +265,10 @@ function compareTodoDisplayOrder(left: Entity, right: Entity) {
 }
 
 function PageHeading({ eyebrow, title, detail, groupFilter, actions }: {
-  eyebrow: string; title: string; detail?: string; groupFilter?: ReactNode; actions?: ReactNode;
+  eyebrow?: string; title: string; detail?: string; groupFilter?: ReactNode; actions?: ReactNode;
 }) {
   return <header className={`page-heading${groupFilter ? " page-heading--grouped" : ""}`}>
-    <div className="page-heading-copy"><p className="eyebrow">{eyebrow}</p><h1>{title}</h1>{detail && <p>{detail}</p>}</div>
+    <div className="page-heading-copy">{eyebrow && <p className="eyebrow">{eyebrow}</p>}<h1>{title}</h1>{detail && <p>{detail}</p>}</div>
     {groupFilter && <div className="heading-group-yard">{groupFilter}</div>}
     {actions && <div className="heading-actions">{actions}</div>}
   </header>;
@@ -1986,7 +1986,7 @@ function ContactsScreen() {
     finally { setContactAction(""); }
   };
   const managedPeople = (provisionedData?.people || []).filter(({ person }) => person.contactPolicy === "manager_managed");
-  return <><PageHeading eyebrow="People & organizations" title="Contacts" detail="Phone, message, and email links stay native-friendly for the future mobile client." actions={<div className="section-heading-actions">
+  return <><PageHeading title="Contacts" actions={<div className="section-heading-actions">
     <button className="button button--quiet" type="button" disabled={!contactTags.length || Boolean(contactAction)} onClick={() => { const current = selectedTag === "all" ? contactTags[0] : selectedTag; setRenameCurrentTag(current || ""); setRenameNextTag(current || ""); setRenamingTag(true); }}>Rename tag</button>
     <button className="button button--quiet" type="button" disabled={!duplicateData?.groups?.length} onClick={() => setShowDuplicates((current) => !current)}>Review duplicates · {duplicateData?.groups?.length || 0}</button>
     <button className="button" type="button" onClick={() => setAddingContact(true)}>Add contact</button>
@@ -2027,7 +2027,7 @@ function ContactsScreen() {
           const methods = (contact.methods as Entity[] | undefined) || [];
           const tags = (contact.tags as string[] | undefined) || [];
           const contactDetails = methods.map((method) => cardAttribute(
-            textKey(method, "label") || String(method.kind).replaceAll("_", " "),
+            textKey(method, "label") || (method.kind === "timev3_person" ? "Time v3 handle" : method.kind === "handle" ? "Other" : String(method.kind).replaceAll("_", " ")),
             method.value,
           )).filter((attribute): attribute is { label: string; value: string } => Boolean(attribute));
           const links = [

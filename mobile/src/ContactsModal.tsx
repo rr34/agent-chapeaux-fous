@@ -25,7 +25,7 @@ function errorMessage(error: unknown) {
 }
 
 function methodLabel(method: AgentContactMethod) {
-  return method.label?.trim() || method.kind.replaceAll('_', ' ');
+  return method.label?.trim() || (method.kind === 'timev3_person' ? 'Time v3 handle' : method.kind === 'handle' ? 'Other' : method.kind.replaceAll('_', ' '));
 }
 
 function contactSearchText(contact: AgentContact) {

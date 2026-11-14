@@ -718,6 +718,11 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .auth-links button { padding: 0; border: 0; background: none; color: var(--olive-dark); font: inherit; font-weight: 700; cursor: pointer; }
 .auth-message { margin: 0; color: var(--olive-dark); font-size: 13px; line-height: 1.45; }
 .auth-message--error { color: var(--danger); }
+.handle-input { width: 100%; display: flex; align-items: center; border: 1px solid #cbd0c6; border-radius: 9px; background: white; color: var(--ink); overflow: hidden; }
+.handle-input:focus-within { border-color: var(--olive); box-shadow: 0 0 0 3px rgba(104, 116, 90, .14); }
+.handle-input-prefix { flex: 0 0 auto; padding-left: 12px; color: var(--muted); font-size: inherit; font-weight: 700; }
+.handle-input > input, .handle-input > input:focus { min-width: 0; border: 0; border-radius: 0; padding-left: 3px; background: transparent; box-shadow: none; }
+.contact-editor-method .handle-input > input { padding: 7px 8px 7px 3px; }
 
 /* The page is a component, not a screenshot: print and preview share this tree. */
 .daily-paper-document { width: max-content; max-width: 100%; margin: 0 auto; }

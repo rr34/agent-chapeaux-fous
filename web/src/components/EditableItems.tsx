@@ -14,6 +14,7 @@ import {
 import { CalendarEventCard, calendarEventCardObject } from "./object-cards/CalendarEventCard";
 import { CalendarRoutineCard } from "./object-cards/CalendarRoutineCard";
 import { TodoCard } from "./object-cards/TodoCard";
+import { HandleInput } from "./HandleInput";
 
 type Changed = () => void | Promise<void>;
 
@@ -98,7 +99,7 @@ function contactDraft(contact: Entity): ContactDraft {
     notes: String(contact.notes || ""),
     methods: ((contact.methods as Entity[] | undefined) || []).map((method) => ({
       ...(method.id == null ? {} : { id: Number(method.id) }),
-      kind: String(method.kind || "other"),
+      kind: method.kind === "handle" ? "other" : String(method.kind || "other"),
       label: String(method.label || ""),
       value: String(method.value || ""),
       isPrimary: Boolean(method.isPrimary),
@@ -186,9 +187,11 @@ export function ContactEditor({ contactId, managedPersonId, onClose, onChanged }
           <div className="contact-editor-section-heading"><h3 id="contact-methods-heading">Contact details</h3><button className="button button--quiet" type="button" disabled={draft.methods.length >= 100} onClick={() => setDraft({ ...draft, methods: [...draft.methods, { kind: "email", label: "", value: "", isPrimary: false, canReceive: true }] })}>Add detail</button></div>
           {!draft.methods.length && <p className="contact-empty">No contact details yet.</p>}
           {draft.methods.map((method, index) => <div className="contact-editor-method" key={method.id ?? `new-${index}`}>
-            <label>Type<select value={method.kind} onChange={(change) => updateMethod(index, { kind: change.target.value })}><option value="email">Email</option><option value="phone">Phone</option><option value="postal_address">Postal address</option><option value="handle">Handle</option><option value="url">URL</option><option value="timev3_person">Time v3 person</option><option value="other">Other</option></select></label>
+            <label>Type<select value={method.kind} onChange={(change) => updateMethod(index, { kind: change.target.value })}><option value="email">Email</option><option value="phone">Phone</option><option value="postal_address">Postal address</option><option value="url">URL</option><option value="timev3_person">Time v3 handle</option><option value="other">Other</option></select></label>
             <label>Label<input maxLength={100} placeholder="Work, mobile…" value={method.label} onChange={(change) => updateMethod(index, { label: change.target.value })} /></label>
-            <label className="contact-editor-method-value">Value<input required maxLength={2000} placeholder={method.kind === "timev3_person" ? "@timev3_handle" : undefined} value={method.value} onChange={(change) => updateMethod(index, { value: change.target.value })} /></label>
+            <label className="contact-editor-method-value">Value{method.kind === "timev3_person"
+              ? <HandleInput required maxLength={32} placeholder="timev3_handle" value={method.value.replace(/^@/u, "")} onValueChange={(value) => updateMethod(index, { value })} />
+              : <input required maxLength={2000} value={method.value} onChange={(change) => updateMethod(index, { value: change.target.value })} />}</label>
             <label className="object-editor-check"><input type="checkbox" checked={method.isPrimary} onChange={(change) => updateMethod(index, { isPrimary: change.target.checked })} /><span>Primary</span></label>
             <label className="object-editor-check"><input type="checkbox" checked={method.canReceive} onChange={(change) => updateMethod(index, { canReceive: change.target.checked })} /><span>Can receive</span></label>
             <button className="button button--quiet contact-editor-remove" type="button" onClick={() => setDraft({ ...draft, methods: draft.methods.filter((_, methodIndex) => methodIndex !== index) })}>Remove</button>

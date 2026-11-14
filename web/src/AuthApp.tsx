@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
+import { HandleInput } from "./components/HandleInput";
 
 type AuthMode = "login" | "register" | "verify" | "forgot" | "reset";
 
@@ -122,7 +123,7 @@ export default function AuthApp() {
     <p className="eyebrow">Time v3 account</p><h1>{titles[mode][0]}</h1><p>{titles[mode][1]}</p>
     <form onSubmit={submit}>
       {mode === "register" && <label>Name<input autoFocus autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} /></label>}
-      {mode === "register" && <label>Time v3 handle<input autoComplete="username" placeholder="@grandma_neaner" value={handle} onChange={(event) => setHandle(event.target.value)} /></label>}
+      {mode === "register" && <label>Time v3 handle<HandleInput required minLength={3} maxLength={32} autoComplete="username" placeholder="grandma_neaner" value={handle} onValueChange={setHandle} /></label>}
       {mode === "login" && <label>Email or Time v3 handle<input autoFocus autoComplete="username" placeholder="name@example.com or @handle" value={login} onChange={(event) => setLogin(event.target.value)} /></label>}
       {mode !== "login" && <label>Email<input autoFocus={mode !== "register"} type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>}
       {(mode === "verify" || mode === "reset") && <label>Six-digit code<input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/gu, "").slice(0, 6))} /></label>}

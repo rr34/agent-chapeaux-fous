@@ -7,6 +7,14 @@ const accountSource = fs.readFileSync(
   "utf8",
 );
 const authSource = fs.readFileSync(new URL("../web/src/AuthApp.tsx", import.meta.url), "utf8");
+const handleInputSource = fs.readFileSync(
+  new URL("../web/src/components/HandleInput.tsx", import.meta.url),
+  "utf8",
+);
+const contactEditorSource = fs.readFileSync(
+  new URL("../web/src/components/EditableItems.tsx", import.meta.url),
+  "utf8",
+);
 
 test("the React account access screen can rediscover integration tools", () => {
   assert.match(accountSource, /<h1>Account<\/h1>/);
@@ -28,4 +36,19 @@ test("managed accounts expose explicit password and contact management", () => {
   assert.match(accountSource, /\/set-password/u);
   assert.doesNotMatch(accountSource, />Reset password<\/button>/u);
   assert.match(accountSource, />Manage contacts<\/button>/u);
+});
+
+test("Time v3 handle fields render a fixed prefix outside user input", () => {
+  assert.match(handleInputSource, /aria-hidden="true">@<\/span>/u);
+  assert.match(handleInputSource, /replace\(\/@\/gu, ""\)/u);
+  assert.match(authSource, /placeholder="grandma_neaner"/u);
+  assert.doesNotMatch(authSource, /placeholder="@grandma_neaner"/u);
+  assert.match(accountSource, /placeholder="your_handle"/u);
+  assert.match(accountSource, /placeholder="vince"/u);
+});
+
+test("contact editing exposes one unambiguous Time v3 handle type", () => {
+  assert.match(contactEditorSource, /<option value="timev3_person">Time v3 handle<\/option>/u);
+  assert.doesNotMatch(contactEditorSource, /<option value="handle">/u);
+  assert.doesNotMatch(contactEditorSource, />Time v3 person<\/option>/u);
 });

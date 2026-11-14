@@ -8,6 +8,7 @@ import { ObjectSelectionControls } from "./ObjectSelectionControls";
 import { ObjectCard } from "./object-cards/ObjectCard";
 import { formatDisplayDate } from "../date-format";
 import { lcdViewport, renderLcdDocument } from "../lcd-document";
+import { HandleInput } from "./HandleInput";
 
 type Participant = { role: string; address: string; display_name: string | null; contact_id: number | null };
 type CorrespondenceMailbox = { mailbox_id: string; name: string; role: string | null; parent_mailbox_id: string | null };
@@ -444,10 +445,10 @@ function IdentitiesScreen() {
       <div className="integration-list"><article className="integration-card ready">
         <div><strong>{data.selectedPerson.displayName}{data.selectedPerson.handle ? ` · ${data.selectedPerson.handle}` : ""}</strong><span>Person {data.selectedPerson.personId} · Active</span></div>
       </article></div>
-      {!data.selectedPerson.handle && <form className="integration-add-form" onSubmit={(event) => void setHandle(event)}><h3>Choose your Time v3 handle</h3><label>Handle<input required minLength={3} maxLength={33} placeholder="@your_handle" value={ownHandle} onChange={(event) => setOwnHandle(event.target.value)} /></label><p className="field-hint">This is the name other people add to Contacts. It cannot be changed after it is set.</p><button className="button" disabled={saving}>Set handle</button></form>}
+      {!data.selectedPerson.handle && <form className="integration-add-form" onSubmit={(event) => void setHandle(event)}><h3>Choose your Time v3 handle</h3><label>Handle<HandleInput required minLength={3} maxLength={32} placeholder="your_handle" value={ownHandle} onValueChange={setOwnHandle} /></label><p className="field-hint">This is the name other people add to Contacts. It cannot be changed after it is set.</p><button className="button" disabled={saving}>Set handle</button></form>}
     </section>}
     {data?.selectedPerson.experience === "full" && <><section className="surface"><div className="section-title"><div><p className="eyebrow">Separate account</p><h2>Create a light account</h2><p>Creation only establishes the account. Manage its experience and contacts afterward.</p></div></div>
-      <form className="integration-add-form" onSubmit={(event) => void createIdentity(event)}><label>Name<input required maxLength={200} placeholder="Vince" value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label><label>Time v3 handle<input required minLength={3} maxLength={33} placeholder="@vince" value={newHandle} onChange={(event) => setNewHandle(event.target.value)} /></label><button className="button" disabled={saving}>{saving ? "Creating…" : "Create light account"}</button></form>
+      <form className="integration-add-form" onSubmit={(event) => void createIdentity(event)}><label>Name<input required maxLength={200} placeholder="Vince" value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label><label>Time v3 handle<HandleInput required minLength={3} maxLength={32} placeholder="vince" value={newHandle} onValueChange={setNewHandle} /></label><button className="button" disabled={saving}>{saving ? "Creating…" : "Create light account"}</button></form>
       {generatedPassword && <div className="auth-message" role="status"><strong>Generated password</strong><p><code>{generatedPassword}</code></p><p>Store it securely and give it directly to the account owner. It disappears when this page reloads.</p><button className="button button--quiet" type="button" onClick={() => void navigator.clipboard.writeText(generatedPassword)}>Copy password</button></div>}
     </section>
     <section className="surface"><div className="section-title"><div><h2>Managed Accounts</h2></div></div><div className="integration-list">{(provisionedData?.people || []).map((item) => <ProvisionedAccountCard key={item.person.personId} item={item} onChanged={reloadProvisioned} />)}</div>{!provisionedData?.people.length && <Empty>No light accounts have been created.</Empty>}</section>
