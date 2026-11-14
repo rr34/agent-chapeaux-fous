@@ -48,6 +48,33 @@ export async function readCurrentIdentitySchemaVersion(connection, databaseName)
 }
 
 async function assertMigrationIntegrity(connection, migration, databaseName) {
+  if (migration.version === 4) {
+    const [columns] = await connection.query(`
+      SELECT TABLE_NAME, COLUMN_NAME, IS_NULLABLE, COLLATION_NAME
+        FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND (
+         (TABLE_NAME = 'people' AND COLUMN_NAME IN
+           ('person_id', 'email', 'managed_by_person_id', 'account_id', 'person_kind', 'contact_manager_account_id'))
+         OR (TABLE_NAME = 'password_credentials' AND COLUMN_NAME IN ('person_id', 'account_id'))
+         OR (TABLE_NAME = 'auth_sessions' AND COLUMN_NAME IN ('person_id', 'account_id', 'selected_person_id'))
+       )
+    `, [databaseName]);
+    const byName = new Map(columns.map((row) => [`${row.TABLE_NAME}.${row.COLUMN_NAME}`, row]));
+    const [tables] = await connection.query(`
+      SELECT TABLE_NAME FROM information_schema.TABLES
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'accounts'
+    `, [databaseName]);
+    const required = ["people.person_id", "people.email", "people.managed_by_person_id",
+      "password_credentials.person_id", "auth_sessions.person_id"];
+    const obsolete = ["people.account_id", "people.person_kind", "people.contact_manager_account_id",
+      "password_credentials.account_id", "auth_sessions.account_id", "auth_sessions.selected_person_id"];
+    if (tables.length || required.some((name) => !byName.has(name))
+      || obsolete.some((name) => byName.has(name))
+      || byName.get("people.email").COLLATION_NAME !== "utf8mb4_bin") {
+      throw new Error("Identity migration 0004 did not consolidate accounts into people");
+    }
+    return;
+  }
   if (migration.version === 3) {
     const [columns] = await connection.query(`
       SELECT TABLE_NAME, COLUMN_NAME, IS_NULLABLE, COLLATION_NAME
@@ -91,6 +118,23 @@ async function assertMigrationIntegrity(connection, migration, databaseName) {
   }
 }
 
+async function assertMigrationPreconditions(connection, migration) {
+  if (migration.version !== 4) return;
+  const [rows] = await connection.query(`
+    SELECT COUNT(*) AS invalid_count
+      FROM (
+        SELECT a.account_id
+          FROM accounts a
+          LEFT JOIN people p ON p.account_id = a.account_id
+         GROUP BY a.account_id
+        HAVING COUNT(p.person_id) <> 1
+      ) invalid_accounts
+  `);
+  if (Number(rows[0]?.invalid_count) !== 0) {
+    throw new Error("Identity migration 0004 requires exactly one person for every account; repair the account/person mapping before retrying");
+  }
+}
+
 async function advanceVersion(connection, currentVersion, migration) {
   const [result] = await connection.query(`
     UPDATE identity_meta SET schema_version = ?
@@ -123,9 +167,8 @@ export async function runIdentityMigrations({
     let currentVersion = await readCurrentIdentitySchemaVersion(connection, databaseName);
     const pending = validatePendingMigrations(migrations, currentVersion);
     if (!pending.length) {
-      for (const migration of migrations.filter(({ version }) => version <= currentVersion)) {
-        await assertMigrationIntegrity(connection, migration, databaseName);
-      }
+      const currentMigration = migrations.find(({ version }) => version === currentVersion);
+      if (currentMigration) await assertMigrationIntegrity(connection, currentMigration, databaseName);
       output.write(`Time v3 Identity is already at schema version ${currentVersion}.\n`);
       return { previousVersion: currentVersion, currentVersion, applied: [] };
     }
@@ -140,6 +183,7 @@ export async function runIdentityMigrations({
     output.write(`Pending Identity migrations (oldest first): ${pending.map(({ label }) => label).join(", ")}.\n`);
     const previousVersion = currentVersion;
     for (const migration of pending) {
+      await assertMigrationPreconditions(connection, migration);
       for (const statement of splitMariaDbStatements(migration.sql, `identity migration ${migration.label}`)) {
         await connection.query(statement);
       }

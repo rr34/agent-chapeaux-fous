@@ -642,7 +642,7 @@ async function handlePublicAuthRoute(request, response, url) {
       sendJson(response, 401, { error: "No active Time v3 session" });
       return true;
     }
-    sendJson(response, 200, { ...session, people: identityStore.listPeople(session.account.accountId) });
+    sendJson(response, 200, session);
     return true;
   }
   if (request.method === "POST" && url.pathname === "/api/auth/register") {
@@ -983,7 +983,6 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, {
         account: request.timev3Auth.account,
         selectedPerson: request.timev3Auth.person,
-        people: identityStore.listPeople(request.timev3Auth.account.accountId),
       });
       return;
     }
@@ -1034,17 +1033,6 @@ const server = http.createServer(async (request, response) => {
         request.timev3Auth.account.accountId, Number(provisionedPasswordMatch[1]), body.password,
       );
       sendJson(response, 200, { passwordSet: true });
-      return;
-    }
-    const selectedPersonMatch = /^\/api\/account\/people\/(\d+)\/select$/u.exec(url.pathname);
-    if (request.timev3Auth?.account && request.method === "POST" && selectedPersonMatch) {
-      requireRequestOrigin(request, new URL(config.publicUrl).origin);
-      const person = identityStore.switchPerson(
-        request.timev3Auth.sessionId,
-        request.timev3Auth.account.accountId,
-        Number(selectedPersonMatch[1]),
-      );
-      sendJson(response, 200, { person });
       return;
     }
     if (request.timev3Auth?.account && request.method === "POST" && url.pathname === "/api/node/pairings/approve") {

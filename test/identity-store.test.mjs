@@ -49,10 +49,10 @@ test("identity baseline declares every verified table and keeps Agent data separ
   assert.doesNotMatch(sql, /ON UPDATE UTC_TIMESTAMP/u);
 });
 
-test("identity migrations store direct ownership, handles, and managed-account policy", () => {
+test("identity migrations consolidate login accounts into managed people", () => {
   const filename = fileURLToPath(new URL("../db/identity/migrations.sql", import.meta.url));
   const migrations = readMigrationLedger(filename);
-  assert.deepEqual(migrations.map(({ version }) => version), [2, 3]);
+  assert.deepEqual(migrations.map(({ version }) => version), [2, 3, 4]);
   const ownership = migrations.find(({ version }) => version === 2).sql;
   assert.match(ownership, /ADD COLUMN account_id BIGINT UNSIGNED NULL/u);
   assert.match(ownership, /DROP TABLE account_people/u);
@@ -62,5 +62,18 @@ test("identity migrations store direct ownership, handles, and managed-account p
   assert.match(policy, /ADD COLUMN handle VARCHAR\(32\)/u);
   assert.match(policy, /ADD UNIQUE KEY people_handle_uq \(handle\)/u);
   assert.match(policy, /ADD COLUMN contact_policy ENUM\('self_managed', 'manager_managed'\)/u);
-  assert.doesNotMatch(`${ownership}\n${policy}`, /UPDATE identity_meta/u);
+  const consolidation = migrations.find(({ version }) => version === 4).sql;
+  assert.match(consolidation, /ADD COLUMN managed_by_person_id BIGINT UNSIGNED NULL/u);
+  assert.match(consolidation, /DROP TABLE accounts/u);
+  assert.match(consolidation, /password_credentials_person_fk/u);
+  assert.doesNotMatch(`${ownership}\n${policy}\n${consolidation}`, /UPDATE identity_meta/u);
+});
+
+test("the identity store reads and writes the consolidated people model", () => {
+  const filename = fileURLToPath(new URL("../src/identity-store.mjs", import.meta.url));
+  const source = fs.readFileSync(filename, "utf8");
+  assert.doesNotMatch(source, /\b(?:FROM|JOIN|INSERT INTO|UPDATE) accounts\b/u);
+  assert.doesNotMatch(source, /\b(?:approved|created|managed)_by_account_id\b/u);
+  assert.match(source, /managed_by_person_id/u);
+  assert.match(source, /schema version 4 is required/u);
 });

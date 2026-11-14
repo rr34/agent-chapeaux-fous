@@ -32,6 +32,12 @@ has no account mapping; do not discard or guess ownership if that guard fails.
 Migration 3 adds unique Time v3 handles and creator-managed light-account
 policy without adding a table. Existing people remain full and self-managed;
 their handles intentionally remain unset until the owner chooses them.
+Migration 4 consolidates each account into its sole person row, makes
+`person_id` the authentication identifier everywhere, and drops `accounts`.
+It deliberately stops if an old account owns more than one person. Existing
+creator/contact-manager relationships become `people.managed_by_person_id`;
+clearing that nullable self-reference later disconnects management without
+deleting the person.
 
 Do not apply `db/mariadb/0001-baseline.sql` to this database. That schema owns
 Agent data and belongs only in the configured `MARIADB_NAME` database.

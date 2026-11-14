@@ -2,19 +2,27 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { runIdentityMigrations } from "../scripts/migrate-identity-database.mjs";
 
-function fakeIdentityConnection() {
+function fakeIdentityConnection(initialVersion = 1, invalidAccountCount = 0) {
   const calls = [];
-  let version = 1;
+  let version = initialVersion;
   const connection = {
     async query(sql, params = []) {
       calls.push({ sql, params });
       if (/GET_LOCK/u.test(sql)) return [[{ acquired: 1 }]];
       if (/RELEASE_LOCK/u.test(sql)) return [[{ released: 1 }]];
       if (/COUNT\(\*\) AS table_count/u.test(sql)) return [[{ table_count: 1 }]];
+      if (/COUNT\(\*\) AS invalid_count/u.test(sql)) return [[{ invalid_count: invalidAccountCount }]];
       if (/SELECT singleton, schema_version FROM identity_meta/u.test(sql)) {
         return [[{ singleton: 1, schema_version: version }]];
       }
       if (/SELECT TABLE_NAME, COLUMN_NAME, IS_NULLABLE, COLLATION_NAME/u.test(sql)) {
+        if (sql.includes("managed_by_person_id")) return [[
+          { TABLE_NAME: "people", COLUMN_NAME: "person_id", IS_NULLABLE: "NO", COLLATION_NAME: null },
+          { TABLE_NAME: "people", COLUMN_NAME: "email", IS_NULLABLE: "YES", COLLATION_NAME: "utf8mb4_bin" },
+          { TABLE_NAME: "people", COLUMN_NAME: "managed_by_person_id", IS_NULLABLE: "YES", COLLATION_NAME: null },
+          { TABLE_NAME: "password_credentials", COLUMN_NAME: "person_id", IS_NULLABLE: "NO", COLLATION_NAME: null },
+          { TABLE_NAME: "auth_sessions", COLUMN_NAME: "person_id", IS_NULLABLE: "NO", COLLATION_NAME: null },
+        ]];
         if (sql.includes("contact_manager_account_id")) return [[
           { TABLE_NAME: "accounts", COLUMN_NAME: "email", IS_NULLABLE: "YES", COLLATION_NAME: "utf8mb4_bin" },
           { TABLE_NAME: "accounts", COLUMN_NAME: "created_by_account_id", IS_NULLABLE: "YES", COLLATION_NAME: null },
@@ -49,8 +57,8 @@ test("identity migration command applies the shared ledger and advances identity
     writersStopped: true,
     output: { write() {} },
   });
-  assert.deepEqual(result, { previousVersion: 1, currentVersion: 3, applied: [2, 3] });
-  assert.equal(fake.currentVersion(), 3);
+  assert.deepEqual(result, { previousVersion: 1, currentVersion: 4, applied: [2, 3, 4] });
+  assert.equal(fake.currentVersion(), 4);
   const versionUpdate = fake.calls.findIndex(({ sql = "" }) => /UPDATE identity_meta SET schema_version/u.test(sql));
   const schemaAlter = fake.calls.findIndex(({ sql = "" }) => /ALTER TABLE account_people/u.test(sql));
   assert.ok(schemaAlter >= 0 && versionUpdate > schemaAlter);
@@ -76,4 +84,28 @@ test("identity migration command requires backup and writer-stop confirmations",
     writersStopped: false,
     output: { write() {} },
   }), /require writers to be stopped/u);
+});
+
+test("current identity schema verification checks only the current consolidated shape", async () => {
+  const fake = fakeIdentityConnection(4);
+  const result = await runIdentityMigrations({
+    connectionSettings: { database: "timev3_identity" },
+    connect: async () => fake.connection,
+    output: { write() {} },
+  });
+  assert.deepEqual(result, { previousVersion: 4, currentVersion: 4, applied: [] });
+  assert.ok(fake.calls.some(({ sql = "" }) => sql.includes("managed_by_person_id")));
+  assert.equal(fake.calls.some(({ sql = "" }) => sql.includes("accounts.email_normalized")), false);
+});
+
+test("account consolidation refuses ambiguous account-to-person mappings before DDL", async () => {
+  const fake = fakeIdentityConnection(3, 1);
+  await assert.rejects(() => runIdentityMigrations({
+    connectionSettings: { database: "timev3_identity" },
+    connect: async () => fake.connection,
+    backupConfirmed: true,
+    writersStopped: true,
+    output: { write() {} },
+  }), /exactly one person for every account/u);
+  assert.equal(fake.calls.some(({ sql = "" }) => /ALTER TABLE people/u.test(sql)), false);
 });

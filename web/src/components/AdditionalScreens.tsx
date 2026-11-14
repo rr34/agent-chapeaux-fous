@@ -381,7 +381,6 @@ function IdentitiesScreen() {
   const { data, error, loading, reload } = useApi<{
     account: { displayName: string; email: string | null };
     selectedPerson: AccountPerson;
-    people: AccountPerson[];
   }>("/api/account/people");
   const { data: provisionedData, reload: reloadProvisioned } = useApi<{
     people: Array<{ account: { accountId: number; status: string }; person: AccountPerson }>;
@@ -419,13 +418,6 @@ function IdentitiesScreen() {
     } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
     finally { setSaving(false); }
   };
-  const selectIdentity = async (personId: number) => {
-    setStatus("");
-    try {
-      await api(`/api/account/people/${personId}/select`, { method: "POST", body: "{}" });
-      window.location.assign("/app");
-    } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
-  };
   const approveNode = async (event: React.FormEvent) => {
     event.preventDefault(); setNodeAction("approve"); setStatus("");
     try {
@@ -449,10 +441,9 @@ function IdentitiesScreen() {
     {loading && <Loading label="Loading Agent identities" />}
     {error && <ErrorState error={error} retry={reload} />}
     {data && <section className="surface"><div className="section-title"><div><p className="eyebrow">Signed-in account</p><h2>{data.account.displayName}</h2><p>{data.account.email}</p></div></div>
-      <div className="integration-list">{data.people.map((person) => <article className={`integration-card${person.personId === data.selectedPerson.personId ? " ready" : ""}`} key={person.personId}>
-        <div><strong>{person.displayName}{person.handle ? ` · ${person.handle}` : ""}</strong><span>{person.kind === "primary" ? "Primary identity" : "Managed identity"} · Person {person.personId}{person.personId === data.selectedPerson.personId ? " · Active" : ""}</span></div>
-        {person.personId !== data.selectedPerson.personId && <button className="button button--quiet" type="button" onClick={() => void selectIdentity(person.personId)}>Use identity</button>}
-      </article>)}</div>
+      <div className="integration-list"><article className="integration-card ready">
+        <div><strong>{data.selectedPerson.displayName}{data.selectedPerson.handle ? ` · ${data.selectedPerson.handle}` : ""}</strong><span>Person {data.selectedPerson.personId} · Active</span></div>
+      </article></div>
       {!data.selectedPerson.handle && <form className="integration-add-form" onSubmit={(event) => void setHandle(event)}><h3>Choose your Time v3 handle</h3><label>Handle<input required minLength={3} maxLength={33} placeholder="@your_handle" value={ownHandle} onChange={(event) => setOwnHandle(event.target.value)} /></label><p className="field-hint">This is the name other people add to Contacts. It cannot be changed after it is set.</p><button className="button" disabled={saving}>Set handle</button></form>}
     </section>}
     {data?.selectedPerson.experience === "full" && <><section className="surface"><div className="section-title"><div><p className="eyebrow">Separate account</p><h2>Create a light account</h2><p>Creation only establishes the account. Manage its experience and contacts afterward.</p></div></div>

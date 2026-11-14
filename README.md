@@ -136,22 +136,23 @@ contract. `AGENT-TERMINOLOGY.md` remains the numbered canonical glossary.
 
 Time v3 authentication supports public handle/email/password registration with email
 verification and password recovery. It lives in this repository and uses the
-same root `.env`, but credential, challenge, session, account, person, and
-node-credential rows live only in the separate `timev3_identity` database.
+same root `.env`, but person, credential, challenge, session, and node-credential
+rows live only in the separate `timev3_identity` database.
 Agent domain records remain in the one configured Agent database. TLOM is only
 a reference for the simple delivery experience; its account code and users are
 not imported.
 
-An account is the password login boundary and, when present, its email is the
-recovery boundary. A person is the direct owner of private Agent data and has a
-unique lowercase Time v3 handle for human lookup and login; `person_id` remains
-the machine identity used in persistence and authorization. Public registration
-creates one primary person and requires an email, handle, and email verification.
+One `people` row is both the password login boundary and the direct owner of
+private Agent data. When present, its email is the recovery boundary; its unique
+lowercase Time v3 handle supports human lookup and login. `person_id` is the one
+machine identity used throughout authentication, persistence, and authorization.
+There is no separate accounts table or second account identifier. Public registration
+creates one person and requires an email, handle, and email verification.
 Names are display-only and never identify a person for a write or delivery.
 There are no workspaces, organizations, shared people, or implied cross-person
 records.
 
-A full account may provision a separate normal account with one primary person.
+A full person may provision a separate normal person/login.
 Provisioning asks only for a name and handle, creates a light,
 manager-contact-policy account, and returns a generated password once. It
 does not collect policy or contacts during creation. The generated password is
@@ -165,18 +166,20 @@ accounts and defaults closed. Closing registration does not affect login,
 email verification, password recovery, existing sessions, or creator-provisioned
 accounts.
 
-Each person belongs directly to exactly one account through `people.account_id`;
-there is no account/person mapping table or shared-person relationship. An
-account may have one nullable canonical NFKC-trimmed lowercase email; email
+Each person may have one nullable canonical NFKC-trimmed lowercase email; email
 remains unique when present. A person's handle is unique, is stored without the
 presentation `@`, and may be set once. Login accepts either the email or handle.
+A managed person's nullable `managed_by_person_id` references the managing
+person. Clearing it disconnects management without changing the managed person's
+identifier, login, Agent data, or contacts. The relationship is one-to-many and
+never grants the manager access to the managed person's private Agent data.
 
 A manager-managed person's approved contacts are ordinary person-owned contact
-rows, not live references to the manager's contacts. The assigned manager may
+rows, not live references to the manager's contacts. The assigned managing person may
 use the normal Contacts surface in that person's scope, including selectively
 copying a manager-owned contact that already has a Time v3 handle. The copy
 contains the display name and Time v3 identity only. The manager does not gain
-access to the person's correspondence. The creator may set a replacement
+access to the person's correspondence. The manager may set a replacement
 password for a provisioned account; doing so revokes its active browser sessions
 but does not mandate another password change. A managed person may send only to active
 contacts and rejects unknown inbound native senders; there is no mutual-contact
@@ -1483,7 +1486,7 @@ journalctl --user -u agent-slayer.service -n 100 --no-pager
 The Agent and Identity databases have independent migration ledgers. Run the
 `db:*` pair when `db/migrations.sql` changed, the `identity:*` pair when
 `db/identity/migrations.sql` changed, and both pairs when both ledgers changed.
-The current handle/light-account update requires the `identity:*` pair. Both
+The current person/account consolidation requires the `identity:*` pair. Both
 migration runners use the same backup-confirmed and writers-stopped flags shown
 above.
 
