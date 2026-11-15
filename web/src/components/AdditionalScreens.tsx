@@ -9,6 +9,9 @@ import { ObjectCard } from "./object-cards/ObjectCard";
 import { formatDisplayDate } from "../date-format";
 import { HandleInput } from "./HandleInput";
 import { LcdPreviewCard } from "./LcdPreviewCard";
+import {
+  defaultUiBaseColor, loadUiBaseColor, resetUiBaseColor, saveUiBaseColor, uiBaseColorError,
+} from "../ui-theme";
 
 type Participant = { role: string; address: string; display_name: string | null; contact_id: number | null };
 type CorrespondenceMailbox = { mailbox_id: string; name: string; role: string | null; parent_mailbox_id: string | null };
@@ -358,7 +361,7 @@ export function ProfileScreen() {
     try { await api("/api/profile-facts", { method: "POST", body: JSON.stringify({ factType, text }) }); setText(""); await reload(); }
     finally { setSaving(false); }
   };
-  return <><form className="profile-fact-form" onSubmit={(event) => { event.preventDefault(); void save(); }}><label>Fact type<input value={factType} pattern="[a-z][a-z0-9_]*" onChange={(event) => setFactType(event.target.value)} /></label><label>Profile fact<textarea required value={text} onChange={(event) => setText(event.target.value)} /></label><button className="button" disabled={saving}>{saving ? "Saving…" : "Add profile fact"}</button></form>{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}<div className="profile-fact-list">{(data?.facts || []).map((fact) => {
+  return <><AppearanceSettings /><form className="profile-fact-form" onSubmit={(event) => { event.preventDefault(); void save(); }}><label>Fact type<input value={factType} pattern="[a-z][a-z0-9_]*" onChange={(event) => setFactType(event.target.value)} /></label><label>Profile fact<textarea required value={text} onChange={(event) => setText(event.target.value)} /></label><button className="button" disabled={saving}>{saving ? "Saving…" : "Add profile fact"}</button></form>{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}<div className="profile-fact-list">{(data?.facts || []).map((fact) => {
     const identity: SelectedObjectCandidate = {
       mention: `@${String(fact.text).slice(0, 160)}`,
       type: "profile.fact", source: "native:profile", id: Number(fact.id),
@@ -367,6 +370,44 @@ export function ProfileScreen() {
     };
     return <ObjectCard key={String(fact.id)} object={{ id: Number(fact.id), type: "profile.fact", label: "Profile fact", display: String(fact.text), badges: [String(fact.factType)] }} controls={<ObjectSelectionControls identity={identity} subject={`profile fact ${fact.text}`} />} actions={[{ key: "archive", label: "Archive", onClick: async () => { await api(`/api/profile-facts/${fact.id}`, { method: "DELETE" }); await reload(); } }]} />;
   })}</div></>;
+}
+
+function AppearanceSettings() {
+  const [color, setColor] = useState(loadUiBaseColor);
+  const [status, setStatus] = useState("");
+  const error = uiBaseColorError(color);
+  const save = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (error) { setStatus(error); return; }
+    try {
+      setColor(saveUiBaseColor(color));
+      setStatus("Appearance saved in this browser.");
+    } catch (caught) {
+      setStatus(caught instanceof Error ? caught.message : "This browser could not save the appearance setting.");
+    }
+  };
+  const reset = () => {
+    try {
+      setColor(resetUiBaseColor());
+      setStatus(`Restored the default ${defaultUiBaseColor}.`);
+    } catch (caught) {
+      setStatus(caught instanceof Error ? caught.message : "This browser could not reset the appearance setting.");
+    }
+  };
+  return <section className="surface appearance-settings" aria-labelledby="appearance-settings-heading">
+    <div className="section-title"><div><p className="eyebrow">Appearance</p><h2 id="appearance-settings-heading">Interface color</h2><p>Choose a dark base color. The interface derives its sidebar, accents, borders, and tinted surfaces from it.</p></div></div>
+    <form onSubmit={save}>
+      <label htmlFor="ui-base-color">Base hex color</label>
+      <div className="appearance-color-controls">
+        <input className="appearance-color-picker" type="color" aria-label="Choose base color" value={error ? defaultUiBaseColor : color} onChange={(event) => { setColor(event.target.value); setStatus(""); }} />
+        <input id="ui-base-color" className="appearance-color-text" required pattern="#[0-9a-fA-F]{6}" spellCheck={false} value={color} onChange={(event) => { setColor(event.target.value); setStatus(""); }} aria-describedby={status || error ? "appearance-color-help appearance-color-status" : "appearance-color-help"} />
+        <button className="button" disabled={Boolean(error)}>Save color</button>
+        <button className="button button--quiet" type="button" onClick={reset}>Use default</button>
+      </div>
+      <small id="appearance-color-help">Six-digit hex only. This preference applies to this browser; the default is {defaultUiBaseColor}.</small>
+      {(status || error) && <p id="appearance-color-status" className={error ? "appearance-color-error" : "appearance-color-status"} role="status">{status || error}</p>}
+    </form>
+  </section>;
 }
 
 type AccountPerson = {

@@ -16,6 +16,8 @@ const contactEditorSource = fs.readFileSync(
   new URL("../web/src/components/EditableItems.tsx", import.meta.url),
   "utf8",
 );
+const themeSource = fs.readFileSync(new URL("../web/src/ui-theme.ts", import.meta.url), "utf8");
+const styleSource = fs.readFileSync(new URL("../web/src/styles.css", import.meta.url), "utf8");
 
 test("the React account access screen can rediscover integration tools", () => {
   assert.match(accountSource, /<h1>Account<\/h1>/);
@@ -24,6 +26,18 @@ test("the React account access screen can rediscover integration tools", () => {
   assert.match(accountSource, /Refreshing tools…/);
   assert.match(accountSource, /"Refresh tools"/);
   assert.match(accountSource, /window\.location\.reload\(\)/);
+});
+
+test("profile appearance derives the web palette from a browser-local dark base color", () => {
+  assert.match(accountSource, /<h2 id="appearance-settings-heading">Interface color<\/h2>/u);
+  assert.match(accountSource, /pattern="#\[0-9a-fA-F\]\{6\}"/u);
+  assert.match(accountSource, /saveUiBaseColor\(color\)/u);
+  assert.match(themeSource, /defaultUiBaseColor = "#0e001e"/u);
+  assert.match(themeSource, /luminance <= \.25/u);
+  assert.match(themeSource, /localStorage\.setItem\(uiBaseColorStorageKey, normalized\)/u);
+  assert.match(themeSource, /"--olive-soft": mix\(base, white, \.86\)/u);
+  assert.match(styleSource, /background: var\(--theme-base\)/u);
+  assert.match(styleSource, /--accent: var\(--olive-dark\)/u);
 });
 
 test("the authentication screen hides public account creation when registration is closed", () => {

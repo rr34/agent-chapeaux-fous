@@ -1567,7 +1567,11 @@ assembled concert is the sole playback source, and disclosed AI-voice
 introductions precede its tracks. A persistent concert player remains available
 while navigating the web application. **Account** combines Profile, AI Usage,
 and browser access-token management. Profile facts are first-class selectable
-objects.
+objects. Profile also owns a browser-local appearance preference. It accepts a
+dark six-digit base hex color and derives the web interface's sidebar, accents,
+borders, focus states, and tinted surfaces from that color; `#0e001e` is the
+default. This presentation preference is deliberately not an agent-readable
+profile fact and does not require domain or identity schema state.
 
 `sms_draft_create` prepares an unsent structured handoff for one exact contact
 and receivable phone method. Mobile opens the normal Messages app with recipient
