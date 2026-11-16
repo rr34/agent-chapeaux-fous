@@ -204,6 +204,13 @@ a revocable credential bound directly to that person. A hardware identifier is
 display/provenance data, never authentication. Changing the selected person
 does not move an existing node.
 
+Expected node request failures expose a stable diagnostic code and short request
+reference at the point of use. The node LCD keeps retry and cancel available while
+showing both values; web errors show the same values inline. Node and server logs
+record one literal summary line with the same reference, and the server line adds
+bounded media-tool detail when available. Normal successful use does not show
+diagnostic metadata.
+
 `TIMEV3_AUTH_ENABLED` remains false until the identity baseline is installed
 and Agent person ownership is migrated and verified. The legacy installation
 token is the rollback boundary during that conversion; enabling account login

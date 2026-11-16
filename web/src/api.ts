@@ -2,9 +2,13 @@ const TOKEN_KEY = "agent-slayer-token";
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  code: string;
+  reference: string;
+  constructor(message: string, status: number, code = "", reference = "") {
     super(message);
     this.status = status;
+    this.code = code;
+    this.reference = reference;
   }
 }
 
@@ -34,10 +38,18 @@ export async function api<T>(url: string, options: RequestInit = {}): Promise<T>
   let body: unknown = {};
   try { body = text ? JSON.parse(text) : {}; } catch { body = { error: text }; }
   if (!response.ok) {
-    const message = typeof body === "object" && body && "error" in body
+    const serverMessage = typeof body === "object" && body && "error" in body
       ? String((body as { error: unknown }).error)
       : `HTTP ${response.status}`;
-    throw new ApiError(message, response.status);
+    const code = typeof body === "object" && body && "code" in body
+      ? String((body as { code: unknown }).code) : "";
+    const reference = typeof body === "object" && body && "reference" in body
+      ? String((body as { reference: unknown }).reference) : "";
+    const diagnostic = [code, reference && `ref ${reference}`].filter(Boolean).join(" · ");
+    throw new ApiError(
+      diagnostic ? `${serverMessage} [${diagnostic}]` : serverMessage,
+      response.status, code, reference,
+    );
   }
   return body as T;
 }

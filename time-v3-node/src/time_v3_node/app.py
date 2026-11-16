@@ -10,7 +10,7 @@ from html import unescape
 from re import sub
 from typing import Callable
 
-from .client import TimeV3Client
+from .client import TimeV3Client, TimeV3RequestError
 from .audio import AudioPlayer, OpusRecorder, VOICE_MESSAGE_MAX_SECONDS
 from .document import LcdDocument
 from .hardware import Display, Keypad, Mpu6050, LEFT_ARROW, RECORD_DOT, RIGHT_ARROW
@@ -197,6 +197,23 @@ class NodeApplication:
             "BACKSPACE CANCEL",
         )))
 
+    def show_voice_send_error(self, code: str = "", reference: str = "") -> None:
+        short_codes = {
+            "VOICE_CONVERT": "V-CONVERT",
+            "VOICE_OUTPUT_PROBE": "V-OUTPUT-PROBE",
+            "VOICE_TOO_LONG": "V-TOO-LONG",
+            "VOICE_SIZE": "V-TOO-LARGE",
+            "VOICE_TYPE": "V-TYPE",
+            "VOICE_EMPTY": "V-EMPTY",
+        }
+        label = short_codes.get(code, code or "NETWORK")
+        self.display.show(tuple(row[:20].ljust(20) for row in (
+            f"FAIL {label}",
+            f"REF {reference}" if reference else "NO SERVER REFERENCE",
+            "+ RETRY",
+            "BACKSPACE CANCEL",
+        )))
+
     async def recording_clock(self) -> None:
         try:
             while time.monotonic() - self.recording_started_at < VOICE_MESSAGE_MAX_SECONDS:
@@ -284,10 +301,19 @@ class NodeApplication:
         contact = self.message_contacts[self.message_contact_index]
         try:
             await asyncio.to_thread(self.client.send_voice, int(contact["contact_id"]), self.recording_path)
+        except TimeV3RequestError as error:
+            logger.error(
+                "Voice message send failed status=%s code=%s ref=%s message=%s",
+                error.status_code, error.code or "UNSPECIFIED", error.reference or "NONE",
+                error.server_message,
+            )
+            self.screen = "message_review"
+            self.show_voice_send_error(error.code, error.reference)
+            return
         except Exception:
             logger.exception("Could not deliver voice message")
             self.screen = "message_review"
-            self.show_recording_review("SEND FAILED - RETRY")
+            self.show_voice_send_error()
             return
         self.recording_path.unlink(missing_ok=True)
         self.recording_path = None

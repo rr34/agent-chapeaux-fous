@@ -7,6 +7,15 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
+class TimeV3RequestError(RuntimeError):
+    def __init__(self, status_code: int, message: str, code: str = "", reference: str = "") -> None:
+        super().__init__(f"Time v3 server returned HTTP {status_code}: {message}")
+        self.status_code = status_code
+        self.server_message = message
+        self.code = code
+        self.reference = reference
+
+
 class TimeV3Client:
     def __init__(self, server_url: str, token: str = "") -> None:
         self.server_url = server_url.rstrip("/")
@@ -29,9 +38,13 @@ class TimeV3Client:
             try:
                 body = json.loads(error.read().decode("utf-8"))
                 message = str(body.get("error") or error.reason)
+                code = str(body.get("code") or "")
+                reference = str(body.get("reference") or "")
             except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
                 message = str(error.reason)
-            raise RuntimeError(f"Time v3 server returned HTTP {error.code}: {message}") from error
+                code = ""
+                reference = ""
+            raise TimeV3RequestError(error.code, message, code, reference) from error
 
     def messages(self, limit: int = 100) -> list[dict]:
         query = urlencode({"medium": "timev3", "limit": limit})

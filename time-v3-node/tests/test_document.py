@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from time_v3_node.app import MOTION_REFRESH_SECONDS, NodeApplication
+from time_v3_node.client import TimeV3RequestError
 from time_v3_node.document import LcdDocument, LcdLink, wrap_text
 from time_v3_node.hardware import KEY_ACTIONS
 from time_v3_node.menu import Menu
@@ -269,6 +270,43 @@ class MenuAndMotionTests(unittest.TestCase):
             self.assertEqual(client.sent, [(7, b"OggS-test")])
             self.assertEqual(application.screen, "message_item")
             self.assertTrue(display.rows[0].startswith("→ VOICE MESSAGE"))
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "time_v3_node.app.asyncio.to_thread", new=AsyncMock(
+                side_effect=lambda function, *arguments: function(*arguments),
+            ),
+        ):
+            asyncio.run(exercise(Path(directory)))
+
+    def test_voice_send_failure_shows_code_and_reference_on_the_lcd(self):
+        class Display:
+            def __init__(self):
+                self.rows = ()
+
+            def show(self, rows):
+                self.rows = rows
+
+        class Client:
+            def send_voice(self, contact_id, recording):
+                raise TimeV3RequestError(
+                    400, "The voice message could not be converted.",
+                    "VOICE_CONVERT", "A1B2C3D4",
+                )
+
+        async def exercise(state_directory):
+            display = Display()
+            recording = state_directory / "voice.ogg"
+            recording.write_bytes(b"OggS-test")
+            application = NodeApplication(display, object(), client=Client(), state_directory=state_directory)
+            application.message_contacts = [{"display_name": "Alex", "contact_id": 7, "person_id": 2}]
+            application.recording_path = recording
+            application.screen = "message_review"
+            await application.send_voice_recording()
+            self.assertEqual(application.screen, "message_review")
+            self.assertEqual(display.rows[0].strip(), "FAIL V-CONVERT")
+            self.assertEqual(display.rows[1].strip(), "REF A1B2C3D4")
+            self.assertEqual(display.rows[2].strip(), "+ RETRY")
+            self.assertTrue(recording.exists())
 
         with tempfile.TemporaryDirectory() as directory, patch(
             "time_v3_node.app.asyncio.to_thread", new=AsyncMock(

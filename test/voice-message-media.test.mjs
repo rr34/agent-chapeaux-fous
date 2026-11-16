@@ -44,3 +44,25 @@ test("voice message canonicalization repairs playable input without duration met
     await fsp.rm(mediaRoot, { recursive: true, force: true });
   }
 });
+
+test("voice message conversion failures retain a stable code and bounded tool detail", async () => {
+  const mediaRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "voice-message-error-test-"));
+  const request = Readable.from([Buffer.from("playable streaming audio")]);
+  request.headers = { "content-type": "audio/ogg" };
+  let probeCount = 0;
+  const run = async (command) => {
+    if (command === "ffprobe" && probeCount++ === 0) throw new Error("metadata unavailable");
+    throw Object.assign(new Error("conversion exited 1"), {
+      stderr: "Invalid data found when processing input\n",
+    });
+  };
+  try {
+    await assert.rejects(
+      receiveVoiceMessage(request, { mediaRoot, run }),
+      (error) => error.code === "VOICE_CONVERT"
+        && error.diagnosticDetail === "Invalid data found when processing input",
+    );
+  } finally {
+    await fsp.rm(mediaRoot, { recursive: true, force: true });
+  }
+});

@@ -18,22 +18,31 @@ const acceptedTypes = new Map([
   ["audio/wav", "wav"],
 ]);
 
-function inputError(message, statusCode = 400) {
-  return Object.assign(new Error(message), { statusCode });
+function diagnosticDetail(error) {
+  return String(error?.stderr || error?.message || error || "unknown media error")
+    .replace(/\s+/gu, " ").trim().slice(0, 2000);
+}
+
+function inputError(message, statusCode = 400, code = "VOICE_INVALID", detail = "") {
+  return Object.assign(new Error(message), {
+    statusCode,
+    code,
+    ...(detail ? { diagnosticDetail: detail } : {}),
+  });
 }
 
 export function parseProbedDurationMs(stdout) {
   let parsed;
   try { parsed = JSON.parse(String(stdout)); }
-  catch { throw inputError("The voice message is not valid audio."); }
+  catch { throw inputError("The voice message is not valid audio.", 400, "VOICE_PROBE"); }
   const seconds = Number(parsed?.format?.duration);
   if (!Number.isFinite(seconds) || seconds <= 0) {
-    throw inputError("The voice message has no measurable audio duration.");
+    throw inputError("The voice message has no measurable audio duration.", 400, "VOICE_DURATION");
   }
   return Math.round(seconds * 1000);
 }
 
-async function probeDurationMs(filename, run = execFileAsync) {
+async function probeDurationMs(filename, run = execFileAsync, code = "VOICE_PROBE") {
   try {
     const { stdout } = await run("ffprobe", [
       "-v", "error", "-show_entries", "format=duration", "-of", "json", filename,
@@ -41,14 +50,16 @@ async function probeDurationMs(filename, run = execFileAsync) {
     return parseProbedDurationMs(stdout);
   } catch (error) {
     if (error?.statusCode) throw error;
-    throw inputError("The voice message is not valid audio.");
+    throw inputError("The voice message is not valid audio.", 400, code, diagnosticDetail(error));
   }
 }
 
 export async function receiveVoiceMessage(request, { mediaRoot, run = execFileAsync } = {}) {
   const mimeType = String(request.headers["content-type"] || "").split(";", 1)[0].trim().toLowerCase();
   const inputExtension = acceptedTypes.get(mimeType);
-  if (!inputExtension) throw inputError("Voice messages must use Ogg, WebM, MP4, or WAV audio.", 415);
+  if (!inputExtension) throw inputError(
+    "Voice messages must use Ogg, WebM, MP4, or WAV audio.", 415, "VOICE_TYPE",
+  );
 
   const now = new Date();
   const relativeDirectory = path.join(String(now.getUTCFullYear()), String(now.getUTCMonth() + 1).padStart(2, "0"));
@@ -63,7 +74,7 @@ export async function receiveVoiceMessage(request, { mediaRoot, run = execFileAs
     for await (const chunk of request) {
       byteSize += chunk.length;
       if (byteSize > voiceMessageMaximumUploadBytes) {
-        throw inputError("Voice message upload is too large.", 413);
+        throw inputError("Voice message upload is too large.", 413, "VOICE_SIZE");
       }
       await inputHandle.write(chunk);
     }
@@ -76,14 +87,14 @@ export async function receiveVoiceMessage(request, { mediaRoot, run = execFileAs
   await inputHandle.close();
   if (byteSize === 0) {
     await fsp.unlink(inputFilename).catch(() => {});
-    throw inputError("Voice message upload was empty.");
+    throw inputError("Voice message upload was empty.", 400, "VOICE_EMPTY");
   }
 
   try {
     try {
-      const inputDurationMs = await probeDurationMs(inputFilename, run);
+      const inputDurationMs = await probeDurationMs(inputFilename, run, "VOICE_INPUT_PROBE");
       if (inputDurationMs > voiceMessageMaximumDurationMs + encodedDurationToleranceMs) {
-        throw inputError("Voice messages may be at most one minute long.", 413);
+        throw inputError("Voice messages may be at most one minute long.", 413, "VOICE_TOO_LONG");
       }
     } catch (error) {
       // Some playable streaming containers do not expose duration metadata until
@@ -92,14 +103,21 @@ export async function receiveVoiceMessage(request, { mediaRoot, run = execFileAs
       // policy errors such as an input that is measurably over one minute.
       if (error?.statusCode !== 400) throw error;
     }
-    await run("ffmpeg", [
-      "-nostdin", "-loglevel", "error", "-i", inputFilename, "-vn", "-ac", "1", "-ar", "16000",
-      "-c:a", "libopus", "-b:a", "24k", "-t", String(voiceMessageMaximumDurationMs / 1000),
-      "-f", "ogg", "-y", outputFilename,
-    ], { maxBuffer: 1024 * 1024, timeout: 30_000 });
-    const durationMs = await probeDurationMs(outputFilename, run);
+    try {
+      await run("ffmpeg", [
+        "-nostdin", "-loglevel", "error", "-i", inputFilename, "-vn", "-ac", "1", "-ar", "16000",
+        "-c:a", "libopus", "-b:a", "24k", "-t", String(voiceMessageMaximumDurationMs / 1000),
+        "-f", "ogg", "-y", outputFilename,
+      ], { maxBuffer: 1024 * 1024, timeout: 30_000 });
+    } catch (error) {
+      throw inputError(
+        "The voice message could not be converted to Ogg/Opus.", 400,
+        "VOICE_CONVERT", diagnosticDetail(error),
+      );
+    }
+    const durationMs = await probeDurationMs(outputFilename, run, "VOICE_OUTPUT_PROBE");
     if (durationMs > voiceMessageMaximumDurationMs + encodedDurationToleranceMs) {
-      throw inputError("Voice messages may be at most one minute long.", 413);
+      throw inputError("Voice messages may be at most one minute long.", 413, "VOICE_TOO_LONG");
     }
     const bytes = await fsp.readFile(outputFilename);
     return {
@@ -114,7 +132,10 @@ export async function receiveVoiceMessage(request, { mediaRoot, run = execFileAs
   } catch (error) {
     await fsp.unlink(outputFilename).catch(() => {});
     if (error?.statusCode) throw error;
-    throw inputError("The voice message could not be converted to Ogg/Opus.");
+    throw inputError(
+      "The voice message could not be converted to Ogg/Opus.", 400,
+      "VOICE_CONVERT", diagnosticDetail(error),
+    );
   } finally {
     await fsp.unlink(inputFilename).catch(() => {});
   }

@@ -2251,8 +2251,14 @@ const server = http.createServer(async (request, response) => {
     }
     sendJson(response, 404, { error: "Not found" });
   } catch (error) {
-    console.error("[agent-slayer] request failed:", error);
-    sendJson(response, error.statusCode || 500, { error: error instanceof Error ? error.message : String(error) });
+    const statusCode = error.statusCode || 500;
+    const message = error instanceof Error ? error.message : String(error);
+    const code = String(error.code || `HTTP_${statusCode}`).replace(/[^A-Z0-9_-]/giu, "_").toUpperCase();
+    const reference = randomUUID().slice(0, 8).toUpperCase();
+    const detail = error.diagnosticDetail ? ` detail=${JSON.stringify(error.diagnosticDetail)}` : "";
+    console.error(`[agent-slayer] request failed ref=${reference} code=${code} status=${statusCode} message=${JSON.stringify(message)}${detail}`);
+    if (statusCode >= 500) console.error(error);
+    sendJson(response, statusCode, { error: message, code, reference });
   }
 });
 
