@@ -215,9 +215,16 @@ function TimeV3VoiceRecorder({ contactId, disabled, onActiveChange, onDelivered 
   };
 
   return <section className="timev3-voice-recorder" aria-label="Voice message">
-    {phase === "idle" && <button className="button button--quiet timev3-record-button" type="button" onClick={() => void startVoiceRecording()} disabled={disabled || !contactId || !supported} title={supported ? "Record a voice message" : "Voice recording is unavailable in this browser"} aria-label="Record a voice message">●</button>}
+    {phase === "idle" && <div className="timev3-record-prompt">
+      <button className="record-button timev3-record-button" type="button" onClick={() => void startVoiceRecording()} disabled={disabled || !contactId || !supported} aria-label="Record a voice message">
+        <svg className="record-microphone" aria-hidden="true" viewBox="0 0 24 24">
+          <path d="M12 15.25a4 4 0 0 0 4-4v-4a4 4 0 1 0-8 0v4a4 4 0 0 0 4 4Zm-7-4a7 7 0 0 0 6 6.92V21H8.5a1 1 0 0 0 0 2h7a1 1 0 0 0 0-2H13v-2.83a7 7 0 0 0 6-6.92 1 1 0 1 0-2 0 5 5 0 0 1-10 0 1 1 0 1 0-2 0Z" />
+        </svg>
+      </button>
+      <span className="timev3-record-explanation">{supported ? "Record a voice message" : "Voice recording is unavailable in this browser"}</span>
+    </div>}
     {phase === "requesting" && <small>Requesting microphone…</small>}
-    {phase === "recording" && <><button className="button timev3-record-button is-recording" type="button" onClick={stopVoiceRecording} aria-label="Stop recording">●</button><strong>● {voiceClock(elapsedMs)} / 1:00</strong></>}
+    {phase === "recording" && <><button className="record-button timev3-record-button is-recording" type="button" onClick={stopVoiceRecording} aria-label="Stop recording">●</button><strong>● {voiceClock(elapsedMs)} / 1:00</strong></>}
     {phase === "stopping" && <small>Preparing recording…</small>}
     {(phase === "review" || phase === "sending") && recording && <div className="timev3-voice-review">
       <audio controls src={previewUrl.current} />

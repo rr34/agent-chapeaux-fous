@@ -60,6 +60,14 @@ TIMEV3_KEYPAD_DEVICE=/dev/input/by-id/replace-with-the-keypad
 TIMEV3_SERVER_URL=https://agent.timev3tech.com
 ```
 
+Microphone and speaker selection defaults to `auto`. On every recording or
+playback, the node reads the current ALSA capabilities rather than retaining a
+USB card number: capture prefers a USB capture-only device, and playback
+prefers a USB playback-capable device. Moving either device to another USB port
+therefore requires no configuration. Recovery overrides remain available as
+`TIMEV3_AUDIO_INPUT` and `TIMEV3_AUDIO_OUTPUT`, each accepting an ALSA device
+such as `plughw:1,0`.
+
 Replace `0xNN` with the LCD backpack address observed on the assembled hardware;
 `HARDWARE.md` does not currently declare that address, so the software does not
 guess it. The MPU-6050 address is `0x69` as declared there. The keypad adapter

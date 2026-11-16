@@ -58,8 +58,8 @@ def main() -> None:
     client = TimeV3Client(server_url, load_node_token()) if server_url else None
     device_name = os.environ.get("TIMEV3_DEVICE_NAME", "").strip() or socket.gethostname()
     state_directory = Path(os.environ.get("TIMEV3_STATE_DIRECTORY", "/var/lib/time-v3-node"))
-    recorder = OpusRecorder(os.environ.get("TIMEV3_AUDIO_INPUT", "default").strip() or "default")
-    player = AudioPlayer()
+    recorder = OpusRecorder(os.environ.get("TIMEV3_AUDIO_INPUT", "auto").strip() or "auto")
+    player = AudioPlayer(os.environ.get("TIMEV3_AUDIO_OUTPUT", "auto").strip() or "auto")
     try:
         motion = Mpu6050()
     except OSError:

@@ -335,7 +335,16 @@ class NodeApplication:
                 return
         if source:
             self.playback_path = source
-            self.player.play(source)
+            try:
+                await asyncio.to_thread(self.player.play, source)
+            except Exception:
+                logger.exception("Could not play voice message")
+                self.stop_playback()
+                if self.screen == "message_review":
+                    self.show_recording_review("PLAYBACK FAILED")
+                else:
+                    self.message_notice = "PLAYBACK UNAVAILABLE"
+                    self.show_message_item()
 
     async def start_pairing(self) -> None:
         if not self.client:
