@@ -56,8 +56,11 @@ class WifiTests(unittest.TestCase):
         application.screen = "wifi_password"
 
         application.wifi_password_action("digit_2")
+        self.assertEqual(display.rows[2].strip(), "2 = B")
         application.wifi_password_action("minus")
         self.assertEqual(application.wifi_password, "b")
+        self.assertEqual(display.rows[1].strip(), "b")
+        self.assertEqual(display.rows[2].strip(), "")
 
         application.wifi_password_action("digit_2")
         application.wifi_password_action("digit_0")
@@ -69,7 +72,7 @@ class WifiTests(unittest.TestCase):
         application.wifi_password_action("plus")
         self.assertEqual(application.wifi_password, "bT")
         self.assertEqual(application.wifi_pending_digits, "27")
-        self.assertIn("NUMBER ONLY", display.rows[2])
+        self.assertEqual(display.rows[2].strip(), "27")
         application.wifi_password_action("asterisk")
         self.assertEqual(application.wifi_password, "bT27")
 

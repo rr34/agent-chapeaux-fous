@@ -45,8 +45,8 @@ NetworkManager. A `*` beside an SSID means connected and a `+` means secured.
 Select a network with the normal up/down keys and Enter. For a secured network,
 type an alphabet position from `1` through `26`, then press `+` for uppercase or
 `-` for lowercase. Press `*` to commit pending digits literally, `/` to choose a
-symbol, `.` to show or mask the password, Backspace to edit, and Enter to
-connect. Values outside `1` through `26` are numeric-only: `+` and `-` do
+symbol, Backspace to edit, and Enter to connect. The entered password remains
+visible on the LCD. Values outside `1` through `26` are numeric-only: `+` and `-` do
 nothing until Backspace returns the value to the letter range or `*` commits it.
 The Num Lock key is deliberately ignored; its LED state is not an input mode.
 

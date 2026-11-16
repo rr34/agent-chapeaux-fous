@@ -73,7 +73,6 @@ class NodeApplication:
         self.wifi_network_index = 0
         self.wifi_password = ""
         self.wifi_pending_digits = ""
-        self.wifi_password_visible = False
         self.wifi_symbol_index = 0
         self.wifi_notice = ""
 
@@ -156,7 +155,6 @@ class NodeApplication:
             return
         self.wifi_password = ""
         self.wifi_pending_digits = ""
-        self.wifi_password_visible = False
         if network.secured:
             self.screen = "wifi_password"
             self.show_wifi_password()
@@ -165,17 +163,16 @@ class NodeApplication:
 
     def show_wifi_password(self) -> None:
         network = self.wifi_networks[self.wifi_network_index]
-        password = self.wifi_password if self.wifi_password_visible else "*" * len(self.wifi_password)
         if self.wifi_pending_digits:
             value = int(self.wifi_pending_digits)
             if len(self.wifi_pending_digits) <= 2 and 1 <= value <= 26:
-                pending = f"CODE {self.wifi_pending_digits} LETTER"
+                pending = f"{self.wifi_pending_digits} = {chr(ord('A') + value - 1)}"
             else:
-                pending = f"{self.wifi_pending_digits[:8]} NUMBER ONLY"
+                pending = self.wifi_pending_digits[-20:]
         else:
-            pending = "1-26 THEN + / -"
+            pending = ""
         self.display.show(tuple(row[:20].ljust(20) for row in (
-            f"WIFI {network.ssid}", password[-20:], pending, "+UP -low *number",
+            f"WIFI {network.ssid}", self.wifi_password[-20:], pending, "+UP -low *number",
         )))
 
     def wifi_password_action(self, action: str) -> None:
@@ -200,8 +197,6 @@ class NodeApplication:
                 self.screen = "wifi_networks"
                 self.show_wifi_networks()
                 return
-        elif action == "dot":
-            self.wifi_password_visible = not self.wifi_password_visible
         elif action == "slash" and not self.wifi_pending_digits:
             self.wifi_symbol_index = 0
             self.screen = "wifi_symbol"

@@ -565,8 +565,8 @@ visible networks and accepts passwords without a lettered keyboard: `1` through
 `26` followed by `+` commits an uppercase letter, followed by `-` commits a
 lowercase letter, and `*` commits pending digits literally. Values outside the
 letter range remain numeric-only until edited or committed. `/` opens symbol
-selection, `.` controls password visibility, Backspace edits, and Enter
-connects. Num Lock is never an application mode: its key is ignored and either
+selection, Backspace edits, and Enter connects. The entered password remains
+visible on the LCD. Num Lock is never an application mode: its key is ignored and either
 key-code form has identical behavior.
 
 Native person-to-person messages use correspondence medium `timev3`. A sender
