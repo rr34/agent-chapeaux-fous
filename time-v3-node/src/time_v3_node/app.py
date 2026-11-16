@@ -165,7 +165,8 @@ class NodeApplication:
                 duration = self.format_duration(round(int(recording.get("duration_ms") or 0) / 1000))
                 body_rows = [f"{arrow} VOICE MESSAGE", duration, "ENTER PLAY / STOP", "+ RECORD REPLY"]
             else:
-                body_rows = LcdDocument(plain_body(item.get("body"))).render_rows()
+                arrow = RIGHT_ARROW if item.get("direction") == "outbound" else LEFT_ARROW
+                body_rows = LcdDocument(f"{arrow} {plain_body(item.get('body'))}").render_rows()
         maximum = max(0, len(body_rows) - 4)
         self.offset = min(maximum, max(0, self.offset))
         visible = [

@@ -447,7 +447,7 @@ export function CorrespondenceScreen() {
           <TimeV3VoiceRecorder contactId={nativeConversationContactId || null} disabled={sendingTimeV3 || Boolean(timeV3Text.trim())} onActiveChange={setTimeV3VoiceActive} onDelivered={deliveredTimeV3Voice} />
           {timeV3Status && <small role="status">{timeV3Status}</small>}
         </div>
-        <LcdPreviewCard text={timeV3Text} />
+        <LcdPreviewCard text={timeV3Text} direction="inbound" />
       </form>
     </section></div>}
     <div className="section-filter correspondence-filters">

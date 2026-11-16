@@ -169,10 +169,10 @@ test("correspondence cards own compact channel, direction, and content presentat
   assert.match(screen, /function timeV3ConversationTarget/);
   assert.match(screen, /label: "View conversation"/);
   assert.match(screen, /native-conversation-message--\$\{message\.direction\}/);
-  assert.match(screen, /<LcdPreviewCard text=\{timeV3Text\} \/>/);
+  assert.match(screen, /<LcdPreviewCard text=\{timeV3Text\} direction="inbound" \/>/);
   assert.doesNotMatch(screen, /<section className="timev3-composer surface"/);
   assert.match(lcdPreview, /export function LcdPreviewCard/);
-  assert.match(lcdPreview, /renderLcdDocument\(text\)/);
+  assert.match(lcdPreview, /renderLcdMessage\(text, direction\)/);
   assert.match(service, /call_disposition: row\.call_disposition \?\? null/);
   assert.match(network, /attribute\("Call disposition", row\.call_disposition\)/);
   assert.match(styles, /\.first-class-object-card\.correspondence-card > \.first-class-object-content > \.first-class-object-label,[\s\S]*\.compact-object-card\.correspondence-card > \.compact-object-identity > span:first-child \{ display: none; \}/);

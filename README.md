@@ -569,7 +569,9 @@ native contact for a self-managed recipient, but it never bypasses a blocked
 native contact and never auto-adds a sender for a manager-managed recipient.
 The node lists approved contacts alphabetically and reads each contact's paired
 inbound and outbound history newest-first. A message body uses all four LCD
-rows. Left and right move only within that conversation; Backspace returns from
+rows. Its first row begins with a left or right arrow plus one space for inbound
+or outbound direction, so the first row has eighteen body cells and later rows
+have twenty. Left and right move only within that conversation; Backspace returns from
 a message to contact selection before it returns to the root menu.
 Text is escaped into the canonical correspondence body. Voice uses an Ogg/Opus
 recording joined through the existing correspondence-file relationship rather
@@ -1565,7 +1567,8 @@ Calendar events and personal to-dos deliberately have no direct relationship.
 Phone synchronization remains mobile-only.
 
 The same Correspondence screen owns native Time v3 composition. Its LCD preview
-uses the node's exact 20×4 wrapping rules. Native delivery is available only to
+uses the node's exact 20×4 wrapping rules and renders the inbound arrow and
+two-cell first-row cost that the receiver will see. Native delivery is available only to
 contacts explicitly given a receivable Time v3 person method; it creates paired
 outbound and inbound person-owned correspondence rather than mutating a
 provider mirror. Any approved Time v3 contact can open a bounded conversation

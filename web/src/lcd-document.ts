@@ -39,6 +39,10 @@ export function renderLcdDocument(text: string, links: LcdLink[] = []) {
   return rows.length ? rows : [""];
 }
 
+export function renderLcdMessage(text: string, direction: "inbound" | "outbound") {
+  return renderLcdDocument(`${direction === "outbound" ? "→" : "←"} ${text}`);
+}
+
 export function lcdViewport(documentRows: string[], requestedOffset = 0) {
   const maximum = Math.max(0, documentRows.length - lcdRows);
   const offset = Math.min(maximum, Math.max(0, Math.trunc(requestedOffset)));
