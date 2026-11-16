@@ -8,7 +8,7 @@ from time_v3_node.app import MOTION_REFRESH_SECONDS, NodeApplication
 from time_v3_node.client import TimeV3RequestError
 from time_v3_node.document import LcdDocument, LcdLink, wrap_text
 from time_v3_node.hardware import KEY_ACTIONS
-from time_v3_node.menu import Menu
+from time_v3_node.menu import MENU_ITEMS, Menu
 from time_v3_node.motion import GyroscopeBias, MotionSample, RelativeOrientation
 
 
@@ -33,9 +33,12 @@ class DocumentTests(unittest.TestCase):
 
 class MenuAndMotionTests(unittest.TestCase):
     def test_flat_menu_wraps(self):
+        self.assertEqual(MENU_ITEMS, (
+            "Messages", "Web browser", "Accelerometer", "Device status", "Pair node", "Wi-Fi setup",
+        ))
         menu = Menu()
         menu.move(-1)
-        self.assertEqual(menu.current, "Device status")
+        self.assertEqual(menu.current, "Wi-Fi setup")
         self.assertTrue(all(len(row) == 20 for row in menu.rows()))
 
     def test_relative_yaw_begins_at_zero(self):

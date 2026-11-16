@@ -36,6 +36,19 @@ class WifiTests(unittest.TestCase):
         self.assertIn("--ask", command)
         self.assertEqual(run.call_args.kwargs["input"], "Secret7!\n")
 
+    def test_scan_requests_refresh_waits_and_then_reads_the_completed_results(self):
+        with patch("time_v3_node.wifi.time.sleep") as sleep, \
+                patch("time_v3_node.wifi.subprocess.run") as run:
+            run.side_effect = [
+                object(),
+                type("Result", (), {"stdout": "*:Home:90:WPA2\n:Phone:80:WPA2\n"})(),
+            ]
+            networks = NetworkManagerWifi().scan()
+        self.assertEqual(run.call_args_list[0].args[0][-3:], ["device", "wifi", "rescan"])
+        self.assertEqual(run.call_args_list[1].args[0][-2:], ["--rescan", "no"])
+        sleep.assert_called_once()
+        self.assertEqual([network.ssid for network in networks], ["Home", "Phone"])
+
     def test_password_alphabet_numbers_numeric_overflow_and_symbols(self):
         display = Display()
         application = NodeApplication(display, object())

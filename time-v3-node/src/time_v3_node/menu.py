@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-MENU_ITEMS = ("Messages", "Wi-Fi setup", "Accelerometer", "Internet", "Pair node", "Device status")
+MENU_ITEMS = ("Messages", "Web browser", "Accelerometer", "Device status", "Pair node", "Wi-Fi setup")
 
 
 @dataclass

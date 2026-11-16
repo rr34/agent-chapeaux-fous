@@ -96,7 +96,7 @@ class NodeApplication:
             self.orientation.zero()
             self.show_motion()
             return
-        elif selected == "Internet":
+        elif selected == "Web browser":
             self.document = LcdDocument("NO APPROVED PAGES\nLOADED")
             self.screen = "document"
         elif selected == "Pair node":

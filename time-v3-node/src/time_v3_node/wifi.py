@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import subprocess
+import time
+
+
+WIFI_SCAN_SETTLE_SECONDS = 4
 
 
 @dataclass(frozen=True)
@@ -66,9 +70,17 @@ class NetworkManagerWifi:
         self.executable = executable
 
     def scan(self) -> list[WifiNetwork]:
+        # `wifi rescan` only requests a scan; NetworkManager publishes the new
+        # access-point list asynchronously. Give the Pi radio time to finish
+        # instead of immediately reading the previously cached list.
+        subprocess.run(
+            [self.executable, "--wait", "10", "device", "wifi", "rescan"],
+            check=True, capture_output=True, text=True, timeout=15,
+        )
+        time.sleep(WIFI_SCAN_SETTLE_SECONDS)
         result = subprocess.run(
             [self.executable, "--terse", "--fields", "IN-USE,SSID,SIGNAL,SECURITY",
-             "device", "wifi", "list", "--rescan", "yes"],
+             "device", "wifi", "list", "--rescan", "no"],
             check=True, capture_output=True, text=True, timeout=20,
         )
         return parse_nmcli_networks(result.stdout)
