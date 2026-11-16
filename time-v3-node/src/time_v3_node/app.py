@@ -542,6 +542,9 @@ class NodeApplication:
                 else:
                     self.message_notice = "PLAYBACK UNAVAILABLE"
                     self.show_message_item()
+            else:
+                if self.screen == "message_item":
+                    self.show_message_item()
 
     async def start_pairing(self) -> None:
         if not self.client:

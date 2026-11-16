@@ -282,6 +282,58 @@ class MenuAndMotionTests(unittest.TestCase):
         ):
             asyncio.run(exercise(Path(directory)))
 
+    def test_downloaded_voice_message_restores_message_screen_while_playing(self):
+        class Display:
+            def __init__(self):
+                self.rows = ()
+
+            def show(self, rows):
+                self.rows = rows
+
+        class Client:
+            def download_recording(self, correspondence_id, target):
+                self.downloaded = correspondence_id
+                target.write_bytes(b"OggS-remote")
+                return target
+
+        class Player:
+            playing = False
+
+            def play(self, source):
+                self.source = source
+                self.playing = True
+
+            def stop(self):
+                self.playing = False
+
+        async def exercise(state_directory):
+            display = Display()
+            client = Client()
+            player = Player()
+            application = NodeApplication(
+                display, object(), client=client, player=player, state_directory=state_directory,
+            )
+            application.screen = "message_item"
+            application.message_items = [{
+                "correspondence_id": 42,
+                "direction": "inbound",
+                "recordings": [{"duration_ms": 12_000, "stream_url": "/voice"}],
+            }]
+            application.show_message_item()
+            await application.toggle_message_playback()
+            self.assertEqual(client.downloaded, 42)
+            self.assertTrue(player.playing)
+            self.assertEqual(display.rows[0].strip(), "← VOICE MESSAGE")
+            self.assertEqual(display.rows[1].strip(), "0:12")
+            self.assertNotIn("LOADING", "".join(display.rows))
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "time_v3_node.app.asyncio.to_thread", new=AsyncMock(
+                side_effect=lambda function, *arguments: function(*arguments),
+            ),
+        ):
+            asyncio.run(exercise(Path(directory)))
+
     def test_voice_send_failure_shows_code_and_reference_on_the_lcd(self):
         class Display:
             def __init__(self):
