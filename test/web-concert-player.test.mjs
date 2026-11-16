@@ -55,7 +55,7 @@ test("the web concert has an explicit high-contrast playback timeline", () => {
   assert.match(player, /aria-label="Playback position"/u);
   assert.match(player, /--music-progress/u);
   assert.match(player, /formatPlaybackTime\(playbackSeconds\)/u);
-  assert.match(styles, /\.music-player-timeline input \{[^}]*linear-gradient\(to right, #b64c2d[^}]*#2f382a/su);
+  assert.match(styles, /\.music-player-timeline input \{[^}]*linear-gradient\(to right, var\(--olive\)[^}]*var\(--theme-base\)/su);
   assert.match(styles, /\.music-player-timeline input::-webkit-slider-thumb/u);
   assert.match(styles, /\.music-player-timeline input::-moz-range-progress/u);
 });
