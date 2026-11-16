@@ -997,6 +997,15 @@ const server = http.createServer(async (request, response) => {
       ) });
       return;
     }
+    if (request.timev3Auth?.account && request.method === "POST" && url.pathname === "/api/account/set-password") {
+      requireRequestOrigin(request, new URL(config.publicUrl).origin);
+      const body = await readJson(request);
+      identityStore.changePassword(
+        request.timev3Auth.account.accountId, body.currentPassword, body.newPassword,
+      );
+      sendJson(response, 200, { passwordSet: true });
+      return;
+    }
     if (request.timev3Auth?.account && request.method === "GET" && url.pathname === "/api/account/provisioned") {
       if (request.timev3Auth.person.experience !== "full") {
         throw Object.assign(new Error("Only a full account can provision or manage other accounts."), { statusCode: 403 });

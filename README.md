@@ -185,6 +185,11 @@ but does not mandate another password change. A managed person may send only to 
 contacts and rejects unknown inbound native senders; there is no mutual-contact
 acceptance or automatic contact creation for that policy.
 
+An authenticated person may replace their own password from Account access after
+confirming the current password. A successful replacement revokes all of that
+person's active browser sessions, including the session that made the change, and
+returns the browser to sign-in.
+
 The light web experience exposes Contacts, Correspondence, and essential Account
 and node access. Hiding navigation is not the authorization boundary: matching
 server routes enforce the restriction. Changing an account to full or switching

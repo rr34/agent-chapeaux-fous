@@ -53,7 +53,14 @@ test("managed accounts expose explicit password and contact management", () => {
   assert.match(accountSource, />Manage contacts<\/button>/u);
   assert.match(accountSource, /<form className="managed-account-password"/u);
   assert.match(accountSource, /name="username" autoComplete="username"/u);
-  assert.equal(accountSource.match(/autoComplete="new-password"/gu)?.length, 2);
+  assert.equal(accountSource.match(/autoComplete="new-password"/gu)?.length, 4);
+});
+
+test("account access exposes authenticated self-service password replacement", () => {
+  assert.match(accountSource, /id="account-password-heading">Password<\/h2>/u);
+  assert.match(accountSource, /\/api\/account\/set-password/u);
+  assert.match(accountSource, /autoComplete="current-password"/u);
+  assert.match(accountSource, /This signs you out on every browser\./u);
 });
 
 test("ordinary navigation defaults Contacts back to the signed-in person's list", () => {

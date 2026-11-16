@@ -24,6 +24,43 @@ test("Time v3 passwords use salted Argon2id verifiers", () => {
   }), false);
 });
 
+test("self-service password replacement verifies the current password and revokes sessions", () => {
+  const original = hashPassword("original password value");
+  const account = {
+    person_id: 17, person_status: "active", algorithm: original.algorithm,
+    salt: original.salt, password_hash: original.hash, memory_kib: original.memory,
+    passes: original.passes, parallelism: original.parallelism,
+  };
+  const events = [];
+  let replacement = null;
+  let revoked = false;
+  const store = Object.create(IdentityStore.prototype);
+  store.database = {
+    prepare(sql) {
+      if (sql.includes("FROM people p")) return { get: () => account };
+      if (sql.includes("UPDATE password_credentials")) return { run: (salt, hash, memory, passes, parallelism) => {
+        replacement = { algorithm: "argon2id", salt, password_hash: hash,
+          memory_kib: memory, passes, parallelism };
+      } };
+      if (sql.includes("UPDATE auth_sessions")) return { run: () => { revoked = true; } };
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  };
+  store.transaction = (callback) => callback();
+  store.recordSecurityEvent = (event) => events.push(event);
+
+  assert.equal(store.changePassword(17, "original password value", "replacement password value"), true);
+  assert.equal(verifyPassword("replacement password value", replacement), true);
+  assert.equal(revoked, true);
+  assert.equal(events.at(-1).outcome, "success");
+
+  assert.throws(
+    () => store.changePassword(17, "incorrect password", "another replacement value"),
+    (error) => error.code === "CURRENT_PASSWORD_INVALID" && error.statusCode === 401,
+  );
+  assert.equal(events.at(-1).outcome, "failure");
+});
+
 test("account email normalization is exact and bounded", () => {
   assert.equal(normalizeAccountEmail("  Nate@Example.COM "), "nate@example.com");
   assert.throws(() => normalizeAccountEmail("not-an-email"), /valid email/);

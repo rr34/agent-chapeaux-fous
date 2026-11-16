@@ -725,6 +725,29 @@ export function AccountScreen({ usage }: { usage: React.ReactNode }) {
   const [pendingIntegrationAction, setPendingIntegrationAction] = useState<{ name: string; action: "disconnect" | "remove" } | null>(null);
   const [refreshingTools, setRefreshingTools] = useState(false);
   const [toolRefreshStatus, setToolRefreshStatus] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  const [passwordAction, setPasswordAction] = useState(false);
+  const [passwordStatus, setPasswordStatus] = useState("");
+  const changePassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (newPassword !== passwordConfirmation) {
+      setPasswordStatus("The password confirmation does not match.");
+      return;
+    }
+    setPasswordAction(true); setPasswordStatus("");
+    try {
+      await api("/api/account/set-password", {
+        method: "POST", body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      setCurrentPassword(""); setNewPassword(""); setPasswordConfirmation("");
+      location.assign("/api/auth/start");
+    } catch (caught) {
+      setPasswordStatus(caught instanceof Error ? caught.message : String(caught));
+      setPasswordAction(false);
+    }
+  };
   const refreshTools = async () => {
     setRefreshingTools(true);
     setToolRefreshStatus("");
@@ -779,7 +802,16 @@ export function AccountScreen({ usage }: { usage: React.ReactNode }) {
     }
   };
   const access = <>
-    {authMode?.mode === "session" ? <section className="surface"><p>Your browser uses a revocable Time v3 session stored in a secure, HTTP-only cookie.</p><button className="button button--quiet" type="button" onClick={async () => { await api("/api/auth/logout", { method: "POST", body: "{}" }); location.assign("/api/auth/start"); }}>Sign out</button></section> : <form className="profile-fact-form" onSubmit={(event) => { event.preventDefault(); setAccessToken(token); }}>
+    {authMode?.mode === "session" ? <><section className="surface"><p>Your browser uses a revocable Time v3 session stored in a secure, HTTP-only cookie.</p><button className="button button--quiet" type="button" onClick={async () => { await api("/api/auth/logout", { method: "POST", body: "{}" }); location.assign("/api/auth/start"); }}>Sign out</button></section>
+    <section className="surface" aria-labelledby="account-password-heading">
+      <div className="section-title"><div><p className="eyebrow">Sign-in security</p><h2 id="account-password-heading">Password</h2><p>Set a new password for your account. This signs you out on every browser.</p></div></div>
+      <form className="integration-add-form" onSubmit={(event) => void changePassword(event)}>
+        <label>Current password<input required name="current-password" type="password" autoComplete="current-password" maxLength={1024} value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label>
+        <div className="object-editor-grid"><label>New password<input required name="new-password" type="password" autoComplete="new-password" minLength={12} maxLength={1024} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label><label>Confirm new password<input required name="new-password-confirmation" type="password" autoComplete="new-password" minLength={12} maxLength={1024} value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} /></label></div>
+        <button className="button" disabled={passwordAction || newPassword.length < 12 || newPassword !== passwordConfirmation}>{passwordAction ? "Setting password…" : "Set password"}</button>
+        {passwordStatus && <p className="auth-message auth-message--error" role="alert">{passwordStatus}</p>}
+      </form>
+    </section></> : <form className="profile-fact-form" onSubmit={(event) => { event.preventDefault(); setAccessToken(token); }}>
       <label>Access token<input name="access-token" type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} /></label>
       <button className="button">Save token</button>
     </form>}

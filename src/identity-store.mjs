@@ -504,6 +504,29 @@ export class IdentityStore {
     });
   }
 
+  changePassword(accountId, currentPassword, newPassword) {
+    const account = this.database.prepare(`SELECT p.person_id, p.person_status,
+      c.algorithm, c.salt, c.password_hash, c.memory_kib, c.passes, c.parallelism
+      FROM people p
+      JOIN password_credentials c ON c.person_id = p.person_id
+      WHERE p.person_id = ?`).get(accountId);
+    if (!account || account.person_status !== "active" || !verifyPassword(currentPassword, account)) {
+      this.recordSecurityEvent({ accountId, type: "account.password_change", outcome: "failure" });
+      throw identityError("The current password is incorrect.", 401, "CURRENT_PASSWORD_INVALID");
+    }
+    const credential = hashPassword(newPassword);
+    return this.transaction(() => {
+      this.database.prepare(`UPDATE password_credentials SET algorithm = 'argon2id', salt = ?,
+        password_hash = ?, memory_kib = ?, passes = ?, parallelism = ?, changed_at_utc = UTC_TIMESTAMP(3)
+        WHERE person_id = ?`).run(credential.salt, credential.hash, credential.memory,
+        credential.passes, credential.parallelism, account.person_id);
+      this.database.prepare(`UPDATE auth_sessions SET revoked_at_utc = UTC_TIMESTAMP(3)
+        WHERE person_id = ? AND revoked_at_utc IS NULL`).run(account.person_id);
+      this.recordSecurityEvent({ accountId, type: "account.password_change", outcome: "success" });
+      return true;
+    });
+  }
+
   canManageContacts(managerAccountId, personId) {
     return Boolean(this.database.prepare(`SELECT person_id FROM people
       WHERE person_id = ? AND person_status = 'active' AND contact_policy = 'manager_managed'
