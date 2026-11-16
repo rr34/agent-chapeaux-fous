@@ -8,6 +8,16 @@ from typing import Protocol
 
 from .motion import MotionSample
 
+RECORD_DOT = "●"
+LEFT_ARROW = "←"
+RIGHT_ARROW = "→"
+
+CUSTOM_GLYPHS = {
+    RECORD_DOT: (0b00000, 0b01110, 0b11111, 0b11111, 0b11111, 0b01110, 0b00000, 0b00000),
+    LEFT_ARROW: (0b00100, 0b01100, 0b11111, 0b01100, 0b00100, 0b00000, 0b00000, 0b00000),
+    RIGHT_ARROW: (0b00100, 0b00110, 0b11111, 0b00110, 0b00100, 0b00000, 0b00000, 0b00000),
+}
+
 
 class Display(Protocol):
     def show(self, rows: tuple[str, str, str, str]) -> None: ...
@@ -29,11 +39,15 @@ class CharacterLcd:
             cols=20, rows=4, dotsize=8,
             auto_linebreaks=False, backlight_enabled=True,
         )
+        for index, pattern in enumerate(CUSTOM_GLYPHS.values()):
+            self._lcd.create_char(index, pattern)
 
     def show(self, rows: tuple[str, str, str, str]) -> None:
         for index, row in enumerate(rows):
             self._lcd.cursor_pos = (index, 0)
-            self._lcd.write_string(row[:20].ljust(20))
+            for character in row[:20].ljust(20):
+                glyph = list(CUSTOM_GLYPHS).index(character) if character in CUSTOM_GLYPHS else None
+                self._lcd.write(glyph if glyph is not None else ord(character))
 
 
 class Mpu6050:
@@ -68,7 +82,7 @@ KEY_ACTIONS = {
     "KEY_KPENTER": "select", "KEY_ENTER": "select",
     "KEY_BACKSPACE": "back",
     "KEY_KP0": "zero", "KEY_0": "zero", "KEY_INSERT": "zero",
-    "KEY_KPPLUS": "record", "KEY_KPDOT": "stop",
+    "KEY_KPPLUS": "record",
 }
 
 

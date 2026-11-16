@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import fsp from "node:fs/promises";
+import path from "node:path";
 import { currentPersonId, runWithPerson } from "./person-context.mjs";
 
 function positiveId(value, label) {
@@ -103,7 +105,7 @@ function canonicalHtml(value) {
     .replace(/\r\n?|\n/gu, "<br>") : null;
 }
 
-function publicItem(row, participants = [], todos = [], calendarEvents = [], mailboxes = [], sourceObservations = []) {
+function publicItem(row, participants = [], todos = [], calendarEvents = [], mailboxes = [], sourceObservations = [], recordings = []) {
   const correspondenceId = Number(row.correspondence_id);
   const keywords = emailKeywords(row.email_keywords_json);
   return {
@@ -122,6 +124,7 @@ function publicItem(row, participants = [], todos = [], calendarEvents = [], mai
     email_keywords: keywords,
     source_metadata: sourceMetadata(row.source_metadata_json),
     source_observations: sourceObservations,
+    recordings,
     is_read: row.medium === "email" ? keywords.includes("$seen") : null,
     mailboxes,
     participants,
@@ -160,11 +163,12 @@ function participantRows(message) {
 const emailSyncBatchSize = 100;
 
 export class CorrespondenceService {
-  constructor({ store, ledger, jmap, identityStore = null }) {
+  constructor({ store, ledger, jmap, identityStore = null, mediaRoot = null }) {
     this.store = store;
     this.ledger = ledger;
     this.jmap = jmap;
     this.identityStore = identityStore;
+    this.mediaRoot = mediaRoot;
     this.emailSyncProgress = { status: "idle", phase: null, processed: 0, total: null };
   }
 
@@ -199,12 +203,16 @@ export class CorrespondenceService {
 
   sendTimeV3Text({ contactId, text }, context = {}) {
     if (!this.identityStore) throw Object.assign(new Error("Time v3 identity is required for native messages."), { statusCode: 503 });
-    const senderPersonId = currentPersonId();
-    const normalizedContactId = positiveId(contactId, "contactId");
     if (typeof text !== "string" || !text.trim() || text.length > 20_000) {
       throw Object.assign(new Error("text must contain 1 through 20,000 characters"), { statusCode: 400 });
     }
-    const body = canonicalHtml(text);
+    const delivery = this.#timeV3DeliveryTarget(contactId);
+    return this.#deliverTimeV3({ delivery, body: canonicalHtml(text), eventContent: text, context });
+  }
+
+  #timeV3DeliveryTarget(contactId) {
+    const senderPersonId = currentPersonId();
+    const normalizedContactId = positiveId(contactId, "contactId");
     const recipient = this.database.prepare(`SELECT contact.contact_id, contact.display_name,
         method.contact_method_id, method.normalized_value AS person_id
       FROM contacts AS contact JOIN contact_methods AS method USING (contact_id)
@@ -217,6 +225,39 @@ export class CorrespondenceService {
     const sender = this.identityStore.activePerson(senderPersonId);
     const target = this.identityStore.activePerson(recipientPersonId);
     if (!sender || !target) throw Object.assign(new Error("The Time v3 recipient is unavailable."), { statusCode: 404 });
+    return { senderPersonId, normalizedContactId, recipient, recipientPersonId, sender, target };
+  }
+
+  async sendTimeV3Voice({ contactId, recording }, context = {}) {
+    if (!this.identityStore) throw Object.assign(new Error("Time v3 identity is required for native messages."), { statusCode: 503 });
+    if (!this.mediaRoot || !recording?.absoluteFilename || recording.mimeType !== "audio/ogg") {
+      throw Object.assign(new Error("A validated Ogg/Opus voice message is required."), { statusCode: 400 });
+    }
+    let recipientFilename = null;
+    try {
+      const delivery = this.#timeV3DeliveryTarget(contactId);
+      const relativeDirectory = path.posix.dirname(recording.storagePath).replace(/^media\/?/u, "");
+      const recipientName = `${randomUUID()}.ogg`;
+      const recipientStoragePath = path.posix.join("media", relativeDirectory, recipientName);
+      recipientFilename = path.join(this.mediaRoot, ...relativeDirectory.split("/"), recipientName);
+      await fsp.copyFile(recording.absoluteFilename, recipientFilename);
+      return this.#deliverTimeV3({
+        delivery, body: null,
+        eventContent: `Voice message (${Math.ceil(recording.durationMs / 1000)} seconds)`,
+        context,
+        recording: { sender: recording, recipient: { ...recording, absoluteFilename: recipientFilename, storagePath: recipientStoragePath } },
+      });
+    } catch (error) {
+      await Promise.all([
+        fsp.unlink(recording.absoluteFilename).catch(() => {}),
+        ...(recipientFilename ? [fsp.unlink(recipientFilename).catch(() => {})] : []),
+      ]);
+      throw error;
+    }
+  }
+
+  #deliverTimeV3({ delivery, body, eventContent, context, recording = null }) {
+    const { senderPersonId, normalizedContactId, recipient, recipientPersonId, sender, target } = delivery;
 
     const externalId = randomUUID();
     const occurredAt = new Date().toISOString();
@@ -228,21 +269,37 @@ export class CorrespondenceService {
     const insertParticipant = database.prepare(`INSERT INTO correspondence_participants_join
       (correspondence_id, participant_role, contact_id, contact_method_id, address_value, display_name)
       VALUES (?, ?, ?, ?, ?, ?)`);
+    const insertRecording = recording ? database.prepare(`INSERT INTO correspondence_files_join
+      (correspondence_id, file_id, attachment_role) VALUES (?, ?, 'recording')`) : null;
 
     database.exec("START TRANSACTION");
+    let senderFile = null;
+    let recipientFile = null;
     try {
+      if (recording) senderFile = this.ledger.registerFile({
+        storagePath: recording.sender.storagePath,
+        originalFilename: recording.sender.originalFilename,
+        mimeType: recording.sender.mimeType,
+        sha256: recording.sender.sha256,
+        byteSize: recording.sender.byteSize,
+        durationMs: recording.sender.durationMs,
+        mediaKind: "audio",
+        title: "Voice message",
+      });
       const senderEventId = this.ledger.append({
         type: "correspondence.timev3_sent", status: "complete",
         actorType: context.actorType || "user", actorName: context.actorName || sender.displayName,
         source: context.source || "timev3", channel: context.channel || "web",
-        name: "Time v3 message sent", content: text,
-        payload: { externalId, recipientPersonId },
+        name: recording ? "Time v3 voice message sent" : "Time v3 message sent", content: eventContent,
+        primaryFileId: senderFile?.fileId ?? null,
+        payload: { externalId, recipientPersonId, ...(recording ? { durationMs: recording.sender.durationMs } : {}) },
       });
       const sent = insertMessage.run("outbound", `timev3:${recipientPersonId}`, externalId,
         body, occurredAt, occurredAt, occurredAt, senderEventId);
       const sentId = Number(sent.lastInsertRowid);
       insertParticipant.run(sentId, "recipient", Number(recipient.contact_id),
         Number(recipient.contact_method_id), `timev3:${recipientPersonId}`, target.displayName);
+      if (senderFile) insertRecording.run(sentId, senderFile.fileId);
 
       const receivedId = runWithPerson(recipientPersonId, () => {
         const knownSenderMethods = database.prepare(`SELECT contact.contact_id, contact.status, method.contact_method_id
@@ -268,11 +325,22 @@ export class CorrespondenceService {
           );
           senderMethod = { contact_id: createdContactId, contact_method_id: Number(method.lastInsertRowid) };
         }
+        if (recording) recipientFile = this.ledger.registerFile({
+          storagePath: recording.recipient.storagePath,
+          originalFilename: recording.recipient.originalFilename,
+          mimeType: recording.recipient.mimeType,
+          sha256: recording.recipient.sha256,
+          byteSize: recording.recipient.byteSize,
+          durationMs: recording.recipient.durationMs,
+          mediaKind: "audio",
+          title: "Voice message",
+        });
         const recipientEventId = this.ledger.append({
           type: "correspondence.timev3_received", status: "complete",
           actorType: "external", actorName: sender.displayName, source: "timev3", channel: "timev3",
-          name: "Time v3 message received", content: text,
-          payload: { externalId, senderPersonId },
+          name: recording ? "Time v3 voice message received" : "Time v3 message received", content: eventContent,
+          primaryFileId: recipientFile?.fileId ?? null,
+          payload: { externalId, senderPersonId, ...(recording ? { durationMs: recording.recipient.durationMs } : {}) },
         });
         const received = insertMessage.run("inbound", `timev3:${senderPersonId}`, externalId,
           body, occurredAt, occurredAt, occurredAt, recipientEventId);
@@ -280,20 +348,33 @@ export class CorrespondenceService {
         insertParticipant.run(id, "sender", senderMethod?.contact_id == null ? null : Number(senderMethod.contact_id),
           senderMethod?.contact_method_id == null ? null : Number(senderMethod.contact_method_id),
           `timev3:${senderPersonId}`, sender.displayName);
+        if (recipientFile) insertRecording.run(id, recipientFile.fileId);
         return id;
       });
       database.exec("COMMIT");
+      if (senderFile?.duplicate) void fsp.unlink(recording.sender.absoluteFilename).catch(() => {});
+      if (recipientFile?.duplicate) void fsp.unlink(recording.recipient.absoluteFilename).catch(() => {});
       return {
         external_id: externalId,
         sent_correspondence_id: sentId,
         received_correspondence_id: receivedId,
         recipient: { contact_id: normalizedContactId, person_id: recipientPersonId, display_name: target.displayName },
         occurred_at_utc: occurredAt,
+        ...(recording ? { duration_ms: recording.sender.durationMs } : {}),
       };
     } catch (error) {
       database.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  recordingForCorrespondence(correspondenceId) {
+    const id = positiveId(correspondenceId, "correspondenceId");
+    const row = this.database.prepare(`SELECT file.* FROM correspondence_files_join AS link
+      JOIN files AS file USING (file_id)
+      WHERE link.correspondence_id = ? AND link.attachment_role = 'recording'
+      ORDER BY file.file_id LIMIT 1`).get(id);
+    return row ?? null;
   }
 
   emailSyncStatus() {
@@ -461,6 +542,7 @@ export class CorrespondenceService {
     const calendarEvents = new Map();
     const mailboxes = new Map();
     const sourceObservations = new Map();
+    const recordings = new Map();
     if (ids.length) {
       const placeholders = ids.map(() => "?").join(", ");
       for (const row of this.database.prepare(`SELECT participant.*, contact.display_name AS contact_name
@@ -542,13 +624,30 @@ export class CorrespondenceService {
         });
         sourceObservations.set(id, valuesForItem);
       }
+      for (const row of this.database.prepare(`SELECT link.correspondence_id, file.file_id,
+          file.mime_type, file.byte_size, file.duration_ms
+        FROM correspondence_files_join AS link JOIN files AS file USING (file_id)
+        WHERE link.attachment_role = 'recording' AND link.correspondence_id IN (${placeholders})
+        ORDER BY link.correspondence_id, file.file_id`).all(...ids)) {
+        const id = Number(row.correspondence_id);
+        const valuesForItem = recordings.get(id) || [];
+        valuesForItem.push({
+          file_id: Number(row.file_id),
+          mime_type: row.mime_type,
+          byte_size: row.byte_size == null ? null : Number(row.byte_size),
+          duration_ms: row.duration_ms == null ? null : Number(row.duration_ms),
+          stream_url: `/api/correspondence/${id}/recording`,
+        });
+        recordings.set(id, valuesForItem);
+      }
     }
     return {
       result_type: "items",
       items: rows.map((row) => publicItem(row, participants.get(Number(row.correspondence_id)) || [],
         todos.get(Number(row.correspondence_id)) || [], calendarEvents.get(Number(row.correspondence_id)) || [],
         mailboxes.get(Number(row.correspondence_id)) || [],
-        sourceObservations.get(Number(row.correspondence_id)) || [])),
+        sourceObservations.get(Number(row.correspondence_id)) || [],
+        recordings.get(Number(row.correspondence_id)) || [])),
       contact_groups: [],
       mailboxes: this.#mailboxes(),
       contact_tags: this.#contactTags(),

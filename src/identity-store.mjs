@@ -98,7 +98,7 @@ function publicPerson(row) {
   return {
     personId: Number(row.person_id),
     displayName: row.person_display_name ?? row.display_name,
-    handle: row.handle ? `@${row.handle}` : null,
+    handle: row.handle ? `@${normalizeHandle(row.handle)}` : null,
     kind: row.managed_by_person_id == null ? "primary" : "managed",
     status: row.person_status,
     experience: row.experience,
@@ -388,11 +388,19 @@ export class IdentityStore {
   activePersonByHandle(handle) {
     let normalized;
     try { normalized = normalizeHandle(handle); } catch { return null; }
-    const row = this.database.prepare(`
+    const exact = this.database.prepare(`
       SELECT p.* FROM people p
        WHERE p.handle = ? AND p.person_status = 'active'
     `).get(normalized);
-    return row ? publicPerson(row) : null;
+    if (exact) return publicPerson(exact);
+    const legacyMatches = this.database.prepare(`
+      SELECT p.* FROM people p
+       WHERE LOWER(TRIM(LEADING '@' FROM TRIM(p.handle))) = ?
+         AND p.person_status = 'active'
+       ORDER BY p.person_id
+       LIMIT 2
+    `).all(normalized);
+    return legacyMatches.length === 1 ? publicPerson(legacyMatches[0]) : null;
   }
 
   activePersonIds() {

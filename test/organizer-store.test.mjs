@@ -239,6 +239,31 @@ test("contacts allow only one primary method of each type", () => {
   }
 });
 
+test("contacts resolve an existing active Time v3 handle to its person id", () => {
+  const temporary = temporaryDatabase();
+  const organizer = new OrganizerStore(temporary.target, {
+    resolveTimeV3Handle: (value) => String(value).replace(/^@/u, "").toLowerCase() === "vince"
+      ? { personId: 7, handle: "@vince", status: "active" }
+      : null,
+  });
+  try {
+    const created = organizer.createContact({
+      displayName: "Vince",
+      methods: [{ kind: "timev3_person", value: "vince", canReceive: true }],
+    });
+    assert.deepEqual(created.methods.map(({ kind, value, normalizedValue }) => ({ kind, value, normalizedValue })), [{
+      kind: "timev3_person", value: "@vince", normalizedValue: "7",
+    }]);
+    assert.throws(() => organizer.createContact({
+      displayName: "Pending person",
+      methods: [{ kind: "timev3_person", value: "pending" }],
+    }), /No active Time v3 account has @pending/u);
+  } finally {
+    organizer.close();
+    temporary.cleanup();
+  }
+});
+
 test("mobile contacts identify the canonical contacts linked to one Android device", () => {
   const temporary = temporaryDatabase();
   const organizer = new OrganizerStore(temporary.target);

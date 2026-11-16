@@ -1106,6 +1106,13 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .native-conversation-message > div { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 11px; }
 .native-conversation-message p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
 .native-conversation-composer { padding-top: 16px; border-top: 1px solid var(--line); }
+.voice-message { display: grid; gap: 7px; }
+.voice-message-audio, .timev3-voice-review audio { width: 100%; min-width: 0; }
+.voice-message-error { color: var(--rust); }
+.timev3-voice-recorder { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; padding-top: 4px; }
+.timev3-record-button { width: 42px; min-width: 42px; height: 42px; padding: 0; border-radius: 50%; color: var(--rust); font-size: 22px; line-height: 1; }
+.timev3-record-button.is-recording { color: white; background: var(--rust); animation: record-pulse 1.6s infinite; }
+.timev3-voice-review { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 8px; }
 .managed-account-password { display: grid; gap: 8px; margin-top: 8px; }
 .managed-account-password > .button { justify-self: start; }
 .message-sync-progress { display: grid; gap: .45rem; margin: 0 0 .8rem; padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }

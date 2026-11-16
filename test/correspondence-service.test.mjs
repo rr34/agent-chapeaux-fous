@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import fsp from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { CorrespondenceService } from "../src/correspondence.mjs";
 import { currentPersonId, runWithPerson } from "../src/person-context.mjs";
@@ -103,6 +106,79 @@ test("native Time v3 delivery writes paired person-owned correspondence in one t
   assert.equal(result.received_correspondence_id, 42);
 });
 
+test("native Time v3 voice delivery gives each person an owned recording copy", async (context) => {
+  const mediaRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "timev3-voice-test-"));
+  context.after(() => fsp.rm(mediaRoot, { recursive: true, force: true }));
+  const directory = path.join(mediaRoot, "2026", "11");
+  await fsp.mkdir(directory, { recursive: true });
+  const senderFilename = path.join(directory, "sender.ogg");
+  await fsp.writeFile(senderFilename, "OggS-voice");
+  const messages = [];
+  const recordingLinks = [];
+  const executions = [];
+  let nextMessageId = 60;
+  const database = {
+    exec(sql) { executions.push(sql); },
+    prepare(sql) {
+      if (sql.includes("method.normalized_value AS person_id")) return { get: () => ({
+        contact_id: 7, display_name: "Recipient", contact_method_id: 31, person_id: "2",
+      }) };
+      if (sql.includes("SELECT contact.contact_id, contact.status")) return { all: () => [{
+        contact_id: 8, status: "active", contact_method_id: 32,
+      }] };
+      if (sql.includes("INSERT INTO correspondence\n")) return { run: (...args) => {
+        nextMessageId += 1; messages.push({ owner: currentPersonId(), args, id: nextMessageId });
+        return { lastInsertRowid: nextMessageId };
+      } };
+      if (sql.includes("INSERT INTO correspondence_participants_join")) return { run: () => ({ changes: 1 }) };
+      if (sql.includes("INSERT INTO correspondence_files_join")) return { run: (correspondenceId, fileId) => {
+        recordingLinks.push({ owner: currentPersonId(), correspondenceId, fileId });
+        return { changes: 1 };
+      } };
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  };
+  const people = new Map([[1, { personId: 1, displayName: "Sender" }], [2, { personId: 2, displayName: "Recipient" }]]);
+  const registered = [];
+  const service = new CorrespondenceService({
+    store: { requireReady: () => database }, jmap: {}, mediaRoot,
+    identityStore: { activePerson: (id) => people.get(id) || null },
+    ledger: {
+      registerFile: (file) => {
+        const owner = currentPersonId();
+        registered.push({ owner, file });
+        return { fileId: owner === 1 ? 101 : 201, duplicate: false, storagePath: file.storagePath };
+      },
+      append: () => `event-${currentPersonId()}`,
+    },
+  });
+  const result = await runWithPerson(1, () => service.sendTimeV3Voice({
+    contactId: 7,
+    recording: {
+      absoluteFilename: senderFilename,
+      storagePath: "media/2026/11/sender.ogg",
+      originalFilename: "voice-message.ogg",
+      mimeType: "audio/ogg",
+      sha256: "a".repeat(64),
+      byteSize: 10,
+      durationMs: 1_000,
+    },
+  }));
+  assert.deepEqual(messages.map(({ owner, args }) => ({ owner, direction: args[0], body: args[3] })), [
+    { owner: 1, direction: "outbound", body: null },
+    { owner: 2, direction: "inbound", body: null },
+  ]);
+  assert.deepEqual(registered.map(({ owner }) => owner), [1, 2]);
+  assert.deepEqual(recordingLinks, [
+    { owner: 1, correspondenceId: 61, fileId: 101 },
+    { owner: 2, correspondenceId: 62, fileId: 201 },
+  ]);
+  assert.notEqual(registered[0].file.storagePath, registered[1].file.storagePath);
+  assert.equal(await fsp.readFile(path.join(mediaRoot, registered[1].file.storagePath.replace(/^media\//u, "")), "utf8"), "OggS-voice");
+  assert.deepEqual(executions, ["START TRANSACTION", "COMMIT"]);
+  assert.equal(result.duration_ms, 1_000);
+});
+
 test("manager-managed recipients reject unknown native senders without partial delivery", () => {
   const executions = [];
   let insertedMessages = 0;
@@ -188,6 +264,7 @@ test("correspondence reads expose and filter provider mailbox membership and unr
       parent_mailbox_id: null, sort_order: 1,
     }] };
     if (sql.includes("FROM correspondence_source_aliases")) return { all: () => [] };
+      if (sql.includes("FROM correspondence_files_join AS link JOIN files")) return { all: () => [] };
     if (sql.includes("FROM jmap_email_mailboxes ORDER BY")) return { all: () => [{
       mailbox_id: "inbox-1", name: "Inbox", role: "inbox", parent_mailbox_id: null,
     }] };

@@ -26,6 +26,9 @@ type CorrespondenceItem = {
   email_keywords: string[]; is_read: boolean | null; mailboxes: CorrespondenceMailbox[];
   participants: Participant[]; linked_todos: Array<{ todo_id: number; text: string; status: string }>;
   linked_calendar_events: CorrespondenceCalendarEvent[];
+  recordings: Array<{
+    file_id: number; mime_type: string; byte_size: number | null; duration_ms: number | null; stream_url: string;
+  }>;
 };
 type CorrespondenceContactGroup = {
   contact_id: number; display_name: string; tags: Array<{ slug: string; label: string }>;
@@ -92,6 +95,140 @@ function localDateBoundary(value: string) {
   return value ? new Date(`${value}T00:00:00`).toISOString() : "";
 }
 
+const voiceMessageMaximumDurationMs = 60_000;
+
+function voiceClock(milliseconds: number) {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function AuthenticatedVoiceMessage({ url }: { url: string }) {
+  const [source, setSource] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    let objectUrl = "";
+    setSource(""); setError("");
+    void authenticatedObjectUrl(url).then((value) => {
+      if (!active) { URL.revokeObjectURL(value); return; }
+      objectUrl = value; setSource(value);
+    }).catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)));
+    return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [url]);
+  if (error) return <small className="voice-message-error">{error}</small>;
+  if (!source) return <small>Loading voice message…</small>;
+  return <audio className="voice-message-audio" controls preload="metadata" src={source} />;
+}
+
+function TimeV3VoiceRecorder({ contactId, disabled, onActiveChange, onDelivered }: {
+  contactId: number | null;
+  disabled: boolean;
+  onActiveChange: (active: boolean) => void;
+  onDelivered: () => Promise<void>;
+}) {
+  const recorder = useRef<MediaRecorder | null>(null);
+  const stream = useRef<MediaStream | null>(null);
+  const chunks = useRef<Blob[]>([]);
+  const startedAt = useRef(0);
+  const interval = useRef<number | null>(null);
+  const timeout = useRef<number | null>(null);
+  const previewUrl = useRef("");
+  const mounted = useRef(true);
+  const [phase, setPhase] = useState<"idle" | "requesting" | "recording" | "stopping" | "review" | "sending">("idle");
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [recording, setRecording] = useState<Blob | null>(null);
+  const [error, setError] = useState("");
+  const supported = typeof navigator !== "undefined" && Boolean(navigator.mediaDevices?.getUserMedia)
+    && typeof MediaRecorder !== "undefined";
+
+  const clearTimers = () => {
+    if (interval.current !== null) window.clearInterval(interval.current);
+    if (timeout.current !== null) window.clearTimeout(timeout.current);
+    interval.current = null; timeout.current = null;
+  };
+  const stopStream = () => {
+    stream.current?.getTracks().forEach((track) => track.stop());
+    stream.current = null;
+  };
+  const discard = () => {
+    clearTimers(); stopStream(); recorder.current = null; chunks.current = [];
+    if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
+    previewUrl.current = ""; setRecording(null); setElapsedMs(0); setError(""); setPhase("idle");
+  };
+
+  useEffect(() => { onActiveChange(phase !== "idle"); }, [phase, onActiveChange]);
+  useEffect(() => () => {
+    mounted.current = false; clearTimers(); stopStream();
+    if (recorder.current?.state === "recording") recorder.current.stop();
+    if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
+  }, []);
+  useEffect(() => { discard(); }, [contactId]);
+
+  const stopVoiceRecording = () => {
+    if (recorder.current?.state !== "recording") return;
+    clearTimers(); setElapsedMs(Math.min(voiceMessageMaximumDurationMs, Date.now() - startedAt.current));
+    setPhase("stopping"); recorder.current.stop();
+  };
+  const startVoiceRecording = async () => {
+    if (!supported || disabled || !contactId || phase !== "idle") return;
+    setError(""); setPhase("requesting");
+    try {
+      const activeStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      const preferredType = typeof MediaRecorder.isTypeSupported === "function"
+        ? ["audio/ogg;codecs=opus", "audio/webm;codecs=opus", "audio/webm"]
+          .find((type) => MediaRecorder.isTypeSupported(type))
+        : undefined;
+      const activeRecorder = new MediaRecorder(activeStream, preferredType ? { mimeType: preferredType } : undefined);
+      stream.current = activeStream; recorder.current = activeRecorder; chunks.current = [];
+      activeRecorder.addEventListener("dataavailable", (event) => { if (event.data.size) chunks.current.push(event.data); });
+      activeRecorder.addEventListener("stop", () => {
+        clearTimers(); stopStream();
+        const blob = new Blob(chunks.current, { type: activeRecorder.mimeType || "audio/webm" });
+        chunks.current = []; recorder.current = null;
+        if (!mounted.current) return;
+        if (!blob.size) { setError("The recording was empty."); setPhase("idle"); return; }
+        previewUrl.current = URL.createObjectURL(blob); setRecording(blob); setPhase("review");
+      }, { once: true });
+      activeRecorder.start(1000); startedAt.current = Date.now(); setElapsedMs(0); setPhase("recording");
+      interval.current = window.setInterval(() => setElapsedMs(Math.min(
+        voiceMessageMaximumDurationMs, Date.now() - startedAt.current,
+      )), 250);
+      timeout.current = window.setTimeout(stopVoiceRecording, voiceMessageMaximumDurationMs);
+    } catch (caught) {
+      stopStream(); recorder.current = null; setPhase("idle");
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  };
+  const sendVoiceRecording = async () => {
+    if (!recording || !contactId || phase !== "review") return;
+    setPhase("sending"); setError("");
+    try {
+      await api(`/api/correspondence/timev3-voice-messages?contactId=${contactId}`, {
+        method: "POST", headers: { "Content-Type": recording.type || "audio/webm" }, body: recording,
+      });
+      discard(); await onDelivered();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught)); setPhase("review");
+    }
+  };
+
+  return <section className="timev3-voice-recorder" aria-label="Voice message">
+    {phase === "idle" && <button className="button button--quiet timev3-record-button" type="button" onClick={() => void startVoiceRecording()} disabled={disabled || !contactId || !supported} title={supported ? "Record a voice message" : "Voice recording is unavailable in this browser"} aria-label="Record a voice message">●</button>}
+    {phase === "requesting" && <small>Requesting microphone…</small>}
+    {phase === "recording" && <><button className="button timev3-record-button is-recording" type="button" onClick={stopVoiceRecording} aria-label="Stop recording">●</button><strong>● {voiceClock(elapsedMs)} / 1:00</strong></>}
+    {phase === "stopping" && <small>Preparing recording…</small>}
+    {(phase === "review" || phase === "sending") && recording && <div className="timev3-voice-review">
+      <audio controls src={previewUrl.current} />
+      <span>{voiceClock(elapsedMs)}</span>
+      <button className="button button--quiet" type="button" onClick={discard} disabled={phase === "sending"}>Discard</button>
+      <button className="button" type="button" onClick={() => void sendVoiceRecording()} disabled={phase === "sending"}>{phase === "sending" ? "Sending…" : "Send voice message"}</button>
+    </div>}
+    {error && <small className="voice-message-error" role="alert">{error}</small>}
+  </section>;
+}
+
 export function CorrespondenceScreen() {
   const { data: authSession } = useApi<{ person: { experience?: "full" | "light" } }>("/api/auth/session");
   const lightExperience = authSession?.person.experience === "light";
@@ -114,6 +251,7 @@ export function CorrespondenceScreen() {
   const [timeV3Text, setTimeV3Text] = useState("");
   const [timeV3Status, setTimeV3Status] = useState("");
   const [sendingTimeV3, setSendingTimeV3] = useState(false);
+  const [timeV3VoiceActive, setTimeV3VoiceActive] = useState(false);
   const [choosingTimeV3Conversation, setChoosingTimeV3Conversation] = useState(false);
   const [chosenTimeV3PersonId, setChosenTimeV3PersonId] = useState("");
   const [nativeConversation, setNativeConversation] = useState<{
@@ -207,6 +345,10 @@ export function CorrespondenceScreen() {
     } catch (caught) { setTimeV3Status(caught instanceof Error ? caught.message : String(caught)); }
     finally { setSendingTimeV3(false); }
   };
+  const deliveredTimeV3Voice = async () => {
+    setTimeV3Status("Voice message delivered.");
+    await Promise.all([reload(), reloadTimeV3Recipients(), reloadNativeConversation()]);
+  };
   const chooseTimeV3Conversation = (event: React.FormEvent) => {
     event.preventDefault();
     const recipient = (timeV3Data?.recipients || [])
@@ -288,13 +430,14 @@ export function CorrespondenceScreen() {
       {Boolean(nativeConversationError) && <ErrorState error={nativeConversationError} />}
       {!nativeConversationLoading && !nativeConversationError && !nativeConversationData?.items.length && <Empty>No messages in this conversation.</Empty>}
       {!nativeConversationLoading && !nativeConversationError && Boolean(nativeConversationData?.items.length) && <div className="native-conversation-messages">{nativeConversationData!.items.slice().reverse().map((message) => <article className={`native-conversation-message native-conversation-message--${message.direction}`} key={message.correspondence_id}>
-        <div><strong>{message.direction === "outbound" ? "You" : nativeConversationDisplayName}</strong><time dateTime={message.occurred_at_utc}>{formatDisplayDate(message.occurred_at_utc)}</time></div>
-        <p>{correspondencePreview(message.body) || "Empty message"}</p>
+        <div><strong><span aria-label={message.direction === "outbound" ? "Sent" : "Received"}>{message.direction === "outbound" ? "→" : "←"}</span> {message.direction === "outbound" ? "You" : nativeConversationDisplayName}</strong><time dateTime={message.occurred_at_utc}>{formatDisplayDate(message.occurred_at_utc)}</time></div>
+        {message.recordings?.length ? message.recordings.map((recording) => <div className="voice-message" key={recording.file_id}><span>Voice message · {recording.duration_ms == null ? "duration unavailable" : voiceClock(recording.duration_ms)}</span><AuthenticatedVoiceMessage url={recording.stream_url} /></div>) : <p>{correspondencePreview(message.body) || "Empty message"}</p>}
       </article>)}</div>}
       <form className="timev3-composer-layout native-conversation-composer" onSubmit={(event) => void sendTimeV3(event)}>
         <div className="timev3-composer-fields">
-          <label>Message<textarea required rows={8} maxLength={20_000} value={timeV3Text} onChange={(event) => setTimeV3Text(event.target.value)} /></label>
-          <button className="button" disabled={sendingTimeV3 || !nativeConversationContactId || !timeV3Text.trim()}>{sendingTimeV3 ? "Sending…" : "Send"}</button>
+          <label>Message<textarea required={!timeV3VoiceActive} disabled={timeV3VoiceActive} rows={8} maxLength={20_000} value={timeV3Text} onChange={(event) => setTimeV3Text(event.target.value)} /></label>
+          <button className="button" disabled={timeV3VoiceActive || sendingTimeV3 || !nativeConversationContactId || !timeV3Text.trim()}>{sendingTimeV3 ? "Sending…" : "Send"}</button>
+          <TimeV3VoiceRecorder contactId={nativeConversationContactId || null} disabled={sendingTimeV3 || Boolean(timeV3Text.trim())} onActiveChange={setTimeV3VoiceActive} onDelivered={deliveredTimeV3Voice} />
           {timeV3Status && <small role="status">{timeV3Status}</small>}
         </div>
         <LcdPreviewCard text={timeV3Text} />

@@ -1,6 +1,7 @@
 """Authenticated Time v3 HTTP client used by the headless node."""
 
 import json
+from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -35,6 +36,24 @@ class TimeV3Client:
             "/api/correspondence/timev3-messages", "POST",
             {"contactId": contact_id, "text": text},
         )
+
+    def send_voice(self, contact_id: int, recording: Path) -> dict:
+        request = Request(
+            f"{self.server_url}/api/correspondence/timev3-voice-messages?{urlencode({'contactId': contact_id})}",
+            data=recording.read_bytes(), method="POST",
+            headers={"Content-Type": "audio/ogg", "Authorization": f"Bearer {self.token}"},
+        )
+        with urlopen(request, timeout=60) as response:
+            return json.load(response)
+
+    def download_recording(self, correspondence_id: int, target: Path) -> Path:
+        request = Request(
+            f"{self.server_url}/api/correspondence/{correspondence_id}/recording",
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        with urlopen(request, timeout=30) as response:
+            target.write_bytes(response.read())
+        return target
 
     def begin_pairing(self, device_name: str, hardware_identifier: str | None = None) -> dict:
         body = {"deviceName": device_name}

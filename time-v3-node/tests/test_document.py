@@ -1,5 +1,7 @@
 import asyncio
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from time_v3_node.app import MOTION_REFRESH_SECONDS, NodeApplication
@@ -72,6 +74,8 @@ class MenuAndMotionTests(unittest.TestCase):
         self.assertNotIn("KEY_KP5", KEY_ACTIONS)
         self.assertEqual(KEY_ACTIONS["KEY_KP0"], "zero")
         self.assertEqual(KEY_ACTIONS["KEY_BACKSPACE"], "back")
+        self.assertEqual(KEY_ACTIONS["KEY_KPPLUS"], "record")
+        self.assertNotIn("stop", KEY_ACTIONS.values())
 
     def test_motion_view_navigation_and_yaw_reset(self):
         class Display:
@@ -201,6 +205,77 @@ class MenuAndMotionTests(unittest.TestCase):
             side_effect=lambda function, *arguments: function(*arguments),
         )):
             asyncio.run(exercise())
+
+    def test_plus_records_reviews_and_sends_a_voice_message(self):
+        class Display:
+            def __init__(self):
+                self.rows = ()
+
+            def show(self, rows):
+                self.rows = rows
+
+        class Client:
+            def __init__(self):
+                self.sent = []
+
+            def recipients(self):
+                return [{"display_name": "Alex", "person_id": 2, "contact_id": 7}]
+
+            def conversation(self, person_id, limit):
+                if not self.sent:
+                    return []
+                return [{
+                    "correspondence_id": 41, "direction": "outbound", "body": None,
+                    "recordings": [{"duration_ms": 1000, "stream_url": "/voice"}],
+                }]
+
+            def send_voice(self, contact_id, recording):
+                self.sent.append((contact_id, recording.read_bytes()))
+                return {"sent_correspondence_id": 41}
+
+        class Recorder:
+            def start(self, target):
+                target.write_bytes(b"OggS-test")
+
+            def stop(self):
+                return 0
+
+        class Player:
+            playing = False
+
+            def play(self, source):
+                self.source = source
+                self.playing = True
+
+            def stop(self):
+                self.playing = False
+
+        async def exercise(state_directory):
+            display = Display()
+            client = Client()
+            application = NodeApplication(
+                display, object(), client=client, recorder=Recorder(), player=Player(),
+                state_directory=state_directory,
+            )
+            await application.open_messages()
+            await application.action("select")
+            await application.action("record")
+            self.assertEqual(application.screen, "message_recording")
+            self.assertTrue(display.rows[0].startswith("● Alex"))
+            await application.action("record")
+            self.assertEqual(application.screen, "message_review")
+            self.assertIn("+ SEND", display.rows[2])
+            await application.action("record")
+            self.assertEqual(client.sent, [(7, b"OggS-test")])
+            self.assertEqual(application.screen, "message_item")
+            self.assertTrue(display.rows[0].startswith("→ VOICE MESSAGE"))
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "time_v3_node.app.asyncio.to_thread", new=AsyncMock(
+                side_effect=lambda function, *arguments: function(*arguments),
+            ),
+        ):
+            asyncio.run(exercise(Path(directory)))
 
 
 if __name__ == "__main__":

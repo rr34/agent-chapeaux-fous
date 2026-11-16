@@ -27,3 +27,26 @@ class OpusRecorder:
         self._process = None
         return result
 
+
+class AudioPlayer:
+    def __init__(self) -> None:
+        self._process: subprocess.Popen[bytes] | None = None
+
+    @property
+    def playing(self) -> bool:
+        return self._process is not None and self._process.poll() is None
+
+    def play(self, source: Path) -> None:
+        self.stop()
+        self._process = subprocess.Popen([
+            "ffplay", "-nodisp", "-autoexit", "-loglevel", "error",
+            "-f", "ogg", "-i", str(source),
+        ])
+
+    def stop(self) -> None:
+        if self._process is None:
+            return
+        if self._process.poll() is None:
+            self._process.terminate()
+        self._process = None
+

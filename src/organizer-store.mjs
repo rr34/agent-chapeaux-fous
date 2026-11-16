@@ -167,11 +167,12 @@ function contactMethods(value, resolveTimeV3Handle = null) {
     }
     item.normalizedValue = normalizedContactMethod(item.kind, item.value);
     if (item.kind === "timev3_person" && resolveTimeV3Handle) {
+      const enteredIdentity = item.normalizedValue;
       const person = resolveTimeV3Handle(item.value);
       if (!person?.personId || !person?.handle) {
-        throw new OrganizerInputError("That Time v3 handle is unavailable.", 404);
+        throw new OrganizerInputError(`No active Time v3 account has ${enteredIdentity}.`, 404);
       }
-      item.value = person.handle;
+      item.value = enteredIdentity.startsWith("@") ? enteredIdentity : person.handle;
       item.normalizedValue = String(person.personId);
     }
     const key = `${item.kind}\u0000${item.normalizedValue}`;

@@ -564,9 +564,16 @@ The node lists approved contacts alphabetically and reads each contact's paired
 inbound and outbound history newest-first. A message body uses all four LCD
 rows. Left and right move only within that conversation; Backspace returns from
 a message to contact selection before it returns to the root menu.
-Text is escaped into the canonical correspondence body. Voice will use
-an Ogg/Opus recording joined through the existing correspondence-file
-relationship rather than a separate correspondence medium.
+Text is escaped into the canonical correspondence body. Voice uses an Ogg/Opus
+recording joined through the existing correspondence-file relationship rather
+than a separate correspondence medium. In a node conversation, `+` starts and
+stops a recording, the recording dot and elapsed time replace the word
+"recording," Enter plays or stops the review, `+` sends it, and Backspace
+cancels it. Recording stops at the code-owned one-minute limit and enters
+review without sending automatically. Voice-message screens and web bubbles use
+right and left arrows for outbound and inbound direction. Each person owns a
+separate file record and stored copy. Web and node uploads are normalized to
+mono 16 kHz Ogg/Opus and the server independently enforces the duration limit.
 
 
 ## Hats and the user manual

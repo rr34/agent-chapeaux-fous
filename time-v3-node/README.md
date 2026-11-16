@@ -16,6 +16,14 @@ contact are intentionally not repeated on that content screen. Backspace first
 returns to the contact list and then to the root menu. Sent and received
 messages share the same history.
 
+Within a conversation, `+` starts voice recording and the same key stops it.
+The LCD uses a recording-dot glyph and elapsed time rather than spelling
+"recording." The stopped recording is reviewed before delivery: Enter plays or
+stops it, `+` sends it, and Backspace discards it. The code-owned one-minute
+limit stops into review and never sends automatically. Incoming and outgoing
+voice messages use left and right arrow glyphs; Enter plays or stops the
+selected message. Navigation stops playback.
+
 The motion view refreshes five times per second and has four fixed pages. The
 keypad's left and right arrow keys move between acceleration, gyroscope,
 orientation, and temperature. Backspace returns toward the root menu. Number

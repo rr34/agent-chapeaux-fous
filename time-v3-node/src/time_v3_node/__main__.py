@@ -5,6 +5,7 @@ import socket
 from pathlib import Path
 
 from .app import NodeApplication
+from .audio import AudioPlayer, OpusRecorder
 from .client import TimeV3Client
 from .hardware import CharacterLcd, Keypad, Mpu6050
 
@@ -56,6 +57,9 @@ def main() -> None:
     server_url = os.environ.get("TIMEV3_SERVER_URL", "").strip()
     client = TimeV3Client(server_url, load_node_token()) if server_url else None
     device_name = os.environ.get("TIMEV3_DEVICE_NAME", "").strip() or socket.gethostname()
+    state_directory = Path(os.environ.get("TIMEV3_STATE_DIRECTORY", "/var/lib/time-v3-node"))
+    recorder = OpusRecorder(os.environ.get("TIMEV3_AUDIO_INPUT", "default").strip() or "default")
+    player = AudioPlayer()
     try:
         motion = Mpu6050()
     except OSError:
@@ -63,6 +67,7 @@ def main() -> None:
         motion = None
     asyncio.run(NodeApplication(
         display, keypad, client, motion, device_name, hardware_identifier(), persist_node_token,
+        recorder, player, state_directory,
     ).run())
 
 

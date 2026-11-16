@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { hashPassword, normalizeAccountEmail, normalizeHandle, verifyPassword } from "../src/identity-store.mjs";
+import { hashPassword, IdentityStore, normalizeAccountEmail, normalizeHandle, verifyPassword } from "../src/identity-store.mjs";
 import { requiredIdentityShape } from "../scripts/verify-identity-database.mjs";
 import { readMigrationLedger } from "../scripts/database-migrations.mjs";
 
@@ -34,6 +34,22 @@ test("Time v3 handles have one canonical human-facing form", () => {
   assert.equal(normalizeHandle("vince-node"), "vince-node");
   assert.throws(() => normalizeHandle("two words"), /handle/i);
   assert.throws(() => normalizeHandle("ab"), /handle/i);
+});
+
+test("identity handle lookup accepts canonical input and one legacy presentation prefix", () => {
+  const rows = [
+    { person_id: 7, display_name: "Vince", handle: "@vince", person_status: "active", experience: "light", contact_policy: "manager_managed", weekly_ai_token_limit: 100 },
+  ];
+  const store = Object.create(IdentityStore.prototype);
+  store.database = {
+    prepare(sql) {
+      if (sql.includes("WHERE p.handle = ?")) return { get: (handle) => rows.find((row) => row.handle === handle) };
+      if (sql.includes("TRIM(LEADING '@'")) return { all: (handle) => rows.filter((row) => row.handle.replace(/^@/u, "") === handle) };
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  };
+  assert.equal(store.activePersonByHandle("vince").personId, 7);
+  assert.equal(store.activePersonByHandle("@VINCE").handle, "@vince");
 });
 
 test("identity baseline declares every verified table and keeps Agent data separate", () => {

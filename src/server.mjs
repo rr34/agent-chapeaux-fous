@@ -21,6 +21,7 @@ import { CorrespondenceSyncService } from "./correspondence-sync.mjs";
 import { MessagesWebSyncService } from "./messages-web-sync.mjs";
 import { MessagesWebSyncRequests } from "./messages-web-sync-requests.mjs";
 import { CorrespondenceService } from "./correspondence.mjs";
+import { receiveVoiceMessage } from "./voice-message-media.mjs";
 import { ObjectNetworkService } from "./object-network.mjs";
 import { PaymentService } from "./payments.mjs";
 import { normalizeSelectedObjectCandidates, registerNativeObjectContextView } from "./native-object-search.mjs";
@@ -193,7 +194,9 @@ const jmap = new JmapClient({
   required: config.jmapRequired,
   timeoutMs: config.jmapTimeoutMs,
 });
-const correspondence = store.status.ready ? new CorrespondenceService({ store, ledger, jmap, identityStore }) : null;
+const correspondence = store.status.ready ? new CorrespondenceService({
+  store, ledger, jmap, identityStore, mediaRoot: config.mediaRoot,
+}) : null;
 if (store.status.ready) {
   registerCalendarTools(registry, store, organizer, ledger, searchCoordinator);
   registerContactTools(registry, store, organizer, ledger, searchCoordinator);
@@ -359,11 +362,11 @@ function sendAudioBuffer(request, response, { bytes, mimeType, filename, aiGener
   response.end(bytes.subarray(start, end + 1));
 }
 
-async function sendStoredMusic(request, response, file) {
+async function sendStoredMusic(request, response, file, { missingMessage = "The stored music file is missing" } = {}) {
   const filename = safeMediaPath(config.mediaRoot, file.storage_path);
   const stat = await fsp.stat(filename).catch(() => null);
   if (!stat?.isFile()) {
-    sendJson(response, 404, { error: "The stored music file is missing" });
+    sendJson(response, 404, { error: missingMessage });
     return;
   }
   const range = byteRange(request.headers.range, stat.size);
@@ -1190,6 +1193,30 @@ const server = http.createServer(async (request, response) => {
         source: request.timev3Node ? "timev3_node" : "timev3_web",
         channel: request.timev3Node ? "node" : "web",
       }));
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/correspondence/timev3-voice-messages") {
+      const contactId = url.searchParams.get("contactId");
+      if (!/^\d+$/u.test(contactId || "")) {
+        throw Object.assign(new Error("contactId must be a positive contact id."), { statusCode: 400 });
+      }
+      const recording = await receiveVoiceMessage(request, { mediaRoot: config.mediaRoot });
+      const person = request.timev3Auth?.person ?? request.timev3Node?.person;
+      sendJson(response, 201, await correspondence.sendTimeV3Voice({ contactId, recording }, {
+        actorType: "user", actorName: person?.displayName || "Time v3 user",
+        source: request.timev3Node ? "timev3_node" : "timev3_web",
+        channel: request.timev3Node ? "node" : "web",
+      }));
+      return;
+    }
+    const timeV3RecordingMatch = /^\/api\/correspondence\/(\d+)\/recording$/u.exec(url.pathname);
+    if (request.method === "GET" && timeV3RecordingMatch) {
+      const file = correspondence.recordingForCorrespondence(Number(timeV3RecordingMatch[1]));
+      if (!file) {
+        sendJson(response, 404, { error: "Voice message recording was not found" });
+        return;
+      }
+      await sendStoredMusic(request, response, file, { missingMessage: "The voice message recording is missing" });
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/correspondence/email-sync") {
