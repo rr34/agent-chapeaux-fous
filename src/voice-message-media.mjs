@@ -80,9 +80,17 @@ export async function receiveVoiceMessage(request, { mediaRoot, run = execFileAs
   }
 
   try {
-    const inputDurationMs = await probeDurationMs(inputFilename, run);
-    if (inputDurationMs > voiceMessageMaximumDurationMs + encodedDurationToleranceMs) {
-      throw inputError("Voice messages may be at most one minute long.", 413);
+    try {
+      const inputDurationMs = await probeDurationMs(inputFilename, run);
+      if (inputDurationMs > voiceMessageMaximumDurationMs + encodedDurationToleranceMs) {
+        throw inputError("Voice messages may be at most one minute long.", 413);
+      }
+    } catch (error) {
+      // Some playable streaming containers do not expose duration metadata until
+      // they are remuxed. The bounded canonicalization below is also a decoder
+      // validation step, so allow it to repair only probe failures. Preserve
+      // policy errors such as an input that is measurably over one minute.
+      if (error?.statusCode !== 400) throw error;
     }
     await run("ffmpeg", [
       "-nostdin", "-loglevel", "error", "-i", inputFilename, "-vn", "-ac", "1", "-ar", "16000",
