@@ -8,6 +8,7 @@ from .app import NodeApplication
 from .audio import AudioPlayer, OpusRecorder
 from .client import TimeV3Client
 from .hardware import CharacterLcd, Keypad, Mpu6050
+from .wifi import NetworkManagerWifi
 
 
 def required_environment(name: str) -> str:
@@ -68,6 +69,7 @@ def main() -> None:
     asyncio.run(NodeApplication(
         display, keypad, client, motion, device_name, hardware_identifier(), persist_node_token,
         recorder, player, state_directory,
+        NetworkManagerWifi(),
     ).run())
 
 

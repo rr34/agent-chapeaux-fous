@@ -16,11 +16,14 @@ from .document import LcdDocument
 from .hardware import Display, Keypad, Mpu6050, LEFT_ARROW, RECORD_DOT, RIGHT_ARROW
 from .menu import Menu
 from .motion import GyroscopeBias, MOTION_PAGE_COUNT, RelativeOrientation
+from .wifi import NetworkManagerWifi, WifiNetwork
 
 logger = logging.getLogger(__name__)
 MOTION_REFRESH_SECONDS = 0.2
 GYRO_CALIBRATION_SAMPLES = 100
 GYRO_CALIBRATION_INTERVAL_SECONDS = 0.01
+WIFI_PASSWORD_MAX_CHARACTERS = 64
+WIFI_SYMBOLS = " !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
 
 
 def plain_body(value: str | None) -> str:
@@ -33,7 +36,8 @@ class NodeApplication:
                  hardware_identifier: str | None = None,
                  persist_node_token: Callable[[str], None] | None = None,
                  recorder: OpusRecorder | None = None, player: AudioPlayer | None = None,
-                 state_directory: Path | None = None) -> None:
+                 state_directory: Path | None = None,
+                 wifi: NetworkManagerWifi | None = None) -> None:
         self.display = display
         self.keypad = keypad
         self.client = client
@@ -44,6 +48,7 @@ class NodeApplication:
         self.recorder = recorder
         self.player = player
         self.state_directory = state_directory or Path("/tmp/time-v3-node")
+        self.wifi = wifi
         self.menu = Menu()
         self.screen = "home"
         self.offset = 0
@@ -64,6 +69,13 @@ class NodeApplication:
         self.recording_duration_seconds = 0
         self._recording_task: asyncio.Task | None = None
         self.playback_path: Path | None = None
+        self.wifi_networks: list[WifiNetwork] = []
+        self.wifi_network_index = 0
+        self.wifi_password = ""
+        self.wifi_pending_digits = ""
+        self.wifi_password_visible = False
+        self.wifi_symbol_index = 0
+        self.wifi_notice = ""
 
     def home(self) -> None:
         self.screen = "home"
@@ -74,6 +86,9 @@ class NodeApplication:
         selected = self.menu.current
         if selected == "Messages":
             await self.open_messages()
+            return
+        elif selected == "Wi-Fi setup":
+            await self.open_wifi()
             return
         elif selected == "Accelerometer":
             self.screen = "motion"
@@ -90,6 +105,160 @@ class NodeApplication:
         else:
             self.document = LcdDocument("TIME V3 NODE\nREADY")
             self.screen = "document"
+        self.show_document()
+
+    async def open_wifi(self) -> None:
+        if not self.wifi:
+            self.document = LcdDocument("WIFI NOT AVAILABLE")
+            self.screen = "document"
+            self.show_document()
+            return
+        self.screen = "wifi_scanning"
+        self.display.show(("SCANNING WIFI...    ", "                    ", "                    ", "                    "))
+        try:
+            self.wifi_networks = await asyncio.to_thread(self.wifi.scan)
+        except Exception:
+            logger.exception("Could not scan for Wi-Fi networks")
+            self.wifi_networks = []
+            self.wifi_notice = "WIFI SCAN FAILED"
+        else:
+            self.wifi_notice = "" if self.wifi_networks else "NO NETWORKS FOUND"
+        self.wifi_network_index = 0
+        self.screen = "wifi_networks"
+        self.show_wifi_networks()
+
+    def show_wifi_networks(self) -> None:
+        if self.wifi_notice:
+            self.display.show(tuple(row[:20].ljust(20) for row in (
+                self.wifi_notice, "+ RESCAN", "", "BACKSPACE HOME",
+            )))
+            return
+        selected = min(self.wifi_network_index, len(self.wifi_networks) - 1)
+        first = min(max(0, selected - 1), max(0, len(self.wifi_networks) - 4))
+        rows = []
+        for index in range(first, first + 4):
+            if index >= len(self.wifi_networks):
+                rows.append(" " * 20)
+                continue
+            network = self.wifi_networks[index]
+            marker = ">" if index == selected else " "
+            status = "*" if network.connected else ("+" if network.secured else " ")
+            rows.append(f"{marker}{status}{network.ssid[:18]:<18}")
+        self.display.show(tuple(rows))
+
+    async def choose_wifi_network(self) -> None:
+        if not self.wifi_networks:
+            return
+        network = self.wifi_networks[self.wifi_network_index]
+        if network.connected:
+            self.wifi_notice = "ALREADY CONNECTED"
+            self.show_wifi_networks()
+            return
+        self.wifi_password = ""
+        self.wifi_pending_digits = ""
+        self.wifi_password_visible = False
+        if network.secured:
+            self.screen = "wifi_password"
+            self.show_wifi_password()
+        else:
+            await self.connect_wifi()
+
+    def show_wifi_password(self) -> None:
+        network = self.wifi_networks[self.wifi_network_index]
+        password = self.wifi_password if self.wifi_password_visible else "*" * len(self.wifi_password)
+        if self.wifi_pending_digits:
+            value = int(self.wifi_pending_digits)
+            if len(self.wifi_pending_digits) <= 2 and 1 <= value <= 26:
+                pending = f"CODE {self.wifi_pending_digits} LETTER"
+            else:
+                pending = f"{self.wifi_pending_digits[:8]} NUMBER ONLY"
+        else:
+            pending = "1-26 THEN + / -"
+        self.display.show(tuple(row[:20].ljust(20) for row in (
+            f"WIFI {network.ssid}", password[-20:], pending, "+UP -low *number",
+        )))
+
+    def wifi_password_action(self, action: str) -> None:
+        if action.startswith("digit_"):
+            if len(self.wifi_password) + len(self.wifi_pending_digits) < WIFI_PASSWORD_MAX_CHARACTERS:
+                self.wifi_pending_digits += action[-1]
+        elif action in {"plus", "minus"} and self.wifi_pending_digits:
+            value = int(self.wifi_pending_digits)
+            if len(self.wifi_pending_digits) <= 2 and 1 <= value <= 26:
+                letter = chr(ord("A") + value - 1)
+                self.wifi_password += letter if action == "plus" else letter.lower()
+                self.wifi_pending_digits = ""
+        elif action == "asterisk" and self.wifi_pending_digits:
+            self.wifi_password += self.wifi_pending_digits
+            self.wifi_pending_digits = ""
+        elif action == "back":
+            if self.wifi_pending_digits:
+                self.wifi_pending_digits = self.wifi_pending_digits[:-1]
+            elif self.wifi_password:
+                self.wifi_password = self.wifi_password[:-1]
+            else:
+                self.screen = "wifi_networks"
+                self.show_wifi_networks()
+                return
+        elif action == "dot":
+            self.wifi_password_visible = not self.wifi_password_visible
+        elif action == "slash" and not self.wifi_pending_digits:
+            self.wifi_symbol_index = 0
+            self.screen = "wifi_symbol"
+            self.show_wifi_symbol()
+            return
+        self.show_wifi_password()
+
+    def show_wifi_symbol(self) -> None:
+        symbol = WIFI_SYMBOLS[self.wifi_symbol_index]
+        label = "SPACE" if symbol == " " else symbol
+        self.display.show(tuple(row[:20].ljust(20) for row in (
+            "SELECT SYMBOL", f"       {label}", "4 PREV      6 NEXT", "ENTER ADD  BACK EXIT",
+        )))
+
+    def wifi_symbol_action(self, action: str) -> None:
+        if action == "digit_4":
+            self.wifi_symbol_index = (self.wifi_symbol_index - 1) % len(WIFI_SYMBOLS)
+        elif action == "digit_6":
+            self.wifi_symbol_index = (self.wifi_symbol_index + 1) % len(WIFI_SYMBOLS)
+        elif action == "select":
+            if len(self.wifi_password) < WIFI_PASSWORD_MAX_CHARACTERS:
+                self.wifi_password += WIFI_SYMBOLS[self.wifi_symbol_index]
+            self.screen = "wifi_password"
+            self.show_wifi_password()
+            return
+        elif action == "back":
+            self.screen = "wifi_password"
+            self.show_wifi_password()
+            return
+        self.show_wifi_symbol()
+
+    async def connect_wifi(self) -> None:
+        if not self.wifi or not self.wifi_networks:
+            return
+        network = self.wifi_networks[self.wifi_network_index]
+        self.screen = "wifi_connecting"
+        self.display.show(tuple(row[:20].ljust(20) for row in (
+            "CONNECTING...", network.ssid, "", "PLEASE WAIT",
+        )))
+        try:
+            await asyncio.to_thread(self.wifi.connect, network, self.wifi_password)
+        except Exception:
+            logger.exception("Could not connect to Wi-Fi network %r", network.ssid)
+            self.screen = "wifi_connect_failed" if network.secured else "wifi_networks"
+            if network.secured:
+                self.display.show(tuple(row[:20].ljust(20) for row in (
+                    "CONNECTION FAILED", "CHECK PASSWORD", "ENTER RETRY", "BACKSPACE EDIT",
+                )))
+            else:
+                self.wifi_notice = "CONNECTION FAILED"
+                self.show_wifi_networks()
+            return
+        self.wifi_password = ""
+        self.wifi_pending_digits = ""
+        self.document = LcdDocument(f"WIFI CONNECTED\n{network.ssid}")
+        self.screen = "document"
+        self.offset = 0
         self.show_document()
 
     async def open_messages(self) -> None:
@@ -485,11 +654,44 @@ class NodeApplication:
                 self.show_motion()
 
     async def action(self, action: str) -> None:
+        if self.screen == "wifi_connect_failed":
+            if action == "select":
+                await self.connect_wifi()
+            elif action == "back":
+                self.screen = "wifi_password"
+                self.show_wifi_password()
+            return
+        if self.screen == "wifi_password":
+            if action == "select" and not self.wifi_pending_digits:
+                await self.connect_wifi()
+            else:
+                self.wifi_password_action(action)
+            return
+        if self.screen == "wifi_symbol":
+            self.wifi_symbol_action(action)
+            return
+        action = {
+            "digit_8": "up", "digit_2": "down", "digit_4": "left", "digit_6": "right",
+            "digit_0": "zero", "plus": "record",
+        }.get(action, action)
         if self.screen == "home":
             if action == "up": self.menu.move(-1)
             elif action == "down": self.menu.move(1)
             elif action in {"select", "right"}: await self.open_current()
             self.display.show(self.menu.rows()) if self.screen == "home" else None
+        elif self.screen == "wifi_networks":
+            if action == "back":
+                self.home()
+            elif action == "up" and self.wifi_networks:
+                self.wifi_network_index = (self.wifi_network_index - 1) % len(self.wifi_networks)
+                self.show_wifi_networks()
+            elif action == "down" and self.wifi_networks:
+                self.wifi_network_index = (self.wifi_network_index + 1) % len(self.wifi_networks)
+                self.show_wifi_networks()
+            elif action in {"select", "right"}:
+                await self.choose_wifi_network()
+            elif action == "record":
+                await self.open_wifi()
         elif self.screen == "message_contacts":
             if action == "back":
                 self.home()

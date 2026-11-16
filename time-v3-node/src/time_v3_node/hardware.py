@@ -75,14 +75,21 @@ class Mpu6050:
 
 
 KEY_ACTIONS = {
-    "KEY_KP8": "up", "KEY_UP": "up",
-    "KEY_KP2": "down", "KEY_DOWN": "down",
-    "KEY_KP4": "left", "KEY_LEFT": "left",
-    "KEY_KP6": "right", "KEY_RIGHT": "right",
+    "KEY_KP0": "digit_0", "KEY_0": "digit_0", "KEY_INSERT": "digit_0",
+    "KEY_KP1": "digit_1", "KEY_1": "digit_1", "KEY_END": "digit_1",
+    "KEY_KP2": "digit_2", "KEY_2": "digit_2", "KEY_DOWN": "digit_2",
+    "KEY_KP3": "digit_3", "KEY_3": "digit_3", "KEY_PAGEDOWN": "digit_3",
+    "KEY_KP4": "digit_4", "KEY_4": "digit_4", "KEY_LEFT": "digit_4",
+    "KEY_KP5": "digit_5", "KEY_5": "digit_5", "KEY_KPBEGIN": "digit_5",
+    "KEY_KP6": "digit_6", "KEY_6": "digit_6", "KEY_RIGHT": "digit_6",
+    "KEY_KP7": "digit_7", "KEY_7": "digit_7", "KEY_HOME": "digit_7",
+    "KEY_KP8": "digit_8", "KEY_8": "digit_8", "KEY_UP": "digit_8",
+    "KEY_KP9": "digit_9", "KEY_9": "digit_9", "KEY_PAGEUP": "digit_9",
     "KEY_KPENTER": "select", "KEY_ENTER": "select",
     "KEY_BACKSPACE": "back",
-    "KEY_KP0": "zero", "KEY_0": "zero", "KEY_INSERT": "zero",
-    "KEY_KPPLUS": "record",
+    "KEY_KPPLUS": "plus", "KEY_KPMINUS": "minus",
+    "KEY_KPASTERISK": "asterisk", "KEY_KPSLASH": "slash",
+    "KEY_KPDOT": "dot", "KEY_DOT": "dot", "KEY_DELETE": "dot",
 }
 
 
@@ -93,10 +100,6 @@ class Keypad:
     async def actions(self) -> AsyncIterator[str]:
         from evdev import InputDevice, categorize, ecodes
         device = InputDevice(self.device_path)
-        try:
-            device.set_led(ecodes.LED_NUML, 1)
-        except OSError:
-            pass
         async for event in device.async_read_loop():
             if event.type != ecodes.EV_KEY:
                 continue
@@ -104,6 +107,7 @@ class Keypad:
             if key.keystate != key.key_down:
                 continue
             names = key.keycode if isinstance(key.keycode, list) else [key.keycode]
+            # KEY_NUMLOCK is intentionally absent: it is always a dead application key.
             action = next((KEY_ACTIONS[name] for name in names if name in KEY_ACTIONS), None)
             if action:
                 yield action

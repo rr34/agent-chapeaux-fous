@@ -1,6 +1,7 @@
 [Unit]
 Description=Time v3 Node 20x4 appliance
-After=local-fs.target
+Wants=NetworkManager.service
+After=local-fs.target NetworkManager.service
 StartLimitIntervalSec=60
 StartLimitBurst=10
 

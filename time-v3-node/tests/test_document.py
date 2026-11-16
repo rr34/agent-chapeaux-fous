@@ -72,10 +72,11 @@ class MenuAndMotionTests(unittest.TestCase):
 
     def test_numbers_do_not_navigate_and_zero_is_a_sensor_action(self):
         self.assertNotIn("home", KEY_ACTIONS.values())
-        self.assertNotIn("KEY_KP5", KEY_ACTIONS)
-        self.assertEqual(KEY_ACTIONS["KEY_KP0"], "zero")
+        self.assertEqual(KEY_ACTIONS["KEY_KP5"], "digit_5")
+        self.assertEqual(KEY_ACTIONS["KEY_KP0"], "digit_0")
         self.assertEqual(KEY_ACTIONS["KEY_BACKSPACE"], "back")
-        self.assertEqual(KEY_ACTIONS["KEY_KPPLUS"], "record")
+        self.assertEqual(KEY_ACTIONS["KEY_KPPLUS"], "plus")
+        self.assertNotIn("KEY_NUMLOCK", KEY_ACTIONS)
         self.assertNotIn("stop", KEY_ACTIONS.values())
 
     def test_motion_view_navigation_and_yaw_reset(self):
@@ -92,7 +93,7 @@ class MenuAndMotionTests(unittest.TestCase):
 
         display = Display()
         application = NodeApplication(display, object(), motion=Motion())
-        application.menu.selected = 1
+        application.menu.selected = 2
         asyncio.run(application.open_current())
         self.assertEqual(application.screen, "motion")
         self.assertTrue(display.rows[0].startswith("ACCELERATION"))
@@ -134,7 +135,7 @@ class MenuAndMotionTests(unittest.TestCase):
                 display, object(), client=client, device_name="vince-node",
                 hardware_identifier="machine-id", persist_node_token=persisted.append,
             )
-            application.menu.selected = 3
+            application.menu.selected = 4
             await application.open_current()
             self.assertEqual(application.screen, "pairing")
             self.assertEqual(display.rows[1].strip(), "ABCD-2345")

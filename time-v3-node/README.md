@@ -40,6 +40,25 @@ the host name, user, and SSH. After the Pi first joins Wi-Fi, ordinary coding,
 installation, logs, and service management can happen over SSH. HDMI and a full
 keyboard remain recovery tools rather than normal UI requirements.
 
+The root menu's **Wi-Fi setup** item scans visible networks through
+NetworkManager. A `*` beside an SSID means connected and a `+` means secured.
+Select a network with the normal up/down keys and Enter. For a secured network,
+type an alphabet position from `1` through `26`, then press `+` for uppercase or
+`-` for lowercase. Press `*` to commit pending digits literally, `/` to choose a
+symbol, `.` to show or mask the password, Backspace to edit, and Enter to
+connect. Values outside `1` through `26` are numeric-only: `+` and `-` do
+nothing until Backspace returns the value to the letter range or `*` commits it.
+The Num Lock key is deliberately ignored; its LED state is not an input mode.
+
+The service account needs the checked-in narrow NetworkManager policy. Install
+it during deployment before restarting the service:
+
+```sh
+sudo install -m 0644 \
+  /opt/time-v3-node/polkit/60-time-v3-node-wifi.rules \
+  /etc/polkit-1/rules.d/60-time-v3-node-wifi.rules
+```
+
 Create a virtual environment and install the package on the Pi:
 
 ```sh
@@ -71,8 +90,8 @@ such as `plughw:1,0`.
 Replace `0xNN` with the LCD backpack address observed on the assembled hardware;
 `HARDWARE.md` does not currently declare that address, so the software does not
 guess it. The MPU-6050 address is `0x69` as declared there. The keypad adapter
-requests Num Lock on and also accepts navigation key codes, so either reported
-Num Lock form produces the same actions.
+ignores Num Lock and accepts both numeric and navigation key codes, so either
+reported Num Lock form produces the same actions.
 
 ## Pair a node with an account
 

@@ -560,6 +560,15 @@ plus a right-facing marker. Node Internet content is restricted to approved
 Time v3 pages using that text-and-link model; arbitrary HTML, CSS, scripts,
 forms, and external browsing are outside the node contract.
 
+The root menu includes on-device Wi-Fi setup backed by NetworkManager. It lists
+visible networks and accepts passwords without a lettered keyboard: `1` through
+`26` followed by `+` commits an uppercase letter, followed by `-` commits a
+lowercase letter, and `*` commits pending digits literally. Values outside the
+letter range remain numeric-only until edited or committed. `/` opens symbol
+selection, `.` controls password visibility, Backspace edits, and Enter
+connects. Num Lock is never an application mode: its key is ignored and either
+key-code form has identical behavior.
+
 Native person-to-person messages use correspondence medium `timev3`. A sender
 may choose only an active native contact with a receivable `timev3_person`
 method whose normalized value is an active Time v3 person id. Delivery writes
