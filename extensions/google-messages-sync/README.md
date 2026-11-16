@@ -9,7 +9,7 @@ This unpacked Manifest V3 extension performs an explicit foreground synchronizat
 3. Open `brave://extensions` and enable **Developer mode**.
 4. Select **Load unpacked** and choose the extracted `time-v3-google-messages-sync` folder.
 5. Open and pair `https://messages.google.com/web/`.
-6. Open the extension, enter the Time V3 access token, and save it. The downloaded package already contains the server origin and fixed `default` account key.
+6. Open the extension and choose **Pair extension**. In Time V3, approve the displayed code under **Account → Agent identities → Linked devices**.
 7. Choose a history range, then select **Synchronize**. **Since last sync** uses 30 days on the first run.
 
 During repository development, the source `extensions/google-messages-sync`
@@ -38,4 +38,4 @@ This is an unofficial DOM integration. It assumes an English Google Messages UI 
 
 SMS/MMS records are conservatively linked to phone synchronization only when one candidate agrees on direction, complete body, resolved participants, and source time within the web timestamp's declared precision. Ambiguous candidates remain separate.
 
-The access token is retained in Brave extension storage so it does not need to be reentered. Treat the Brave profile as sensitive.
+The extension's individually revocable device credential is retained in Brave extension storage. Treat the Brave profile as sensitive.

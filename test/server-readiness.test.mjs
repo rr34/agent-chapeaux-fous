@@ -16,8 +16,15 @@ test("the path-scoped OAuth state cookie uses a browser-valid secure prefix", ()
 });
 
 test("public registration has an independent server-side gate", () => {
-  assert.match(server, /registrationEnabled: config\.authEnabled && config\.authRegistrationEnabled/u);
+  assert.match(server, /registrationEnabled: config\.authRegistrationEnabled/u);
   assert.match(server, /if \(!config\.authRegistrationEnabled\) throw Object\.assign\(new Error\("New account registration is temporarily unavailable\."\)/u);
+});
+
+test("account sessions and linked devices are the only application authentication paths", () => {
+  assert.doesNotMatch(server, /SLAYER_ACCESS_TOKEN|allowUnauthenticated|config\.accessToken/u);
+  assert.match(server, /identityStore\.session/u);
+  assert.match(server, /identityStore\.authenticateNode/u);
+  assert.match(server, /"\/api\/device\/pairings"/u);
 });
 
 function readHealth({ database, model, tlom }) {
@@ -87,7 +94,7 @@ test("new requests are admitted while TLOM is disconnected", async () => {
     serveStatic: async () => false,
     requireAuthorization: () => true,
     assertAiAllowance: () => ({ used: 0, limit: 1 }),
-    config: { authEnabled: false },
+    config: {},
     store: { status: { ready: true } },
     mcp: { requiredProblem: () => "tlom integration is unavailable" },
     jmap: { requiredProblem: () => null },
@@ -130,7 +137,7 @@ test("tracker schedule route delegates to Journal scheduling", async () => {
     handlePublicAuthRoute: async () => false,
     serveStatic: async () => false,
     requireAuthorization: () => true,
-    config: { authEnabled: false },
+    config: {},
     store: { status: { ready: true } },
     readJson: async () => ({ starts_at_utc: "2026-10-04T04:00:00.000Z", recurrence }),
     journalSchedule: {

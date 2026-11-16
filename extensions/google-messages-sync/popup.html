@@ -10,9 +10,9 @@
     <main>
       <h1>Google Messages Sync</h1>
       <p class="connection">Time V3 server<br><code id="server-url">Loading packaged server…</code><br>Account <code>default</code></p>
-      <label>Access token<input id="access-token" type="password" autocomplete="off"></label>
+      <p id="pairing-code" class="pairing-code" hidden></p>
       <div class="actions">
-        <button id="save" type="button">Save connection</button>
+        <button id="pair" type="button">Pair extension</button>
         <button id="check" type="button">Check server now</button>
       </div>
       <label>History range<select id="history-mode"><option value="incremental">Since last sync (30 days on first run)</option><option value="days_30">Last 30 days</option><option value="days_90">Last 90 days</option><option value="days_365">Last year</option><option value="all">All available history</option></select></label>

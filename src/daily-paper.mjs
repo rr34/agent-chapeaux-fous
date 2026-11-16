@@ -169,15 +169,13 @@ function normalizedPdfRenderError(error) {
   return error;
 }
 
-async function defaultRenderPdf({ url, filename, accessToken, format, browserExecutable }) {
+async function defaultRenderPdf({ url, filename, format, browserExecutable }) {
   const browser = await chromium.launch({
     headless: true,
     ...(browserExecutable ? { executablePath: browserExecutable } : {}),
   });
   try {
-    const context = await browser.newContext({
-      extraHTTPHeaders: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
-    });
+    const context = await browser.newContext();
     const page = await context.newPage();
     const navigation = await page.goto(url, { waitUntil: "networkidle", timeout: 60_000 });
     if (!navigation?.ok()) {
@@ -211,7 +209,6 @@ export class DailyPaperService {
     ledger,
     mediaRoot,
     publicUrl,
-    accessToken = "",
     browserExecutable = null,
     timeZone = () => "UTC",
     renderPdf = defaultRenderPdf,
@@ -222,7 +219,6 @@ export class DailyPaperService {
     this.ledger = ledger;
     this.mediaRoot = path.resolve(mediaRoot);
     this.publicUrl = new URL(publicUrl);
-    this.accessToken = accessToken;
     this.browserExecutable = browserExecutable;
     this.timeZone = timeZone;
     this.renderPdf = renderPdf;
@@ -361,7 +357,6 @@ export class DailyPaperService {
       await this.renderPdf({
         url: renderUrl.toString(),
         filename,
-        accessToken: this.accessToken,
         browserExecutable: this.browserExecutable,
         format: model.paperSize === "a4" ? "A4" : "Letter",
       });

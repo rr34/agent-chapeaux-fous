@@ -5,7 +5,8 @@ import { productionServerUrl } from './config';
 import type { ConnectionSettings } from './types';
 
 const obsoleteBaseUrlKey = 'time-v3-technology-agent.server.base-url';
-const accessTokenKey = 'time-v3-technology-agent.server.access-token';
+const deviceCredentialKey = 'time-v3-technology-agent.device-credential';
+const obsoleteAccessTokenKey = 'time-v3-technology-agent.server.access-token';
 const legacyBaseUrlKey = 'chapeaux.server.base-url';
 const legacyAccessTokenKey = 'chapeaux.server.access-token';
 const correspondenceCursorKey = 'time-v3-technology-agent.correspondence-cursor.v1';
@@ -47,25 +48,14 @@ export async function saveCorrespondenceCursor(cursor: CorrespondenceCursor): Pr
 }
 
 export async function loadConnectionSettings(): Promise<ConnectionSettings | null> {
-  const accessToken = await SecureStore.getItemAsync(accessTokenKey);
-  if (accessToken) return { baseUrl: productionServerUrl, accessToken };
-
-  const legacyAccessToken = await SecureStore.getItemAsync(legacyAccessTokenKey);
-  if (!legacyAccessToken) return null;
-
-  const settings = { baseUrl: productionServerUrl, accessToken: legacyAccessToken };
-  await saveConnectionSettings(settings);
-  await Promise.all([
-    SecureStore.deleteItemAsync(obsoleteBaseUrlKey),
-    SecureStore.deleteItemAsync(legacyBaseUrlKey),
-    SecureStore.deleteItemAsync(legacyAccessTokenKey),
-  ]);
-  return settings;
+  const deviceCredential = await SecureStore.getItemAsync(deviceCredentialKey);
+  return deviceCredential ? { baseUrl: productionServerUrl, deviceCredential } : null;
 }
 
-export async function saveConnectionSettings({ accessToken }: ConnectionSettings): Promise<void> {
+export async function saveConnectionSettings({ deviceCredential }: ConnectionSettings): Promise<void> {
   await Promise.all([
-    SecureStore.setItemAsync(accessTokenKey, accessToken),
+    SecureStore.setItemAsync(deviceCredentialKey, deviceCredential),
+    SecureStore.deleteItemAsync(obsoleteAccessTokenKey),
     SecureStore.deleteItemAsync(obsoleteBaseUrlKey),
     SecureStore.deleteItemAsync(legacyBaseUrlKey),
     SecureStore.deleteItemAsync(legacyAccessTokenKey),
@@ -74,7 +64,8 @@ export async function saveConnectionSettings({ accessToken }: ConnectionSettings
 
 export async function clearConnectionSettings(): Promise<void> {
   await Promise.all([
-    SecureStore.deleteItemAsync(accessTokenKey),
+    SecureStore.deleteItemAsync(deviceCredentialKey),
+    SecureStore.deleteItemAsync(obsoleteAccessTokenKey),
     SecureStore.deleteItemAsync(obsoleteBaseUrlKey),
     SecureStore.deleteItemAsync(legacyBaseUrlKey),
     SecureStore.deleteItemAsync(legacyAccessTokenKey),

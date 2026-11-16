@@ -49,7 +49,8 @@ async function configuredConnection(storedConfig = null) {
 function publicConfig(config = {}) {
   return {
     serverUrl: config.serverUrl || "",
-    hasAccessToken: Boolean(config.accessToken),
+    linked: Boolean(config.deviceCredential),
+    pairingUserCode: config.pairingUserCode || null,
     accountKey: config.accountKey || "default",
     lastSuccessfulSyncMs: config.lastSuccessfulSyncMs || null,
   };
@@ -89,12 +90,12 @@ async function updateJob(patch, { waitForReport = true } = {}) {
 
 async function serverRequest(path, { method = "GET", body = null, allowNoContent = false } = {}) {
   const config = await configuredConnection();
-  if (!config.accessToken) throw new Error("Save the Time V3 access token first.");
+  if (!config.deviceCredential) throw new Error("Link this extension to Time V3 first.");
   const response = await fetch(`${config.serverUrl}${path}`, {
     method,
     headers: {
       ...(body == null ? {} : { "Content-Type": "application/json" }),
-      Authorization: `Bearer ${config.accessToken}`,
+      Authorization: `Bearer ${config.deviceCredential}`,
     },
     ...(body == null ? {} : { body: JSON.stringify(body) }),
   });
@@ -108,6 +109,46 @@ async function serverRequest(path, { method = "GET", body = null, allowNoContent
   if (!response.ok) throw new Error(responseBody?.error || `Time V3 returned HTTP ${response.status}.`);
   if (responseBody == null) throw new Error("Time V3 returned a non-JSON response. Save only the server origin, without /app or another path.");
   return responseBody;
+}
+
+async function pairingRequest(path, body) {
+  const config = await configuredConnection();
+  const response = await fetch(`${config.serverUrl}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok && response.status !== 202) {
+    throw new Error(result?.error || `Time V3 returned HTTP ${response.status}.`);
+  }
+  return result;
+}
+
+async function beginPairing() {
+  const started = await pairingRequest("/api/device/pairings", {
+    deviceName: "Google Messages extension",
+  });
+  const previous = (await storageGet(CONFIG_KEY))[CONFIG_KEY] || {};
+  const config = { ...previous, deviceCredential: "", pairingDeviceCode: started.deviceCode,
+    pairingUserCode: started.userCode };
+  delete config.accessToken;
+  await storageSet({ [CONFIG_KEY]: config });
+  return publicConfig(await configuredConnection(config));
+}
+
+async function pollPairing() {
+  const previous = (await storageGet(CONFIG_KEY))[CONFIG_KEY] || {};
+  if (!previous.pairingDeviceCode) throw new Error("Start pairing first.");
+  const result = await pairingRequest("/api/device/pairings/token", {
+    deviceCode: previous.pairingDeviceCode,
+  });
+  if (result.pending) return publicConfig(await configuredConnection(previous));
+  const config = { ...previous, deviceCredential: String(result.token || ""),
+    pairingDeviceCode: null, pairingUserCode: null };
+  await storageSet({ [CONFIG_KEY]: config });
+  void pollServerCommands();
+  return publicConfig(await configuredConnection(config));
 }
 
 function uploadBatch(batch) {
@@ -224,8 +265,8 @@ async function pollServerCommands({ surfaceErrors = false } = {}) {
   let config = {};
   try {
     config = await configuredConnection();
-    if (!config.accessToken) {
-      return await commandStatus("configuration_required", "Save the Time V3 access token.", config);
+    if (!config.deviceCredential) {
+      return await commandStatus("configuration_required", "Link this extension to Time V3.", config);
     }
     await commandStatus("checking", "Checking Time V3 for a pending synchronization request…", config);
     const command = await serverRequest(
@@ -279,15 +320,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: true, ...(await state()), senderTabId: sender.tab?.id ?? null });
         return;
       }
-      if (message?.type === "SAVE_CONFIG") {
-        const suppliedAccessToken = String(message.config?.accessToken || "").trim();
-        const previous = (await storageGet(CONFIG_KEY))[CONFIG_KEY] || {};
-        const accessToken = suppliedAccessToken || previous.accessToken || "";
-        if (!accessToken) throw new Error("Access token is required.");
-        const config = { ...previous, accessToken };
-        await storageSet({ [CONFIG_KEY]: config });
-        sendResponse({ ok: true, config: publicConfig(await configuredConnection(config)) });
-        void pollServerCommands();
+      if (message?.type === "BEGIN_PAIRING") {
+        sendResponse({ ok: true, config: await beginPairing() });
+        return;
+      }
+      if (message?.type === "POLL_PAIRING") {
+        sendResponse({ ok: true, config: await pollPairing() });
         return;
       }
       if (message?.type === "CHECK_COMMANDS") {
@@ -296,7 +334,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       if (message?.type === "START_SYNC") {
         const current = await state();
-        if (!current.config.serverUrl || !current.config.hasAccessToken) throw new Error("Save connection settings first.");
+        if (!current.config.serverUrl || !current.config.linked) throw new Error("Link this extension to Time V3 first.");
         if (!sender.tab?.id) throw new Error("Open Google Messages for Web before starting synchronization.");
         if (current.job?.status === "running") throw new Error("Google Messages synchronization is already running.");
         const [previousTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });

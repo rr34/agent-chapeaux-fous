@@ -1,8 +1,8 @@
 const fields = {
   serverUrl: document.querySelector("#server-url"),
-  accessToken: document.querySelector("#access-token"),
+  pairingCode: document.querySelector("#pairing-code"),
   historyMode: document.querySelector("#history-mode"),
-  save: document.querySelector("#save"),
+  pair: document.querySelector("#pair"),
   check: document.querySelector("#check"),
   sync: document.querySelector("#sync"),
   cancel: document.querySelector("#cancel"),
@@ -72,28 +72,26 @@ function jobText(job, config, commandStatus) {
 async function refresh() {
   const { config, job, commandStatus } = await runtimeMessage({ type: "GET_STATE" });
   fields.serverUrl.textContent = config.serverUrl || "Packaged server unavailable";
-  fields.accessToken.placeholder = config.hasAccessToken
-    ? "Saved — leave blank to keep it"
-    : "Required";
+  fields.pair.textContent = config.linked ? "Pair again" : config.pairingUserCode ? "Waiting for approval…" : "Pair extension";
+  fields.pair.disabled = Boolean(config.pairingUserCode);
+  fields.pairingCode.hidden = !config.pairingUserCode;
+  fields.pairingCode.innerHTML = config.pairingUserCode
+    ? `<strong>${config.pairingUserCode}</strong>In the Time V3 web app, open Account → Agent identities → Linked devices, enter this code, and choose Link device.`
+    : "";
   const running = job?.status === "running";
   fields.sync.disabled = running;
   fields.cancel.disabled = !running;
   fields.status.textContent = jobText(job, config, commandStatus);
+  return config;
 }
 
-fields.save.addEventListener("click", async () => {
+fields.pair.addEventListener("click", async () => {
   try {
-    const saved = await runtimeMessage({
-      type: "SAVE_CONFIG",
-      config: {
-        accessToken: fields.accessToken.value,
-      },
-    });
-    fields.accessToken.value = "";
-    const origin = new URL(saved.config.serverUrl).origin;
+    const current = await runtimeMessage({ type: "GET_STATE" });
+    const origin = new URL(current.config.serverUrl).origin;
     const allowed = await chrome.permissions.request({ origins: [`${origin}/*`] });
-    if (!allowed) throw new Error("Connection saved, but Brave did not grant access to the Time V3 server.");
-    await runtimeMessage({ type: "CHECK_COMMANDS" });
+    if (!allowed) throw new Error("Brave did not grant access to the Time V3 server.");
+    await runtimeMessage({ type: "BEGIN_PAIRING" });
     await refresh();
   } catch (error) {
     fields.status.textContent = `Error: ${error.message}`;
@@ -137,4 +135,7 @@ fields.cancel.addEventListener("click", async () => {
 });
 
 void refresh().catch((error) => { fields.status.textContent = `Error: ${error.message}`; });
-setInterval(() => void refresh().catch(() => {}), 1000);
+setInterval(() => void refresh().then((config) => {
+  if (config.pairingUserCode) return runtimeMessage({ type: "POLL_PAIRING" }).then(refresh);
+  return null;
+}).catch(() => {}), 5000);

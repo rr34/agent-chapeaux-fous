@@ -1,6 +1,6 @@
 export type ConnectionSettings = {
   baseUrl: string;
-  accessToken: string;
+  deviceCredential: string;
 };
 
 export type RequestProgress = {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { api, authenticatedObjectUrl, downloadAuthenticated, getAccessToken, setAccessToken } from "../api";
+import { api, authenticatedObjectUrl, downloadAuthenticated } from "../api";
 import { useApi } from "../hooks";
 import type { Entity, SelectedObjectCandidate } from "../types";
 import { Empty, ErrorState, Loading } from "./State";
@@ -666,7 +666,7 @@ function IdentitiesScreen() {
       const result = await api<{ deviceName: string }>("/api/node/pairings/approve", {
         method: "POST", body: JSON.stringify({ userCode: nodeCode }),
       });
-      setNodeCode(""); setStatus(`${result.deviceName} is approved. The node can finish linking now.`);
+      setNodeCode(""); setStatus(`${result.deviceName} is approved and can finish linking now.`);
       await reloadNodes();
     } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
     finally { setNodeAction(""); }
@@ -675,7 +675,7 @@ function IdentitiesScreen() {
     setNodeAction(`revoke:${nodeDeviceId}`); setStatus("");
     try {
       await api(`/api/node/devices/${nodeDeviceId}`, { method: "DELETE" });
-      setStatus("Node access revoked."); await reloadNodes();
+      setStatus("Device access revoked."); await reloadNodes();
     } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
     finally { setNodeAction(""); }
   };
@@ -695,18 +695,18 @@ function IdentitiesScreen() {
     <section className="surface"><div className="section-title"><div><h2>Managed Accounts</h2></div></div><div className="integration-list">{(provisionedData?.people || []).map((item) => <ProvisionedAccountCard key={item.person.personId} item={item} onChanged={reloadProvisioned} />)}</div>{!provisionedData?.people.length && <Empty>No light accounts have been created.</Empty>}</section>
     </>}
     <section className="surface">
-      <div className="section-title"><div><p className="eyebrow">Hardware access</p><h2>Node devices</h2><p>A node belongs to the currently active Agent identity only.</p></div></div>
+      <div className="section-title"><div><p className="eyebrow">Device access</p><h2>Linked devices</h2><p>Pair a node, the mobile app, or the Google Messages extension with this Agent identity. Each receives its own revocable credential.</p></div></div>
       <form className="integration-add-form" onSubmit={(event) => void approveNode(event)}>
         <label>Pairing code<input required autoComplete="off" maxLength={9} placeholder="ABCD-2345" value={nodeCode} onChange={(event) => setNodeCode(event.target.value.toUpperCase().replace(/[^A-Z0-9-]/gu, "").slice(0, 9))} /></label>
-        <button className="button" disabled={Boolean(nodeAction)}>{nodeAction === "approve" ? "Approving…" : "Approve node"}</button>
+        <button className="button" disabled={Boolean(nodeAction)}>{nodeAction === "approve" ? "Linking…" : "Link device"}</button>
       </form>
-      {nodesLoading && <Loading label="Loading node devices" />}
+      {nodesLoading && <Loading label="Loading linked devices" />}
       {Boolean(nodeError) && <ErrorState error={nodeError} retry={reloadNodes} />}
       <div className="integration-list">{(nodeData?.devices || []).map((device) => <article className={`integration-card${device.device_status === "active" ? " ready" : ""}`} key={device.node_device_id}>
         <div><strong>{device.device_name}</strong><span>{device.device_status === "active" ? `Active · key ${device.token_prefix}…` : "Revoked"}{device.hardware_identifier ? ` · ${device.hardware_identifier}` : ""}{device.last_seen_at_utc ? ` · last used ${new Date(device.last_seen_at_utc).toLocaleString()}` : ""}</span></div>
         {device.device_status === "active" && <button className="button button--quiet" type="button" disabled={Boolean(nodeAction)} onClick={() => void revokeNode(device.node_device_id)}>{nodeAction === `revoke:${device.node_device_id}` ? "Revoking…" : "Revoke"}</button>}
       </article>)}</div>
-      {!nodesLoading && !nodeError && !nodeData?.devices.length && <Empty>No node devices are linked to this identity.</Empty>}
+      {!nodesLoading && !nodeError && !nodeData?.devices.length && <Empty>No devices are linked to this identity.</Empty>}
     </section>
     {status && <p role="status">{status}</p>}
   </>;
@@ -714,8 +714,6 @@ function IdentitiesScreen() {
 
 export function AccountScreen({ usage }: { usage: React.ReactNode }) {
   const [tab, setTab] = useState<"profile" | "identities" | "usage" | "access">("profile");
-  const [token, setToken] = useState(getAccessToken());
-  const { data: authMode } = useApi<{ mode: "session" | "token" }>("/api/auth/mode");
   const { data: health, error: integrationError, loading: integrationsLoading, reload: reloadIntegrations } = useApi<{
     integrations?: Record<string, Entity>;
   }>(tab === "access" ? "/health" : null);
@@ -802,7 +800,7 @@ export function AccountScreen({ usage }: { usage: React.ReactNode }) {
     }
   };
   const access = <>
-    {authMode?.mode === "session" ? <><section className="surface"><p>Your browser uses a revocable Time v3 session stored in a secure, HTTP-only cookie.</p><button className="button button--quiet" type="button" onClick={async () => { await api("/api/auth/logout", { method: "POST", body: "{}" }); location.assign("/api/auth/start"); }}>Sign out</button></section>
+    <section className="surface"><p>Your browser uses a revocable Time v3 session stored in a secure, HTTP-only cookie.</p><button className="button button--quiet" type="button" onClick={async () => { await api("/api/auth/logout", { method: "POST", body: "{}" }); location.assign("/api/auth/start"); }}>Sign out</button></section>
     <section className="surface" aria-labelledby="account-password-heading">
       <div className="section-title"><div><p className="eyebrow">Sign-in security</p><h2 id="account-password-heading">Password</h2><p>Set a new password for your account. This signs you out on every browser.</p></div></div>
       <form className="integration-add-form" onSubmit={(event) => void changePassword(event)}>
@@ -811,10 +809,7 @@ export function AccountScreen({ usage }: { usage: React.ReactNode }) {
         <button className="button" disabled={passwordAction || newPassword.length < 12 || newPassword !== passwordConfirmation}>{passwordAction ? "Setting password…" : "Set password"}</button>
         {passwordStatus && <p className="auth-message auth-message--error" role="alert">{passwordStatus}</p>}
       </form>
-    </section></> : <form className="profile-fact-form" onSubmit={(event) => { event.preventDefault(); setAccessToken(token); }}>
-      <label>Access token<input name="access-token" type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} /></label>
-      <button className="button">Save token</button>
-    </form>}
+    </section>
     <section className="surface account-integrations" aria-labelledby="account-integrations-heading">
       <div className="section-title"><div><p className="eyebrow">Connected services</p><h2 id="account-integrations-heading">Integrations</h2></div><span>{integrations.filter(([, value]) => value.ready).length} connected</span></div>
       {integrationsLoading && <Loading label="Loading integrations" />}
@@ -862,7 +857,7 @@ export function AccountScreen({ usage }: { usage: React.ReactNode }) {
     <header className="page-heading"><div><p className="eyebrow">Identity and service</p><h1>Account</h1><p>Your durable profile, model usage, and this browser’s access.</p></div></header>
     <nav className="account-tabs">
       <button className={tab === "profile" ? "active" : ""} onClick={() => setTab("profile")}>Profile</button>
-      {authMode?.mode === "session" && <button className={tab === "identities" ? "active" : ""} onClick={() => setTab("identities")}>Agent identities</button>}
+      <button className={tab === "identities" ? "active" : ""} onClick={() => setTab("identities")}>Agent identities</button>
       <button className={tab === "usage" ? "active" : ""} onClick={() => setTab("usage")}>AI usage</button>
       <button className={tab === "access" ? "active" : ""} onClick={() => setTab("access")}>Access</button>
     </nav>

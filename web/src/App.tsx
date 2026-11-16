@@ -1,5 +1,5 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { api, ApiError, downloadAuthenticated, getAccessToken, previewAuthenticated, setAccessToken } from "./api";
+import { api, ApiError, downloadAuthenticated, previewAuthenticated } from "./api";
 import { useApi, localToday, useRequestFeed } from "./hooks";
 import { CalendarGrid, DailyPaper, DayTimeline } from "./components/DailyPaper";
 import { MilestoneTimer } from "./components/MilestoneTimer";
@@ -560,45 +560,18 @@ function mondayOnOrBeforeForPreview(localDate: string) {
   return instant.toISOString().slice(0, 10);
 }
 
-function TokenGate({ children }: { children: ReactNode }) {
-  const [token, update] = useState(getAccessToken());
-  const [draft, setDraft] = useState(token);
-  useEffect(() => {
-    const listener = () => update(getAccessToken());
-    window.addEventListener("slayer-token-change", listener);
-    return () => window.removeEventListener("slayer-token-change", listener);
-  }, []);
-  if (token) return <>{children}</>;
-  return <main className="token-gate"><section className="token-card">
-    <img src="/icon.svg" alt="" />
-    <p className="eyebrow">Private workspace</p><h1>Welcome back.</h1>
-    <p>Enter the access token for this Time v3 Agent installation.</p>
-    <form onSubmit={(event) => { event.preventDefault(); setAccessToken(draft); update(draft.trim()); }}>
-      <label>Access token<input autoFocus name="access-token" type="password" autoComplete="off" value={draft} onChange={(event) => setDraft(event.target.value)} /></label>
-      <button className="button" disabled={!draft.trim()}>Open workspace</button>
-    </form>
-  </section></main>;
-}
-
 function AccessGate({ children }: { children: ReactNode }) {
-  const [mode, setMode] = useState<"loading" | "token" | "session">("loading");
   const [sessionReady, setSessionReady] = useState(false);
   useEffect(() => {
-    void fetch("/api/auth/mode", { cache: "no-store" }).then(async (response) => {
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return response.json() as Promise<{ mode: "token" | "session" }>;
-    }).then(async (result) => {
-      setMode(result.mode);
-      if (result.mode !== "session") return;
-      const session = await fetch("/api/auth/session", { cache: "no-store" });
+    void fetch("/api/auth/session", { cache: "no-store" }).then(async (session) => {
       if (!session.ok) { location.replace("/api/auth/start"); return; }
       setSessionReady(true);
-    }).catch(() => setMode("token"));
+    }).catch(() => location.replace("/api/auth/start"));
   }, []);
-  if (mode === "loading" || (mode === "session" && !sessionReady)) {
+  if (!sessionReady) {
     return <main className="token-gate"><section className="token-card"><p>Opening Time v3 Agent…</p></section></main>;
   }
-  return mode === "token" ? <TokenGate>{children}</TokenGate> : <>{children}</>;
+  return <>{children}</>;
 }
 
 interface TraceEvent extends Entity {

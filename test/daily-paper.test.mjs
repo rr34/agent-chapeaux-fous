@@ -237,7 +237,6 @@ test("PDF generation registers the rendered document and its provenance", async 
     ledger,
     mediaRoot,
     publicUrl: "http://127.0.0.1:9123",
-    accessToken: "private-token",
     timeZone: () => "America/New_York",
     renderPdf: async (input) => {
       renderInput = input;
@@ -251,7 +250,7 @@ test("PDF generation registers the rendered document and its provenance", async 
   const result = await service.generate({ date: "2026-10-04", paperSize: "letter" }, { requestId: "request-1", callId: "call-1" });
   assert.match(renderInput.url, /^http:\/\/127\.0\.0\.1:9123\/app\?paper=daily&/);
   assert.match(renderInput.url, /&snapshot=[0-9a-f-]+$/);
-  assert.equal(renderInput.accessToken, "private-token");
+  assert.equal(Object.hasOwn(renderInput, "accessToken"), false);
   assert.equal(renderInput.format, "Letter");
   assert.equal(registrations.length, 1);
   assert.match(registrations[0].storagePath, /^media\/\d{4}\/\d{2}\/[0-9a-f-]+\.pdf$/);

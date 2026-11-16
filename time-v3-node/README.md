@@ -101,9 +101,9 @@ environment file. After deploying the current source and systemd unit:
 1. On the node, use the arrow keys and Enter to open **Pair node**. The LCD
    displays a short code for ten minutes.
 2. Sign in at `https://agent.timev3tech.com/login`. Open **Account**, then
-   **Agent identities**, and find **Node devices** for the currently selected
+   **Agent identities**, and find **Linked devices** for the currently selected
    Agent identity.
-3. Enter the LCD code in **Pairing code** and select **Approve node**. The node
+3. Enter the LCD code in **Pairing code** and select **Link device**. The node
    detects approval automatically and changes to **NODE LINKED**.
 
 The node credential is written with mode `0600` to

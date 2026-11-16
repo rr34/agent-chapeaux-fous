@@ -644,7 +644,7 @@ export class IdentityStore {
          ORDER BY node_pairing_id DESC LIMIT 1
          FOR UPDATE
       `).get(this.nodeUserCodeDigest(userCode));
-      if (!pending) throw identityError("The node code is invalid or expired.", 404, "NODE_PAIRING_INVALID");
+      if (!pending) throw identityError("The device code is invalid or expired.", 404, "NODE_PAIRING_INVALID");
       this.database.prepare(`
         UPDATE node_pairings
            SET approved_person_id = ?, pairing_status = 'approved',
@@ -667,7 +667,7 @@ export class IdentityStore {
           FROM node_pairings WHERE device_code_hash = ?
          FOR UPDATE
       `).get(tokenDigest(deviceCode));
-      if (!row) throw identityError("The node pairing is invalid or expired.", 400, "NODE_PAIRING_INVALID");
+      if (!row) throw identityError("The device pairing is invalid or expired.", 400, "NODE_PAIRING_INVALID");
       if (row.pairing_status === "pending" && Boolean(row.is_unexpired)) {
         return { pending: true, interval: 5 };
       }
@@ -678,7 +678,7 @@ export class IdentityStore {
         row.pairing_status = "expired";
       }
       if (row.pairing_status !== "approved") {
-        throw identityError("The node pairing is invalid or expired.", 400, "NODE_PAIRING_INVALID");
+        throw identityError("The device pairing is invalid or expired.", 400, "NODE_PAIRING_INVALID");
       }
       const token = `tv3n_${randomBytes(32).toString("base64url")}`;
       let inserted;
@@ -733,7 +733,7 @@ export class IdentityStore {
       UPDATE node_devices SET device_status = 'revoked', revoked_at_utc = UTC_TIMESTAMP(3)
        WHERE node_device_id = ? AND person_id = ? AND device_status = 'active'
     `).run(nodeDeviceId, personId).changes;
-    if (!changed) throw identityError("Node device was not found.", 404, "NODE_NOT_FOUND");
+    if (!changed) throw identityError("Linked device was not found.", 404, "NODE_NOT_FOUND");
     this.recordSecurityEvent({ accountId, type: "node.revoked", outcome: "success",
       details: `person_id=${personId}; node_device_id=${nodeDeviceId}` });
     return true;

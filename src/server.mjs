@@ -82,29 +82,27 @@ import { configureDefaultPersonId, currentPersonId, enterPersonContext, runWithP
 const config = loadConfig();
 configureDefaultPersonId(config.legacyPersonId);
 const store = new SlayerDatabase(config.databaseTarget);
-if (config.authEnabled) {
-  if (!store.status.ready) throw new Error(`Time v3 Auth requires the Agent database: ${store.status.reason}`);
-  assertPersonIsolationReady(store.requireReady());
-}
-const identityStore = config.authEnabled ? new IdentityStore({
+if (!store.status.ready) throw new Error(`Time v3 Auth requires the Agent database: ${store.status.reason}`);
+assertPersonIsolationReady(store.requireReady());
+const identityStore = new IdentityStore({
   databaseTarget: config.identityDatabaseTarget,
   challengeSecret: config.authChallengeSecret,
   sessionDays: config.authSessionDays,
   weeklyAiTokenLimit: config.weeklyAiTokenLimit,
-}) : null;
-const authEmail = config.authEnabled ? new AuthEmailService(config) : null;
+});
+const authEmail = new AuthEmailService(config);
 const nativeCapabilities = validateNativeCapabilityPackages({
   capabilityRoot: config.capabilityPackagesPath,
 });
 const identity = runtimeIdentity(config.repositoryRoot);
 const ledger = new Ledger(store);
 const organizer = store.status.ready ? new OrganizerStore(config.databaseTarget, {
-  resolveTimeV3Handle: identityStore ? (value) => {
+  resolveTimeV3Handle: (value) => {
     const numeric = Number(value);
     return Number.isSafeInteger(numeric) && numeric > 0
       ? identityStore.activePerson(numeric)
       : identityStore.activePersonByHandle(value);
-  } : null,
+  },
 }) : null;
 const correspondenceSync = store.status.ready
   ? new CorrespondenceSyncService({ databaseTarget: config.databaseTarget })
@@ -131,7 +129,6 @@ const dailyPaper = store.status.ready ? new DailyPaperService({
   ledger,
   mediaRoot: config.mediaRoot,
   publicUrl: config.publicUrl,
-  accessToken: config.accessToken,
   browserExecutable: config.pdfBrowserExecutable,
   timeZone: () => timeZoneFromProfileFacts(
     profileFacts.list({ status: "active", limit: null }).facts,
@@ -527,37 +524,27 @@ function redirect(response, location, headers = {}) {
 }
 
 function authorized(request) {
-  if (config.authEnabled) {
-    const session = identityStore.session(cookies(request)[cookieName("agent")], "agent");
-    if (session) {
-      request.timev3Auth = session;
-      enterPersonContext(session.person.personId);
-      return true;
-    }
-    const header = String(request.headers.authorization || "");
-    const node = header.startsWith("Bearer ")
-      ? identityStore.authenticateNode(header.slice(7))
-      : null;
-    if (node) {
-      request.timev3Node = node;
-      enterPersonContext(node.person.personId);
-      return true;
-    }
-    return false;
+  const session = identityStore.session(cookies(request)[cookieName("agent")], "agent");
+  if (session) {
+    request.timev3Auth = session;
+    enterPersonContext(session.person.personId);
+    return true;
   }
-  if (config.allowUnauthenticated) return true;
   const header = String(request.headers.authorization || "");
-  if (!header.startsWith("Bearer ")) return false;
-  const supplied = Buffer.from(header.slice(7));
-  const expected = Buffer.from(config.accessToken);
-  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+  const node = header.startsWith("Bearer ")
+    ? identityStore.authenticateNode(header.slice(7))
+    : null;
+  if (node) {
+    request.timev3Node = node;
+    enterPersonContext(node.person.personId);
+    return true;
+  }
+  return false;
 }
 
 function requireAuthorization(request, response) {
   if (authorized(request)) return true;
-  sendJson(response, 401, { error: config.authEnabled
-    ? "Sign in to Time v3 Agent to continue"
-    : "A valid Time v3 Agent access token is required" });
+  sendJson(response, 401, { error: "Sign in to Time v3 Agent or link this device to continue" });
   return false;
 }
 
@@ -594,13 +581,12 @@ function assertAiAllowance(request) {
 
 async function handlePublicAuthRoute(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/auth/mode") {
-    sendJson(response, 200, { mode: config.authEnabled ? "session" : "token",
-      registrationEnabled: config.authEnabled && config.authRegistrationEnabled,
-      authUrl: config.authEnabled ? config.authPublicUrl : null,
+    sendJson(response, 200, { mode: "session",
+      registrationEnabled: config.authRegistrationEnabled,
+      authUrl: config.authPublicUrl,
       agentUrl: config.publicUrl });
     return true;
   }
-  if (!config.authEnabled) return false;
   const authOrigin = new URL(config.authPublicUrl).origin;
   const agentOrigin = new URL(config.publicUrl).origin;
   const callbackUri = new URL("/api/auth/callback", config.publicUrl).toString();
@@ -741,17 +727,17 @@ async function handlePublicAuthRoute(request, response, url) {
     sendJson(response, 200, { signedOut: true });
     return true;
   }
-  if (request.method === "POST" && url.pathname === "/api/node/pairings") {
+  if (request.method === "POST" && ["/api/node/pairings", "/api/device/pairings"].includes(url.pathname)) {
     const body = await readJson(request);
     const limit = identityStore.rateLimit({ action: "node_pairing_start", subject: metadata.ipAddress,
       maximum: 20, windowSeconds: 3600 });
-    if (!limit.allowed) throw Object.assign(new Error("Too many node pairing attempts. Try again later."), { statusCode: 429 });
+    if (!limit.allowed) throw Object.assign(new Error("Too many device pairing attempts. Try again later."), { statusCode: 429 });
     const pairing = identityStore.beginNodePairing(body);
     sendJson(response, 201, { ...pairing,
       verificationUri: new URL("/app", config.publicUrl).toString() });
     return true;
   }
-  if (request.method === "POST" && url.pathname === "/api/node/pairings/token") {
+  if (request.method === "POST" && ["/api/node/pairings/token", "/api/device/pairings/token"].includes(url.pathname)) {
     const body = await readJson(request);
     const limit = identityStore.rateLimit({ action: "node_pairing_poll", subject: `${metadata.ipAddress}:${body.deviceCode}`,
       maximum: 180, windowSeconds: 900 });
@@ -959,15 +945,14 @@ const server = http.createServer(async (request, response) => {
       || url.pathname.startsWith("/api/correspondence/email-sync")
       || /\/invite-draft$/u.test(url.pathname);
     if (request.timev3Node && nodeRestrictedRoute) {
-      throw Object.assign(new Error("A linked node credential cannot manage accounts or connected services."), { statusCode: 403 });
+      throw Object.assign(new Error("A linked device credential cannot manage accounts or connected services."), { statusCode: 403 });
     }
     const legacyIntegrationRoute = url.pathname.startsWith("/api/integrations/")
       || url.pathname.startsWith("/api/payments/")
       || url.pathname.startsWith("/api/correspondence/email-sync")
       || /\/invite-draft$/u.test(url.pathname);
     const authenticatedPerson = request.timev3Auth?.person ?? request.timev3Node?.person;
-    if (config.authEnabled && legacyIntegrationRoute
-        && authenticatedPerson.personId !== config.legacyPersonId) {
+    if (legacyIntegrationRoute && authenticatedPerson.personId !== config.legacyPersonId) {
       throw Object.assign(new Error("That connected service belongs to a different Agent identity."), { statusCode: 403 });
     }
     if (request.timev3Auth?.person.experience === "light") {

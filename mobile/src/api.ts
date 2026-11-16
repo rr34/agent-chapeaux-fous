@@ -1,4 +1,5 @@
 import type { CorrespondenceBatch } from '../modules/time-v3-native/src/TimeV3NativeModule';
+import { productionServerUrl } from './config';
 import type { AgentContact, AgentRequest, ConnectionSettings, Health, MusicFile, MusicNarration, PreparedConcert } from './types';
 
 export type CorrespondenceSyncResult = {
@@ -34,6 +35,40 @@ export class ApiError extends Error {
   }
 }
 
+type DevicePairing = {
+  deviceCode: string;
+  userCode: string;
+  expiresIn: number;
+  interval: number;
+};
+
+type DevicePairingResult = {
+  pending: boolean;
+  interval?: number;
+  token?: string;
+};
+
+async function pairingRequest<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(`${productionServerUrl}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const result = await response.json().catch(() => ({})) as { error?: unknown };
+  if (!response.ok && response.status !== 202) {
+    throw new ApiError(result.error ? String(result.error) : `Server returned HTTP ${response.status}.`, response.status);
+  }
+  return result as T;
+}
+
+export function beginDevicePairing(): Promise<DevicePairing> {
+  return pairingRequest('/api/device/pairings', { deviceName: 'Time V3 mobile app' });
+}
+
+export function pollDevicePairing(deviceCode: string): Promise<DevicePairingResult> {
+  return pairingRequest('/api/device/pairings/token', { deviceCode });
+}
+
 export function normalizeBaseUrl(value: string): string {
   const candidate = value.trim().replace(/\/+$/, '');
   let parsed: URL;
@@ -66,7 +101,7 @@ async function requestJson<T>(
       signal: controller.signal,
       headers: {
         Accept: 'application/json',
-        Authorization: `Bearer ${settings.accessToken}`,
+        Authorization: `Bearer ${settings.deviceCredential}`,
         ...init.headers,
       },
     });
@@ -127,7 +162,7 @@ export async function fetchMusic(settings: ConnectionSettings): Promise<MusicFil
 export function musicSource(settings: ConnectionSettings, file: MusicFile) {
   return {
     uri: `${settings.baseUrl}${file.streamUrl}`,
-    headers: { Authorization: `Bearer ${settings.accessToken}` },
+    headers: { Authorization: `Bearer ${settings.deviceCredential}` },
     name: file.title,
   };
 }
@@ -135,7 +170,7 @@ export function musicSource(settings: ConnectionSettings, file: MusicFile) {
 export function narrationSource(settings: ConnectionSettings, narration: MusicNarration, title: string) {
   return {
     uri: `${settings.baseUrl}${narration.streamUrl}`,
-    headers: { Authorization: `Bearer ${settings.accessToken}` },
+    headers: { Authorization: `Bearer ${settings.deviceCredential}` },
     name: title,
   };
 }

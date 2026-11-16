@@ -134,9 +134,9 @@ contract. `AGENT-TERMINOLOGY.md` remains the numbered canonical glossary.
 
 ### Time v3 account, person, and node contract
 
-Time v3 authentication supports public handle/email/password registration with email
+Time v3 authentication is mandatory and supports public handle/email/password registration with email
 verification and password recovery. It lives in this repository and uses the
-same root `.env`, but person, credential, challenge, session, and node-credential
+same root `.env`, but person, credential, challenge, session, and device-credential
 rows live only in the separate `timev3_identity` database.
 Agent domain records remain in the one configured Agent database. TLOM is only
 a reference for the simple delivery experience; its account code and users are
@@ -198,16 +198,18 @@ its contact policy is an explicit later management action.
 Browser sessions use random, revocable, host-local HttpOnly cookies. The auth
 host hands Agent a five-minute, one-use authorization code rather than sharing
 a parent-domain cookie. Passwords use salted Argon2id verifiers; email codes,
-authorization codes, sessions, and node credentials are stored only as keyed
+authorization codes, sessions, and device credentials are stored only as keyed
 or one-way verifiers. Authentication mutations require the exact configured
 origin and persist abuse counters and bounded secret-free security events.
 
-A node starts pairing without a browser and receives a long private device
-code plus a short human code. The currently selected person must approve the
-short code in Agent. The node may then exchange its long code exactly once for
-a revocable credential bound directly to that person. A hardware identifier is
-display/provenance data, never authentication. Changing the selected person
-does not move an existing node.
+A node, the mobile app, or the Google Messages extension starts pairing without
+a browser session and receives a long private device code plus a short human
+code. The currently selected person must approve the short code in Agent. The
+client may then exchange its long code exactly once for a revocable credential
+bound directly to that person. A hardware identifier is display/provenance data,
+never authentication. Changing the selected person does not move an existing
+linked device. Shared installation bearer tokens and unauthenticated application
+mode are not supported.
 
 Expected node request failures expose a stable diagnostic code and short request
 reference at the point of use. The node LCD keeps retry and cancel available while
@@ -215,11 +217,6 @@ showing both values; web errors show the same values inline. Node and server log
 record one literal summary line with the same reference, and the server line adds
 bounded media-tool detail when available. Normal successful use does not show
 diagnostic metadata.
-
-`TIMEV3_AUTH_ENABLED` remains false until the identity baseline is installed
-and Agent person ownership is migrated and verified. The legacy installation
-token is the rollback boundary during that conversion; enabling account login
-before domain records are person-scoped is prohibited.
 
 Agent schema 72 stores every private domain row in a physical `p_<table>` table
 with a direct `person_id`. Existing application SQL uses same-named,
@@ -410,13 +407,14 @@ directory directly:
 /home/nate/code/agent-chapeaux-fous/extensions/google-messages-sync
 ```
 
-Pair and open `https://messages.google.com/web/`, then use the extension popup
-to save the Time V3 access token once. The downloaded package already contains
-this server's canonical origin and the fixed `default` account key. Leave that
-tab open while synchronization runs. Choose **Since last sync**, 30 days,
-90 days, one year, or all history. **Since last sync** defaults to 30 days on
-the first run and retains a two-day overlap afterward. The access token is
-stored in the local Brave profile so it does not need to be reentered.
+Pair and open `https://messages.google.com/web/`, then choose **Pair extension**
+in the extension popup. Approve its short code under **Account → Agent
+identities → Linked devices**. The downloaded package already contains this
+server's canonical origin and the fixed `default` account key. Leave that tab
+open while synchronization runs. Choose **Since last sync**, 30 days, 90 days,
+one year, or all history. **Since last sync** defaults to 30 days on the first
+run and retains a two-day overlap afterward. The extension stores its own
+revocable device credential in the local Brave profile.
 
 After that one-time setup, the Correspondence page's **Sync Google Messages**
 button owns the ordinary workflow next to **Sync email**. It creates one bounded
@@ -532,7 +530,7 @@ AI-voice volume are locked. Discarding it removes the prepared variants and
 unlocks those choices without clearing the queue; Clear removes both the
 prepared concert and its queue. Prepared playback URLs are short-lived opaque
 capabilities so the native playlist can fetch them without exposing the main
-application access token. Web playback retains the ordinary item-by-item
+application credential. Web playback retains the ordinary item-by-item
 behavior and makes no promise that a browser will continue after the computer
 sleeps.
 
@@ -633,7 +631,7 @@ the migration runner before verification to install the current schema.
 
 ```bash
 cp .env.example .env
-# Set OPENAI_API_KEY, SLAYER_ACCESS_TOKEN, and the MARIADB_* values.
+# Set OPENAI_API_KEY, the Time v3 identity settings, and the MARIADB_* values.
 npm install
 npm run build:web
 npm run install:pdf-browser
@@ -658,8 +656,7 @@ database-independent files, and `npm run test:integration` runs the files that
 use isolated MariaDB fixtures.
 
 Open `http://127.0.0.1:8787/app`. The root URL serves the public landing page.
-The app asks for `SLAYER_ACCESS_TOKEN` and
-stores it only in that browser. The same client includes the Agent request
+Sign in with a Time v3 account. The same client includes the Agent request
 feed, the calendar, the grouped to-do list, a searchable contacts address book,
 and a grouped personal journal with native entry creation. Contacts support
 people, organizations, and services with tags, birthday, notes, and stacked

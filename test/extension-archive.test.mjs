@@ -76,6 +76,11 @@ test("Correspondence can request a sync that the extension polls and reports", (
   assert.match(background, /pollServerCommands/u);
   assert.match(background, /reportJob/u);
   assert.match(background, /CHECK_COMMANDS/u);
+  assert.match(background, /BEGIN_PAIRING/u);
+  assert.match(background, /POLL_PAIRING/u);
+  assert.match(background, /\/api\/device\/pairings/u);
+  assert.match(background, /deviceCredential/u);
+  assert.doesNotMatch(background, /hasAccessToken/u);
   assert.match(background, /non-JSON response/u);
   assert.match(background, /chrome[.]tabs[.]update\(sender[.]tab[.]id, \{ active: true \}\)/u);
   assert.match(background, /restorePreviousTab/u);
@@ -96,6 +101,7 @@ test("Correspondence can request a sync that the extension polls and reports", (
   assert.match(content, /Saving currently loaded messages/u);
   assert.match(content, /RESUME_SYNC/u);
   assert.match(popup, /history-mode/u);
+  assert.match(popup, /Pair extension/u);
   assert.match(popup, /rough remaining/u);
   assert.match(screen, /message-sync-progress/u);
   assert.match(screen, /Automatic recovery will reload the Messages tab after 90 seconds/u);

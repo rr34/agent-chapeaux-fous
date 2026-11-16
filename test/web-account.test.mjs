@@ -63,6 +63,13 @@ test("account access exposes authenticated self-service password replacement", (
   assert.match(accountSource, /This signs you out on every browser\./u);
 });
 
+test("account identity management approves and revokes individually linked devices", () => {
+  assert.match(accountSource, />Linked devices<\/h2>/u);
+  assert.match(accountSource, /mobile app, or the Google Messages extension/u);
+  assert.match(accountSource, /"Link device"/u);
+  assert.match(accountSource, /\/api\/node\/devices/u);
+});
+
 test("ordinary navigation defaults Contacts back to the signed-in person's list", () => {
   assert.match(appSource, /const go = \(next: string\) => \{[\s\S]*searchParams\.delete\("managedPersonId"\);[\s\S]*setView\(next\);/u);
   assert.match(appSource, /<option value="">My contacts<\/option>/u);

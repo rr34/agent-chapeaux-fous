@@ -21,7 +21,6 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
-  type ScrollViewInstance,
   StyleSheet,
   Text,
   TextInput,
@@ -36,7 +35,9 @@ import TimeV3Native, {
 } from './modules/time-v3-native/src/TimeV3NativeModule';
 import {
   ApiError,
+  beginDevicePairing,
   fetchRequests,
+  pollDevicePairing,
   synchronizeCorrespondence,
   submitText,
   submitVoice,
@@ -147,47 +148,44 @@ function ConnectionModal({
   onConnected: (settings: ConnectionSettings, health: Health) => void;
   onCancel: (() => void) | null;
 }) {
-  const [accessToken, setAccessToken] = useState(initial?.accessToken ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const setupScrollRef = useRef<ScrollViewInstance>(null);
+  const [pairing, setPairing] = useState<{ deviceCode: string; userCode: string; interval: number } | null>(null);
+  const onConnectedRef = useRef(onConnected);
+
+  useEffect(() => { onConnectedRef.current = onConnected; }, [onConnected]);
 
   useEffect(() => {
     if (!visible) return;
-    setAccessToken(initial?.accessToken ?? '');
+    setPairing(null);
     setError('');
   }, [initial, visible]);
 
   useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const showSubscription = Keyboard.addListener(showEvent, (event) => {
-      setKeyboardHeight(event.endCoordinates.height);
-      setTimeout(() => setupScrollRef.current?.scrollToEnd({ animated: true }), 50);
-      setTimeout(() => setupScrollRef.current?.scrollToEnd({ animated: true }), 300);
-    });
-    const hideSubscription = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
-    return () => {
-      showSubscription.remove();
-      hideSubscription.remove();
-    };
-  }, []);
+    if (!visible || !pairing) return undefined;
+    let cancelled = false;
+    const timer = setTimeout(() => void pollDevicePairing(pairing.deviceCode).then(async (result) => {
+      if (cancelled) return;
+      if (result.pending || !result.token) {
+        setPairing((current) => current && { ...current, interval: result.interval ?? current.interval });
+        return;
+      }
+      const settings = { baseUrl: productionServerUrl, deviceCredential: result.token };
+      const health = await verifyConnection(settings);
+      await saveConnectionSettings(settings);
+      if (!cancelled) onConnectedRef.current(settings, health);
+    }).catch((caught) => {
+      if (!cancelled) { setError(errorMessage(caught)); setPairing(null); }
+    }), Math.max(1, pairing.interval) * 1000);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [pairing, visible]);
 
-  const revealFormActions = () => {
-    setTimeout(() => setupScrollRef.current?.scrollToEnd({ animated: true }), 100);
-    setTimeout(() => setupScrollRef.current?.scrollToEnd({ animated: true }), 350);
-  };
-
-  const connect = async () => {
+  const startPairing = async () => {
     setBusy(true);
     setError('');
     try {
-      const settings = { baseUrl: productionServerUrl, accessToken: accessToken.trim() };
-      if (!settings.accessToken) throw new ApiError('Enter the Time V3 Technology Agent access token.');
-      const health = await verifyConnection(settings);
-      await saveConnectionSettings(settings);
-      onConnected(settings, health);
+      const started = await beginDevicePairing();
+      setPairing({ deviceCode: started.deviceCode, userCode: started.userCode, interval: started.interval });
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -198,67 +196,33 @@ function ConnectionModal({
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onCancel ?? undefined}>
       <SafeAreaView style={styles.setupPage} edges={['top', 'bottom']}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.setupKeyboardView}
-        >
-          <ScrollView
-            ref={setupScrollRef}
-            contentContainerStyle={[
-              styles.setupContent,
-              keyboardHeight > 0 && styles.setupContentKeyboard,
-              keyboardHeight > 0 && { paddingBottom: keyboardHeight + 48 },
-            ]}
-            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-            keyboardShouldPersistTaps="always"
-            onContentSizeChange={() => {
-              if (keyboardHeight > 0) setupScrollRef.current?.scrollToEnd({ animated: false });
-            }}
-          >
-            {keyboardHeight === 0 && <View style={styles.setupMark}><Text style={styles.setupMarkText}>T3</Text></View>}
-            {keyboardHeight === 0 && <Text style={styles.setupEyebrow}>PRIVATE CONNECTION</Text>}
-            <Text style={styles.setupTitle}>Connect your agent</Text>
-            {keyboardHeight === 0 && (
-              <Text style={styles.setupCopy}>
-                Enter your access token. The production server address is built into the app, and the token is stored in the phone’s secure credential store.
-              </Text>
-            )}
+        <ScrollView contentContainerStyle={styles.setupContent}>
+            <View style={styles.setupMark}><Text style={styles.setupMarkText}>T3</Text></View>
+            <Text style={styles.setupEyebrow}>PRIVATE CONNECTION</Text>
+            <Text style={styles.setupTitle}>{initial ? 'Relink this phone' : 'Connect your agent'}</Text>
+            <Text style={styles.setupCopy}>Pair this phone with your signed-in Time V3 account. It receives its own revocable device credential.</Text>
             <Text style={styles.fieldLabel}>SERVER URL</Text>
             <TextInput
               editable={false}
               style={styles.field}
               value={productionServerUrl}
             />
-            <Text style={styles.fieldLabel}>ACCESS TOKEN</Text>
-            <TextInput
-              autoCapitalize="none"
-              autoCorrect={false}
-              placeholder="Paste your server token"
-              placeholderTextColor={colors.dim}
-              returnKeyType="done"
-              secureTextEntry
-              style={styles.field}
-              value={accessToken}
-              onChangeText={setAccessToken}
-              onFocus={revealFormActions}
-              onSubmitEditing={Keyboard.dismiss}
-            />
+            {pairing && <View><Text style={styles.fieldLabel}>PAIRING CODE</Text><Text style={styles.setupTitle}>{pairing.userCode}</Text><Text style={styles.setupCopy}>In the web app, open Account → Agent identities → Linked devices, enter this code, and choose Link device. Keep this screen open.</Text></View>}
             {!!error && <Text style={styles.formError}>{error}</Text>}
             <Pressable
               accessibilityRole="button"
-              disabled={busy}
-              onPress={connect}
-              style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryButtonPressed, busy && styles.disabled]}
+              disabled={busy || Boolean(pairing)}
+              onPress={startPairing}
+              style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryButtonPressed, (busy || pairing) && styles.disabled]}
             >
-              {busy ? <ActivityIndicator color={colors.ink} /> : <Text style={styles.primaryButtonText}>TEST & CONNECT</Text>}
+              {busy ? <ActivityIndicator color={colors.ink} /> : <Text style={styles.primaryButtonText}>{pairing ? 'WAITING FOR APPROVAL' : initial ? 'PAIR AGAIN' : 'PAIR THIS PHONE'}</Text>}
             </Pressable>
             {onCancel && (
               <Pressable onPress={onCancel} style={styles.textButton}>
                 <Text style={styles.textButtonLabel}>Cancel</Text>
               </Pressable>
             )}
-          </ScrollView>
-        </KeyboardAvoidingView>
+        </ScrollView>
       </SafeAreaView>
     </Modal>
   );

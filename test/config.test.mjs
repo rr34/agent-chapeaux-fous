@@ -10,6 +10,14 @@ const databaseEnvironment = {
   MARIADB_NAME: "chapeauxfous",
   MARIADB_USER: "cfr_user",
   MARIADB_PASSWORD: "temporary",
+  TIMEV3_AUTH_PUBLIC_URL: "https://auth.timev3tech.test",
+  TIMEV3_AUTH_CHALLENGE_SECRET: "a-separate-challenge-secret-that-is-long-enough",
+  TIMEV3_AUTH_INITIAL_OWNER_EMAIL: "nate@example.test",
+  TIMEV3_IDENTITY_MARIADB_ENGINE: "mariadb",
+  TIMEV3_IDENTITY_MARIADB_HOST: "identity.internal",
+  TIMEV3_IDENTITY_MARIADB_NAME: "timev3_identity",
+  TIMEV3_IDENTITY_MARIADB_USER: "timev3_auth_user",
+  TIMEV3_IDENTITY_MARIADB_PASSWORD: "identity-password",
 };
 
 function loadTestConfig(environment = {}) {
@@ -18,7 +26,6 @@ function loadTestConfig(environment = {}) {
 
 test("OpenAI Responses configuration has stable defaults", () => {
   const config = loadTestConfig({
-    SLAYER_ALLOW_UNAUTHENTICATED: "true",
     XDG_STATE_HOME: "/tmp/agent-slayer-state-test",
   });
   assert.equal(config.openAIBaseUrl, "https://api.openai.com/v1");
@@ -46,12 +53,11 @@ test("OpenAI Responses configuration has stable defaults", () => {
 });
 
 test("concert narration has a normal voice independent of the Agent video persona", () => {
-  const defaults = loadTestConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true" });
+  const defaults = loadTestConfig();
   assert.equal(defaults.ttsAgentVoice, "verse");
   assert.equal(defaults.ttsMusicNarrationVoice, "cedar");
 
   const configured = loadTestConfig({
-    SLAYER_ALLOW_UNAUTHENTICATED: "true",
     SLAYER_TTS_AGENT_VOICE: "ash",
     SLAYER_MUSIC_NARRATION_VOICE: "onyx",
   });
@@ -60,7 +66,7 @@ test("concert narration has a normal voice independent of the Agent video person
 });
 
 test("environment price variables cannot supply token prices", () => {
-  const config = loadTestConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true", SLAYER_AI_INPUT_COST_PER_MILLION: "999",
+  const config = loadTestConfig({ SLAYER_AI_INPUT_COST_PER_MILLION: "999",
     SLAYER_AI_CACHED_INPUT_COST_PER_MILLION: "999", SLAYER_AI_CACHE_WRITE_COST_PER_MILLION: "999",
     SLAYER_AI_OUTPUT_COST_PER_MILLION: "999" });
   assert.equal(Object.hasOwn(config, "aiPricing"), false);
@@ -68,7 +74,6 @@ test("environment price variables cannot supply token prices", () => {
 
 test("MariaDB runtime configuration is explicit and bounded", () => {
   const config = loadTestConfig({
-    SLAYER_ALLOW_UNAUTHENTICATED: "true",
     MARIADB_HOST: "db.internal",
     MARIADB_PORT: "3307",
     MARIADB_NAME: "chapeauxfous",
@@ -87,7 +92,6 @@ test("MariaDB runtime configuration is explicit and bounded", () => {
     },
   });
   assert.throws(() => loadTestConfig({
-    SLAYER_ALLOW_UNAUTHENTICATED: "true",
     MARIADB_NAME: "bad-name",
     MARIADB_USER: "cfr_user",
     MARIADB_PASSWORD: "temporary",
@@ -96,7 +100,6 @@ test("MariaDB runtime configuration is explicit and bounded", () => {
 
 test("legacy SLAYER_DATABASE variables are not accepted", () => {
   assert.throws(() => loadConfig({
-    SLAYER_ALLOW_UNAUTHENTICATED: "true",
     SLAYER_DATABASE_NAME: "chapeauxfous",
     SLAYER_DATABASE_USER: "cfr_user",
     SLAYER_DATABASE_PASSWORD: "temporary",
@@ -105,7 +108,6 @@ test("legacy SLAYER_DATABASE variables are not accepted", () => {
 
 test("turn workflow reasoning effort is independently configurable by phase", () => {
   const config = loadTestConfig({
-    SLAYER_ALLOW_UNAUTHENTICATED: "true",
     SLAYER_REASONING_EFFORT: "xhigh",
     SLAYER_ORIENTATION_REASONING_EFFORT: "low",
     SLAYER_TOOL_SELECTION_REASONING_EFFORT: "xhigh",
@@ -123,7 +125,6 @@ test("turn workflow reasoning effort is independently configurable by phase", ()
 
 test("the public URL controls browser OAuth callbacks", () => {
   const config = loadTestConfig({
-    SLAYER_ALLOW_UNAUTHENTICATED: "true",
     SLAYER_PUBLIC_URL: "https://slayer.example.test",
     XDG_STATE_HOME: "/tmp/agent-slayer-state-test",
   });
@@ -134,7 +135,6 @@ test("the public URL controls browser OAuth callbacks", () => {
 
 test("Time v3 Auth uses a separate identity database while sharing the root environment file", () => {
   const config = loadTestConfig({
-    TIMEV3_AUTH_ENABLED: "true",
     TIMEV3_AUTH_PUBLIC_URL: "https://auth.timev3tech.test",
     TIMEV3_AUTH_CHALLENGE_SECRET: "a-separate-challenge-secret-that-is-long-enough",
     TIMEV3_AUTH_INITIAL_OWNER_EMAIL: "nate@example.test",
@@ -145,10 +145,8 @@ test("Time v3 Auth uses a separate identity database while sharing the root envi
     TIMEV3_IDENTITY_MARIADB_PASSWORD: "identity-password",
     SLAYER_PUBLIC_URL: "https://agent.timev3tech.test",
   });
-  assert.equal(config.authEnabled, true);
   assert.equal(config.authRegistrationEnabled, false);
   assert.equal(config.authPublicUrl, "https://auth.timev3tech.test/");
-  assert.equal(config.accessToken, "");
   assert.equal(config.weeklyAiTokenLimit, 19_100_000);
   assert.equal(config.authInitialOwnerEmail, "nate@example.test");
   assert.deepEqual(config.identityDatabaseTarget, {
@@ -162,7 +160,6 @@ test("Time v3 Auth uses a separate identity database while sharing the root envi
 
 test("public account registration is closed by default and requires an explicit true value", () => {
   const common = {
-    TIMEV3_AUTH_ENABLED: "true",
     TIMEV3_AUTH_CHALLENGE_SECRET: "a-separate-challenge-secret-that-is-long-enough",
     TIMEV3_AUTH_INITIAL_OWNER_EMAIL: "nate@example.test",
     TIMEV3_IDENTITY_MARIADB_ENGINE: "mariadb",
@@ -177,7 +174,6 @@ test("public account registration is closed by default and requires an explicit 
 
 test("Time v3 Auth refuses a short challenge secret", () => {
   assert.throws(() => loadTestConfig({
-    TIMEV3_AUTH_ENABLED: "true",
     TIMEV3_AUTH_CHALLENGE_SECRET: "short",
     TIMEV3_IDENTITY_MARIADB_ENGINE: "mariadb",
     TIMEV3_IDENTITY_MARIADB_NAME: "timev3_identity",
@@ -188,7 +184,6 @@ test("Time v3 Auth refuses a short challenge secret", () => {
 
 test("Time v3 Auth requires a valid initial owner email", () => {
   assert.throws(() => loadTestConfig({
-    TIMEV3_AUTH_ENABLED: "true",
     TIMEV3_AUTH_CHALLENGE_SECRET: "a-separate-challenge-secret-that-is-long-enough",
     TIMEV3_AUTH_INITIAL_OWNER_EMAIL: "not-an-email",
     TIMEV3_IDENTITY_MARIADB_ENGINE: "mariadb",
@@ -198,22 +193,8 @@ test("Time v3 Auth requires a valid initial owner email", () => {
   }), /valid email address/u);
 });
 
-test("the identity database can be verified while public auth remains disabled", () => {
-  const config = loadTestConfig({
-    SLAYER_ALLOW_UNAUTHENTICATED: "true",
-    TIMEV3_AUTH_ENABLED: "false",
-    TIMEV3_IDENTITY_MARIADB_ENGINE: "mariadb",
-    TIMEV3_IDENTITY_MARIADB_NAME: "timev3_identity",
-    TIMEV3_IDENTITY_MARIADB_USER: "timev3_auth_user",
-    TIMEV3_IDENTITY_MARIADB_PASSWORD: "identity-password",
-  });
-  assert.equal(config.authEnabled, false);
-  assert.equal(config.identityDatabaseTarget.connection.database, "timev3_identity");
-});
-
 test("Stripe Connect secrets stay in server configuration", () => {
   const config = loadTestConfig({
-    SLAYER_ALLOW_UNAUTHENTICATED: "true",
     STRIPE_SECRET_KEY: "sk_test_example",
     STRIPE_CONNECT_CLIENT_ID: "ca_example",
     STRIPE_CONNECT_STATE_SECRET: "state-secret",
@@ -234,22 +215,21 @@ test("Stripe Connect secrets stay in server configuration", () => {
 
 test("the public URL rejects credentials and non-HTTP schemes", () => {
   assert.throws(
-    () => loadTestConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true", SLAYER_PUBLIC_URL: "file:///tmp/slayer" }),
+    () => loadTestConfig({ SLAYER_PUBLIC_URL: "file:///tmp/slayer" }),
     /must be an HTTPS origin/,
   );
   assert.throws(
-    () => loadTestConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true", SLAYER_PUBLIC_URL: "https://user:secret@example.test" }),
+    () => loadTestConfig({ SLAYER_PUBLIC_URL: "https://user:secret@example.test" }),
     /must be an HTTPS origin/,
   );
   assert.throws(
-    () => loadTestConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true", SLAYER_PUBLIC_URL: "http://slayer.example.test" }),
+    () => loadTestConfig({ SLAYER_PUBLIC_URL: "http://slayer.example.test" }),
     /must be an HTTPS origin/,
   );
 });
 
 test("native JMAP email configuration is independent of MCP", () => {
   const config = loadTestConfig({
-    SLAYER_ALLOW_UNAUTHENTICATED: "true",
     SLAYER_JMAP_SESSION_URL: "https://mail.example.test/jmap/session",
     SLAYER_JMAP_ACCESS_TOKEN: "jmap-secret",
     SLAYER_JMAP_ACCOUNT_ID: "account1",
@@ -267,7 +247,7 @@ test("native JMAP email configuration is independent of MCP", () => {
 });
 
 test("text request attachments have a separate bounded upload limit", () => {
-  const defaults = loadTestConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true" });
+  const defaults = loadTestConfig();
   assert.equal(defaults.maxToolCalls, 128);
   assert.equal(defaults.contextRolloverPercent, 65);
   assert.equal(defaults.conversationCheckpointCharacters, 48 * 1024);
@@ -276,7 +256,6 @@ test("text request attachments have a separate bounded upload limit", () => {
   assert.equal(defaults.maxRequestAttachmentBytes, 50 * 1024 * 1024);
   assert.equal(defaults.maxAttachmentContextCharacters, 64 * 1024);
   const configured = loadTestConfig({
-    SLAYER_ALLOW_UNAUTHENTICATED: "true",
     SLAYER_MAX_TEXT_ATTACHMENT_BYTES: "8192",
     SLAYER_MAX_REQUEST_ATTACHMENT_BYTES: "67108864",
     SLAYER_MAX_ATTACHMENT_CONTEXT_CHARACTERS: "4096",
@@ -288,7 +267,6 @@ test("text request attachments have a separate bounded upload limit", () => {
 
 test("context rollover and inline result limits are configurable", () => {
   const configured = loadTestConfig({
-    SLAYER_ALLOW_UNAUTHENTICATED: "true",
     SLAYER_CONTEXT_ROLLOVER_PERCENT: "72.5",
     SLAYER_CONVERSATION_CHECKPOINT_CHARACTERS: "24000",
     SLAYER_MAX_INLINE_TOOL_RESULT_CHARACTERS: "12000",
@@ -299,11 +277,10 @@ test("context rollover and inline result limits are configurable", () => {
 });
 
 test("public web reads have bounded network limits", () => {
-  const defaults = loadTestConfig({ SLAYER_ALLOW_UNAUTHENTICATED: "true" });
+  const defaults = loadTestConfig();
   assert.equal(defaults.webPageTimeoutMs, 15_000);
   assert.equal(defaults.webPageMaximumBytes, 2 * 1024 * 1024);
   const configured = loadTestConfig({
-    SLAYER_ALLOW_UNAUTHENTICATED: "true",
     SLAYER_WEB_PAGE_TIMEOUT_MS: "9000",
     SLAYER_WEB_PAGE_MAX_BYTES: "524288",
   });

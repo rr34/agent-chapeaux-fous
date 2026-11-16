@@ -317,8 +317,8 @@ Migration verification captured on 2026-08-23 at approximately 22:18 EDT:
   and `www` names.
 - HTTPS reached the Chapeaux Fous application. An unauthenticated `HEAD` request
   returned HTTP 401, which is expected for this protected application.
-- Browser credentials are origin-scoped, so the access token must be entered
-  again at the new hostname. OAuth integrations may also require reconnection
+- Browser sessions are origin-scoped, so users must sign in again at the new
+  hostname. OAuth integrations may also require reconnection
   after changing `SLAYER_PUBLIC_URL`.
 - The legacy hostname's final redirect behavior was not captured. Verify it
   before disabling or removing `/etc/nginx/sites-available/agent.nathanruffing.com.conf`.
@@ -348,15 +348,14 @@ The revision and schema values above are historical observations, not desired
 versions. After every deployment, use `/health`, `git rev-parse --short HEAD`,
 and `npm run db:verify` to establish the new live state.
 
-The production `.env` must contain at least the listener/public-origin settings
-and private access token below. Keep any enabled MCP credentials in the same
-untracked file:
+The production `.env` must contain the listener/public-origin and Time v3
+identity settings. Keep any enabled MCP credentials in the same untracked file:
 
 ```dotenv
 SLAYER_HOST=127.0.0.1
 SLAYER_PORT=8787
 SLAYER_PUBLIC_URL=https://chapeauxfous.com
-SLAYER_ACCESS_TOKEN=<private-random-secret>
+TIMEV3_AUTH_PUBLIC_URL=https://auth.chapeauxfous.com
 # Required while the TLOM MCP entry remains enabled:
 TLOM_ACCESS_TOKEN=<private-tlom-token>
 ```

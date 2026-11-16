@@ -1,5 +1,3 @@
-const TOKEN_KEY = "agent-slayer-token";
-
 export class ApiError extends Error {
   status: number;
   code: string;
@@ -12,20 +10,8 @@ export class ApiError extends Error {
   }
 }
 
-export function getAccessToken() {
-  try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; }
-}
-
-export function setAccessToken(token: string) {
-  localStorage.setItem(TOKEN_KEY, token.trim());
-  window.dispatchEvent(new Event("slayer-token-change"));
-}
-
 function headers(extra?: HeadersInit) {
-  const result = new Headers(extra);
-  const token = getAccessToken();
-  if (token) result.set("Authorization", `Bearer ${token}`);
-  return result;
+  return new Headers(extra);
 }
 
 export async function api<T>(url: string, options: RequestInit = {}): Promise<T> {
