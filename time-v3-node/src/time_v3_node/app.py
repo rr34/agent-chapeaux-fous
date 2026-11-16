@@ -11,7 +11,7 @@ from re import sub
 from typing import Callable
 
 from .client import TimeV3Client
-from .audio import AudioPlayer, OpusRecorder
+from .audio import AudioPlayer, OpusRecorder, VOICE_MESSAGE_MAX_SECONDS
 from .document import LcdDocument
 from .hardware import Display, Keypad, Mpu6050, LEFT_ARROW, RECORD_DOT, RIGHT_ARROW
 from .menu import Menu
@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 MOTION_REFRESH_SECONDS = 0.2
 GYRO_CALIBRATION_SAMPLES = 100
 GYRO_CALIBRATION_INTERVAL_SECONDS = 0.01
-VOICE_MESSAGE_MAX_SECONDS = 60
 
 
 def plain_body(value: str | None) -> str:
@@ -285,17 +284,24 @@ class NodeApplication:
         contact = self.message_contacts[self.message_contact_index]
         try:
             await asyncio.to_thread(self.client.send_voice, int(contact["contact_id"]), self.recording_path)
-            self.recording_path.unlink(missing_ok=True)
-            self.recording_path = None
+        except Exception:
+            logger.exception("Could not deliver voice message")
+            self.screen = "message_review"
+            self.show_recording_review("SEND FAILED - RETRY")
+            return
+        self.recording_path.unlink(missing_ok=True)
+        self.recording_path = None
+        try:
             self.message_items = await asyncio.to_thread(self.client.conversation, int(contact["person_id"]), 200)
             self.message_index = 0
             self.offset = 0
             self.screen = "message_item"
             self.show_message_item()
         except Exception:
-            logger.exception("Could not send voice message")
-            self.screen = "message_review"
-            self.show_recording_review("SEND FAILED - RETRY")
+            logger.exception("Voice message was delivered, but the conversation could not refresh")
+            self.screen = "message_item"
+            self.message_notice = "SENT - REFRESH LATER"
+            self.show_message_item()
 
     def stop_playback(self) -> None:
         if self.player:

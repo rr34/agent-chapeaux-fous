@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -17,8 +18,20 @@ class TimeV3Client:
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         request = Request(f"{self.server_url}{path}", data=encoded, method=method, headers=headers)
-        with urlopen(request, timeout=20) as response:
-            return json.load(response)
+        return self._request_json(request, timeout=20)
+
+    @staticmethod
+    def _request_json(request: Request, timeout: int) -> dict:
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                return json.load(response)
+        except HTTPError as error:
+            try:
+                body = json.loads(error.read().decode("utf-8"))
+                message = str(body.get("error") or error.reason)
+            except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+                message = str(error.reason)
+            raise RuntimeError(f"Time v3 server returned HTTP {error.code}: {message}") from error
 
     def messages(self, limit: int = 100) -> list[dict]:
         query = urlencode({"medium": "timev3", "limit": limit})
@@ -43,8 +56,7 @@ class TimeV3Client:
             data=recording.read_bytes(), method="POST",
             headers={"Content-Type": "audio/ogg", "Authorization": f"Bearer {self.token}"},
         )
-        with urlopen(request, timeout=60) as response:
-            return json.load(response)
+        return self._request_json(request, timeout=60)
 
     def download_recording(self, correspondence_id: int, target: Path) -> Path:
         request = Request(
