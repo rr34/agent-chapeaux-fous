@@ -445,6 +445,7 @@ export function relevantObjectReferenceCatalog(groups, {
   alwaysRefs = [],
   maximumObjects = 24,
 } = {}) {
+  const normalizedGroups = normalizeObjectReferenceGroups(groups);
   const evidence = String(evidenceText ?? "").normalize("NFKC").toLowerCase();
   const evidenceTokens = relevanceTokens(evidence);
   const requiredRefs = new Set(alwaysRefs.filter((value) => typeof value === "string" && value));
@@ -456,14 +457,34 @@ export function relevantObjectReferenceCatalog(groups, {
     ...(/\b(?:selected|those|these|all|two|three|four|five|six|seven|eight|nine|ten|\d+)\b[^.\n]{0,40}\b(?:contacts?|people)\b/iu.test(evidence)
       ? ["contacts.contact"] : []),
   ]);
+  const groupCountByType = new Map();
+  for (const group of normalizedGroups) {
+    groupCountByType.set(group.type, (groupCountByType.get(group.type) ?? 0) + 1);
+  }
+  const genericGroupTokens = new Set([
+    "candidate", "candidates", "context", "event", "events", "item", "items",
+    "native", "object", "objects", "recent", "result", "results", "returned",
+    "task", "tasks", "todo", "todos",
+  ]);
   const ranked = [];
   let order = 0;
-  for (const group of normalizeObjectReferenceGroups(groups)) {
+  for (const group of normalizedGroups) {
+    const groupTokens = relevanceTokens(group.mention);
+    const groupHasDistinctiveEvidence = [...groupTokens].some((token) => (
+      !genericGroupTokens.has(token) && evidenceTokens.has(token)
+    ));
+    // A plural phrase can preserve a whole prior batch, but it must not promote
+    // every historical group of that domain. Exact saved-set members are kept
+    // by requiredRefs; otherwise require either one unambiguous candidate group
+    // or literal evidence that distinguishes this producer group.
+    const pluralGroupSelected = selectedPluralTypes.has(group.type) && (
+      groupCountByType.get(group.type) === 1 || groupHasDistinctiveEvidence
+    );
     for (const object of group.objects) {
       const display = String(object.display ?? "").normalize("NFKC").toLowerCase();
       const tokens = relevanceTokens(display);
       let score = requiredRefs.has(object.ref) ? 10_000 : 0;
-      if (selectedPluralTypes.has(group.type)) score += 300;
+      if (pluralGroupSelected) score += 300;
       if (display.length >= 3 && evidence.includes(display)) score += 500;
       if (evidence.includes(String(object.ref).toLowerCase())) score += 500;
       if (Number.isSafeInteger(object.id) && new RegExp(`(?:#|\\b)${object.id}\\b`, "u").test(evidence)) {

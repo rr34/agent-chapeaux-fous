@@ -604,3 +604,29 @@ test("orientation relevance retains a complete explicitly described plural selec
   });
   assert.deepEqual(relevant[0].objects.map(({ id }) => id), [1, 2, 3, 4, 5]);
 });
+
+test("plural orientation evidence does not admit unrelated historical groups of the same type", () => {
+  const groups = [{
+    mention: "Family Documents selected tasks", role: "subject", type: "todos.personal_task",
+    source: "native:todos",
+    objects: [409, 410, 411].map((id) => ({
+      id, ref: `agent-slayer://todos/${id}`, display: `Family document ${id}`,
+    })),
+    sourceEventSeqs: [40_200],
+  }, {
+    mention: "Recent native to-do candidates", role: "subject", type: "todos.personal_task",
+    source: "native:todos",
+    objects: [507, 512, 532].map((id) => ({
+      id, ref: `agent-slayer://todos/${id}`, display: `Unrelated agent task ${id}`,
+    })),
+    sourceEventSeqs: [40_201],
+  }];
+
+  const relevant = relevantObjectReferenceCatalog(groups, {
+    evidenceText: "Correct all three selected to-do tasks from Family Documents.",
+  });
+  assert.deepEqual(
+    relevant.flatMap(({ objects }) => objects.map(({ id }) => id)),
+    [409, 410, 411],
+  );
+});

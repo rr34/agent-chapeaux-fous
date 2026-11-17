@@ -857,7 +857,10 @@ Orientation receives the exact request, verified attachment context, a brief
 relevant conversation view, prior objective and open questions, explicit hats
 and selections, and concise descriptions of connected capability families. It
 does not receive callable schemas, exact tool names, audit policy, or unrelated
-historical bindings. It emits a strict common-sense core: the end goal, a
+historical bindings. A plural phrase can retain one exact prior batch, but it
+does not promote every historical binding of that object type; saved sets,
+explicit selections, and literal producer-group evidence preserve the intended
+members. It emits a strict common-sense core: the end goal, a
 batch-shaped action list, stable target references, relevant constraints,
 genuine questions, bounded context requests, and capability families. Every
 action receives one application-assigned request-local identity and contains
