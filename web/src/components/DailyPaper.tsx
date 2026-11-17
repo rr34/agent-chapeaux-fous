@@ -7,10 +7,28 @@ import { CalendarEventItem } from "./EditableItems";
 import { matchesSearch, searchTerms } from "../search-filter";
 import { compareSequenceValuesDescending } from "../sequence-order";
 
-function timeLabel(event: CalendarEvent, timeZone: string) {
+function localDateForTimeLabel(value: string, timeZone: string) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(value)).map(({ type, value: part }) => [type, part]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+export function calendarDayTimeLabel(event: CalendarEvent, localDate: string, displayTimeZone?: string) {
   if (event.isAllDay) return "All day";
+  const timeZone = displayTimeZone || event.timeZone || "UTC";
   const start = formatDisplayTime(event.startsAtUtc, timeZone);
-  return event.endsAtUtc ? `${start}–${formatDisplayTime(event.endsAtUtc, timeZone)}` : start;
+  if (!event.endsAtUtc) return start;
+  const end = formatDisplayTime(event.endsAtUtc, timeZone);
+  const startsToday = localDateForTimeLabel(event.startsAtUtc, timeZone) === localDate;
+  const endsToday = localDateForTimeLabel(event.endsAtUtc, timeZone) === localDate;
+  if (startsToday && endsToday) return `${start}-\n${end}`;
+  if (startsToday) return `${start}-`;
+  if (endsToday) return `-${end}`;
+  return "-";
 }
 
 function calendarRangeMarkerLabel(localDate: string) {
@@ -31,6 +49,7 @@ export function CalendarGrid({
   ariaLabel = "Two-week calendar",
   id,
   searchQuery = "",
+  timeZone,
 }: {
   days: CalendarDay[];
   compact?: boolean;
@@ -39,6 +58,7 @@ export function CalendarGrid({
   ariaLabel?: string;
   id?: string;
   searchQuery?: string;
+  timeZone?: string;
 }) {
   const eventLimit = 8;
   const isSearching = searchTerms(searchQuery).length > 0;
@@ -64,7 +84,7 @@ export function CalendarGrid({
             <span className="calendar-cell-events">
               {visibleEvents.map((event) => (
                 <span className={`calendar-chip ${isSearching && matchesSearch(event, searchQuery) ? "is-search-match" : ""}`} key={`${day.localDate}-${event.id}-${event.startsAtUtc}`}>
-                  {(compact || !event.isAllDay) && <time>{timeLabel(event, event.timeZone || "UTC").split("–")[0]}</time>}
+                  {(compact || !event.isAllDay) && <time>{calendarDayTimeLabel(event, day.localDate, timeZone)}</time>}
                   <span className="calendar-chip-copy">
                     <span className="multiline-item-text">{event.title}</span>
                   </span>
@@ -199,6 +219,7 @@ export function DailyPaper({ model, preview = false }: { model: DailyPaperModel;
       <CalendarGrid
         days={model.printCalendarDays}
         compact
+        timeZone={model.timeZone}
         ariaLabel="Weekly printable calendar"
       />
 

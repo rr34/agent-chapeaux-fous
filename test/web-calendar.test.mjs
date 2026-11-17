@@ -96,12 +96,23 @@ test("printable calendar renders every event in crowded days", () => {
   assert.doesNotMatch(calendarSource, /compact \? 3/);
   assert.match(calendarSource, /\+\{day\.events\.length - visibleEvents\.length\} more/);
   assert.doesNotMatch(calendarSource, /calendar-chip-description/);
-  assert.match(calendarSource, /\(compact \|\| !event\.isAllDay\) && <time>/);
+  assert.match(calendarSource, /\(compact \|\| !event\.isAllDay\) && <time>\{calendarDayTimeLabel\(event, day\.localDate, timeZone\)\}<\/time>/);
   assert.match(styles, /\.calendar-chip \{[^}]*align-items: flex-start;/s);
   assert.match(styles, /\.calendar-chip time \+ span \{[^}]*flex: 1 1 auto;/s);
   assert.match(styles, /\.two-week-grid--compact \.calendar-chip \{[^}]*grid-template-columns: \.34in minmax\(0, 1fr\);[^}]*display: grid;/s);
-  assert.match(styles, /\.two-week-grid--compact \.calendar-chip time \{[^}]*text-align: right;[^}]*white-space: nowrap;/s);
+  assert.match(styles, /\.calendar-chip time \{[^}]*white-space: pre-line;/s);
+  assert.match(styles, /\.two-week-grid--compact \.calendar-chip time \{[^}]*text-align: right;[^}]*white-space: pre-line;/s);
   assert.match(styles, /\.calendar-event-card\.paper-calendar-event-card > \.first-class-object-content > \.first-class-object-body \{[^}]*grid-column: 2;[^}]*overflow: visible;[^}]*white-space: pre-wrap;[^}]*-webkit-line-clamp: unset;/s);
+});
+
+test("calendar event chips show day-aware start and end times on separate lines", () => {
+  assert.match(calendarSource, /export function calendarDayTimeLabel/);
+  assert.match(calendarSource, /if \(startsToday && endsToday\) return `\$\{start\}-\\n\$\{end\}`/);
+  assert.match(calendarSource, /if \(startsToday\) return `\$\{start\}-`/);
+  assert.match(calendarSource, /if \(endsToday\) return `-\$\{end\}`/);
+  assert.match(calendarSource, /return "-";/);
+  assert.match(appSource, /<CalendarGrid[^>]*timeZone=\{data\.timeZone\}/);
+  assert.match(calendarSource, /<CalendarGrid[\s\S]*timeZone=\{model\.timeZone\}[\s\S]*ariaLabel="Weekly printable calendar"/);
 });
 
 test("the printed calendar contains only events and keeps pinned groups below it", () => {

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import { attachModelInputAttachments, modelInputAttachments } from "./model-input-attachments.mjs";
 import { canonicalizeAgentName } from "./agent-name.mjs";
+import { referencedExchangeContext } from "./context.mjs";
 import { formatUserFacingDates } from "../public/presentation-format.js";
 import {
   completionReceiptFindings,
@@ -49,6 +50,11 @@ import {
   intentPreflightProblems,
   matchIntentOutcomes,
 } from "./intent-continuity.mjs";
+import {
+  createIntentState,
+  observeIntentState,
+  reconcileIntentState,
+} from "./intent-state.mjs";
 import { outcomeEvidenceReferences } from "./outcome-evidence-bindings.mjs";
 import {
   temporalConsistencyFindings,
@@ -1169,6 +1175,7 @@ export class SlayerRuntime {
           ? orientationBaseContext.localCalendar ?? null
           : null,
       }),
+      referencedExchangeContext(referencedExchanges, 8_000, false),
       args.supplementalInstructions,
     );
     let orientation = await this.#runStructuredStep({
@@ -1482,6 +1489,17 @@ export class SlayerRuntime {
       subjectType: "conversation_state", subjectId: "main",
     });
 
+    let intentState = createIntentState({ requestId: args.requestId, core });
+    const persistIntentState = (stage) => this.ledger.append({
+      type: "intent.state", status: "complete", actorType: "service",
+      actorName: "Intent state reconciler", channel, turnId: args.requestId,
+      name: `Intent state: ${stage}`,
+      content: `${intentState.remaining.status}; ${intentState.remaining.items.length} remaining item(s)`,
+      payload: { stage, state: intentState, sourceRequestId: args.requestId },
+      subjectType: "intent_state", subjectId: args.requestId,
+    });
+    persistIntentState("orientation");
+
     const explicitHatCapabilities = routing.explicitHats
       .filter(({ available }) => available)
       .map(({ capability }) => capability);
@@ -1596,6 +1614,7 @@ export class SlayerRuntime {
           preparedCapabilityContext,
           recentToolReceipts,
           capabilityGuidance: acceptedToolCompilation.instructions,
+          intentState,
         }),
         outputSchema: toolSelectionSchema({ toolNames: selectableToolNames }),
         runTimeoutMs: remainingTimeoutMs(),
@@ -1610,6 +1629,26 @@ export class SlayerRuntime {
     const executionToolNames = candidateTools
       .map(({ name }) => name)
       .filter((name) => selectedToolNameSet.has(name));
+    const executionSupplementalInstructions = (state) => joinedInstructions(
+      args.supplementalInstructions,
+      commonSenseExecutionInstructions(
+        core,
+        executionObjectReferences,
+        confirmedActionReferences,
+        acceptedReferenceSets,
+        selectedObjectCandidates,
+        state,
+      ),
+      [
+        "# Tool-selection brief",
+        "This is a schema-free operational starting point, not an argument plan. Refine it from the exact callable contracts and actual results; request another exact tool from the accepted capability families if the current set cannot finish the accepted intent.",
+        JSON.stringify({
+          summary: toolSelectionBrief.summary,
+          selectedTools: executionToolNames,
+        }, null, 2),
+      ].join("\n"),
+      priorReceiptInstructions(recentToolReceipts),
+    );
     const executorArgs = {
       ...args,
       capabilityOverride: executionCapabilities.length ? executionCapabilities : null,
@@ -1618,25 +1657,7 @@ export class SlayerRuntime {
         maxToolCalls: configuredMaxToolCalls,
         timeoutMs: remainingTimeoutMs(),
       },
-      supplementalInstructions: joinedInstructions(
-        args.supplementalInstructions,
-        commonSenseExecutionInstructions(
-          core,
-          executionObjectReferences,
-          confirmedActionReferences,
-          acceptedReferenceSets,
-          selectedObjectCandidates,
-        ),
-        [
-          "# Tool-selection brief",
-          "This is a schema-free operational starting point, not an argument plan. Refine it from the exact callable contracts and actual results; request another exact tool from the accepted capability families if the current set cannot finish the accepted intent.",
-          JSON.stringify({
-            summary: toolSelectionBrief.summary,
-            selectedTools: executionToolNames,
-          }, null, 2),
-        ].join("\n"),
-        priorReceiptInstructions(recentToolReceipts),
-      ),
+      supplementalInstructions: executionSupplementalInstructions(intentState),
       activeActionReferences: relevantActionReferences,
       confirmedActionReferences,
       preparedCapabilityContext,
@@ -1713,9 +1734,21 @@ export class SlayerRuntime {
       confirmedActionReferences,
     );
     const terminalFindings = terminalToolFailureFindings(execution.receipts);
+    intentState = observeIntentState(intentState, {
+      stage: "execution",
+      receipts: execution.receipts,
+      findings: [...receiptFindings, ...confirmationFindings, ...terminalFindings],
+    });
+    persistIntentState("execution");
 
     if (terminalFindings.length > 0) {
       const notice = terminalToolFailureNotice(terminalFindings);
+      intentState = reconcileIntentState(intentState, {
+        stage: "execution",
+        outcome: "blocked",
+        remaining: terminalFindings.map(({ message }) => message),
+      });
+      persistIntentState("execution_blocked");
       this.ledger.append({
         type: "tool.retry.blocked", phase: "error", status: "error", actorType: "service",
         actorName: "Tool contract guard", channel, turnId: args.requestId,
@@ -1729,6 +1762,12 @@ export class SlayerRuntime {
     }
     if (confirmationFindings.length > 0) {
       const response = pendingConfirmationResponse(execution.text);
+      intentState = reconcileIntentState(intentState, {
+        stage: "execution",
+        outcome: "needs_information",
+        remaining: confirmationFindings.map(({ message }) => message),
+      });
+      persistIntentState("awaiting_confirmation");
       this.ledger.append({
         type: "confirmation.required", phase: "end", status: "complete", actorType: "service",
         actorName: "Confirmation gate", channel, turnId: args.requestId,
@@ -1767,6 +1806,11 @@ export class SlayerRuntime {
         actorName: "Structured turn workflow", channel, turnId: args.requestId, operationId,
         name: "Audit skipped", content: auditPayload.reason, payload: auditPayload,
       });
+      intentState = reconcileIntentState(intentState, {
+        stage: "audit_skipped",
+        outcome: "complete",
+      });
+      persistIntentState("complete");
       return execution.text;
     }
 
@@ -1787,10 +1831,18 @@ export class SlayerRuntime {
         reasons: auditReasons,
         callableTools: execution.callableToolCatalog,
         selectedObjectCandidates,
+        intentState,
       }),
       outputSchema: completionAuditSchema,
       runTimeoutMs: remainingTimeoutMs(),
     });
+    intentState = reconcileIntentState(intentState, {
+      stage: "audit",
+      outcome: audit.value.outcome,
+      remaining: audit.value.remaining,
+      causes: audit.value.outcome === "complete" ? [] : auditReasons,
+    });
+    persistIntentState("audit");
     if (audit.value.outcome === "needs_information") return execution.text;
     if (audit.value.outcome === "blocked") return blockedAuditResponse(audit.value);
     if (audit.value.outcome !== "repair_needed" && executionFindings.length === 0) {
@@ -1821,7 +1873,7 @@ export class SlayerRuntime {
         timeoutMs: remainingTimeoutMs(),
       },
       supplementalInstructions: joinedInstructions(
-        executorArgs.supplementalInstructions,
+        executionSupplementalInstructions(intentState),
         "# Exceptional audit requires correction",
         JSON.stringify(audit.value, null, 2),
         "# Deterministic receipt findings",
@@ -1836,6 +1888,17 @@ export class SlayerRuntime {
     });
     const repairTerminalFindings = terminalToolFailureFindings(repair.receipts);
     if (repairTerminalFindings.length) {
+      intentState = observeIntentState(intentState, {
+        stage: "repair",
+        receipts: repair.receipts,
+        findings: repairTerminalFindings,
+      });
+      intentState = reconcileIntentState(intentState, {
+        stage: "repair",
+        outcome: "blocked",
+        remaining: repairTerminalFindings.map(({ message }) => message),
+      });
+      persistIntentState("repair_blocked");
       return joinedInstructions(repair.text, terminalToolFailureNotice(repairTerminalFindings));
     }
     const finalFindings = completionReceiptFindings({
@@ -1848,8 +1911,20 @@ export class SlayerRuntime {
       registry: this.registry,
     });
     finalFindings.push(...repairIntentFindings.filter(({ auditOnly }) => !auditOnly));
+    intentState = observeIntentState(intentState, {
+      stage: "repair",
+      receipts: repair.receipts,
+      findings: finalFindings,
+    });
+    persistIntentState("repair");
     if (finalFindings.length) {
       const response = incompleteReceiptResponse(finalFindings);
+      intentState = reconcileIntentState(intentState, {
+        stage: "repair",
+        outcome: "repair_needed",
+        remaining: finalFindings.map(({ message }) => message),
+      });
+      persistIntentState("repair_incomplete");
       this.ledger.append({
         type: "completion.guard", phase: "error", status: "error", actorType: "service",
         actorName: "Receipt contract", channel, turnId: args.requestId,
@@ -1884,10 +1959,20 @@ export class SlayerRuntime {
         ],
         callableTools: repair.callableToolCatalog,
         selectedObjectCandidates,
+        intentState,
       }),
       outputSchema: completionAuditSchema,
       runTimeoutMs: remainingTimeoutMs(),
     });
+    intentState = reconcileIntentState(intentState, {
+      stage: "repair_audit",
+      outcome: repairAudit.value.outcome,
+      remaining: repairAudit.value.remaining,
+      causes: repairAudit.value.outcome === "complete"
+        ? []
+        : [{ code: "POST_REPAIR_AUDIT", message: repairAudit.value.summary }],
+    });
+    persistIntentState("repair_audit");
     if (repairAudit.value.outcome === "complete"
       || repairAudit.value.outcome === "needs_information") return repair.text;
     return blockedAuditResponse(repairAudit.value);

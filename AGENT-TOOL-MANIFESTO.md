@@ -711,6 +711,12 @@ Agent Slayer uses a structured loop derived from the military OODA loop:
    sets, unresolved target slots, explicit constraints, genuine questions,
    context needs, and capability families. Do not select capability resource
    types, exact tools, result shapes, or audits.
+   The application then projects that accepted core into a compact persistent
+   intent state whose always-present buckets are `requested`, `observed`,
+   `current`, `remaining`, and `cause`. The requested bucket is immutable for
+   the request; later buckets separate literal evidence, evidenced present
+   state, unfinished obligations, and supported causal findings instead of
+   repeatedly compressing all five into new prose.
 2. **Prepare** — deterministically verify explicit selections, read the core's
    bounded context requests, and hydrate exact bindings without another model
    interpretation.

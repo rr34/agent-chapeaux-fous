@@ -109,6 +109,45 @@ test("a singular container outcome does not cap a different member type after bi
   ), { outcomeRefs: [], bindings: [] });
 });
 
+test("a boundary-preserving plural mapping authorizes member fan-out before container binding", () => {
+  const core = semanticCore();
+  core.actions[0].semanticRoles = [{
+    role: "source_members", description: "Original to-dos", multiplicity: "many",
+    containerRole: "source_group", sameCountAs: null,
+  }, {
+    role: "source_group", description: "Original group", multiplicity: "one",
+    containerRole: null, sameCountAs: null,
+  }, {
+    role: "destination_group", description: "Existing Things group", multiplicity: "one",
+    containerRole: null, sameCountAs: null,
+  }, {
+    role: "destination_members", description: "Separate converted Things", multiplicity: "many",
+    containerRole: "destination_group", sameCountAs: "source_members",
+  }];
+  core.actions[0].mappings = [{
+    fromRole: "source_members", toRole: "destination_members", shape: "one_to_one",
+    coverage: "all", preserveMemberBoundaries: true,
+  }];
+  const itemDefinition = createDefinition("physical_item_create", "things.physical_item");
+  const calls = Array.from({ length: 15 }, (_, index) => ({
+    callId: `item-${index + 1}`,
+    tool: "physical_item_create",
+    arguments: { physical_item_group_id: 1, name: `Document ${index + 1}` },
+  }));
+
+  assert.deepEqual(intentPreflightProblems({
+    core,
+    calls,
+    toolDefinitions: new Map([["physical_item_create", itemDefinition]]),
+  }), []);
+  assert.deepEqual(matchIntentOutcomes(
+    core,
+    references("things.physical_item", "physical-items", 2),
+    itemDefinition,
+    references("things.physical_item", "physical-items", 2),
+  ), { outcomeRefs: [], bindings: [] });
+});
+
 test("inferred outcome structure remains advisory and does not reject calls", () => {
   const problems = intentPreflightProblems({
     core: semanticCore({ basis: "inferred" }),

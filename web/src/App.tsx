@@ -1597,7 +1597,7 @@ function CalendarScreen({ generationNotice, dismissGenerationNotice }: {
       <section className="surface calendar-overview">
         <div className="section-title"><div><p className="eyebrow">Two weeks</p><h2>{data.rangeHeading}</h2></div><div className="calendar-overview-actions"><button className="button button--quiet" type="button" onClick={() => { setSelectedDate(date); setDisplayDate(date); }}>Today</button><button className="button button--quiet" type="button" onClick={() => window.print()}>Print browser view</button></div></div>
         <button className="calendar-range-arrow" type="button" aria-label="Previous week" aria-controls="calendar-grid" title="Previous week" onClick={() => setDisplayDate((current) => shiftLocalDate(current, -7))}>▲</button>
-        <CalendarGrid id="calendar-grid" days={data.calendarDays} selectedDate={selectedDate} onSelect={setSelectedDate} searchQuery={filterQuery} />
+        <CalendarGrid id="calendar-grid" days={data.calendarDays} selectedDate={selectedDate} onSelect={setSelectedDate} searchQuery={filterQuery} timeZone={data.timeZone} />
         <button className="calendar-range-arrow" type="button" aria-label="Next week" aria-controls="calendar-grid" title="Next week" onClick={() => setDisplayDate((current) => shiftLocalDate(current, 7))}>▼</button>
       </section>
       <section className="surface calendar-day-plan"><p className="eyebrow">{formatLocalDate(selectedDate)}</p><h2>Selected day’s plan</h2><p className="calendar-day-plan-intro">Events are expanded by default so notes and contacts are visible.</p><DayTimeline events={selectedEvents} timeZone={data.timeZone} defaultExpanded onChanged={reload} /></section>

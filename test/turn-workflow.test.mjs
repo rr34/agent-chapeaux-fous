@@ -374,6 +374,16 @@ test("the normal mutation path orients, selects tools without schemas, executes,
     registry,
     ledger,
     requests,
+    toolSelectionRunTurn: async (payload) => {
+      assert.match(payload.developerInstructions, /## Persistent intent state/u);
+      assert.match(payload.developerInstructions, /"remaining":\s*\{/u);
+      assert.match(payload.developerInstructions, /"cause":\s*\[\]/u);
+      return completed(JSON.stringify({
+        version: 1,
+        summary: "Update the exact calendar event.",
+        selectedTools: ["calendar_event_update"],
+      }));
+    },
     runTurn: async (payload, index) => {
       if (index === 0) {
         assert.equal(payload.tools.length, 0);
@@ -390,6 +400,8 @@ test("the normal mutation path orients, selects tools without schemas, executes,
       }
       assert.equal(index, 1);
       assert.deepEqual(payload.tools.map(({ name }) => name), ["calendar_event_update"]);
+      assert.match(payload.developerInstructions, /# Persistent intent state/u);
+      assert.match(payload.developerInstructions, /"requested":\s*\{/u);
       const result = await payload.onToolCall({
         callId: "update-event",
         tool: "calendar_event_update",
@@ -409,6 +421,19 @@ test("the normal mutation path orients, selects tools without schemas, executes,
   assert.equal(ledger.events.some(({ payload }) => payload?.workflowStep === "tool_selection"), true);
   assert.equal(ledger.events.some(({ payload }) => payload?.workflowStep === "orientation_context"), false);
   assert.equal(ledger.events.find(({ name }) => name === "Audit skipped").payload.skipped, true);
+  const intentStates = ledger.events.filter(({ type }) => type === "intent.state");
+  assert.deepEqual(intentStates.map(({ payload }) => payload.stage), [
+    "orientation", "execution", "complete",
+  ]);
+  assert.deepEqual(Object.keys(intentStates[0].payload.state).filter((key) => [
+    "requested", "observed", "current", "remaining", "cause",
+  ].includes(key)), ["requested", "observed", "current", "remaining", "cause"]);
+  assert.deepEqual(
+    intentStates[2].payload.state.requested,
+    intentStates[0].payload.state.requested,
+    "execution and reconciliation must not rewrite requested intent",
+  );
+  assert.equal(intentStates[2].payload.state.remaining.status, "complete");
 });
 
 test("a confirmed action keeps its shared target tool available while another action remains pending", async () => {
@@ -1590,6 +1615,13 @@ test("an explicitly referenced reusable exchange supplies tool-boundary identity
     }],
     referencedExchanges: [{
       requestId: "request-prior-task",
+      requestEventId: "event-prior-task",
+      requestEventSeq: 4,
+      requestSourceEventSeq: 4,
+      responseEventSeq: 6,
+      submittedAtUtc: "2026-11-16T12:00:00.000Z",
+      request: "Complete Call Alice and preserve the task identity.",
+      response: "Completed Call Alice.",
       status: "complete",
       taskOutcome: "complete",
       objectReferencePolicy: "reusable",
@@ -1632,6 +1664,9 @@ test("an explicitly referenced reusable exchange supplies tool-boundary identity
     requests,
     runTurn: async (payload, index) => {
       if (index === 0) {
+        assert.match(payload.developerInstructions, /# Explicitly referenced exchanges/u);
+        assert.match(payload.developerInstructions, /Complete Call Alice and preserve the task identity\./u);
+        assert.match(payload.developerInstructions, /Completed Call Alice\./u);
         assert.match(payload.developerInstructions, /agent-slayer:\/\/todos\/178/u);
         assert.match(payload.developerInstructions, /agent-slayer:\/\/contacts\/44/u);
         assert.doesNotMatch(payload.developerInstructions, /agent-slayer:\/\/calendar-events\/99/u);

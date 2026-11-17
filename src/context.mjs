@@ -48,7 +48,7 @@ function boundedContinuationAnchor(history, maximum = 3_000) {
   return `${prefix}${text.slice(-(maximum - prefix.length))}`;
 }
 
-function referencedExchangeContext(exchanges, maximum = 8_000, includeObjectReferences = true) {
+export function referencedExchangeContext(exchanges, maximum = 8_000, includeObjectReferences = true) {
   if (!exchanges.length) return null;
   const contentCharactersPerExchange = Math.max(
     300,

@@ -703,6 +703,9 @@ The paper shows the selected Monday-to-Sunday week followed by the next week.
 The calendar contains only events. Each seven-day row grows to its busiest day
 and reserves at least three additional event-row heights of blank space below
 it, giving every day in that week matching writing room.
+Timed event chips place the end time below the start time. For an event spanning
+multiple days, each day shows only its local boundary: `start-`, `-end`, or `-`
+when the event both started before and ends after that day.
 Below it, a full-width **Pinned to-do groups** section contains the open tasks
 from every group pinned to the paper. Each group's to-do cards use a two-column
 grid by default and wrap their text within the card. The print preview is a
@@ -878,8 +881,22 @@ common-sense core deliberately moves multiplicity and mapping shape from prose
 inside the core to machine-checkable JSON fields; the exact request remains
 authoritative, and the prose objective and instructions remain its readable
 semantic summary.
+After orientation, the application also creates a compact persistent intent
+state with five always-present buckets: `requested`, `observed`, `current`,
+`remaining`, and `cause`. `requested` is a stable projection of the accepted
+core and is never rewritten by execution. Literal receipt evidence fills
+`observed`; authoritative evidenced facts fill `current`; audit reconciliation
+places only unfinished obligations in `remaining`; and `cause` contains only
+receipt- or audit-supported explanations with an explicit active or resolved
+status. The state is recorded at workflow
+boundaries and supplied to tool selection, execution, exceptional audit, and
+repair. This explicitly replaces a single prose handoff with a small JSON
+state envelope while retaining the prose objective as its readable summary.
 Requests with an explicit semantic mapping receive exceptional receipt audit so
 textual inclusion cannot substitute for required member coverage or boundaries.
+The singleton-create fan-out guard defers to a boundary-preserving plural
+mapping even when its singular destination container already existed before the
+request and therefore produced no same-request container-creation receipt.
 A tag,
 relationship, field value, lifecycle effect, or possible tool representation
 remains in the ordinary-language action instead of being invented as an

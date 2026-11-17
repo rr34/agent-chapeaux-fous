@@ -565,6 +565,7 @@ export function toolSelectionContext({
   preparedCapabilityContext = [],
   recentToolReceipts = [],
   capabilityGuidance = "",
+  intentState = null,
 }) {
   return [
     "# Schema-free tool selection",
@@ -576,6 +577,11 @@ export function toolSelectionContext({
     "## Accepted common-sense core",
     JSON.stringify(core, null, 2),
     "",
+    ...(intentState ? [
+      "## Persistent intent state",
+      JSON.stringify(intentState, null, 2),
+      "",
+    ] : []),
     "## Verified object bindings",
     JSON.stringify(compactObjectReferenceContext(objectReferences), null, 2),
     "",
@@ -607,7 +613,7 @@ export function toolSelectionContext({
 
 export function commonSenseExecutionInstructions(
   core, objectReferences, confirmedActionReferences = [], referenceSets = [],
-  selectedObjectCandidates = [],
+  selectedObjectCandidates = [], intentState = null,
 ) {
   const selectedOccurrences = selectedCalendarOccurrenceScopes(selectedObjectCandidates);
   return [
@@ -615,6 +621,12 @@ export function commonSenseExecutionInstructions(
     "Carry out the ordinary-language objective below. The requested outcome, exact bound targets, semanticRoles, mappings, and explicit constraints remain authoritative. One overall outcome or one container never limits the number of member objects required by a role or mapping. Preserve member boundaries and mapping coverage exactly. Tool results are authoritative for current facts. When current evidence contradicts a factual premise in the request, explain the discrepancy and use the evidenced current scope; never fabricate missing records or silently replace an exact bound set or explicitly requested historical snapshot. Handle each action completely and use bulk tools for batch targets when available. A successful owning-domain read is sufficient evidence for facts it returned: do not use generic database, schema, or receipt tools to rediscover, validate, recount, or reinterpret those same facts. Use those generic reads only for a specific required fact absent from the current owning result. For non-completeness-sensitive bulk analysis, project read results to the needed fields with result_filter, including nested dot paths, and retain the correlation and pagination fields needed to judge completeness.",
     JSON.stringify(core, null, 2),
     "",
+    ...(intentState ? [
+      "# Persistent intent state",
+      "The five buckets keep the accepted request distinct from evidence and unfinished work. Preserve requested; update conclusions only from observed receipts and authoritative current facts.",
+      JSON.stringify(intentState, null, 2),
+      "",
+    ] : []),
     "# Verified object bindings",
     "These are the exact application-verified identities relevant to the request. Use their IDs directly. Do not rediscover an explicitly selected object by searching its display name. A singleton tool must not silently choose one object from a batch; use a bulk-shaped operation or clearly report the limitation.",
     JSON.stringify(compactObjectReferenceContext(objectReferences), null, 2),
@@ -639,7 +651,7 @@ export function commonSenseExecutionInstructions(
 
 export function auditContext({
   core, receipts, executorResponse, deterministicFindings = [], reasons = [], callableTools = [],
-  selectedObjectCandidates = [],
+  selectedObjectCandidates = [], intentState = null,
 }) {
   const selectedOccurrences = selectedCalendarOccurrenceScopes(selectedObjectCandidates);
   return [
@@ -652,6 +664,12 @@ export function auditContext({
     "## Accepted common-sense core",
     JSON.stringify(core, null, 2),
     "",
+    ...(intentState ? [
+      "## Persistent intent state",
+      "Reconcile observed and current against requested. Put every proven gap in remaining and only evidence-supported explanations in cause.",
+      JSON.stringify(intentState, null, 2),
+      "",
+    ] : []),
     ...(selectedOccurrences.length ? [
       "## Exact selected calendar occurrences",
       JSON.stringify(selectedOccurrences, null, 2),

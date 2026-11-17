@@ -409,7 +409,7 @@ button.calendar-cell:focus-visible { outline: 3px solid rgb(var(--theme-base-rgb
 .calendar-chip { min-width: 0; display: flex; align-items: flex-start; gap: 4px; padding-left: 5px; border-left: 2px solid var(--rust); font-size: 10px; line-height: 1.25; }
 .two-week-grid.is-searching .calendar-chip { opacity: .24; }
 .two-week-grid.is-searching .calendar-chip.is-search-match { margin: -2px; padding: 2px 2px 2px 7px; border-left-width: 3px; border-radius: 4px; background: #fff1c9; box-shadow: 0 0 0 1px #d4ad50; opacity: 1; }
-.calendar-chip time { flex: 0 0 auto; color: var(--muted); font-size: 8px; }
+.calendar-chip time { flex: 0 0 auto; color: var(--muted); font-size: 8px; line-height: 1.15; white-space: pre-line; }
 .calendar-chip span { min-width: 0; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
 .calendar-chip-copy { flex: 1 1 auto; display: grid; }
 .calendar-chip time + span { flex: 1 1 auto; }
@@ -760,7 +760,7 @@ button.editable-object-content:focus-visible, button.todo-item-content:focus-vis
 .two-week-grid--compact .calendar-cell-events { gap: .012in; padding-top: .025in; }
 .two-week-grid--compact .calendar-chip { grid-template-columns: .34in minmax(0, 1fr); align-items: start; column-gap: .025in; display: grid; padding-left: .025in; font-size: 5.5pt; line-height: 1.15; }
 .two-week-grid--compact .calendar-chip-copy { overflow: visible; }
-.two-week-grid--compact .calendar-chip time { width: 100%; overflow: visible; font-size: 4.8pt; text-align: right; white-space: nowrap; }
+.two-week-grid--compact .calendar-chip time { width: 100%; overflow: visible; font-size: 4.8pt; text-align: right; white-space: pre-line; }
 .two-week-grid--compact .calendar-cell-events small { font-size: 5pt; }
 .paper-section { page-break-inside: avoid; break-inside: avoid-page; }
 .paper-today { border-top: 1px solid #272c24; padding-top: .12in; break-inside: auto; }

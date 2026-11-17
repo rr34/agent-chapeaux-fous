@@ -49,6 +49,22 @@ function requestOutcomes(core) {
     .filter(({ cardinality }) => cardinality?.basis === "request");
 }
 
+function actionById(core, actionId) {
+  return (core?.actions ?? []).find((action) => action.actionId === actionId) ?? null;
+}
+
+function boundaryPreservingFanOut(action) {
+  const roles = new Map((action?.semanticRoles ?? []).map((role) => [role.role, role]));
+  return (action?.mappings ?? []).some((mapping) => {
+    if (mapping.preserveMemberBoundaries !== true) return false;
+    if (["one_to_many", "many_to_many"].includes(mapping.shape)) return true;
+    if (mapping.shape !== "one_to_one") return false;
+    return ["many", "one_or_more", "zero_or_more"].includes(
+      roles.get(mapping.fromRole)?.multiplicity,
+    );
+  });
+}
+
 export function matchIntentOutcomes(
   core,
   objectReferenceGroups,
@@ -78,7 +94,7 @@ export function matchIntentOutcomes(
   }
 
   const unbound = outcomes.filter(({ targetRefs }) => targetRefs.length === 0);
-  if (unbound.length === 1) {
+  if (unbound.length === 1 && !boundaryPreservingFanOut(actionById(core, unbound[0].actionId))) {
     if (outcomeEvidenceByType) {
       const evidenceTypes = [...outcomeEvidenceByType.entries()]
         .filter(([, refs]) => refs.size > 0);
@@ -139,6 +155,13 @@ export function intentPreflightProblems({ core, calls, toolDefinitions, receipts
   const outcomes = requestOutcomes(core)
     .filter(({ targetRefs }) => targetRefs.length === 0);
   if (outcomes.length === 0 || outcomes.some(({ cardinality }) => cardinality.maximum === null)) {
+    return [];
+  }
+  // An explicit boundary-preserving collection mapping is stronger number
+  // evidence than a scalar composite outcome. Its member fan-out is reviewed
+  // against the mapping after execution and must not be rejected as though one
+  // overall result or one container meant one created member.
+  if (outcomes.some((outcome) => boundaryPreservingFanOut(actionById(core, outcome.actionId)))) {
     return [];
   }
 
