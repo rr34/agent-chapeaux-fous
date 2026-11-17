@@ -2567,12 +2567,20 @@ export class SlayerRuntime {
               });
               return { ok: false, error: message, stopToolLoop: true };
             }
+            // A successful mutation can make an explicitly selected object no
+            // longer model-visible (for example, contact_merge deactivates its
+            // source contact). Reapply the owning domain's visibility rules at
+            // every call boundary so a later batch mutation is complete with
+            // respect to the current objects, not the stale pre-mutation set.
+            const currentObjectReferences = this.objectReferenceFilter(objectReferences);
+            const currentObservedObjectReferences = this.objectReferenceFilter(observedObjectReferences);
+            const currentCompleteObjectReferences = this.objectReferenceFilter(completeObjectReferences);
             const objectBindingProblem = objectInputBindingProblem({
               toolDefinition: registeredTool ?? callableToolDefinitions.get(name),
               argumentsObject: toolArguments,
-              selectedGroups: objectReferences,
-              observedGroups: observedObjectReferences,
-              completeGroups: completeObjectReferences,
+              selectedGroups: currentObjectReferences,
+              observedGroups: currentObservedObjectReferences,
+              completeGroups: currentCompleteObjectReferences,
             });
             if (objectBindingProblem) {
               sameRequestReceipts.push({

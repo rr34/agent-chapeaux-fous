@@ -300,7 +300,7 @@ function transport(runTurn, requests, toolSelectionRunTurn = null) {
 
 function runtimeWith({
   registry, ledger, runTurn, requests, contextBuilderOverride = null,
-  toolSelectionRunTurn = null,
+  toolSelectionRunTurn = null, objectReferenceFilter = undefined,
 }) {
   const runtime = new SlayerRuntime({
     modelTransport: transport(runTurn, requests, toolSelectionRunTurn),
@@ -309,6 +309,7 @@ function runtimeWith({
     requestCompiler: new RequestCompiler(),
     ledger,
     config: workflowConfig(),
+    ...(objectReferenceFilter ? { objectReferenceFilter } : {}),
   });
   runtime.systemPrompt = "SYSTEM PROMPT";
   return runtime;
@@ -1105,6 +1106,164 @@ test("explicit batch selections are verified once and stay one bulk action", asy
   assert.deepEqual(accepted.payload.core.actions[0].targetRefs, selections.map(({ ref }) => ref));
   assert.deepEqual(accepted.payload.objectReferences[0].objects.map(({ id }) => id), [7, 8, 9]);
   assert.equal(ledger.events.filter(({ type }) => type === "object.binding.rejected").length, 1);
+});
+
+test("a merge can remove an explicit contact before a later batch mutation", async () => {
+  const requests = [];
+  const ledger = fakeLedger();
+  const registry = new ToolRegistry();
+  registerNativeCapabilities(registry);
+  const selections = [1205, 1604].map((id) => ({
+    mention: "@Brian Lesko",
+    type: "contacts.contact",
+    source: "native:contacts",
+    id,
+    ref: `agent-slayer://contacts/${id}`,
+    display: "Brian Lesko",
+  }));
+  registerNativeObjectContextView(registry, {
+    searchNativeObjects() {
+      return { source: "native_mariadb_object_tables", capturedAtUtc: "2026-11-16T12:00:00Z", objects: [] };
+    },
+    resolveNativeObjectCandidates(candidates) {
+      assert.deepEqual(candidates, selections);
+      return candidates.map(({ id, ref, display }) => ({
+        type: "contact",
+        domainType: "contacts.contact",
+        source: "native:contacts",
+        table: "contacts",
+        id,
+        ref,
+        label: "Contact",
+        title: display,
+        detail: "",
+        matchedOn: ["selected stable reference"],
+        related: [],
+      }));
+    },
+  });
+
+  const contactBinding = (bindings) => ({
+    [objectInputBindingsMetadataKey]: {
+      protocol: "agent-slayer.object-input-bindings",
+      version: 1,
+      bindings,
+    },
+  });
+  let merged = false;
+  let tagged = false;
+  registry.withCapability("contacts").register({
+    name: "contact_merge",
+    description: "Merge one explicitly reviewed contact into another.",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    metadata: contactBinding([
+      { path: "/merges/*/keep_contact_id", objectType: "contacts.contact", value: "id" },
+      { path: "/merges/*/merge_contacts/*/contact_id", objectType: "contacts.contact", value: "id" },
+    ]),
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: {
+        merges: { type: "array", items: {
+          type: "object", additionalProperties: false,
+          properties: {
+            keep_contact_id: { type: "integer" },
+            merge_contacts: { type: "array", items: {
+              type: "object", additionalProperties: false,
+              properties: { contact_id: { type: "integer" } },
+              required: ["contact_id"],
+            } },
+          },
+          required: ["keep_contact_id", "merge_contacts"],
+        } },
+      },
+      required: ["merges"],
+    },
+    async execute({ merges }) {
+      assert.deepEqual(merges, [{ keep_contact_id: 1205, merge_contacts: [{ contact_id: 1604 }] }]);
+      merged = true;
+      return { kept_contact_id: 1205, merged_contact_ids: [1604] };
+    },
+  });
+  registry.withCapability("contacts").register({
+    name: "contact_tag_add_batch",
+    description: "Add one tag to every supplied active contact.",
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    metadata: contactBinding([
+      { path: "/contact_ids/*", objectType: "contacts.contact", value: "id" },
+    ]),
+    parameters: {
+      type: "object", additionalProperties: false,
+      properties: {
+        tag: { type: "string" },
+        contact_ids: { type: "array", items: { type: "integer" } },
+      },
+      required: ["tag", "contact_ids"],
+    },
+    async execute({ tag, contact_ids }) {
+      assert.equal(tag, "Construction Customer");
+      assert.deepEqual(contact_ids, [1205]);
+      tagged = true;
+      return { tagged_count: 1, contact_ids };
+    },
+  });
+
+  const runtime = runtimeWith({
+    registry,
+    ledger,
+    requests,
+    objectReferenceFilter(groups) {
+      if (!merged) return groups;
+      return groups.map((group) => group.type === "contacts.contact"
+        ? { ...group, objects: group.objects.filter(({ id }) => id !== 1604) }
+        : group).filter(({ objects }) => objects.length);
+    },
+    toolSelectionRunTurn: async () => completed(JSON.stringify({
+      version: 1,
+      summary: "Tag the survivor after loading the exact contact merge tool.",
+      selectedTools: ["contact_tag_add_batch"],
+    })),
+    runTurn: async (payload, index) => {
+      if (index === 0) {
+        return completed(JSON.stringify(core({
+          objective: "Merge the two selected contacts and tag the retained contact.",
+          conversationSummary: "Two duplicate contacts are selected.",
+          actions: [{
+            instruction: "Merge contact 1604 into 1205, then tag 1205.",
+            targetRefs: selections.map(({ ref }) => ref),
+          }],
+          capabilities: ["contacts"],
+        })));
+      }
+      assert.equal(index, 1);
+      assert.deepEqual(payload.tools.map(({ name }) => name), ["contact_merge", "contact_tag_add_batch"]);
+      const merge = await payload.onToolCall({
+        callId: "merge-selected-contacts",
+        tool: "contact_merge",
+        arguments: { merges: [{
+          keep_contact_id: 1205,
+          merge_contacts: [{ contact_id: 1604 }],
+        }] },
+      });
+      assert.equal(merge.ok, true, merge.error);
+      const tag = await payload.onToolCall({
+        callId: "tag-merged-contact",
+        tool: "contact_tag_add_batch",
+        arguments: { tag: "Construction Customer", contact_ids: [1205] },
+      });
+      assert.equal(tag.ok, true, tag.error);
+      return completed("Merged the contacts and tagged the retained contact.", 30);
+    },
+  });
+
+  assert.equal(await runtime.run({
+    requestId: "request-merge-and-tag-contacts",
+    requestEventId: "event-current",
+    text: "Consolidate those into the one with an email and tag it Construction Customer.",
+    selectedObjectCandidates: selections,
+  }), "Merged the contacts and tagged the retained contact.");
+  assert.equal(merged, true);
+  assert.equal(tagged, true);
+  assert.equal(ledger.events.some(({ type }) => type === "object.binding.rejected"), false);
 });
 
 test("missing explicit selections stop execution deterministically", async () => {
