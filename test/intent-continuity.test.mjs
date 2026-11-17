@@ -70,6 +70,45 @@ test("semantic one-result intent rejects homogeneous singleton-create fan-out", 
   assert.match(problems[0].message, /todos\.personal_task create count/u);
 });
 
+test("a singular container outcome does not cap a different member type after binding", () => {
+  const core = semanticCore();
+  const groupDefinition = createDefinition("physical_item_group_create", "things.physical_item_group");
+  const itemDefinition = createDefinition("physical_item_create", "things.physical_item");
+  const receipts = [{
+    ok: true,
+    tool: "physical_item_group_create",
+    arguments: { name: "Family Documents" },
+    objectReferences: references("things.physical_item_group", "physical-item-groups", 1),
+    intentOutcomeRefs: ["create_requested_result.requested_result"],
+    intentOutcomeBindings: [{
+      outcomeRef: "create_requested_result.requested_result",
+      objectType: "things.physical_item_group",
+    }],
+    intentCreateEffects: [{ objectType: "things.physical_item_group", count: 1, batch: "singleton" }],
+  }];
+  const calls = Array.from({ length: 15 }, (_, index) => ({
+    callId: `item-${index + 1}`,
+    tool: "physical_item_create",
+    arguments: { physical_item_group_id: 1, name: `Document ${index + 1}` },
+  }));
+  assert.deepEqual(intentPreflightProblems({
+    core,
+    calls,
+    toolDefinitions: new Map([
+      ["physical_item_group_create", groupDefinition],
+      ["physical_item_create", itemDefinition],
+    ]),
+    receipts,
+  }), []);
+  assert.deepEqual(matchIntentOutcomes(
+    core,
+    references("things.physical_item", "physical-items", 1),
+    itemDefinition,
+    references("things.physical_item", "physical-items", 1),
+    receipts.flatMap((receipt) => receipt.intentOutcomeBindings),
+  ), { outcomeRefs: [], bindings: [] });
+});
+
 test("inferred outcome structure remains advisory and does not reject calls", () => {
   const problems = intentPreflightProblems({
     core: semanticCore({ basis: "inferred" }),

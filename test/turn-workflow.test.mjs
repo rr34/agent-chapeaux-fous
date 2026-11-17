@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { commonSenseCoreVersion } from "../src/common-sense-core.mjs";
 import { RequestCompiler } from "../src/request-compiler.mjs";
 import { needsPriorOperationalEvidence, SlayerRuntime } from "../src/runtime.mjs";
 import { ToolRegistry } from "../src/tools/registry.mjs";
@@ -34,7 +35,7 @@ function completed(text, totalTokens = 20) {
 
 function core(overrides = {}) {
   const value = {
-    version: 1,
+    version: commonSenseCoreVersion,
     mode: "act",
     objective: "Update the selected object.",
     conversationSummary: "The user wants the selected object updated.",
@@ -53,6 +54,8 @@ function core(overrides = {}) {
       targetSetRefs: [],
       relationshipSetRefs: [],
       unresolvedTargets: [],
+      semanticRoles: [],
+      mappings: [],
       outcomes: [],
       ...action,
     })),

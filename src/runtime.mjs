@@ -160,6 +160,12 @@ function needsLocalCalendar(requestText) {
 
 function exceptionalAuditReasons({ core, receipts, registry, findings, requestText }) {
   const reasons = [...findings.map(({ code, message }) => ({ code, message }))];
+  if ((core.actions ?? []).some(({ mappings = [] }) => mappings.length > 0)) {
+    reasons.push({
+      code: "SEMANTIC_MAPPING_REQUIRES_REVIEW",
+      message: "The accepted intent contains an explicit collection mapping; verify its coverage, correspondence shape, count equality, and member-boundary preservation against the literal receipts.",
+    });
+  }
   if (receipts.some(({ tool, ok }) => tool === "reference_set_record" && !ok)) {
     reasons.push({
       code: "REFERENCE_SET_RECORD_FAILED",
@@ -2846,6 +2852,7 @@ export class SlayerRuntime {
                     newObjectReferences,
                     callableToolDefinitions.get(name),
                     outcomeEvidence?.groups ?? null,
+                    sameRequestReceipts.flatMap((receipt) => receipt.intentOutcomeBindings ?? []),
                   )
                 : { outcomeRefs: [], bindings: [] };
               const intentOutcomeRefs = intentMatch.outcomeRefs;

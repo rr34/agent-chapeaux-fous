@@ -4,6 +4,8 @@ import {
 } from "./object-references.mjs";
 import { compactReferenceSets, referenceSetObjectRefs } from "./reference-sets.mjs";
 
+export const commonSenseCoreVersion = 2;
+
 const text = (maximum = 2_000) => ({ type: "string", minLength: 1, maxLength: maximum });
 const textList = (maximumItems = 12, maximumText = 1_000) => ({
   type: "array",
@@ -89,11 +91,61 @@ export function commonSenseCoreSchema({
     },
     required: ["slot", "description", "semanticType", "role", "cardinality"],
   };
+  const semanticRoleName = { type: "string", pattern: "^[a-z][a-z0-9_]{0,79}$" };
+  const semanticRole = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      role: semanticRoleName,
+      description: {
+        ...text(500),
+        description: "Ordinary-language participant in the action. Name semantic subjects, containers, or members without choosing a capability resource type or storage representation.",
+      },
+      multiplicity: {
+        type: "string",
+        enum: ["one", "many", "zero_or_one", "one_or_more", "zero_or_more", "unknown"],
+        description: "The number of semantic entities in this role as established by the request. Use many for definitely plural, one_or_more when wording such as item(s) deliberately permits singular or plural, and unknown when a required read must establish even the range.",
+      },
+      containerRole: {
+        type: ["string", "null"],
+        pattern: "^[a-z][a-z0-9_]{0,79}$",
+        description: "Another role in this action whose members contain or organize this role, or null when this role is not described as a container member.",
+      },
+      sameCountAs: {
+        type: ["string", "null"],
+        pattern: "^[a-z][a-z0-9_]{0,79}$",
+        description: "Another role in this action whose resolved member count this role must equal, or null when no equality is requested.",
+      },
+    },
+    required: ["role", "description", "multiplicity", "containerRole", "sameCountAs"],
+  };
+  const semanticMapping = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      fromRole: semanticRoleName,
+      toRole: semanticRoleName,
+      shape: {
+        type: "string",
+        enum: ["one_to_one", "one_to_many", "many_to_one", "many_to_many"],
+      },
+      coverage: {
+        type: "string",
+        enum: ["all", "selected"],
+        description: "Whether the mapping covers every member of the source role or only explicitly selected members.",
+      },
+      preserveMemberBoundaries: {
+        type: "boolean",
+        description: "True when separate source members must remain separate destination members rather than being merged into one aggregate.",
+      },
+    },
+    required: ["fromRole", "toRole", "shape", "coverage", "preserveMemberBoundaries"],
+  };
   return {
     type: "object",
     additionalProperties: false,
     properties: {
-      version: { type: "integer", enum: [1] },
+      version: { type: "integer", enum: [commonSenseCoreVersion] },
       mode: {
         type: "string",
         enum: ["act", "answer", "clarify"],
@@ -134,6 +186,18 @@ export function commonSenseCoreSchema({
               items: unresolvedTarget,
               description: "Target roles described by the user whose exact objects have not yet been supplied. Describe their ordinary-language semantic kind without choosing a capability resource type; execution may resolve them through an owning read. Do not invent an unresolved target for a tag label, relationship, field value, or other qualifier.",
             },
+            semanticRoles: {
+              type: "array",
+              maxItems: 20,
+              items: semanticRole,
+              description: "Machine-checkable number and container/member shape for semantic participants when that shape matters to scope or completion. Keep empty when exact target refs or ordinary prose already express all relevant multiplicity.",
+            },
+            mappings: {
+              type: "array",
+              maxItems: 20,
+              items: semanticMapping,
+              description: "Requested correspondence between semantic roles. Use this for copy, move, convert, split, merge, or transfer operations whose member boundaries or coverage must survive execution.",
+            },
             outcomes: {
               type: "array",
               maxItems: 20,
@@ -171,7 +235,7 @@ export function commonSenseCoreSchema({
           },
           required: [
             "instruction", "targetRefs", "targetSetRefs", "relationshipSetRefs",
-            "unresolvedTargets", "outcomes",
+            "unresolvedTargets", "semanticRoles", "mappings", "outcomes",
           ],
         },
       },
@@ -548,7 +612,7 @@ export function commonSenseExecutionInstructions(
   const selectedOccurrences = selectedCalendarOccurrenceScopes(selectedObjectCandidates);
   return [
     "# Accepted common-sense core",
-    "Carry out the ordinary-language objective below. The requested outcome, exact bound targets, and explicit constraints remain authoritative. Tool results are authoritative for current facts. When current evidence contradicts a factual premise in the request, explain the discrepancy and use the evidenced current scope; never fabricate missing records or silently replace an exact bound set or explicitly requested historical snapshot. Handle each action completely and use bulk tools for batch targets when available. A successful owning-domain read is sufficient evidence for facts it returned: do not use generic database, schema, or receipt tools to rediscover, validate, recount, or reinterpret those same facts. Use those generic reads only for a specific required fact absent from the current owning result. For non-completeness-sensitive bulk analysis, project read results to the needed fields with result_filter, including nested dot paths, and retain the correlation and pagination fields needed to judge completeness.",
+    "Carry out the ordinary-language objective below. The requested outcome, exact bound targets, semanticRoles, mappings, and explicit constraints remain authoritative. One overall outcome or one container never limits the number of member objects required by a role or mapping. Preserve member boundaries and mapping coverage exactly. Tool results are authoritative for current facts. When current evidence contradicts a factual premise in the request, explain the discrepancy and use the evidenced current scope; never fabricate missing records or silently replace an exact bound set or explicitly requested historical snapshot. Handle each action completely and use bulk tools for batch targets when available. A successful owning-domain read is sufficient evidence for facts it returned: do not use generic database, schema, or receipt tools to rediscover, validate, recount, or reinterpret those same facts. Use those generic reads only for a specific required fact absent from the current owning result. For non-completeness-sensitive bulk analysis, project read results to the needed fields with result_filter, including nested dot paths, and retain the correlation and pagination fields needed to judge completeness.",
     JSON.stringify(core, null, 2),
     "",
     "# Verified object bindings",
@@ -611,6 +675,9 @@ export const commonSenseInstructions = [
   "You are the common-sense orientation phase of Time v3 Agent. Produce only the schema-constrained intent core.",
   "Prioritize the exact current request and any explicit composer selections. Use older conversation only to resolve genuine references or continuations.",
   "Describe the end state in ordinary language. Do not select tools, write audit policy, copy tool protocols, manufacture prohibitions, or turn preservation of unrelated state into verbose constraints.",
+  "Perform a number-and-shape check for every action. Use semanticRoles and mappings when singular containers, plural or potentially plural members, or copy/move/convert/split/merge correspondence materially affects scope or completion. One overall requested result or one destination container never makes its member collection singular.",
+  "Preserve collection member boundaries by default for copy, move, transfer, migration, and conversion. Use a one_to_one mapping with coverage=all and preserveMemberBoundaries=true when every source member must have one corresponding destination member. Use many_to_one only when the request actually asks to combine, summarize, bundle, consolidate, or otherwise collapse members.",
+  "Treat deliberate forms such as item(s) as strong evidence for one_or_more multiplicity, while still using the full request and domain relationships to understand number. Use sameCountAs when a destination collection must contain exactly as many semantic members as a source collection whose count execution will resolve.",
   "When the user plainly rejects an object the agent just created by mistake, include removal of that mistaken object in the requested end state; do not reduce the correction to emptying or ignoring it.",
   "Use outcomes only for semantic result roles whose meaning and cardinality are already established by the exact request or an exact selected set. The application assigns stable action and outcome identities after orientation; do not manufacture correlation IDs. One requested result containing six listed details is one outcome, while six independently requested results may be six outcomes or one outcome with cardinality six.",
   "Never choose or emit a capability resource type for an outcome. Do not predict the row, provider object, tool, or result shape that execution will discover; owning tool contracts and successful receipts bind that representation later. A tag, relationship, field value, lifecycle effect, receipt, or tool result is not an outcome object merely because it is part of the requested final state. Preserve it in the action instruction or an exact relationship set.",
@@ -636,6 +703,7 @@ export const toolSelectionInstructions = [
 export const auditInstructions = [
   "You are the exceptional completion-audit phase of Time v3 Agent. Produce only the schema-constrained audit result.",
   "Judge the ordinary-language end state from tool receipts and tool contracts, not from confidence in the proposed response.",
+  "Honor semanticRoles and mappings as the accepted machine-checkable number and shape of the request. Preserving all source text inside one aggregate does not satisfy a boundary-preserving one-to-one collection mapping.",
   "Treat missing or partial mechanical outcome-reference correlation as an evidence question, never as proof that zero or fewer objects were affected. Exact bound mutation arguments and literal successful results may prove the requested effect even when a tool does not repeat every unchanged object binding in its output.",
   "Distinguish the requested outcome and exact bound scope from factual premises about current data. When authoritative receipts contradict a premise and the proposed response explicitly reconciles the discrepancy while covering the evidenced current scope, do not demand nonexistent records; preserve exact bound sets and explicitly requested historical snapshots.",
   "Interpret ordinary delete, remove, and archive language through the owning resourceLifecycle supplied with callable tools. When that lifecycle declares delete as archival, disabling, cancellation, or another inactive retained state, a successful receipt proving that state satisfies an ordinary delete request. Require the response to state the literal retained-state effect; never claim permanent erasure. Demand physical erasure only when the user explicitly distinguishes it from the published lifecycle or that lifecycle itself declares permanent deletion.",
@@ -657,6 +725,35 @@ export function intentContinuityProblem(core) {
   for (const action of core.actions ?? []) {
     if (actionIds.has(action.actionId)) return `duplicate actionId ${action.actionId}`;
     actionIds.add(action.actionId);
+    const roleNames = new Set();
+    for (const role of action.semanticRoles ?? []) {
+      if (roleNames.has(role.role)) return `duplicate semantic role ${role.role} in action ${action.actionId}`;
+      roleNames.add(role.role);
+    }
+    for (const role of action.semanticRoles ?? []) {
+      for (const [field, referencedRole] of [
+        ["containerRole", role.containerRole], ["sameCountAs", role.sameCountAs],
+      ]) {
+        if (referencedRole === null || referencedRole === undefined) continue;
+        if (referencedRole === role.role) {
+          return `semantic role ${action.actionId}.${role.role} cannot reference itself through ${field}`;
+        }
+        if (!roleNames.has(referencedRole)) {
+          return `semantic role ${action.actionId}.${role.role} references unknown ${field} ${referencedRole}`;
+        }
+      }
+    }
+    const mappingKeys = new Set();
+    for (const mapping of action.mappings ?? []) {
+      if (!roleNames.has(mapping.fromRole) || !roleNames.has(mapping.toRole)) {
+        return `semantic mapping ${action.actionId}.${mapping.fromRole}->${mapping.toRole} references an unknown role`;
+      }
+      const key = `${mapping.fromRole}\n${mapping.toRole}`;
+      if (mappingKeys.has(key)) {
+        return `duplicate semantic mapping ${action.actionId}.${mapping.fromRole}->${mapping.toRole}`;
+      }
+      mappingKeys.add(key);
+    }
     const outcomeIds = new Set();
     for (const outcome of action.outcomes ?? action.outcomeObjects ?? []) {
       if (outcomeIds.has(outcome.outcomeId)) {

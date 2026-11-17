@@ -865,7 +865,22 @@ without naming a capability resource type, row, exact tool, result shape, or
 call order. Verified target references retain their independently known types,
 but orientation does not choose a type for a new or unresolved result. An
 unresolved target slot carries only an ordinary-language semantic kind until an
-owning read resolves it. A tag,
+owning read resolves it. When number or collection shape materially affects
+scope or completion, each action also carries a small structured set of
+ordinary-language semantic roles and mappings. Roles distinguish singular
+containers from singular, plural, potentially plural, or unresolved members;
+mappings state coverage, one-to-one or other correspondence, and whether member
+boundaries must survive. One overall requested result and one destination
+container never make their members singular. Copy, move, transfer, migration,
+and conversion preserve member boundaries unless the user requests a merge,
+summary, bundle, consolidation, or another structural collapse. This version-2
+common-sense core deliberately moves multiplicity and mapping shape from prose
+inside the core to machine-checkable JSON fields; the exact request remains
+authoritative, and the prose objective and instructions remain its readable
+semantic summary.
+Requests with an explicit semantic mapping receive exceptional receipt audit so
+textual inclusion cannot substitute for required member coverage or boundaries.
+A tag,
 relationship, field value, lifecycle effect, or possible tool representation
 remains in the ordinary-language action instead of being invented as an
 outcome. A list of unresolved names, email addresses, or search keys does not

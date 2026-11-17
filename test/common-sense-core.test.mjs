@@ -4,6 +4,7 @@ import {
   auditContext,
   auditInstructions,
   commonSenseContext,
+  commonSenseCoreVersion,
   commonSenseCoreSchema,
   commonSenseExecutionInstructions,
   commonSenseInstructions,
@@ -21,7 +22,7 @@ import { nativeCapabilityManifest } from "../src/native-capabilities.mjs";
 
 function validCore() {
   return {
-    version: 1,
+    version: commonSenseCoreVersion,
     mode: "act",
     objective: "Complete the three selected to-dos.",
     conversationSummary: "The user selected three to-dos and wants all of them completed.",
@@ -35,6 +36,8 @@ function validCore() {
       targetSetRefs: [],
       relationshipSetRefs: [],
       unresolvedTargets: [],
+      semanticRoles: [],
+      mappings: [],
       outcomes: [{
         description: "The three selected to-dos in their completed final state.",
         targetRefs: [
@@ -85,6 +88,55 @@ test("the common-sense core is compact, batch-shaped, and contains no tool plann
   assert.equal(connected.actions[0].actionId, "action_1");
   assert.equal(connected.actions[0].outcomes[0].outcomeId, "outcome_1");
   assert.equal(intentContinuityProblem(connected), null);
+});
+
+test("the core represents singular containers and plural member preservation explicitly", () => {
+  const schema = commonSenseCoreSchema({
+    capabilities: ["todos", "things"],
+    objectRefs: ["agent-slayer://todo-groups/14"],
+  });
+  const value = {
+    ...validCore(),
+    objective: "Convert the selected to-do group into a Things group without collapsing its items.",
+    conversationSummary: "Family Documents is one selected group containing item(s) to preserve.",
+    capabilities: ["todos", "things"],
+    actions: [{
+      instruction: "Create one corresponding Things group and one Thing for every source item.",
+      targetRefs: ["agent-slayer://todo-groups/14"],
+      targetSetRefs: [],
+      relationshipSetRefs: [],
+      unresolvedTargets: [],
+      semanticRoles: [{
+        role: "source_group", description: "the selected to-do group", multiplicity: "one",
+        containerRole: null, sameCountAs: null,
+      }, {
+        role: "source_members", description: "every item in the selected group", multiplicity: "one_or_more",
+        containerRole: "source_group", sameCountAs: null,
+      }, {
+        role: "destination_group", description: "the corresponding Things group", multiplicity: "one",
+        containerRole: null, sameCountAs: null,
+      }, {
+        role: "destination_members", description: "Things corresponding to every source item", multiplicity: "one_or_more",
+        containerRole: "destination_group", sameCountAs: "source_members",
+      }],
+      mappings: [{
+        fromRole: "source_members", toRole: "destination_members", shape: "one_to_one",
+        coverage: "all", preserveMemberBoundaries: true,
+      }],
+      outcomes: [{
+        description: "One Things group containing separately preserved corresponding members.",
+        targetRefs: [], cardinality: { minimum: 1, maximum: 1, basis: "request" },
+      }],
+    }],
+  };
+  const parsed = parseStructuredModelOutput(JSON.stringify(value), schema, "Orientation");
+  const connected = connectCoreIntent(parsed);
+  assert.equal(intentContinuityProblem(connected), null);
+  assert.equal(connected.actions[0].semanticRoles[3].sameCountAs, "source_members");
+  assert.equal(connected.actions[0].mappings[0].preserveMemberBoundaries, true);
+
+  connected.actions[0].mappings[0].toRole = "missing_members";
+  assert.match(intentContinuityProblem(connected), /references an unknown role/u);
 });
 
 test("read-only work is answer mode and current receipts can correct factual premises", () => {
@@ -206,6 +258,9 @@ test("orientation contains families and selections but no exact tool catalog", (
   assert.match(commonSenseInstructions, /Do not predict the row, provider object, tool, or result shape/i);
   assert.match(commonSenseInstructions, /tag, relationship, field value/i);
   assert.match(commonSenseInstructions, /list of unresolved names, email addresses, search keys/i);
+  assert.match(commonSenseInstructions, /number-and-shape check for every action/i);
+  assert.match(commonSenseInstructions, /item\(s\).*one_or_more/i);
+  assert.match(auditInstructions, /one aggregate does not satisfy.*one-to-one/is);
   assert.match(auditInstructions, /missing or partial mechanical outcome-reference correlation/i);
 });
 
@@ -383,6 +438,8 @@ test("the core can define and select exact relationship sets from supplied objec
       targetSetRefs: [],
       relationshipSetRefs: [relationshipRef],
       unresolvedTargets: [],
+      semanticRoles: [],
+      mappings: [],
       outcomes: [],
     }],
     relationshipSets: [{

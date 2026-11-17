@@ -54,6 +54,7 @@ export function matchIntentOutcomes(
   objectReferenceGroups,
   toolDefinition = null,
   explicitOutcomeEvidenceGroups = null,
+  existingOutcomeBindings = [],
 ) {
   const observedByType = groupsByType(objectReferenceGroups);
   const outcomeEvidenceByType = explicitOutcomeEvidenceGroups === null
@@ -83,11 +84,16 @@ export function matchIntentOutcomes(
         .filter(([, refs]) => refs.size > 0);
       if (evidenceTypes.length === 1) {
         const [[objectType, refs]] = evidenceTypes;
-        bindings.push({
-          outcomeRef: unbound[0].ref,
-          objectType,
-          objectRefs: [...refs],
-        });
+        const existingTypes = new Set(existingOutcomeBindings
+          .filter(({ outcomeRef: ref }) => ref === unbound[0].ref)
+          .map(({ objectType: type }) => type));
+        if (existingTypes.size === 0 || existingTypes.has(objectType)) {
+          bindings.push({
+            outcomeRef: unbound[0].ref,
+            objectType,
+            objectRefs: [...refs],
+          });
+        }
       }
     } else {
       const observedTypes = [...observedByType.keys()];
@@ -148,8 +154,24 @@ export function intentPreflightProblems({ core, calls, toolDefinitions, receipts
   if (proposedByType.size !== 1) return [];
 
   const [[objectType, proposed]] = proposedByType;
-  const outcomeRefs = new Set(outcomes.map(({ ref }) => ref));
-  const maximum = outcomes.reduce((sum, outcome) => sum + outcome.cardinality.maximum, 0);
+  const boundTypesByOutcome = new Map(outcomes.map(({ ref }) => [ref, new Set()]));
+  for (const receipt of receipts) {
+    if (receipt?.ok !== true) continue;
+    for (const binding of receiptOutcomeBindings(receipt)) {
+      boundTypesByOutcome.get(binding.outcomeRef)?.add(binding.objectType);
+    }
+  }
+  // Orientation outcomes are semantic and deliberately untyped. Once owning
+  // mutation evidence binds one to a concrete container type, its cardinality
+  // must not cap a different member type needed to realize that same composite
+  // result (for example, one Things group containing many physical items).
+  const compatibleOutcomes = outcomes.filter((outcome) => {
+    const boundTypes = boundTypesByOutcome.get(outcome.ref);
+    return boundTypes.size === 0 || boundTypes.has(objectType);
+  });
+  if (compatibleOutcomes.length === 0) return [];
+  const outcomeRefs = new Set(compatibleOutcomes.map(({ ref }) => ref));
+  const maximum = compatibleOutcomes.reduce((sum, outcome) => sum + outcome.cardinality.maximum, 0);
   let consumed = 0;
   for (const receipt of receipts) {
     if (receipt?.ok !== true) continue;
