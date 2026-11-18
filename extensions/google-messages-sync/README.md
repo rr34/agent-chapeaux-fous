@@ -9,7 +9,7 @@ This unpacked Manifest V3 extension performs an explicit foreground synchronizat
 3. Open `brave://extensions` and enable **Developer mode**.
 4. Select **Load unpacked** and choose the extracted `time-v3-google-messages-sync` folder.
 5. Open and pair `https://messages.google.com/web/`.
-6. Open the extension and choose **Pair extension**. In Time V3, approve the displayed code under **Account → Agent identities → Linked devices**.
+6. Open the extension and choose **Pair extension**. In Time V3, approve the displayed code under **Account → This profile → Linked devices**.
 7. Choose a history range, then select **Synchronize**. **Since last sync** uses 30 days on the first run.
 
 During repository development, the source `extensions/google-messages-sync`

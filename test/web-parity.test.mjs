@@ -7,7 +7,7 @@ const editors = fs.readFileSync(new URL("../web/src/components/EditableItems.tsx
 const account = fs.readFileSync(new URL("../web/src/components/AdditionalScreens.tsx", import.meta.url), "utf8");
 const server = fs.readFileSync(new URL("../src/server.mjs", import.meta.url), "utf8");
 
-test("Account Access owns complete integration management", () => {
+test("Account Tool integrations owns complete integration management", () => {
   for (const route of ["/api/integrations/mcp", "/oauth/start", "/oauth/disconnect", "/api/integrations/mcp/refresh"]) {
     assert.match(account, new RegExp(route.replaceAll("/", "\\/")));
   }

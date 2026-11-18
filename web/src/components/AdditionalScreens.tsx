@@ -501,7 +501,7 @@ export function CorrespondenceScreen() {
   </>;
 }
 
-export function ProfileScreen() {
+function ProfileFacts() {
   const { data, error, loading, reload } = useApi<{ facts: Entity[] }>("/api/profile-facts?status=active");
   const [factType, setFactType] = useState("preference");
   const [text, setText] = useState("");
@@ -511,7 +511,7 @@ export function ProfileScreen() {
     try { await api("/api/profile-facts", { method: "POST", body: JSON.stringify({ factType, text }) }); setText(""); await reload(); }
     finally { setSaving(false); }
   };
-  return <><AppearanceSettings /><form className="profile-fact-form" onSubmit={(event) => { event.preventDefault(); void save(); }}><label>Fact type<input value={factType} pattern="[a-z][a-z0-9_]*" onChange={(event) => setFactType(event.target.value)} /></label><label>Profile fact<textarea required value={text} onChange={(event) => setText(event.target.value)} /></label><button className="button" disabled={saving}>{saving ? "Saving…" : "Add profile fact"}</button></form>{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}<div className="profile-fact-list">{(data?.facts || []).map((fact) => {
+  return <><form className="profile-fact-form" onSubmit={(event) => { event.preventDefault(); void save(); }}><label>Fact type<input value={factType} pattern="[a-z][a-z0-9_]*" onChange={(event) => setFactType(event.target.value)} /></label><label>Profile fact<textarea required value={text} onChange={(event) => setText(event.target.value)} /></label><button className="button" disabled={saving}>{saving ? "Saving…" : "Add profile fact"}</button></form>{loading && <Loading />}{error && <ErrorState error={error} retry={reload} />}<div className="profile-fact-list">{(data?.facts || []).map((fact) => {
     const identity: SelectedObjectCandidate = {
       mention: `@${String(fact.text).slice(0, 160)}`,
       type: "profile.fact", source: "native:profile", id: Number(fact.id),
@@ -619,20 +619,19 @@ function ProvisionedAccountCard({ item, onChanged }: {
   </article>;
 }
 
-function IdentitiesScreen() {
+export function ProfileScreen() {
   const { data, error, loading, reload } = useApi<{
     account: { displayName: string; email: string | null };
     selectedPerson: AccountPerson;
   }>("/api/account/people");
-  const { data: provisionedData, reload: reloadProvisioned } = useApi<{
-    people: Array<{ account: { accountId: number; status: string }; person: AccountPerson }>;
-  }>("/api/account/provisioned");
-  const [displayName, setDisplayName] = useState("");
-  const [newHandle, setNewHandle] = useState("");
   const [ownHandle, setOwnHandle] = useState("");
-  const [generatedPassword, setGeneratedPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  const [passwordAction, setPasswordAction] = useState(false);
+  const [passwordStatus, setPasswordStatus] = useState("");
   const [nodeCode, setNodeCode] = useState("");
   const [nodeAction, setNodeAction] = useState("");
   const { data: nodeData, error: nodeError, loading: nodesLoading, reload: reloadNodes } = useApi<{
@@ -642,23 +641,35 @@ function IdentitiesScreen() {
       last_seen_at_utc: string | null;
     }>;
   }>("/api/node/devices");
-  const createIdentity = async (event: React.FormEvent) => {
-    event.preventDefault(); setSaving(true); setStatus("");
-    try {
-      const created = await api<{ generatedPassword: string }>("/api/account/provisioned", { method: "POST", body: JSON.stringify({ displayName, handle: newHandle }) });
-      setDisplayName(""); setNewHandle(""); setGeneratedPassword(created.generatedPassword);
-      setStatus("Light account created. Copy its generated password now; it will not be shown again.");
-      await reloadProvisioned();
-    } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
-    finally { setSaving(false); }
-  };
+  useEffect(() => {
+    if (data) setOwnHandle(data.selectedPerson.handle || "");
+  }, [data?.selectedPerson.handle]);
+
   const setHandle = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setStatus("");
     try {
       await api("/api/account/person/handle", { method: "PATCH", body: JSON.stringify({ handle: ownHandle }) });
-      setOwnHandle(""); setStatus("Time v3 handle set."); await reload();
+      setStatus("Time v3 handle saved."); await reload();
     } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
     finally { setSaving(false); }
+  };
+  const changePassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (newPassword !== passwordConfirmation) {
+      setPasswordStatus("The password confirmation does not match.");
+      return;
+    }
+    setPasswordAction(true); setPasswordStatus("");
+    try {
+      await api("/api/account/set-password", {
+        method: "POST", body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      setCurrentPassword(""); setNewPassword(""); setPasswordConfirmation("");
+      location.assign("/api/auth/start");
+    } catch (caught) {
+      setPasswordStatus(caught instanceof Error ? caught.message : String(caught));
+      setPasswordAction(false);
+    }
   };
   const approveNode = async (event: React.FormEvent) => {
     event.preventDefault(); setNodeAction("approve"); setStatus("");
@@ -680,22 +691,28 @@ function IdentitiesScreen() {
     finally { setNodeAction(""); }
   };
   return <>
-    {loading && <Loading label="Loading Agent identities" />}
+    {loading && <Loading label="Loading this profile" />}
     {error && <ErrorState error={error} retry={reload} />}
-    {data && <section className="surface"><div className="section-title"><div><p className="eyebrow">Signed-in account</p><h2>{data.account.displayName}</h2><p>{data.account.email}</p></div></div>
-      <div className="integration-list"><article className="integration-card ready">
-        <div><strong>{data.selectedPerson.displayName}{data.selectedPerson.handle ? ` · ${data.selectedPerson.handle}` : ""}</strong><span>Person {data.selectedPerson.personId} · Active</span></div>
-      </article></div>
-      {!data.selectedPerson.handle && <form className="integration-add-form" onSubmit={(event) => void setHandle(event)}><h3>Choose your Time v3 handle</h3><label>Handle<HandleInput required minLength={3} maxLength={32} placeholder="your_handle" value={ownHandle} onValueChange={setOwnHandle} /></label><p className="field-hint">This is the name other people add to Contacts. It cannot be changed after it is set.</p><button className="button" disabled={saving}>Set handle</button></form>}
+    {data && <section className="surface" aria-labelledby="profile-handle-heading">
+      <div className="section-title"><div><p className="eyebrow">Signed-in profile</p><h2 id="profile-handle-heading">Time v3 handle</h2><p>{data.account.displayName}{data.account.email ? ` · ${data.account.email}` : ""}</p></div></div>
+      <form className="integration-add-form" onSubmit={(event) => void setHandle(event)}>
+        <label>Handle<HandleInput required minLength={3} maxLength={32} placeholder="your_handle" value={ownHandle} onValueChange={setOwnHandle} /></label>
+        <p className="field-hint">This is the name other people use to find you and add you to Contacts.</p>
+        <button className="button" disabled={saving}>{saving ? "Saving…" : "Save handle"}</button>
+      </form>
     </section>}
-    {data?.selectedPerson.experience === "full" && <><section className="surface"><div className="section-title"><div><p className="eyebrow">Separate account</p><h2>Create a light account</h2><p>Creation only establishes the account. Manage its experience and contacts afterward.</p></div></div>
-      <form className="integration-add-form" onSubmit={(event) => void createIdentity(event)}><label>Name<input required maxLength={200} placeholder="Vince" value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label><label>Time v3 handle<HandleInput required minLength={3} maxLength={32} placeholder="vince" value={newHandle} onValueChange={setNewHandle} /></label><button className="button" disabled={saving}>{saving ? "Creating…" : "Create light account"}</button></form>
-      {generatedPassword && <div className="auth-message" role="status"><strong>Generated password</strong><p><code>{generatedPassword}</code></p><p>Store it securely and give it directly to the account owner. It disappears when this page reloads.</p><button className="button button--quiet" type="button" onClick={() => void navigator.clipboard.writeText(generatedPassword)}>Copy password</button></div>}
+    <AppearanceSettings />
+    <section className="surface" aria-labelledby="account-password-heading">
+      <div className="section-title"><div><p className="eyebrow">Sign-in security</p><h2 id="account-password-heading">Password</h2><p>Set a new password for this profile. This signs you out on every browser.</p></div></div>
+      <form className="integration-add-form" onSubmit={(event) => void changePassword(event)}>
+        <label>Current password<input required name="current-password" type="password" autoComplete="current-password" maxLength={1024} value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label>
+        <div className="object-editor-grid"><label>New password<input required name="new-password" type="password" autoComplete="new-password" minLength={12} maxLength={1024} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label><label>Confirm new password<input required name="new-password-confirmation" type="password" autoComplete="new-password" minLength={12} maxLength={1024} value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} /></label></div>
+        <button className="button" disabled={passwordAction || newPassword.length < 12 || newPassword !== passwordConfirmation}>{passwordAction ? "Setting password…" : "Set password"}</button>
+        {passwordStatus && <p className="auth-message auth-message--error" role="alert">{passwordStatus}</p>}
+      </form>
     </section>
-    <section className="surface"><div className="section-title"><div><h2>Managed Accounts</h2></div></div><div className="integration-list">{(provisionedData?.people || []).map((item) => <ProvisionedAccountCard key={item.person.personId} item={item} onChanged={reloadProvisioned} />)}</div>{!provisionedData?.people.length && <Empty>No light accounts have been created.</Empty>}</section>
-    </>}
     <section className="surface">
-      <div className="section-title"><div><p className="eyebrow">Device access</p><h2>Linked devices</h2><p>Pair a node, the mobile app, or the Google Messages extension with this Agent identity. Each receives its own revocable credential.</p></div></div>
+      <div className="section-title"><div><p className="eyebrow">Device access</p><h2>Linked devices</h2><p>Pair a node, the mobile app, or the Google Messages extension with this profile. Each receives its own revocable credential.</p></div></div>
       <form className="integration-add-form" onSubmit={(event) => void approveNode(event)}>
         <label>Pairing code<input required autoComplete="off" maxLength={9} placeholder="ABCD-2345" value={nodeCode} onChange={(event) => setNodeCode(event.target.value.toUpperCase().replace(/[^A-Z0-9-]/gu, "").slice(0, 9))} /></label>
         <button className="button" disabled={Boolean(nodeAction)}>{nodeAction === "approve" ? "Linking…" : "Link device"}</button>
@@ -706,46 +723,65 @@ function IdentitiesScreen() {
         <div><strong>{device.device_name}</strong><span>{device.device_status === "active" ? `Active · key ${device.token_prefix}…` : "Revoked"}{device.hardware_identifier ? ` · ${device.hardware_identifier}` : ""}{device.last_seen_at_utc ? ` · last used ${new Date(device.last_seen_at_utc).toLocaleString()}` : ""}</span></div>
         {device.device_status === "active" && <button className="button button--quiet" type="button" disabled={Boolean(nodeAction)} onClick={() => void revokeNode(device.node_device_id)}>{nodeAction === `revoke:${device.node_device_id}` ? "Revoking…" : "Revoke"}</button>}
       </article>)}</div>
-      {!nodesLoading && !nodeError && !nodeData?.devices.length && <Empty>No devices are linked to this identity.</Empty>}
+      {!nodesLoading && !nodeError && !nodeData?.devices.length && <Empty>No devices are linked to this profile.</Empty>}
     </section>
+    {status && <p role="status">{status}</p>}
+    <ProfileFacts />
+    <section className="surface"><p>Your browser uses a revocable Time v3 session stored in a secure, HTTP-only cookie.</p><button className="button button--quiet" type="button" onClick={async () => { await api("/api/auth/logout", { method: "POST", body: "{}" }); location.assign("/api/auth/start"); }}>Sign out</button></section>
+  </>;
+}
+
+function OtherProfilesScreen() {
+  const { data, error, loading, reload } = useApi<{
+    account: { displayName: string; email: string | null };
+    selectedPerson: AccountPerson;
+  }>("/api/account/people");
+  const canManageOtherProfiles = data?.selectedPerson.experience === "full";
+  const { data: provisionedData, error: provisionedError, loading: provisionedLoading, reload: reloadProvisioned } = useApi<{
+    people: Array<{ account: { accountId: number; status: string }; person: AccountPerson }>;
+  }>(canManageOtherProfiles ? "/api/account/provisioned" : null);
+  const [displayName, setDisplayName] = useState("");
+  const [newHandle, setNewHandle] = useState("");
+  const [generatedPassword, setGeneratedPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState("");
+  const createIdentity = async (event: React.FormEvent) => {
+    event.preventDefault(); setSaving(true); setStatus("");
+    try {
+      const created = await api<{ generatedPassword: string }>("/api/account/provisioned", { method: "POST", body: JSON.stringify({ displayName, handle: newHandle }) });
+      setDisplayName(""); setNewHandle(""); setGeneratedPassword(created.generatedPassword);
+      setStatus("Light profile created. Copy its generated password now; it will not be shown again.");
+      await reloadProvisioned();
+    } catch (caught) { setStatus(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setSaving(false); }
+  };
+  return <>
+    {loading && <Loading label="Loading other profiles" />}
+    {error && <ErrorState error={error} retry={reload} />}
+    {!loading && data && !canManageOtherProfiles && <Empty>This profile cannot manage other profiles.</Empty>}
+    {canManageOtherProfiles && <><section className="surface"><div className="section-title"><div><p className="eyebrow">Separate profile</p><h2>Create a light profile</h2><p>Creation only establishes the profile. Manage its experience and contacts afterward.</p></div></div>
+      <form className="integration-add-form" onSubmit={(event) => void createIdentity(event)}><label>Name<input required maxLength={200} placeholder="Vince" value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label><label>Time v3 handle<HandleInput required minLength={3} maxLength={32} placeholder="vince" value={newHandle} onValueChange={setNewHandle} /></label><button className="button" disabled={saving}>{saving ? "Creating…" : "Create light profile"}</button></form>
+      {generatedPassword && <div className="auth-message" role="status"><strong>Generated password</strong><p><code>{generatedPassword}</code></p><p>Store it securely and give it directly to the profile owner. It disappears when this page reloads.</p><button className="button button--quiet" type="button" onClick={() => void navigator.clipboard.writeText(generatedPassword)}>Copy password</button></div>}
+    </section>
+    {provisionedLoading && <Loading label="Loading managed profiles" />}
+    {provisionedError && <ErrorState error={provisionedError} retry={reloadProvisioned} />}
+    <section className="surface"><div className="section-title"><div><h2>Managed profiles</h2></div></div><div className="integration-list">{(provisionedData?.people || []).map((item) => <ProvisionedAccountCard key={item.person.personId} item={item} onChanged={reloadProvisioned} />)}</div>{!provisionedLoading && !provisionedData?.people.length && <Empty>No light profiles have been created.</Empty>}</section>
+    </>}
     {status && <p role="status">{status}</p>}
   </>;
 }
 
 export function AccountScreen({ usage }: { usage: React.ReactNode }) {
-  const [tab, setTab] = useState<"profile" | "identities" | "usage" | "access">("profile");
+  const [tab, setTab] = useState<"profile" | "other-profiles" | "usage" | "tool-integrations">("profile");
   const { data: health, error: integrationError, loading: integrationsLoading, reload: reloadIntegrations } = useApi<{
     integrations?: Record<string, Entity>;
-  }>(tab === "access" ? "/health" : null);
+  }>(tab === "tool-integrations" ? "/health" : null);
   const [integrationDraft, setIntegrationDraft] = useState({ name: "", url: "", token: "" });
   const [integrationAction, setIntegrationAction] = useState("");
   const [integrationStatus, setIntegrationStatus] = useState("");
   const [pendingIntegrationAction, setPendingIntegrationAction] = useState<{ name: string; action: "disconnect" | "remove" } | null>(null);
   const [refreshingTools, setRefreshingTools] = useState(false);
   const [toolRefreshStatus, setToolRefreshStatus] = useState("");
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [passwordConfirmation, setPasswordConfirmation] = useState("");
-  const [passwordAction, setPasswordAction] = useState(false);
-  const [passwordStatus, setPasswordStatus] = useState("");
-  const changePassword = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (newPassword !== passwordConfirmation) {
-      setPasswordStatus("The password confirmation does not match.");
-      return;
-    }
-    setPasswordAction(true); setPasswordStatus("");
-    try {
-      await api("/api/account/set-password", {
-        method: "POST", body: JSON.stringify({ currentPassword, newPassword }),
-      });
-      setCurrentPassword(""); setNewPassword(""); setPasswordConfirmation("");
-      location.assign("/api/auth/start");
-    } catch (caught) {
-      setPasswordStatus(caught instanceof Error ? caught.message : String(caught));
-      setPasswordAction(false);
-    }
-  };
   const refreshTools = async () => {
     setRefreshingTools(true);
     setToolRefreshStatus("");
@@ -799,17 +835,7 @@ export function AccountScreen({ usage }: { usage: React.ReactNode }) {
       setIntegrationAction("");
     }
   };
-  const access = <>
-    <section className="surface"><p>Your browser uses a revocable Time v3 session stored in a secure, HTTP-only cookie.</p><button className="button button--quiet" type="button" onClick={async () => { await api("/api/auth/logout", { method: "POST", body: "{}" }); location.assign("/api/auth/start"); }}>Sign out</button></section>
-    <section className="surface" aria-labelledby="account-password-heading">
-      <div className="section-title"><div><p className="eyebrow">Sign-in security</p><h2 id="account-password-heading">Password</h2><p>Set a new password for your account. This signs you out on every browser.</p></div></div>
-      <form className="integration-add-form" onSubmit={(event) => void changePassword(event)}>
-        <label>Current password<input required name="current-password" type="password" autoComplete="current-password" maxLength={1024} value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label>
-        <div className="object-editor-grid"><label>New password<input required name="new-password" type="password" autoComplete="new-password" minLength={12} maxLength={1024} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label><label>Confirm new password<input required name="new-password-confirmation" type="password" autoComplete="new-password" minLength={12} maxLength={1024} value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} /></label></div>
-        <button className="button" disabled={passwordAction || newPassword.length < 12 || newPassword !== passwordConfirmation}>{passwordAction ? "Setting password…" : "Set password"}</button>
-        {passwordStatus && <p className="auth-message auth-message--error" role="alert">{passwordStatus}</p>}
-      </form>
-    </section>
+  const toolIntegrations = <>
     <section className="surface account-integrations" aria-labelledby="account-integrations-heading">
       <div className="section-title"><div><p className="eyebrow">Connected services</p><h2 id="account-integrations-heading">Integrations</h2></div><span>{integrations.filter(([, value]) => value.ready).length} connected</span></div>
       {integrationsLoading && <Loading label="Loading integrations" />}
@@ -854,14 +880,14 @@ export function AccountScreen({ usage }: { usage: React.ReactNode }) {
     </section>
   </>;
   return <>
-    <header className="page-heading"><div><p className="eyebrow">Identity and service</p><h1>Account</h1><p>Your durable profile, model usage, and this browser’s access.</p></div></header>
+    <header className="page-heading"><div><p className="eyebrow">Identity and service</p><h1>Account</h1><p>Manage this profile, other profiles, model usage, and connected tools.</p></div></header>
     <nav className="account-tabs">
-      <button className={tab === "profile" ? "active" : ""} onClick={() => setTab("profile")}>Profile</button>
-      <button className={tab === "identities" ? "active" : ""} onClick={() => setTab("identities")}>Agent identities</button>
+      <button className={tab === "profile" ? "active" : ""} onClick={() => setTab("profile")}>This profile</button>
+      <button className={tab === "other-profiles" ? "active" : ""} onClick={() => setTab("other-profiles")}>Other profiles</button>
       <button className={tab === "usage" ? "active" : ""} onClick={() => setTab("usage")}>AI usage</button>
-      <button className={tab === "access" ? "active" : ""} onClick={() => setTab("access")}>Access</button>
+      <button className={tab === "tool-integrations" ? "active" : ""} onClick={() => setTab("tool-integrations")}>Tool integrations</button>
     </nav>
-    {tab === "profile" ? <ProfileScreen /> : tab === "identities" ? <IdentitiesScreen /> : tab === "usage" ? usage : access}
+    {tab === "profile" ? <ProfileScreen /> : tab === "other-profiles" ? <OtherProfilesScreen /> : tab === "usage" ? usage : toolIntegrations}
   </>;
 }
 

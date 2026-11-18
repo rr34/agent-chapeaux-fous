@@ -76,7 +76,7 @@ async function refresh() {
   fields.pair.disabled = Boolean(config.pairingUserCode);
   fields.pairingCode.hidden = !config.pairingUserCode;
   fields.pairingCode.innerHTML = config.pairingUserCode
-    ? `<strong>${config.pairingUserCode}</strong>In the Time V3 web app, open Account → Agent identities → Linked devices, enter this code, and choose Link device.`
+    ? `<strong>${config.pairingUserCode}</strong>In the Time V3 web app, open Account → This profile → Linked devices, enter this code, and choose Link device.`
     : "";
   const running = job?.status === "running";
   fields.sync.disabled = running;

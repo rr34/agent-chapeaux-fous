@@ -10,7 +10,7 @@ test("the mobile app pairs for an individual revocable device credential", () =>
   assert.match(api, /\/api\/device\/pairings/u);
   assert.match(api, /\/api\/device\/pairings\/token/u);
   assert.match(app, /PAIR THIS PHONE/u);
-  assert.match(app, /Account → Agent identities → Linked devices/u);
+  assert.match(app, /Account → This profile → Linked devices/u);
   assert.match(storage, /device-credential/u);
   assert.doesNotMatch(app, /Paste your server token/u);
 });

@@ -73,6 +73,29 @@ test("Time v3 handles have one canonical human-facing form", () => {
   assert.throws(() => normalizeHandle("ab"), /handle/i);
 });
 
+test("a person can change their own Time v3 handle", () => {
+  let person = {
+    person_id: 17, display_name: "Nate", handle: "old-handle", email: null,
+    person_status: "active", managed_by_person_id: null, experience: "full",
+    contact_policy: "self_managed", weekly_ai_token_limit: 100,
+  };
+  const events = [];
+  const store = Object.create(IdentityStore.prototype);
+  store.authorizedPerson = () => person;
+  store.transaction = (callback) => callback();
+  store.recordSecurityEvent = (event) => events.push(event);
+  store.database = {
+    prepare(sql) {
+      if (sql.includes("SELECT person_id FROM people WHERE handle")) return { get: () => undefined };
+      if (sql.includes("UPDATE people SET handle")) return { run: (handle) => { person = { ...person, handle }; } };
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  };
+
+  assert.equal(store.setPersonHandle(17, 17, "new-handle").handle, "@new-handle");
+  assert.equal(events.at(-1).type, "person.handle_changed");
+});
+
 test("identity handle lookup accepts canonical input and one legacy presentation prefix", () => {
   const rows = [
     { person_id: 7, display_name: "Vince", handle: "@vince", person_status: "active", experience: "light", contact_policy: "manager_managed", weekly_ai_token_limit: 100 },

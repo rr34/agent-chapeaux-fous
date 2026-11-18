@@ -207,7 +207,7 @@ function ConnectionModal({
               style={styles.field}
               value={productionServerUrl}
             />
-            {pairing && <View><Text style={styles.fieldLabel}>PAIRING CODE</Text><Text style={styles.setupTitle}>{pairing.userCode}</Text><Text style={styles.setupCopy}>In the web app, open Account → Agent identities → Linked devices, enter this code, and choose Link device. Keep this screen open.</Text></View>}
+            {pairing && <View><Text style={styles.fieldLabel}>PAIRING CODE</Text><Text style={styles.setupTitle}>{pairing.userCode}</Text><Text style={styles.setupCopy}>In the web app, open Account → This profile → Linked devices, enter this code, and choose Link device. Keep this screen open.</Text></View>}
             {!!error && <Text style={styles.formError}>{error}</Text>}
             <Pressable
               accessibilityRole="button"

@@ -168,7 +168,8 @@ accounts.
 
 Each person may have one nullable canonical NFKC-trimmed lowercase email; email
 remains unique when present. A person's handle is unique, is stored without the
-presentation `@`, and may be set once. Login accepts either the email or handle.
+presentation `@`, and may be changed by that signed-in person. Login accepts
+either the email or current handle.
 A managed person's nullable `managed_by_person_id` references the managing
 person. Clearing it disconnects management without changing the managed person's
 identifier, login, Agent data, or contacts. The relationship is one-to-many and
@@ -185,7 +186,7 @@ but does not mandate another password change. A managed person may send only to 
 contacts and rejects unknown inbound native senders; there is no mutual-contact
 acceptance or automatic contact creation for that policy.
 
-An authenticated person may replace their own password from Account access after
+An authenticated person may replace their own password from Account → This profile after
 confirming the current password. A successful replacement revokes all of that
 person's active browser sessions, including the session that made the change, and
 returns the browser to sign-in.
@@ -408,8 +409,8 @@ directory directly:
 ```
 
 Pair and open `https://messages.google.com/web/`, then choose **Pair extension**
-in the extension popup. Approve its short code under **Account → Agent
-identities → Linked devices**. The downloaded package already contains this
+in the extension popup. Approve its short code under **Account → This profile →
+Linked devices**. The downloaded package already contains this
 server's canonical origin and the fixed `default` account key. Leave that tab
 open while synchronization runs. Choose **Since last sync**, 30 days, 90 days,
 one year, or all history. **Since last sync** defaults to 30 days on the first

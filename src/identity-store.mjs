@@ -414,15 +414,13 @@ export class IdentityStore {
     return this.transaction(() => {
       const person = this.authorizedPerson(accountId, personId);
       if (!person) throw identityError("That Agent identity is unavailable.", 404, "PERSON_UNAVAILABLE");
-      if (person.handle && person.handle !== normalized) {
-        throw identityError("A Time v3 handle cannot be changed after it is set.", 409, "HANDLE_IMMUTABLE");
-      }
       const owner = this.database.prepare("SELECT person_id FROM people WHERE handle = ?").get(normalized);
       if (owner && Number(owner.person_id) !== Number(personId)) {
         throw identityError("That Time v3 handle is already in use.", 409, "HANDLE_EXISTS");
       }
       this.database.prepare("UPDATE people SET handle = ? WHERE person_id = ?").run(normalized, personId);
-      this.recordSecurityEvent({ accountId, type: "person.handle_set", outcome: "success", details: `person_id=${Number(personId)}` });
+      this.recordSecurityEvent({ accountId, type: person.handle ? "person.handle_changed" : "person.handle_set",
+        outcome: "success", details: `person_id=${Number(personId)}` });
       return publicPerson(this.authorizedPerson(accountId, personId));
     });
   }
