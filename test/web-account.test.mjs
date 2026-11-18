@@ -80,11 +80,12 @@ test("account settings are split by the profile or service they belong to", () =
     accountSource.indexOf("export function ProfileScreen"),
     accountSource.indexOf("function OtherProfilesScreen"),
   );
-  const handle = thisProfile.indexOf('id="profile-handle-heading"');
   const appearance = thisProfile.indexOf("<AppearanceSettings />");
+  const facts = thisProfile.indexOf("<ProfileFacts />");
+  const handle = thisProfile.indexOf('id="profile-handle-heading"');
   const password = thisProfile.indexOf('id="account-password-heading"');
   const devices = thisProfile.indexOf(">Linked devices</h2>");
-  assert.ok(handle >= 0 && handle < appearance && appearance < password && password < devices);
+  assert.ok(appearance >= 0 && appearance < facts && facts < handle && handle < password && password < devices);
 
   const otherProfiles = accountSource.slice(
     accountSource.indexOf("function OtherProfilesScreen"),

@@ -699,6 +699,18 @@ async function handlePublicAuthRoute(request, response, url) {
     sendJson(response, 200, { redirectUrl: destination.toString() });
     return true;
   }
+  if (request.method === "POST" && url.pathname === "/api/auth/device/authorize") {
+    requireRequestOrigin(request, authOrigin);
+    const session = identityStore.session(requestCookies[cookieName("auth")], "auth");
+    if (!session) throw Object.assign(new Error("Sign in before linking this device."), { statusCode: 401 });
+    const body = await readJson(request);
+    sendJson(response, 200, identityStore.approveNodePairing({
+      accountId: session.account.accountId,
+      personId: session.person.personId,
+      userCode: body.userCode,
+    }));
+    return true;
+  }
   if (request.method === "POST" && url.pathname === "/api/auth/forgot-password") {
     requireRequestOrigin(request, authOrigin);
     const body = await readJson(request);
@@ -733,8 +745,13 @@ async function handlePublicAuthRoute(request, response, url) {
       maximum: 20, windowSeconds: 3600 });
     if (!limit.allowed) throw Object.assign(new Error("Too many device pairing attempts. Try again later."), { statusCode: 429 });
     const pairing = identityStore.beginNodePairing(body);
+    const verificationUri = new URL("/login", config.authPublicUrl);
+    const verificationUriComplete = new URL(verificationUri);
+    verificationUriComplete.searchParams.set("client_id", "device");
+    verificationUriComplete.searchParams.set("user_code", pairing.userCode);
     sendJson(response, 201, { ...pairing,
-      verificationUri: new URL("/app", config.publicUrl).toString() });
+      verificationUri: verificationUri.toString(),
+      verificationUriComplete: verificationUriComplete.toString() });
     return true;
   }
   if (request.method === "POST" && ["/api/node/pairings/token", "/api/device/pairings/token"].includes(url.pathname)) {

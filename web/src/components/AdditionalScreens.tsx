@@ -693,6 +693,8 @@ export function ProfileScreen() {
   return <>
     {loading && <Loading label="Loading this profile" />}
     {error && <ErrorState error={error} retry={reload} />}
+    <AppearanceSettings />
+    <ProfileFacts />
     {data && <section className="surface" aria-labelledby="profile-handle-heading">
       <div className="section-title"><div><p className="eyebrow">Signed-in profile</p><h2 id="profile-handle-heading">Time v3 handle</h2><p>{data.account.displayName}{data.account.email ? ` · ${data.account.email}` : ""}</p></div></div>
       <form className="integration-add-form" onSubmit={(event) => void setHandle(event)}>
@@ -701,7 +703,6 @@ export function ProfileScreen() {
         <button className="button" disabled={saving}>{saving ? "Saving…" : "Save handle"}</button>
       </form>
     </section>}
-    <AppearanceSettings />
     <section className="surface" aria-labelledby="account-password-heading">
       <div className="section-title"><div><p className="eyebrow">Sign-in security</p><h2 id="account-password-heading">Password</h2><p>Set a new password for this profile. This signs you out on every browser.</p></div></div>
       <form className="integration-add-form" onSubmit={(event) => void changePassword(event)}>
@@ -726,7 +727,6 @@ export function ProfileScreen() {
       {!nodesLoading && !nodeError && !nodeData?.devices.length && <Empty>No devices are linked to this profile.</Empty>}
     </section>
     {status && <p role="status">{status}</p>}
-    <ProfileFacts />
     <section className="surface"><p>Your browser uses a revocable Time v3 session stored in a secure, HTTP-only cookie.</p><button className="button button--quiet" type="button" onClick={async () => { await api("/api/auth/logout", { method: "POST", body: "{}" }); location.assign("/api/auth/start"); }}>Sign out</button></section>
   </>;
 }

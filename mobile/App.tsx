@@ -150,7 +150,12 @@ function ConnectionModal({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [pairing, setPairing] = useState<{ deviceCode: string; userCode: string; interval: number } | null>(null);
+  const [pairing, setPairing] = useState<{
+    deviceCode: string;
+    userCode: string;
+    interval: number;
+    verificationUriComplete: string;
+  } | null>(null);
   const onConnectedRef = useRef(onConnected);
 
   useEffect(() => { onConnectedRef.current = onConnected; }, [onConnected]);
@@ -185,11 +190,31 @@ function ConnectionModal({
     setError('');
     try {
       const started = await beginDevicePairing();
-      setPairing({ deviceCode: started.deviceCode, userCode: started.userCode, interval: started.interval });
+      setPairing({
+        deviceCode: started.deviceCode,
+        userCode: started.userCode,
+        interval: started.interval,
+        verificationUriComplete: started.verificationUriComplete,
+      });
+      try {
+        await Linking.openURL(started.verificationUriComplete);
+      } catch {
+        setError('Could not open Time v3 sign-in. Tap Open Time v3 sign-in to try again.');
+      }
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const openSignIn = async () => {
+    if (!pairing) return;
+    setError('');
+    try {
+      await Linking.openURL(pairing.verificationUriComplete);
+    } catch (caught) {
+      setError(errorMessage(caught));
     }
   };
 
@@ -200,22 +225,22 @@ function ConnectionModal({
             <View style={styles.setupMark}><Text style={styles.setupMarkText}>T3</Text></View>
             <Text style={styles.setupEyebrow}>PRIVATE CONNECTION</Text>
             <Text style={styles.setupTitle}>{initial ? 'Relink this phone' : 'Connect your agent'}</Text>
-            <Text style={styles.setupCopy}>Pair this phone with your signed-in Time V3 account. It receives its own revocable device credential.</Text>
+            <Text style={styles.setupCopy}>Sign in through auth.timev3tech.com and link this phone. It receives its own revocable device credential.</Text>
             <Text style={styles.fieldLabel}>SERVER URL</Text>
             <TextInput
               editable={false}
               style={styles.field}
               value={productionServerUrl}
             />
-            {pairing && <View><Text style={styles.fieldLabel}>PAIRING CODE</Text><Text style={styles.setupTitle}>{pairing.userCode}</Text><Text style={styles.setupCopy}>In the web app, open Account → This profile → Linked devices, enter this code, and choose Link device. Keep this screen open.</Text></View>}
+            {pairing && <View><Text style={styles.fieldLabel}>PAIRING CODE</Text><Text style={styles.setupTitle}>{pairing.userCode}</Text><Text style={styles.setupCopy}>Complete sign-in and approve this phone in your browser, then return here. Keep this screen open while the app waits for approval.</Text></View>}
             {!!error && <Text style={styles.formError}>{error}</Text>}
             <Pressable
               accessibilityRole="button"
-              disabled={busy || Boolean(pairing)}
-              onPress={startPairing}
-              style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryButtonPressed, (busy || pairing) && styles.disabled]}
+              disabled={busy}
+              onPress={pairing ? openSignIn : startPairing}
+              style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryButtonPressed, busy && styles.disabled]}
             >
-              {busy ? <ActivityIndicator color={colors.ink} /> : <Text style={styles.primaryButtonText}>{pairing ? 'WAITING FOR APPROVAL' : initial ? 'PAIR AGAIN' : 'PAIR THIS PHONE'}</Text>}
+              {busy ? <ActivityIndicator color={colors.ink} /> : <Text style={styles.primaryButtonText}>{pairing ? 'OPEN TIME V3 SIGN-IN' : initial ? 'SIGN IN AGAIN' : 'SIGN IN'}</Text>}
             </Pressable>
             {onCancel && (
               <Pressable onPress={onCancel} style={styles.textButton}>

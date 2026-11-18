@@ -205,12 +205,15 @@ origin and persist abuse counters and bounded secret-free security events.
 
 A node, the mobile app, or the Google Messages extension starts pairing without
 a browser session and receives a long private device code plus a short human
-code. The currently selected person must approve the short code in Agent. The
-client may then exchange its long code exactly once for a revocable credential
-bound directly to that person. A hardware identifier is display/provenance data,
-never authentication. Changing the selected person does not move an existing
-linked device. Shared installation bearer tokens and unauthenticated application
-mode are not supported.
+code. The mobile app opens the returned verification URL on the dedicated Auth
+host; after normal Time v3 sign-in, the person explicitly approves the phone
+there. Agent's Linked devices surface remains available for entering and
+approving a short code from clients that cannot open that URL. The client may
+then exchange its long code exactly once for a revocable credential bound
+directly to that person. A hardware identifier is display/provenance data, never
+authentication. Changing the selected person does not move an existing linked
+device. Shared installation bearer tokens and unauthenticated application mode
+are not supported.
 
 Expected node request failures expose a stable diagnostic code and short request
 reference at the point of use. The node LCD keeps retry and cancel available while

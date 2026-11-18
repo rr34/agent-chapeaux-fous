@@ -35,19 +35,36 @@ export default function AuthApp() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
-  const state = new URLSearchParams(location.search).get("state") || "";
+  const [deviceAuthorizationReady, setDeviceAuthorizationReady] = useState(false);
+  const [linkedDeviceName, setLinkedDeviceName] = useState("");
+  const query = new URLSearchParams(location.search);
+  const clientId = query.get("client_id") || "";
+  const state = query.get("state") || "";
+  const userCode = query.get("user_code") || "";
+  const isDeviceAuthorization = clientId === "device" && Boolean(userCode);
 
   const navigateMode = (next: AuthMode) => {
     const paths: Record<AuthMode, string> = {
       login: "/login", register: "/register", verify: "/verify",
       forgot: "/forgot-password", reset: "/reset-password",
     };
-    const query = state ? `?client_id=agent&state=${encodeURIComponent(state)}` : "";
-    history.replaceState(null, "", `${paths[next]}${query}`);
+    const nextQuery = new URLSearchParams();
+    if (isDeviceAuthorization) {
+      nextQuery.set("client_id", "device");
+      nextQuery.set("user_code", userCode);
+    } else if (state) {
+      nextQuery.set("client_id", "agent");
+      nextQuery.set("state", state);
+    }
+    history.replaceState(null, "", `${paths[next]}${nextQuery.size ? `?${nextQuery}` : ""}`);
     setMode(next); setError(""); setMessage("");
   };
 
   const continueToAgent = async () => {
+    if (isDeviceAuthorization) {
+      setDeviceAuthorizationReady(true);
+      return;
+    }
     if (state) {
       const result = await authRequest<{ redirectUrl: string }>("/api/auth/authorize", { state });
       location.replace(result.redirectUrl);
@@ -111,6 +128,30 @@ export default function AuthApp() {
     finally { setBusy(false); }
   };
 
+  const authorizeDevice = async () => {
+    setBusy(true); setError(""); setMessage("");
+    try {
+      const result = await authRequest<{ deviceName: string }>("/api/auth/device/authorize", { userCode });
+      setLinkedDeviceName(result.deviceName);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setBusy(false); }
+  };
+
+  if (deviceAuthorizationReady) return <main className="token-gate"><section className="token-card auth-card">
+    <img src="/icon.svg" alt="" />
+    <p className="eyebrow">Time v3 account</p>
+    <h1>{linkedDeviceName ? "Phone linked." : "Link this phone?"}</h1>
+    <p>{linkedDeviceName
+      ? `${linkedDeviceName} can now use your private Time v3 Agent. Return to the mobile app to continue.`
+      : "Give the Time v3 mobile app its own revocable credential for your currently signed-in profile."}</p>
+    {!linkedDeviceName && <p className="auth-message" role="status">Pairing code: {userCode}</p>}
+    {error && <p className="auth-message auth-message--error" role="alert">{error}</p>}
+    {!linkedDeviceName && <button className="button" disabled={busy} onClick={() => void authorizeDevice()}>
+      {busy ? "Linking…" : "Link this phone"}
+    </button>}
+    {linkedDeviceName && <a className="button" href="timev3technologyagent://auth/complete">Return to mobile app</a>}
+  </section></main>;
+
   const titles: Record<AuthMode, [string, string]> = {
     login: ["Welcome back.", "Sign in to your Time v3 account."],
     register: ["Create your account.", "Your account begins with one private Agent identity."],
@@ -130,7 +171,7 @@ export default function AuthApp() {
       {(mode === "login" || mode === "register" || mode === "reset") && <label>Password<input type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={12} value={password} onChange={(event) => setPassword(event.target.value)} /></label>}
       {error && <p className="auth-message auth-message--error" role="alert">{error}</p>}
       {message && <p className="auth-message" role="status">{message}</p>}
-      <button className="button" disabled={busy}>{busy ? "Working…" : mode === "login" ? "Sign in" : mode === "register" ? "Create account" : mode === "verify" ? "Verify email" : mode === "forgot" ? "Send reset code" : "Change password"}</button>
+      <button className="button" disabled={busy}>{busy ? "Working…" : mode === "login" ? isDeviceAuthorization ? "Sign in to link phone" : "Sign in" : mode === "register" ? "Create account" : mode === "verify" ? "Verify email" : mode === "forgot" ? "Send reset code" : "Change password"}</button>
     </form>
     <nav className="auth-links">
       {mode !== "login" && <button type="button" onClick={() => navigateMode("login")}>Sign in</button>}

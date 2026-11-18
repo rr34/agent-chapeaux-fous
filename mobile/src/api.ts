@@ -40,6 +40,8 @@ type DevicePairing = {
   userCode: string;
   expiresIn: number;
   interval: number;
+  verificationUri: string;
+  verificationUriComplete: string;
 };
 
 type DevicePairingResult = {
