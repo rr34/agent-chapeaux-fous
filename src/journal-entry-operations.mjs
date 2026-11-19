@@ -14,10 +14,9 @@ function entryId(value) {
   return id;
 }
 
-function requiredText(value) {
-  if (typeof value !== "string" || !value.trim()) {
-    throw new JournalEntryOperationError("Journal content is required.");
-  }
+function journalText(value) {
+  if (value === null) return null;
+  if (typeof value !== "string" || !value.trim()) return null;
   if (value.trim().length > 10_000) {
     throw new JournalEntryOperationError("Journal content cannot exceed 10000 characters.");
   }
@@ -71,11 +70,16 @@ export function updateJournalEntry(database, {
   if (!before) throw new JournalEntryOperationError(`Journal entry ${id} does not exist.`, 404);
 
   const values = {};
-  if (contentText !== undefined) values.content_text = requiredText(contentText);
+  if (contentText !== undefined) values.content_text = journalText(contentText);
   if (numberValue !== undefined) values.number_value = finiteNumber(numberValue);
   if (occurredAtUtc !== undefined) values.occurred_at_utc = instant(occurredAtUtc);
   if (Object.keys(values).length === 0) {
     throw new JournalEntryOperationError("No journal entry changes were supplied.");
+  }
+  const resultingContent = Object.hasOwn(values, "content_text") ? values.content_text : before.content_text;
+  const resultingNumber = Object.hasOwn(values, "number_value") ? values.number_value : before.number_value;
+  if (resultingContent === null && resultingNumber === null) {
+    throw new JournalEntryOperationError("Journal entries require text, a number, or both.");
   }
   if (values.number_value != null && String(before.tracker_unit).toLowerCase() === "set me") {
     throw new JournalEntryOperationError(`Set the canonical unit for tracker ${before.tracker_name} before changing its number.`);

@@ -2520,7 +2520,7 @@ function JournalScreen() {
               object={objectCardData({
                 id: Number(entry.id), type: "journal.entry", label: "Journal entry",
                 display: textKey(entry, "trackerName", "title") || "Journal entry",
-                body: textKey(entry, "contentText", "text", "numberValue") || null,
+                body: textKey(entry, "contentText", "text") || (entry.numberValue == null ? null : String(entry.numberValue)),
                 attributes: [{ label: "Occurred", value: formatDisplayDate(textKey(entry, "occurredAtUtc", "createdAtUtc")) }],
               })}
               controls={<ObjectSelectionControls identity={journalEntryIdentity(entry)} subject={`journal entry ${entry.id}`} />}

@@ -927,18 +927,32 @@ test("personal journal entries and grouped trackers are available to the web org
       occurredAtUtc: "2026-08-16T08:00:00.000Z",
     });
     assert.equal(second.trackerUnit, "kg");
+    const numberOnly = organizer.createJournalEntry({
+      trackerId: first.trackerId,
+      contentText: null,
+      numberValue: 71.5,
+      trackerUnit: null,
+      occurredAtUtc: "2026-08-17T08:00:00.000Z",
+    });
+    assert.equal(numberOnly.contentText, null);
+    assert.equal(numberOnly.numberValue, 71.5);
+    assert.throws(
+      () => organizer.createJournalEntry({ trackerId: first.trackerId, contentText: null, numberValue: null }),
+      (error) => error instanceof OrganizerInputError && /require text, a number, or both/.test(error.message),
+    );
     assert.deepEqual(
       organizer.listJournalEntries({ trackerId: first.trackerId }).map(({ contentText }) => contentText),
-      ["71.8 kg before breakfast", "72.1 kg after dinner"],
+      [null, "71.8 kg before breakfast", "72.1 kg after dinner"],
     );
 
     const trackers = organizer.listJournalTrackers();
     assert.equal(trackers.length, 1);
-    assert.equal(trackers[0].entryCount, 2);
-    assert.equal(trackers[0].lastRecordedAtUtc, "2026-08-16T08:00:00.000Z");
+    assert.equal(trackers[0].entryCount, 3);
+    assert.equal(trackers[0].lastRecordedAtUtc, "2026-08-17T08:00:00.000Z");
     assert.deepEqual(trackers[0].numericHistory, [
       { occurredAtUtc: "2026-08-16T00:30:00.000Z", value: 72.1 },
       { occurredAtUtc: "2026-08-16T08:00:00.000Z", value: 71.8 },
+      { occurredAtUtc: "2026-08-17T08:00:00.000Z", value: 71.5 },
     ]);
     assert.throws(
       () => organizer.createJournalEntry({
@@ -951,7 +965,7 @@ test("personal journal entries and grouped trackers are available to the web org
     );
     assert.equal(organizer.database.prepare(
       "SELECT COUNT(*) AS count FROM activity_events WHERE event_type = 'personal_journal.created'",
-    ).get().count, 2);
+    ).get().count, 3);
     const renamed = organizer.renameJournalGroup(first.groupId, { name: "Wellbeing" });
     assert.equal(renamed.group.previousName, "Health");
     assert.equal(renamed.group.name, "Wellbeing");
@@ -962,7 +976,7 @@ test("personal journal entries and grouped trackers are available to the web org
     ).get().count, 1);
     assert.equal(organizer.database.prepare(
       "SELECT COUNT(*) AS count FROM journal3_entries WHERE source_event_id IS NOT NULL",
-    ).get().count, 2);
+    ).get().count, 3);
   } finally {
     organizer.close();
     temporary.cleanup();

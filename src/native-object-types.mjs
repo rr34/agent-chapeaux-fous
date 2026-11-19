@@ -188,7 +188,7 @@ export const nativeFirstClassObjectTypes = Object.freeze([
     display: field("content_text", "Complete human-readable journal content."),
     qualifiers: [field("occurred_at_utc", "UTC instant when the observation occurred."), field("tracker_name", "Tracker under which the observation is recorded.")],
     relationships: [relationship("tracker", "journal.tracker", "Tracker owning this journal entry.")],
-    idFields: ["journal_entry_id", "journalEntryId"], displayFields: ["content_text", "text", "title"],
+    idFields: ["journal_entry_id", "journalEntryId"], displayFields: ["content_text", "number_value", "text", "title"],
     refFields: ["ref"], refPrefix: "agent-slayer://journal-entries/",
     inputFields: ["journal_entry_id"], searchFields: ["content_text", "journal2_trackers.name", "journal1_groups.name"],
   },

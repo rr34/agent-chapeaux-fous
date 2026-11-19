@@ -67,3 +67,27 @@ test("the shared journal-entry mutation updates the original row and rejects a s
     (error) => error instanceof JournalEntryOperationError && error.statusCode === 409,
   );
 });
+
+test("the shared journal-entry mutation allows number-only rows but rejects empty rows", () => {
+  const database = journalDatabase();
+  const numberOnly = updateJournalEntry(database, {
+    entryId: 41,
+    contentText: null,
+    numberValue: 6,
+    occurredAtUtc: "2026-08-16T12:00:00.000Z",
+    expectedVersion: "2026-08-16T12:01:00.000Z",
+  });
+  assert.equal(numberOnly.entry.content_text, null);
+  assert.equal(numberOnly.entry.number_value, 6);
+  assert.throws(
+    () => updateJournalEntry(database, {
+      entryId: 41,
+      contentText: null,
+      numberValue: null,
+      occurredAtUtc: "2026-08-16T12:00:00.000Z",
+      expectedVersion: numberOnly.entry.updated_at_utc,
+    }),
+    (error) => error instanceof JournalEntryOperationError
+      && /require text, a number, or both/.test(error.message),
+  );
+});

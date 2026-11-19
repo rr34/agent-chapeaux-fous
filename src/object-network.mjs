@@ -264,7 +264,7 @@ export class ObjectNetworkService {
       ] });
     }
     if (type === "journal.entry") {
-      return this.#card(definition, id, row.content_text, { attributes: [
+      return this.#card(definition, id, row.content_text ?? String(row.number_value), { attributes: [
         attribute("Occurred", row.occurred_at_utc), attribute("Value", row.number_value),
       ] });
     }

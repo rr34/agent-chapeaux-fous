@@ -98,7 +98,7 @@ test("base instructions stay universal while capability fragments retain domain 
   assert.match(instructions, /previous Monday-through-Monday interval/);
   assert.match(instructions, /never ask the user to\s+write\s+RRULE syntax/);
   assert.match(instructions, /personal-journal tools/);
-  assert.match(instructions, /complete natural-language journal\s+content/);
+  assert.match(instructions, /entry may contain text, a\s+number, or both, but never neither/);
   assert.match(instructions, /use `journal_import` in bounded batches/);
   assert.match(instructions, /call `journal_update` on each intended entry/);
   assert.match(instructions, /contact_file_import/);

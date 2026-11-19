@@ -389,6 +389,27 @@ export async function assertMigrationSpecificIntegrity(
   connection, migration, databaseName, schemaVersion = migration.version,
 ) {
   if (schemaVersion >= 70 && migration.version < 70) return;
+  if (migration.version === 75) {
+    const [columns] = await connection.query(`SELECT IS_NULLABLE
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'p_journal3_entries'
+        AND COLUMN_NAME = 'content_text'`, [databaseName]);
+    if (columns.length !== 1 || columns[0].IS_NULLABLE !== "YES") {
+      throw new Error("Migration 0075 did not make journal content optional");
+    }
+    const [checks] = await connection.query(`SELECT cc.CHECK_CLAUSE
+      FROM information_schema.TABLE_CONSTRAINTS AS tc
+      JOIN information_schema.CHECK_CONSTRAINTS AS cc
+        ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
+       AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+      WHERE tc.CONSTRAINT_SCHEMA = ? AND tc.TABLE_NAME = 'p_journal3_entries'
+        AND tc.CONSTRAINT_TYPE = 'CHECK' AND tc.CONSTRAINT_NAME = 'journal_entries_content'`, [databaseName]);
+    const clause = String(checks[0]?.CHECK_CLAUSE ?? "").toLowerCase();
+    if (checks.length !== 1 || !clause.includes("content_text") || !clause.includes("number_value")
+        || !clause.includes("char_length") || !/\bor\b/u.test(clause)) {
+      throw new Error("Migration 0075 did not establish the journal text-or-number check");
+    }
+  }
   if (migration.version === 71) {
     const [routineRows] = await connection.query(`
       SELECT IS_DETERMINISTIC FROM information_schema.ROUTINES

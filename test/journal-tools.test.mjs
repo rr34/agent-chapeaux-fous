@@ -20,7 +20,7 @@ function journalHarness(context, requestText = "Journal my weight") {
   return { store, ledger, request, registry };
 }
 
-test("journal_add exposes one complete content field and no boolean or mandatory value type", (context) => {
+test("journal_add accepts text, a number, or both without a value-kind field", (context) => {
   const { registry } = journalHarness(context);
   const definition = registry.toolDefinitions().find((tool) => tool.name === "journal_add");
   assert.deepEqual(Object.keys(definition.inputSchema.properties), [
@@ -37,6 +37,7 @@ test("journal_add exposes one complete content field and no boolean or mandatory
   assert.equal(Object.hasOwn(definition.inputSchema.properties, "note"), false);
   assert.equal(Object.hasOwn(definition.inputSchema.properties, "boolean"), false);
   assert.equal(Object.hasOwn(definition.inputSchema.properties, "valueKind"), false);
+  assert.deepEqual(definition.inputSchema.properties.content_text.type, ["string", "null"]);
 });
 
 test("tracker_create atomically creates trackers without journal entries", async (context) => {
@@ -109,6 +110,7 @@ test("journal_update exposes exact-ID partial corrections without tracker or pro
   assert.deepEqual(Object.keys(definition.inputSchema.properties), [
     "journal_entry_id",
     "content_text",
+    "clear_content_text",
     "number_value",
     "clear_number_value",
     "occurred_at_utc",
@@ -191,6 +193,35 @@ test("journal_add creates and reuses a grouped numeric tracker while preserving 
     ledger.trace(request.requestId).filter((event) => event.type === "personal_journal.created").length,
     2,
   );
+});
+
+test("journal_add records a number-only entry and rejects an empty entry", async (context) => {
+  const { request, registry } = journalHarness(context);
+  const created = await registry.execute("journal_add", {
+    tracker_id: null,
+    tracker: "Weight",
+    journal_group_id: null,
+    group: "Health",
+    content_text: null,
+    number_value: 72.1,
+    tracker_unit: "kg",
+    occurred_at_utc: "2026-08-16T08:00:00Z",
+    create_if_missing: true,
+  }, { requestId: request.requestId, callId: "number-only" });
+
+  assert.equal(created.entry.content_text, null);
+  assert.equal(created.entry.number_value, 72.1);
+  await assert.rejects(registry.execute("journal_add", {
+    tracker_id: created.tracker.tracker_id,
+    tracker: "Weight",
+    journal_group_id: created.tracker.journal_group_id,
+    group: "Health",
+    content_text: null,
+    number_value: null,
+    tracker_unit: null,
+    occurred_at_utc: "2026-08-17T08:00:00Z",
+    create_if_missing: false,
+  }, { requestId: request.requestId, callId: "empty-entry" }), /require text, a number, or both/u);
 });
 
 test("journal_group_rename preserves the exact group, trackers, and entries", async (context) => {
@@ -381,6 +412,7 @@ test("journal_update corrects one historical entry without owning its tracker's 
   const corrected = await registry.execute("journal_update", {
     journal_entry_id: oldEntry.entry.journal_entry_id,
     content_text: "Left arm pain was 8 out of 10.",
+    clear_content_text: false,
     number_value: null,
     clear_number_value: false,
     occurred_at_utc: null,
@@ -431,6 +463,7 @@ test("tracker units are canonical and journal_update clears only the numeric pro
   const cleared = await registry.execute("journal_update", {
     journal_entry_id: numericEntry.entry.journal_entry_id,
     content_text: null,
+    clear_content_text: false,
     number_value: null,
     clear_number_value: true,
     occurred_at_utc: null,

@@ -496,12 +496,12 @@ export function JournalEntryEditor({ entry, trackers = [], groups = [], initialT
           trackerName: trackerId === "new" ? trackerName : null,
           groupName: trackerId === "new" ? groupName : null,
           trackerUnit: trackerId === "new" ? trackerUnit : null,
-          contentText: draft.contentText,
+          contentText: draft.contentText.trim() || null,
           numberValue,
           occurredAtUtc: localDateTimeIso(draft.occurredAt),
         } : {
           version: String(entry.version || ""),
-          contentText: draft.contentText,
+          contentText: draft.contentText.trim() || null,
           numberValue,
           occurredAtUtc: localDateTimeIso(draft.occurredAt),
         }),
@@ -529,13 +529,13 @@ export function JournalEntryEditor({ entry, trackers = [], groups = [], initialT
           <label>Group<input required list="journal-entry-groups" maxLength={200} value={groupName} onChange={(event) => setGroupName(event.target.value)} /><datalist id="journal-entry-groups">{groups.map((group) => <option key={String(group.id)} value={String(group.name)} />)}</datalist></label>
         </div>}
       </>}
-      <label>Entry<textarea autoFocus required rows={6} maxLength={10_000} value={draft.contentText} onChange={(event) => setDraft({ ...draft, contentText: event.target.value })} /></label>
+      <label>Entry <span className="field-hint">Optional when a numeric value is supplied</span><textarea autoFocus rows={6} maxLength={10_000} value={draft.contentText} onChange={(event) => setDraft({ ...draft, contentText: event.target.value })} /></label>
       <div className="object-editor-grid">
         <label>Occurred<input required type="datetime-local" step="1" value={draft.occurredAt} onChange={(event) => setDraft({ ...draft, occurredAt: event.target.value })} /></label>
         <label>Numeric value <span className="field-hint">Optional{(entry?.trackerUnit || selectedTracker?.unit) ? ` · ${String(entry?.trackerUnit || selectedTracker?.unit)}` : ""}</span><input type="number" step="any" value={draft.numberValue} onChange={(event) => setDraft({ ...draft, numberValue: event.target.value })} /></label>
       </div>
       {error && <p className="inline-error" role="alert">{error}</p>}
-      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={saving || !draft.contentText.trim() || !draft.occurredAt || (creating && trackerId === "new" && (!trackerName.trim() || !trackerUnit.trim() || !groupName.trim()))}>{saving ? "Saving…" : creating ? "Add entry" : "Save entry"}</button></footer>
+      <footer className="object-editor-actions"><button className="button button--quiet" type="button" onClick={onClose}>Cancel</button><button className="button" disabled={saving || (!draft.contentText.trim() && !draft.numberValue.trim()) || !draft.occurredAt || (creating && trackerId === "new" && (!trackerName.trim() || !trackerUnit.trim() || !groupName.trim()))}>{saving ? "Saving…" : creating ? "Add entry" : "Save entry"}</button></footer>
     </form>
   </EditorFrame>;
 }

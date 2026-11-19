@@ -1,9 +1,9 @@
 For personal observations the user wants to track over time, including weight,
 food, health events, mood, and other recurring subjects, use the native
-personal-journal tools as the authoritative write and read path. Preserve each
-observation as complete natural-language journal content. A tracker owns one
-canonical unit shared by its complete numeric series; entries store only an
-optional number projection and never own a separate unit. Every new tracker
+personal-journal tools as the authoritative write and read path. Preserve all
+natural-language journal text the user supplies. An entry may contain text, a
+number, or both, but never neither. A tracker owns one canonical unit shared by
+its complete numeric series; entries never own a separate unit. Every new tracker
 requires a unit, including event-style trackers whose natural unit may be
 `occurrence`, `dose`, or another explicit count. When the user asks only to
 define one or more trackers, use `tracker_create`; it creates the complete batch

@@ -16,6 +16,31 @@
 --   <schema and data SQL>
 --   -- end migration 0032
 
+-- migration 0075: journal-number-or-text
+-- writer downtime: required. The matching application writes nullable journal
+-- text and requires the replacement content-or-number constraint.
+-- locking: one ALTER TABLE takes a metadata lock on the physical journal-entry
+-- table and may briefly rebuild it.
+-- recovery: MariaDB DDL commits implicitly. The MODIFY and constraint replacement
+-- are replayable; keep Agent stopped and rerun the complete migration if it is
+-- interrupted before schema version 75 is recorded.
+
+ALTER TABLE p_journal3_entries
+  MODIFY COLUMN content_text TEXT NULL
+    COMMENT 'Optional self-contained natural-language content of the observation. A journal entry requires content_text or number_value, and may contain both. Sensitivity: May contain private health, nutrition, behavioral, or situational context.',
+  MODIFY COLUMN number_value DOUBLE NULL
+    COMMENT 'Optional numeric observation for calculation, comparison, and trends. A journal entry requires number_value or content_text, and may contain both. Interpret this value using the parent tracker''s canonical unit.',
+  DROP CONSTRAINT IF EXISTS journal_entries_content,
+  ADD CONSTRAINT journal_entries_content CHECK (
+    (content_text IS NOT NULL AND CHAR_LENGTH(TRIM(content_text)) BETWEEN 1 AND 10000)
+    OR number_value IS NOT NULL
+  );
+
+ALTER TABLE p_journal3_entries
+  COMMENT='Stores the user''s authoritative time-stamped personal observations under reusable trackers. Every row contains natural-language content, a numeric value in the tracker''s canonical unit, or both. occurred_at_utc records when the observed event happened, while created_at_utc records when the row was saved. The parent tracker owns the single canonical unit for every number_value in its series; entries never duplicate a unit. For imported rows, the source and non-null external_id pair is a stable idempotency key and must never identify two different observations. Sensitivity: Contains private personal observations that may include health, nutrition, habits, symptoms, and daily activities.';
+
+-- end migration 0075
+
 -- migration 0074: native-timev3-correspondence
 -- writer downtime: required. The matching application recognizes the new
 -- correspondence medium and contact-method kind as soon as it starts.

@@ -12,6 +12,14 @@ integrity checks succeed. Applied blocks remain in the ledger and are skipped
 on later runs. Versions are immutable after application, and pending versions
 must be sequential with no gaps.
 
+## Version 75: Journal number or text
+
+Allows a personal journal entry to contain text, a numeric value, or both, while
+rejecting entries that contain neither. Apply with Agent stopped because the
+matching application may write null `content_text`. The physical table alteration
+takes a metadata lock and may briefly rebuild the table. If interrupted, keep
+Agent stopped and rerun the replayable migration before verification and restart.
+
 ## Version 74: Native Time v3 correspondence
 
 Adds the `timev3` correspondence medium and `timev3_person` contact-method

@@ -4415,8 +4415,11 @@ export class OrganizerStore {
       : identifier(input.trackerId, "tracker id");
     const trackerName = trackerId == null ? requiredText(input?.trackerName, "trackerName", 200) : null;
     const groupName = optionalText(input?.groupName, "groupName", 200) ?? "General";
-    const contentText = requiredText(input?.contentText, "contentText", 10_000);
+    const contentText = optionalText(input?.contentText, "contentText", 10_000);
     const numberValue = optionalFiniteNumber(input?.numberValue, "numberValue");
+    if (contentText === null && numberValue === null) {
+      throw new OrganizerInputError("Journal entries require text, a number, or both.");
+    }
     const trackerUnit = optionalText(input?.trackerUnit, "trackerUnit", 100);
     const occurredAtUtc = isoDateTime(
       input?.occurredAtUtc ?? new Date().toISOString(),

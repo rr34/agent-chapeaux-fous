@@ -48,7 +48,7 @@ const exactCandidateReads = Object.freeze({
   physical_item: { display: "name", where: "1 = 1", fields: ["physical_item_group_id", "status", "item_condition", "location_text", "version"] },
   journal_group: { display: "name", where: "1 = 1", fields: ["updated_at_utc"] },
   tracker: { display: "name", where: "1 = 1", fields: ["journal_group_id", "unit", "updated_at_utc"] },
-  journal_entry: { display: "content_text", where: "1 = 1", fields: ["tracker_id", "occurred_at_utc", "updated_at_utc"] },
+  journal_entry: { display: "content_text", where: "1 = 1", fields: ["tracker_id", "number_value", "occurred_at_utc", "updated_at_utc"] },
   calendar_event: { display: "title", where: "1 = 1", fields: ["starts_at_utc", "status", "recurrence_rule", "updated_at_utc"] },
   calendar_routine: { display: "title", where: "1 = 1", fields: ["first_starts_at_utc", "recurrence_rule", "disabled_at_utc", "updated_at_utc"] },
   file: { display: "COALESCE(title, original_filename)", where: "1 = 1", fields: ["title", "original_filename", "media_kind", "mime_type", "updated_at_utc"] },
@@ -274,13 +274,14 @@ function readCandidates(database, tokens, selectedTypes = null, query = "") {
     "journal2_trackers AS tracker JOIN journal1_groups AS journal_group USING (journal_group_id)",
     "tracker.archived_at_utc IS NULL AND journal_group.archived_at_utc IS NULL",
     ["tracker.name", "tracker.unit", "journal_group.name"], [], "tracker.name, tracker.tracker_id");
-  read("journal_entry", `entry.journal_entry_id AS id, entry.content_text AS title,
+  read("journal_entry", `entry.journal_entry_id AS id,
+      COALESCE(entry.content_text, CONCAT(CAST(entry.number_value AS CHAR), ' ', tracker.unit)) AS title,
       entry.occurred_at_utc, entry.tracker_id AS parent_id, tracker.name AS parent_title,
       tracker.journal_group_id AS grandparent_id, journal_group.name AS grandparent_title`,
     `journal3_entries AS entry JOIN journal2_trackers AS tracker USING (tracker_id)
       JOIN journal1_groups AS journal_group USING (journal_group_id)`,
     "tracker.archived_at_utc IS NULL AND journal_group.archived_at_utc IS NULL",
-    ["entry.content_text", "tracker.name", "journal_group.name"], [],
+    ["entry.content_text", "CAST(entry.number_value AS CHAR)", "tracker.name", "tracker.unit", "journal_group.name"], [],
     "entry.occurred_at_utc DESC, entry.journal_entry_id DESC");
   read("calendar_event", `event.calendar_event_id AS id, event.title,
       event.starts_at_utc, event.location_text, event.status`,
@@ -431,7 +432,8 @@ function relatedFor(database, item) {
       .all(id).map(({ id: relatedId, title }) => relatedObject("tracker", relatedId, title));
   }
   if (type === "tracker") {
-    const entries = database.prepare(`SELECT journal_entry_id AS id, content_text AS title
+    const entries = database.prepare(`SELECT journal_entry_id AS id,
+        COALESCE(content_text, CAST(number_value AS CHAR)) AS title
       FROM journal3_entries WHERE tracker_id = ?
       ORDER BY occurred_at_utc DESC, journal_entry_id DESC LIMIT 2`).all(id)
       .map(({ id: relatedId, title }) => relatedObject("journal_entry", relatedId, title));

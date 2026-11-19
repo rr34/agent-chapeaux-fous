@@ -78,8 +78,8 @@ const journalEntryRecordSchema = {
     group_ref: { description: "Stable Agent Slayer reference for the owning journal group." },
     group_name: { description: "Human-facing name of the owning journal group." },
     occurred_at_utc: { description: "UTC instant when the recorded observation or event occurred. This may differ from created_at_utc when the user records something retrospectively." },
-    content_text: { description: "Complete self-contained natural-language content of the observation. Preserve supporting context here instead of fragmenting it into a separate note field. When a numeric projection exists, this text still remains the complete readable entry." },
-    number_value: { description: "Optional numeric projection extracted from the complete journal content for calculation, comparison, and trends. Null is valid for observations without a useful numeric component. Interpret this value using the parent tracker's canonical unit." },
+    content_text: { description: "Optional self-contained natural-language content of the observation. A journal entry requires content_text or number_value, and may contain both." },
+    number_value: { description: "Optional numeric observation for calculation, comparison, and trends. A journal entry requires number_value or content_text, and may contain both. Interpret this value using the parent tracker's canonical unit." },
     source_event_id: { description: "Optional activity event for the user request that caused this journal entry to be recorded." },
     created_at_utc: { description: "UTC timestamp when this journal row was created." },
     updated_at_utc: { description: "UTC timestamp of the most recent modification to this journal row, when modified." },
@@ -102,6 +102,15 @@ function requiredText(value, label, maximumLength) {
 function optionalUnit(value) {
   if (value === null || value === undefined || value === "") return null;
   return requiredText(value, "Unit", 100);
+}
+
+function optionalJournalText(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value !== "string") throw new Error("Journal content must be text or null");
+  const selected = value.trim();
+  if (!selected) return null;
+  if (selected.length > 10000) throw new Error("Journal content cannot exceed 10000 characters");
+  return selected;
 }
 
 function uniquePositiveIntegers(value, label, maximum = 100) {
@@ -394,10 +403,13 @@ function normalizedJournalInput(argumentsObject, { requireOccurredAt = false } =
   const requestedGroup = requestedGroupWasNull
     ? "General"
     : requiredText(argumentsObject.group, "Journal group name", 200);
-  const content = requiredText(argumentsObject.content_text, "Journal content", 10000);
+  const content = optionalJournalText(argumentsObject.content_text);
   const number = argumentsObject.number_value;
   if (number !== null && (typeof number !== "number" || !Number.isFinite(number))) {
     throw new Error("Journal number must be a finite number or null");
+  }
+  if (content === null && number === null) {
+    throw new Error("Journal entries require text, a number, or both");
   }
   const trackerUnit = optionalUnit(argumentsObject.tracker_unit);
   if (requireOccurredAt && (argumentsObject.occurred_at_utc === null
@@ -765,7 +777,7 @@ export function registerJournalTools(registry, store, ledger) {
   });
   registry.register({
     name: "journal_add",
-    description: "Record one real observation in the user's authoritative personal journal. Select an existing tracker by stable tracker_id; tracker is its human-facing name. A null tracker_id is valid only while proposing or explicitly creating a missing tracker together with this actual observation. Use tracker_create instead when the request is only to define trackers; never create placeholder observations. Select an existing parent group by journal_group_id. The content remains complete human-readable text; number_value is an optional trend projection whose canonical unit belongs to the tracker.",
+    description: "Record one real observation in the user's authoritative personal journal. Select an existing tracker by stable tracker_id; tracker is its human-facing name. A null tracker_id is valid only while proposing or explicitly creating a missing tracker together with this actual observation. Use tracker_create instead when the request is only to define trackers; never create placeholder observations. Select an existing parent group by journal_group_id. Every entry requires content_text, number_value, or both; the canonical numeric unit belongs to the tracker.",
     outputSchema: {
       type: "object",
       properties: { entry: journalEntryRecordSchema, tracker: trackerRecordSchema },
@@ -787,8 +799,8 @@ export function registerJournalTools(registry, store, ledger) {
         tracker: { type: "string", minLength: 1, maxLength: 200, description: "Name of the reusable subject under which this observation is recorded." },
         journal_group_id: { type: ["integer", "null"], minimum: 1, description: "Stable ID of an existing parent group, or null only when proposing or creating a new group." },
         group: nullableString,
-        content_text: { type: "string", minLength: 1, maxLength: 10000, description: "Complete self-contained natural-language content of the observation. Preserve supporting context here instead of fragmenting it into a separate note field. When a numeric projection exists, this text still remains the complete readable entry." },
-        number_value: { type: ["number", "null"], description: "Optional numeric projection extracted from the complete journal content for calculation, comparison, and trends. Null is valid for observations without a useful numeric component. Interpret this value using the parent tracker's canonical unit." },
+        content_text: { type: ["string", "null"], minLength: 1, maxLength: 10000, description: "Optional self-contained natural-language content. Null is valid when number_value is present." },
+        number_value: { type: ["number", "null"], description: "Optional numeric observation. Null is valid when content_text is present. Interpret this value using the parent tracker's canonical unit." },
         tracker_unit: { ...nullableString, maxLength: 100, description: "Canonical unit shared by every numeric entry in this tracker's trend series. Required for every tracker; event-style trackers use an explicit count such as occurrence or dose. The set me value is a migration review marker, not a real measurement unit. After numeric entries exist, changing this unit would reinterpret history and is rejected unless the old value is set me." },
         occurred_at_utc: { ...nullableString, description: "UTC instant when the recorded observation or event occurred. This may differ from created_at_utc when the user records something retrospectively." },
         create_if_missing: { type: "boolean" },
@@ -894,8 +906,8 @@ export function registerJournalTools(registry, store, ledger) {
               tracker: { type: "string", minLength: 1, maxLength: 200, description: "Name of the reusable subject under which this observation is recorded." },
               journal_group_id: { type: ["integer", "null"], minimum: 1, description: "Stable ID of an existing parent group, or null only when this import creates that group." },
               group: nullableString,
-              content_text: { type: "string", minLength: 1, maxLength: 10000, description: "Complete self-contained natural-language content of the observation. Preserve supporting context here instead of fragmenting it into a separate note field. When a numeric projection exists, this text still remains the complete readable entry." },
-              number_value: { type: ["number", "null"], description: "Optional numeric projection extracted from the complete journal content for calculation, comparison, and trends. Null is valid for observations without a useful numeric component. Interpret this value using the parent tracker's canonical unit." },
+              content_text: { type: ["string", "null"], minLength: 1, maxLength: 10000, description: "Optional self-contained natural-language content. Null is valid when number_value is present." },
+              number_value: { type: ["number", "null"], description: "Optional numeric observation. Null is valid when content_text is present. Interpret this value using the parent tracker's canonical unit." },
               tracker_unit: { ...nullableString, maxLength: 100, description: "Canonical unit shared by every numeric entry in this tracker's trend series. Required for every tracker; event-style trackers use an explicit count such as occurrence or dose. The set me value is a migration review marker, not a real measurement unit. After numeric entries exist, changing this unit would reinterpret history and is rejected unless the old value is set me." },
               occurred_at_utc: { type: "string", description: "UTC instant when the recorded observation or event occurred. This may differ from created_at_utc when the user records something retrospectively." },
             },
@@ -1081,7 +1093,7 @@ export function registerJournalTools(registry, store, ledger) {
 
   registry.register({
     name: "journal_update",
-    description: "Correct one existing personal-journal entry by its exact journal_entry_id. Null leaves content_text, number_value, or occurred_at_utc unchanged. Set clear_number_value true to clear the optional numeric trend projection. The canonical unit belongs to the tracker and cannot be changed through an entry correction.",
+    description: "Correct one existing personal-journal entry by its exact journal_entry_id. Null leaves content_text, number_value, or occurred_at_utc unchanged. Set clear_content_text or clear_number_value to remove that value; the resulting entry must retain text, a number, or both. The canonical unit belongs to the tracker and cannot be changed through an entry correction.",
     outputSchema: {
       type: "object",
       properties: { entry: journalEntryRecordSchema },
@@ -1091,18 +1103,20 @@ export function registerJournalTools(registry, store, ledger) {
       additionalProperties: false,
       properties: {
         journal_entry_id: { type: "integer", minimum: 1, description: "Stable local identifier for one personal journal entry." },
-        content_text: { ...nullableString, description: "Complete self-contained natural-language content of the observation. Preserve supporting context here instead of fragmenting it into a separate note field. When a numeric projection exists, this text still remains the complete readable entry." },
+        content_text: { ...nullableString, description: "Optional self-contained natural-language content. Null leaves it unchanged unless clear_content_text is true." },
+        clear_content_text: { type: "boolean" },
         number_value: { type: ["number", "null"], description: "Optional numeric projection extracted from the complete journal content for calculation, comparison, and trends. Null is valid for observations without a useful numeric component. Interpret this value using the parent tracker's canonical unit." },
         clear_number_value: { type: "boolean" },
         occurred_at_utc: { ...nullableString, description: "UTC instant when the recorded observation or event occurred. This may differ from created_at_utc when the user records something retrospectively." },
       },
       required: [
-        "journal_entry_id", "content_text", "number_value", "clear_number_value", "occurred_at_utc",
+        "journal_entry_id", "content_text", "clear_content_text", "number_value", "clear_number_value", "occurred_at_utc",
       ],
     },
     async execute({
       journal_entry_id: entryId,
       content_text: contentText,
+      clear_content_text: clearContentText,
       number_value: numberValue,
       clear_number_value: clearNumberValue,
       occurred_at_utc: occurredAtUtc,
@@ -1110,6 +1124,9 @@ export function registerJournalTools(registry, store, ledger) {
       const database = store.requireReady();
       database.exec("START TRANSACTION");
       try {
+        if (clearContentText && contentText !== null) {
+          throw new Error("clear_content_text cannot be combined with new content_text");
+        }
         let selectedNumberValue;
         if (clearNumberValue) {
           if (numberValue !== null) {
@@ -1121,7 +1138,7 @@ export function registerJournalTools(registry, store, ledger) {
         }
         const updated = updateJournalEntry(database, {
           entryId,
-          ...(contentText === null ? {} : { contentText }),
+          ...(clearContentText ? { contentText: null } : contentText === null ? {} : { contentText }),
           ...(selectedNumberValue === undefined ? {} : { numberValue: selectedNumberValue }),
           ...(occurredAtUtc === null ? {} : { occurredAtUtc }),
         });

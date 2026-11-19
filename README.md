@@ -1092,9 +1092,9 @@ controls which exact tool schemas are callable.
   copy action for sharing its saved details through another app.
 - `tracker_create`, `journal_add`, `journal_import`, `journal_list`, `journal_update`,
   `journal_group_rename`, `tracker_list`, and `tracker_update`
-  provide the native grouped personal-journal path. Each entry keeps complete
-  natural-language content with an optional numeric projection for calculation
-  and trends. Each tracker owns the one canonical unit shared by its numeric
+  provide the native grouped personal-journal path. Each entry keeps a number,
+  natural-language text, or both; entries with neither are rejected. Each tracker
+  owns the one canonical unit shared by its numeric
   series; entries do not duplicate it. Trackers can be created atomically
   without fabricating an initial journal entry. Exact-ID corrections update an original entry without
   creating a duplicate. Bounded imports use generic source and external IDs for

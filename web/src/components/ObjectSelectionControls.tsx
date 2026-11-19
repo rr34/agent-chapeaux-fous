@@ -228,7 +228,7 @@ export function journalTrackerIdentity(tracker: Entity) {
 }
 
 export function journalEntryIdentity(entry: Entity) {
-  const content = entry.contentText || entry.text || entry.numberValue || "Journal entry";
+  const content = (entry.contentText || entry.text || entry.numberValue) ?? "Journal entry";
   const detail = [
     `Journal entry: ${concise(content)}`,
     entry.trackerName ? `Tracker: ${concise(entry.trackerName, 120)}` : null,

@@ -671,8 +671,8 @@ CREATE TABLE journal3_entries (
     tracker_id       BIGINT UNSIGNED NOT NULL COMMENT 'Tracker under which this observation is recorded.',
     occurred_at_utc  DATETIME(3) NOT NULL
                      DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC instant when the recorded observation or event occurred. Stored as a MariaDB DATETIME(3) interpreted as UTC. This may differ from created_at_utc when the user records something retrospectively.',
-    content_text     TEXT NOT NULL COMMENT 'Complete self-contained natural-language content of the observation. Preserve supporting context here instead of fragmenting it into a separate note field. When a numeric projection exists, this text still remains the complete readable entry. Sensitivity: May contain private health, nutrition, behavioral, or situational context.',
-    number_value     DOUBLE COMMENT 'Optional numeric projection extracted from the complete journal content for calculation, comparison, and trends. Null is valid for observations without a useful numeric component. Interpret this value using the parent tracker''s canonical unit.',
+    content_text     TEXT COMMENT 'Optional self-contained natural-language content of the observation. A journal entry requires content_text or number_value, and may contain both. Sensitivity: May contain private health, nutrition, behavioral, or situational context.',
+    number_value     DOUBLE COMMENT 'Optional numeric observation for calculation, comparison, and trends. A journal entry requires number_value or content_text, and may contain both. Interpret this value using the parent tracker''s canonical unit.',
     source_event_id  VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin COMMENT 'Optional activity event for the user request that caused this journal entry to be recorded.',
     created_at_utc   DATETIME(3) NOT NULL
                      DEFAULT (UTC_TIMESTAMP(3)) COMMENT 'UTC timestamp when this journal row was created. Stored as a MariaDB DATETIME(3) interpreted as UTC.',
@@ -684,10 +684,13 @@ CREATE TABLE journal3_entries (
     KEY journal_entries_tracker_occurred (tracker_id, occurred_at_utc, journal_entry_id),
     CONSTRAINT journal_entries_tracker FOREIGN KEY (tracker_id) REFERENCES journal2_trackers(tracker_id) ON DELETE RESTRICT,
     CONSTRAINT journal_entries_event FOREIGN KEY (source_event_id) REFERENCES activity_events(event_id) ON DELETE SET NULL,
-    CONSTRAINT journal_entries_content CHECK (CHAR_LENGTH(TRIM(content_text)) BETWEEN 1 AND 10000),
+    CONSTRAINT journal_entries_content CHECK (
+      (content_text IS NOT NULL AND CHAR_LENGTH(TRIM(content_text)) BETWEEN 1 AND 10000)
+      OR number_value IS NOT NULL
+    ),
     CONSTRAINT journal_entries_source_length CHECK (CHAR_LENGTH(TRIM(source)) BETWEEN 1 AND 200),
     CONSTRAINT journal_entries_external_length CHECK (external_id IS NULL OR CHAR_LENGTH(TRIM(external_id)) BETWEEN 1 AND 1000)
-) ENGINE=InnoDB COMMENT='Stores the user''s authoritative time-stamped personal observations under reusable trackers. One row represents one complete personal observation with an optional numeric projection in its tracker''s canonical unit. content_text is the complete human-readable observation; number_value is an optional trend projection rather than a replacement for it. occurred_at_utc records when the observed event happened, while created_at_utc records when the row was saved. The parent tracker owns the single canonical unit for every number_value in its series; entries never duplicate a unit. For imported rows, the source and non-null external_id pair is a stable idempotency key and must never identify two different observations. Sensitivity: Contains private personal observations that may include health, nutrition, habits, symptoms, and daily activities.';
+) ENGINE=InnoDB COMMENT='Stores the user''s authoritative time-stamped personal observations under reusable trackers. Every row contains natural-language content, a numeric value in the tracker''s canonical unit, or both. occurred_at_utc records when the observed event happened, while created_at_utc records when the row was saved. The parent tracker owns the single canonical unit for every number_value in its series; entries never duplicate a unit. For imported rows, the source and non-null external_id pair is a stable idempotency key and must never identify two different observations. Sensitivity: Contains private personal observations that may include health, nutrition, habits, symptoms, and daily activities.';
 
 CREATE TABLE content_items (
     -- sourceOfTruth: true

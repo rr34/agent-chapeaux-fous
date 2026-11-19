@@ -927,6 +927,20 @@ test("schema 59 retains the Journal schedule guard without requiring retired Che
   await assertMigrationSpecificIntegrity(connection, { version: 36 }, "test_database", 59);
 });
 
+test("journal number-or-text migration verifies nullable text and the replacement check", async () => {
+  const connection = {
+    async query(sql, parameters) {
+      assert.deepEqual(parameters, ["test_database"]);
+      if (sql.includes("information_schema.COLUMNS")) return [[{ IS_NULLABLE: "YES" }]];
+      if (sql.includes("information_schema.CHECK_CONSTRAINTS")) {
+        return [[{ CHECK_CLAUSE: "(content_text IS NOT NULL AND CHAR_LENGTH(TRIM(content_text)) BETWEEN 1 AND 10000) OR number_value IS NOT NULL" }]];
+      }
+      assert.fail(`Unexpected SQL: ${sql}`);
+    },
+  };
+  await assertMigrationSpecificIntegrity(connection, { version: 75 }, "test_database");
+});
+
 test("the unplanned retirement verifies the enum, rows, and actionable view", async () => {
   const connection = {
     enumType: "enum('todo','complete','ignore','archive','ai_suggested')",
@@ -1015,11 +1029,11 @@ test("Journal migration failures identify the exact leftover constraint without 
 
 test("the migration ledger is newest-first and returned oldest-first for execution", () => {
   const migrations = readMigrationLedger(migrationsFilename);
-  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74]);
-  for (let current = 29; current <= 74; current += 1) {
+  assert.deepEqual(migrations.map(({ version }) => version), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75]);
+  for (let current = 29; current <= 75; current += 1) {
     assert.deepEqual(
       validatePendingMigrations(migrations, current).map(({ version }) => version),
-      Array.from({ length: 74 - current }, (_, index) => current + index + 1),
+      Array.from({ length: 75 - current }, (_, index) => current + index + 1),
     );
   }
 });
