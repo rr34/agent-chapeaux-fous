@@ -1639,6 +1639,10 @@ dark six-digit base hex color and derives the web interface's sidebar, accents,
 borders, focus states, and tinted surfaces from that color; `#0e001e` is the
 default. This presentation preference is deliberately not an agent-readable
 profile fact and does not require domain or identity schema state.
+The native mobile client uses that same default `#0e001e` purple base and a
+dark derived palette. It does not mirror a web selection because the web
+preference is intentionally local to one browser rather than stored on the
+person or exposed through an authenticated API.
 
 `sms_draft_create` prepares an unsent structured handoff for one exact contact
 and receivable phone method. Mobile opens the normal Messages app with recipient
