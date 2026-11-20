@@ -70,13 +70,14 @@ class TimeV3NativeModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("TimeV3Native")
 
-    Constant("nativeShellVersion") { 5 }
+    Constant("nativeShellVersion") { 6 }
     Constant("nativeCapabilities") {
       listOf(
         "compose_text_v1",
         "contacts_read_v1",
         "contact_change_time_v1",
         "contact_insert_intent_v1",
+        "contact_edit_intent_v1",
         "contact_open_v1",
         "contact_permission_v1",
         "contact_source_identity_v1",
@@ -132,6 +133,26 @@ class TimeV3NativeModule : Module() {
       }
       if (intent.resolveActivity(context.packageManager) == null) {
         throw IllegalStateException("No contacts app can open this contact")
+      }
+      context.startActivity(intent)
+    }
+
+    AsyncFunction("editPhoneContact") { externalIdHash: String ->
+      val context = requireContext()
+      if (!granted(context, Manifest.permission.READ_CONTACTS)) {
+        throw IllegalStateException("Contacts permission is required to edit this phone contact")
+      }
+      if (!externalIdHash.matches(Regex("^[0-9a-f]{64}$"))) {
+        throw IllegalArgumentException("The phone contact identity is invalid")
+      }
+      val contactUri = phoneContactUri(context, externalIdHash)
+        ?: throw IllegalStateException("This linked contact is no longer present on the phone")
+      val intent = Intent(Intent.ACTION_EDIT, contactUri).apply {
+        setDataAndType(contactUri, ContactsContract.Contacts.CONTENT_ITEM_TYPE)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+      if (intent.resolveActivity(context.packageManager) == null) {
+        throw IllegalStateException("No contacts app can edit this contact")
       }
       context.startActivity(intent)
     }

@@ -117,7 +117,7 @@ test("phone synchronization atomically imports contacts and replay-safe correspo
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM correspondence_source_aliases").get().count, 3);
 });
 
-test("phone contact observations rename one matched canonical contact and reject older names", (context) => {
+test("phone contact observations never overwrite the Agent's canonical contact", (context) => {
   const temporary = temporaryDatabase();
   context.after(() => temporary.cleanup());
   const service = new CorrespondenceSyncService({ databaseTarget: temporary.target });
@@ -152,12 +152,12 @@ test("phone contact observations rename one matched canonical contact and reject
     correspondence: [],
   });
   assert.deepEqual(synchronized.contacts, {
-    received: 1, created: 0, updated: 1, matched: 1,
+    received: 1, created: 0, updated: 0, matched: 1,
     observationsCreated: 1, methodsCreated: 0,
   });
   assert.deepEqual(database.prepare(`
     SELECT display_name, given_name, family_name FROM contacts WHERE contact_id = 1
-  `).get(), { display_name: "John Smith", given_name: "John", family_name: "Smith" });
+  `).get(), { display_name: "Jon Smyth", given_name: "Jon", family_name: "Smyth" });
 
   const olderPhone = service.synchronize({
     protocol: "timev3.android-correspondence-sync",
@@ -180,7 +180,7 @@ test("phone contact observations rename one matched canonical contact and reject
   });
   assert.equal(
     database.prepare("SELECT display_name FROM contacts WHERE contact_id = 1").get().display_name,
-    "John Smith",
+    "Jon Smyth",
   );
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM contact_source_aliases").get().count, 2);
 });

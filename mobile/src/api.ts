@@ -156,6 +156,20 @@ export async function fetchContacts(
   return result.contacts;
 }
 
+export async function updateAgentContact(
+  settings: ConnectionSettings,
+  contact: AgentContact,
+  updates: Partial<Pick<AgentContact,
+    'displayName' | 'givenName' | 'familyName' | 'organizationName' | 'birthDate' | 'notes' | 'methods' | 'tags'>>,
+): Promise<AgentContact> {
+  const result = await requestJson<{ contact: AgentContact }>(settings, `/api/contacts/${contact.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ version: contact.version, ...updates }),
+  });
+  return result.contact;
+}
+
 export async function fetchMusic(settings: ConnectionSettings): Promise<MusicFile[]> {
   const result = await requestJson<{ files: MusicFile[] }>(settings, '/api/music?limit=500');
   return result.files;

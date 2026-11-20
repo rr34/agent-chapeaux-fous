@@ -565,7 +565,7 @@ function CorrespondenceSyncModal({
         const more = Object.values(batch.hasMore).some(Boolean);
         if (!more) {
           setProgress(
-            `Complete\n${correspondenceProgressText(acceptedProgress, acceptedProgress, synchronizationStartedAt)}\n\n${totals.contactsRead} contacts read; ${totals.contactsCreated} created, ${totals.contactsMatched} matched, ${totals.contactNamesUpdated} names updated, and ${totals.contactMethodsCreated} methods added. ${totals.contactObservationsCreated} phone contact identities recorded.\n\nCommunications: ${totals.correspondenceCreated} new, ${totals.correspondenceDeduplicated} cross-device duplicates linked, and ${totals.correspondenceUpdated} refreshed.`,
+            `Complete\n${correspondenceProgressText(acceptedProgress, acceptedProgress, synchronizationStartedAt)}\n\n${totals.contactsRead} contacts read; ${totals.contactsCreated} new contacts imported, ${totals.contactsMatched} matched to Agent contacts, and ${totals.contactMethodsCreated} methods accepted for new contacts. ${totals.contactObservationsCreated} phone contact identities recorded. Existing Agent contacts were not overwritten.\n\nCommunications: ${totals.correspondenceCreated} new, ${totals.correspondenceDeduplicated} cross-device duplicates linked, and ${totals.correspondenceUpdated} refreshed.`,
           );
           return;
         }

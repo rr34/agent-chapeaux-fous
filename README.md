@@ -111,7 +111,6 @@ npm install
 npx expo prebuild --clean --platform android
 npm run android:build:release
 /home/nate/Android/Sdk/platform-tools/adb install -r -g android/app/build/outputs/apk/release/app-release.apk
-/home/nate/Android/Sdk/platform-tools/adb shell am start -n com.timev3.technologyagent/.MainActivity
 ```
 
 This local release currently uses the repository's generated debug signing
@@ -339,12 +338,12 @@ Every synchronized Android contact identity is retained in
 created by that phone. Each observation preserves the most recently supplied
 name fields and Android modification instant. Exact source identity takes
 precedence over later method changes. A newly observed identity may match one
-existing contact by an unambiguous normalized phone number or email; the newest
-known Android observation may update that canonical contact's display, given,
-family, and organization names. An older observation from another phone remains
-recorded but cannot replace a newer phone spelling. Contact methods are appended
-conservatively; absence from an incremental batch does not delete methods or
-contacts.
+existing contact by an unambiguous normalized phone number or email, but the
+phone observation never overwrites that canonical contact's fields or methods.
+A previously unseen phone contact is imported once with its observed names and
+methods; after that, the Agent record is the source of truth. Later phone changes
+remain observations until the person deliberately applies them in Agent.
+Absence from an incremental batch does not delete methods or contacts.
 
 This provider-backed path does not claim access to WhatsApp or all RCS data;
 those require separate source integrations. The initial MMS path preserves
@@ -359,8 +358,9 @@ name, organization, birthday, notes, phone numbers, email addresses, postal
 addresses, and URLs prefilled. It does not request broad contact-write
 permission or silently choose an Android account. After the user saves and runs
 foreground phone sync, the resulting Android provider identity is attached to
-the canonical Agent contact. Linked contacts offer **Open in Contacts** instead
-of another insertion. Agent-only contacts are never bulk-published implicitly,
+the canonical Agent contact. Linked contacts offer explicit **Open Android
+contact** and **Edit Android contact** actions instead of another insertion.
+Agent-only contacts are never bulk-published implicitly,
 and the existing phone-to-Agent sync remains the only automatic data flow.
 
 ### Google Messages for Web synchronization contract

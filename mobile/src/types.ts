@@ -44,7 +44,7 @@ export type Health = {
 };
 
 export type AgentContactMethod = {
-  id: number;
+  id: number | null;
   kind: 'email' | 'phone' | 'postal_address' | 'handle' | 'url' | 'other' | string;
   label: string | null;
   value: string;
@@ -64,6 +64,10 @@ export type AgentContact = {
   notes: string | null;
   methods: AgentContactMethod[];
   tags: string[];
+  source: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  version: string;
   androidContactExternalId?: string | null;
 };
 

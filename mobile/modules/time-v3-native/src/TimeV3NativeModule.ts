@@ -97,6 +97,7 @@ declare class TimeV3NativeModule extends NativeModule {
   getContactDeviceId(): Promise<string>;
   savePhoneContact(contact: PhoneContactInput): Promise<void>;
   openPhoneContact(externalIdHash: string): Promise<void>;
+  editPhoneContact(externalIdHash: string): Promise<void>;
   requestContactPermission(): Promise<unknown>;
   getCorrespondencePermissions(): Promise<CorrespondencePermissions>;
   requestCorrespondencePermissions(): Promise<unknown>;
