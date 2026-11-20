@@ -5,6 +5,7 @@ import type { ObjectCardProps } from "./types";
 export interface JournalTrackerValuePoint {
   occurredAtUtc: string;
   value: number;
+  contentText: string | null;
 }
 
 type TrackerChartRange = "1W" | "1M" | "1Q" | "6M" | "YTD" | "1Y" | "All";
@@ -152,7 +153,7 @@ function TrackerValueChart({ values, loggedDates, currentStreak, longestStreak, 
           {coordinates.map(({ x, y }, index) => <g key={`${points[index].occurredAtUtc}-${index}`}>
             <circle className={`tracker-chart-point${activePoint === index ? " is-active" : ""}`} cx={x} cy={y} r={activePoint === index || points.length === 1 || index === coordinates.length - 1 ? 4 : 2.25} />
             <circle className="tracker-chart-hit-point" cx={x} cy={y} r="12" tabIndex={0} role="button"
-              aria-label={`${shortDate(points[index].time)}, ${formatValue(points[index].value)}${unit ? ` ${unit}` : ""}`}
+              aria-label={`${shortDate(points[index].time)}, ${formatValue(points[index].value)}${unit ? ` ${unit}` : ""}${points[index].contentText ? `, ${points[index].contentText}` : ""}`}
               onMouseEnter={() => setActivePoint(index)} onMouseLeave={() => setActivePoint(null)}
               onFocus={() => setActivePoint(index)} onBlur={() => setActivePoint(null)}
               onClick={() => setActivePoint((current) => current === index ? null : index)} />
@@ -161,6 +162,7 @@ function TrackerValueChart({ values, loggedDates, currentStreak, longestStreak, 
         {active && activeCoordinate && <output className="tracker-chart-tooltip" style={{ left: `${(activeCoordinate.x / width) * 100}%`, top: `${(activeCoordinate.y / height) * 100}%` }}>
           <strong>{formatValue(active.value)}{unit ? ` ${unit}` : ""}</strong>
           <time dateTime={active.occurredAtUtc}>{new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(active.time)}</time>
+          {active.contentText && <span className="tracker-chart-tooltip-text">{active.contentText}</span>}
         </output>}
         <span className="tracker-chart-minimum">{formatValue(minimum)}</span>
       </div>
@@ -169,15 +171,19 @@ function TrackerValueChart({ values, loggedDates, currentStreak, longestStreak, 
   </section>;
 }
 
-export function JournalTrackerCard({ values, loggedDates = [], currentStreak = 0, longestStreak = 0, ...props }: ObjectCardProps & {
+export function JournalTrackerCard({ values, loggedDates = [], currentStreak = 0, longestStreak = 0, onAddEntry, ...props }: ObjectCardProps & {
   values?: JournalTrackerValuePoint[];
   loggedDates?: string[];
   currentStreak?: number;
   longestStreak?: number;
+  onAddEntry?: () => void;
 }) {
   const details = values === undefined ? props.details : <div className="journal-tracker-details">
     <TrackerValueChart values={values} loggedDates={loggedDates} currentStreak={currentStreak} longestStreak={longestStreak} unit={props.object.attributes?.find(({ label }) => label === "Unit")?.value || ""} trackerName={props.object.display} />
     {props.details}
   </div>;
-  return <SimpleObjectCard {...props} details={details} className={`journal-tracker-card${props.className ? ` ${props.className}` : ""}`} />;
+  const titleAccessory = onAddEntry
+    ? <button className="first-class-object-action journal-tracker-add-entry" type="button" onClick={onAddEntry}>Add entry</button>
+    : props.titleAccessory;
+  return <SimpleObjectCard {...props} titleAccessory={titleAccessory} details={details} className={`journal-tracker-card${props.className ? ` ${props.className}` : ""}`} />;
 }

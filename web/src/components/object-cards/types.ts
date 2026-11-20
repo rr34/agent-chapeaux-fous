@@ -11,6 +11,7 @@ export interface ObjectCardProps {
   mode?: "full" | "compact";
   defaultExpanded?: boolean;
   controls?: ReactNode;
+  titleAccessory?: ReactNode;
   focus?: boolean;
   className?: string;
   as?: ElementType;

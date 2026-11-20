@@ -4,9 +4,9 @@ import path from "node:path";
 // Only these public files bypass API authentication.
 export function createStaticHandler(config) {
   const uiRoot = path.join(config.publicRoot, "ui");
+  const brandRoot = path.join(config.publicRoot, "brand");
   const staticFiles = new Map([
     ["/", [path.join(config.repositoryRoot, "landing", "index.html"), "text/html; charset=utf-8"]],
-    ["/logo-chapeaux-fous-1200-square-transparent.png", ["logo-chapeaux-fous-1200-square-transparent.png", "image/png"]],
     ["/app", [path.join(uiRoot, "index.html"), "text/html; charset=utf-8"]],
     ["/app/", [path.join(uiRoot, "index.html"), "text/html; charset=utf-8"]],
     ["/login", [path.join(uiRoot, "index.html"), "text/html; charset=utf-8"]],
@@ -19,8 +19,6 @@ export function createStaticHandler(config) {
     ["/presentation-format.js", ["presentation-format.js", "text/javascript; charset=utf-8"]],
     ["/manifest.webmanifest", ["manifest.webmanifest", "application/manifest+json"]],
     ["/service-worker.js", ["service-worker.js", "text/javascript; charset=utf-8"]],
-    ["/favicon.png", ["favicon.png", "image/png"]],
-    ["/icon.svg", ["icon.svg", "image/svg+xml"]],
     ["/hats.svg", ["hats.svg", "image/svg+xml"]],
     ["/logo-outline-hat.svg", ["logo-outline-hat.svg", "image/svg+xml"]],
   ]);
@@ -54,10 +52,24 @@ export function createStaticHandler(config) {
     return [filename, contentTypes.get(path.extname(filename).toLowerCase()) || "application/octet-stream"];
   }
 
+  function publicBrandAsset(pathname) {
+    if (!pathname.startsWith("/brand/")) return null;
+    let relative;
+    try {
+      relative = decodeURIComponent(pathname.slice("/brand/".length));
+    } catch {
+      return null;
+    }
+    const filename = path.resolve(brandRoot, relative);
+    if (filename === brandRoot || !filename.startsWith(`${brandRoot}${path.sep}`)) return null;
+    const contentType = contentTypes.get(path.extname(filename).toLowerCase());
+    return contentType ? [filename, contentType] : null;
+  }
+
   return async function serveStatic(request, response) {
     if (request.method !== "GET") return false;
     const pathname = new URL(request.url || "/", "http://localhost").pathname;
-    const selected = staticFiles.get(pathname) || builtUiAsset(pathname);
+    const selected = staticFiles.get(pathname) || publicBrandAsset(pathname) || builtUiAsset(pathname);
     if (!selected) return false;
     const [filename, contentType] = selected;
     const body = await fsp.readFile(path.isAbsolute(filename) ? filename : path.join(config.publicRoot, filename));

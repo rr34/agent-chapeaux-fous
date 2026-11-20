@@ -59,6 +59,16 @@ test("the Journal heading opens tracker and entry editors", () => {
   assert.match(serverSource, /organizer\.createJournalTracker/);
 });
 
+test("journal trackers put entry creation beside the tracker name and show entry text on chart points", () => {
+  const source = screenSource("JournalScreen", "UsageScreen");
+  const card = fs.readFileSync(new URL("../web/src/components/object-cards/JournalTrackerCard.tsx", import.meta.url), "utf8");
+  assert.match(source, /onAddEntry=\{\(\) => setAddingEntryTarget\(Number\(tracker\.id\)\)\}/);
+  assert.match(card, /journal-tracker-add-entry/);
+  assert.match(card, /tracker-chart-tooltip-text/);
+  assert.match(card, /active\.contentText/);
+  assert.match(styles, /\.journal-tracker-card > \.first-class-object-content > \.first-class-object-label \{ display: none; \}/);
+});
+
 test("expanded journal entry cards open a version-safe edit modal", () => {
   const source = screenSource("JournalScreen", "UsageScreen");
   const editors = fs.readFileSync(new URL("../web/src/components/EditableItems.tsx", import.meta.url), "utf8");

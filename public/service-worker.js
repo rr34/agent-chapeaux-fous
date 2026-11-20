@@ -1,7 +1,9 @@
-const cacheName = "agent-slayer-shell-v77";
+const cacheName = "agent-slayer-shell-v78";
 const shell = [
-  "/", "/app", "/app/", "/favicon.png", "/icon.svg", "/hats.svg", "/manifest.webmanifest",
-  "/logo-chapeaux-fous-1200-square-transparent.png",
+  "/", "/app", "/app/", "/manifest.webmanifest",
+  "/brand/favicon-16-transparent.png", "/brand/favicon-32-transparent.png", "/brand/favicon-48-transparent.png",
+  "/brand/apple-touch-icon-180-opaque.png", "/brand/icon-192-opaque.png", "/brand/icon-512-opaque.png",
+  "/brand/icon-master-1024-transparent.png",
 ];
 
 self.addEventListener("install", (event) => event.waitUntil(caches.open(cacheName).then((cache) => cache.addAll(shell))));

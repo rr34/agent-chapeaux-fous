@@ -950,9 +950,9 @@ test("personal journal entries and grouped trackers are available to the web org
     assert.equal(trackers[0].entryCount, 3);
     assert.equal(trackers[0].lastRecordedAtUtc, "2026-08-17T08:00:00.000Z");
     assert.deepEqual(trackers[0].numericHistory, [
-      { occurredAtUtc: "2026-08-16T00:30:00.000Z", value: 72.1 },
-      { occurredAtUtc: "2026-08-16T08:00:00.000Z", value: 71.8 },
-      { occurredAtUtc: "2026-08-17T08:00:00.000Z", value: 71.5 },
+      { occurredAtUtc: "2026-08-16T00:30:00.000Z", value: 72.1, contentText: "72.1 kg after dinner" },
+      { occurredAtUtc: "2026-08-16T08:00:00.000Z", value: 71.8, contentText: "71.8 kg before breakfast" },
+      { occurredAtUtc: "2026-08-17T08:00:00.000Z", value: 71.5, contentText: null },
     ]);
     assert.throws(
       () => organizer.createJournalEntry({

@@ -4217,7 +4217,7 @@ export class OrganizerStore {
     const trackerIds = trackerRows.map(({ tracker_id: trackerId }) => trackerId);
     const placeholders = trackerIds.map(() => "?").join(", ");
     const numericRows = this.database.prepare(`
-      SELECT tracker_id, number_value, occurred_at_utc
+      SELECT tracker_id, number_value, content_text, occurred_at_utc
       FROM journal3_entries
       WHERE number_value IS NOT NULL
         AND tracker_id IN (${placeholders})
@@ -4236,6 +4236,7 @@ export class OrganizerStore {
       history.push({
         occurredAtUtc: row.occurred_at_utc,
         value: Number(row.number_value),
+        contentText: row.content_text,
       });
       numericHistoryByTracker.set(row.tracker_id, history);
     }

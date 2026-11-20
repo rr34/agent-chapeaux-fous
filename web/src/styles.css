@@ -39,7 +39,7 @@ a { color: inherit; }
 .app-shell { --agent-composer-height: 142px; --agent-composer-bottom: 22px; --agent-composer-gap: 32px; --agent-composer-clearance: calc(var(--agent-composer-height) + var(--agent-composer-bottom) + var(--agent-composer-gap)); min-height: 100vh; display: grid; grid-template-columns: 216px minmax(0, 1fr); }
 .sidebar { position: sticky; top: 0; height: 100vh; padding: 24px 16px 18px; background: var(--theme-base); color: var(--theme-sidebar-text); display: flex; flex-direction: column; z-index: 5; }
 .brand { display: flex; align-items: center; gap: 12px; margin: 0 8px 30px; text-decoration: none; font-family: "Newsreader", Georgia, serif; font-size: 23px; line-height: .86; letter-spacing: -.02em; }
-.brand img { width: 38px; height: 38px; object-fit: contain; filter: brightness(0) invert(1); }
+.brand img { width: 38px; height: 38px; object-fit: contain; }
 .sidebar nav { display: grid; gap: 3px; overflow-y: auto; padding-right: 3px; }
 .sidebar nav button, .token-button { border: 0; color: var(--theme-sidebar-muted); background: transparent; text-align: left; border-radius: 10px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; font-size: 14px; }
 .sidebar nav button > .nav-icon { width: 23px; height: 23px; display: grid; flex: 0 0 23px; place-items: center; border: 1px solid var(--theme-sidebar-line); border-radius: 7px; }
@@ -106,6 +106,7 @@ a { color: inherit; }
 .first-class-object-content--open:hover .first-class-object-title { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .first-class-object-label { color: var(--olive); font-size: 10px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
 .first-class-object-title { margin: 0; font: 600 20px/1.15 "Newsreader", Georgia, serif; overflow-wrap: anywhere; white-space: pre-wrap; }
+.first-class-object-title-row { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 7px 10px; }
 .first-class-object-body { display: block; overflow: visible; margin: 1px 0; color: var(--muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
 .first-class-object-badges, .first-class-object-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .first-class-object-attributes { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 0 0; }
@@ -1026,6 +1027,8 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .journal-row-schedule .tracker-schedule,
 .first-class-object-details .tracker-schedule { margin-top: 0; padding-top: 0; border-top: 0; }
 .journal-tracker-details { display: grid; gap: 16px; }
+.journal-tracker-card > .first-class-object-content > .first-class-object-label { display: none; }
+.journal-tracker-add-entry { min-height: 28px; padding: 4px 8px; }
 .journal-tracker-details > .tracker-schedule { padding-top: 16px; border-top: 1px solid var(--line); }
 .tracker-value-chart { min-width: 0; display: grid; gap: 9px; padding-top: 2px; color: var(--olive-dark); }
 .tracker-chart-range { display: flex; align-items: center; gap: 2px; overflow-x: auto; border-bottom: 1px solid var(--line); }
@@ -1051,9 +1054,10 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .tracker-chart-hit-point { fill: transparent; stroke: transparent; cursor: crosshair; }
 .tracker-chart-hit-point:focus-visible { outline: none; stroke: rgb(var(--theme-base-rgb) / .35); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .tracker-chart-guide { stroke: rgb(var(--theme-base-rgb) / .35); stroke-dasharray: 3 3; stroke-width: 1; vector-effect: non-scaling-stroke; }
-.tracker-chart-tooltip { position: absolute; z-index: 3; display: grid; gap: 2px; min-width: max-content; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: var(--paper); box-shadow: 0 5px 16px rgb(var(--theme-base-rgb) / .16); font-size: 10px; font-variant-numeric: tabular-nums; pointer-events: none; transform: translate(-50%, calc(-100% - 9px)); }
+.tracker-chart-tooltip { position: absolute; z-index: 3; display: grid; gap: 2px; width: max-content; max-width: min(280px, 65vw); padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: var(--paper); box-shadow: 0 5px 16px rgb(var(--theme-base-rgb) / .16); font-size: 10px; font-variant-numeric: tabular-nums; pointer-events: none; transform: translate(-50%, calc(-100% - 9px)); }
 .tracker-chart-tooltip strong { font-size: 12px; }
 .tracker-chart-tooltip time { color: var(--muted); }
+.tracker-chart-tooltip-text { max-width: min(280px, 65vw); margin-top: 3px; padding-top: 4px; border-top: 1px solid var(--line); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; white-space: pre-wrap; }
 .tracker-chart-area { color: var(--olive); }
 .tracker-chart-maximum, .tracker-chart-minimum { position: absolute; z-index: 1; right: 4px; padding-left: 4px; color: var(--muted); background: color-mix(in srgb, var(--paper) 82%, transparent); font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; pointer-events: none; }
 .tracker-chart-maximum { top: 2px; }

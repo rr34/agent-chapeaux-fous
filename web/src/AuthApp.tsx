@@ -138,7 +138,7 @@ export default function AuthApp() {
   };
 
   if (deviceAuthorizationReady) return <main className="token-gate"><section className="token-card auth-card">
-    <img src="/icon.svg" alt="" />
+    <img src="/brand/icon-192-opaque.png" alt="" />
     <p className="eyebrow">Time v3 account</p>
     <h1>{linkedDeviceName ? "Phone linked." : "Link this phone?"}</h1>
     <p>{linkedDeviceName
@@ -160,7 +160,7 @@ export default function AuthApp() {
     reset: ["Choose a new password.", "Enter the reset code and a new password of at least 12 characters."],
   };
   return <main className="token-gate"><section className="token-card auth-card">
-    <img src="/icon.svg" alt="" />
+    <img src="/brand/icon-192-opaque.png" alt="" />
     <p className="eyebrow">Time v3 account</p><h1>{titles[mode][0]}</h1><p>{titles[mode][1]}</p>
     <form onSubmit={submit}>
       {mode === "register" && <label>Name<input autoFocus autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} /></label>}

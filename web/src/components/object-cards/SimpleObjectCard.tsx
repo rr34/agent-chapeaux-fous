@@ -3,7 +3,7 @@ import { FullObjectCard } from "./FullObjectCard";
 import type { ObjectCardProps } from "./types";
 
 export function SimpleObjectCard(props: ObjectCardProps) {
-  const { object, mode = "full", defaultExpanded, controls, focus, className, details, detailsInContent, stackEdges, compactDetails, compactHeadingMeta, topEdge, bottomEdge, leading, actions = [], as } = props;
+  const { object, mode = "full", defaultExpanded, controls, titleAccessory, focus, className, details, detailsInContent, stackEdges, compactDetails, compactHeadingMeta, topEdge, bottomEdge, leading, actions = [], as } = props;
   if (mode === "compact") return <CompactObjectCard
     object={object}
     defaultExpanded={defaultExpanded}

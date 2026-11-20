@@ -3,6 +3,7 @@
     "name": "Time V3 Technology Agent",
     "slug": "time-v3-technology-agent",
     "version": "0.1.0",
+    "icon": "../public/brand/icon-master-1024-opaque.png",
     "orientation": "portrait",
     "scheme": "timev3technologyagent",
     "userInterfaceStyle": "dark",

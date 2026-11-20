@@ -216,7 +216,10 @@ function journalTrackerValues(tracker: Entity): JournalTrackerValuePoint[] {
     if (typeof point !== "object" || point === null) return [];
     const occurredAtUtc = "occurredAtUtc" in point ? String(point.occurredAtUtc || "") : "";
     const value = "value" in point ? Number(point.value) : Number.NaN;
-    return occurredAtUtc && Number.isFinite(value) ? [{ occurredAtUtc, value }] : [];
+    const contentText = "contentText" in point && typeof point.contentText === "string" && point.contentText.trim()
+      ? point.contentText
+      : null;
+    return occurredAtUtc && Number.isFinite(value) ? [{ occurredAtUtc, value, contentText }] : [];
   });
 }
 
@@ -2420,7 +2423,7 @@ function JournalScreen() {
   const [serverQuery, setServerQuery] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState("all");
   const [addingTracker, setAddingTracker] = useState(false);
-  const [addingEntry, setAddingEntry] = useState(false);
+  const [addingEntryTarget, setAddingEntryTarget] = useState<"any" | number | null>(null);
   const [editingEntry, setEditingEntry] = useState<Entity | null>(null);
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
   const journalTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -2475,7 +2478,7 @@ function JournalScreen() {
     else setServerQuery(nextQuery);
   };
   return <>
-    <PageHeading eyebrow="A record of lived time" title="Journal" groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={journalGroupOptions} totalCount={journalTrackers.length + journalEntries.length} disabled={loading || entriesLoading} />} actions={<><button className="button button--quiet" type="button" disabled={groupsLoading || Boolean(groupError)} onClick={() => setAddingTracker(true)}>Add tracker</button><button className="button" type="button" disabled={loading || groupsLoading || Boolean(error || groupError)} onClick={() => setAddingEntry(true)}>Add entry</button></>} />
+    <PageHeading eyebrow="A record of lived time" title="Journal" groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={journalGroupOptions} totalCount={journalTrackers.length + journalEntries.length} disabled={loading || entriesLoading} />} actions={<><button className="button button--quiet" type="button" disabled={groupsLoading || Boolean(groupError)} onClick={() => setAddingTracker(true)}>Add tracker</button><button className="button" type="button" disabled={loading || groupsLoading || Boolean(error || groupError)} onClick={() => setAddingEntryTarget("any")}>Add entry</button></>} />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchJournal} searching={loading || entriesLoading} count={visibleCount} noun="result" />
     {(loading || entriesLoading) && <Loading />}
     {error && <ErrorState error={error} retry={reloadJournal} />}
@@ -2501,6 +2504,7 @@ function JournalScreen() {
                 loggedDates={journalTrackerLoggedDates(tracker)}
                 currentStreak={Number(readKey(tracker, "currentStreak") || 0)}
                 longestStreak={Number(readKey(tracker, "longestStreak") || 0)}
+                onAddEntry={() => setAddingEntryTarget(Number(tracker.id))}
                 object={objectCardData({
                   id: Number(tracker.id), type: "journal.tracker", label: "Journal tracker", display: name,
                   attributes: [
@@ -2536,11 +2540,11 @@ function JournalScreen() {
       onClose={() => setAddingTracker(false)}
       onChanged={reloadJournal}
     />}
-    {addingEntry && <JournalEntryEditor
+    {addingEntryTarget !== null && <JournalEntryEditor
       trackers={journalTrackers}
       groups={groupData?.groups || []}
-      initialTrackerId={selectedGroupId === "all" ? undefined : Number(visibleTrackers[0]?.id)}
-      onClose={() => setAddingEntry(false)}
+      initialTrackerId={typeof addingEntryTarget === "number" ? addingEntryTarget : selectedGroupId === "all" ? undefined : Number(visibleTrackers[0]?.id)}
+      onClose={() => setAddingEntryTarget(null)}
       onChanged={reloadJournal}
     />}
     {editingEntry && <JournalEntryEditor entry={editingEntry} onClose={() => setEditingEntry(null)} onChanged={reloadJournal} />}
@@ -3529,7 +3533,7 @@ function Workspace() {
   else if (view === "music") screen = <MusicScreen player={musicPlayer} />;
   else if (view === "correspondence") screen = <CorrespondenceScreen />;
   else screen = <GenericScreen kind={view as keyof typeof genericScreens} />;
-  return <ObjectSelectionProvider selections={agentObjectSelections} toggleSelection={toggleObjectSelection} changeSelections={changeObjectSelections}><div className={`app-shell${musicPlayer.queue.length ? " has-music-player" : ""}`}><aside className="sidebar"><a className="brand" href="/app"><img src="/icon.svg" alt="" /><span>Time v3<br />Agent</span></a><nav>{visibleNavigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><NavigationIcon id={id} label={label} />{label}</button>)}</nav></aside><main className="workspace">{screen}</main>{musicPlayer.element}{experience !== "light" && <AgentComposer
+  return <ObjectSelectionProvider selections={agentObjectSelections} toggleSelection={toggleObjectSelection} changeSelections={changeObjectSelections}><div className={`app-shell${musicPlayer.queue.length ? " has-music-player" : ""}`}><aside className="sidebar"><a className="brand" href="/app"><img src="/brand/icon-192-opaque.png" alt="" /><span>Time v3<br />Agent</span></a><nav>{visibleNavigation.map(([id, label]) => <button className={view === id ? "active" : ""} onClick={() => go(id)} key={id}><NavigationIcon id={id} label={label} />{label}</button>)}</nav></aside><main className="workspace">{screen}</main>{musicPlayer.element}{experience !== "light" && <AgentComposer
     text={agentDraft}
     setText={setAgentDraft}
     selections={agentObjectSelections}

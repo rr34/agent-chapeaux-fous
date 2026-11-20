@@ -30,13 +30,16 @@ test("first visits serve the landing page without loading the token-prompting ap
   }
 });
 
-test("the landing-page logo is served from the public asset directory", async () => {
-  const response = await request("/logo-chapeaux-fous-1200-square-transparent.png");
-  assert.equal(response.handled, true);
-  assert.equal(response.status, 200);
-  assert.equal(response.headers["Content-Type"], "image/png");
-  assert.equal(response.headers["Cache-Control"], "public, max-age=300");
-  assert.ok(response.body.length > 0);
+test("centralized brand assets are served from the public brand directory", async () => {
+  for (const asset of ["favicon-32-transparent.png", "apple-touch-icon-180-opaque.png", "icon-192-opaque.png", "icon-512-opaque.png", "icon-master-1024-transparent.png"]) {
+    const response = await request(`/brand/${asset}`);
+    assert.equal(response.handled, true, asset);
+    assert.equal(response.status, 200, asset);
+    assert.equal(response.headers["Content-Type"], "image/png", asset);
+    assert.equal(response.headers["Cache-Control"], "public, max-age=300", asset);
+    assert.ok(response.body.length > 0, asset);
+  }
+  assert.equal((await request("/brand/%2e%2e%2fmanifest.webmanifest")).handled, false);
 });
 
 test("the Hats card outline is served from the public asset directory", async () => {
@@ -68,7 +71,7 @@ test("content-hashed React assets are served only from the built UI root", async
 });
 
 test("static serving leaves API requests, retired legacy assets, private files, unknown paths and mutations to the server", async () => {
-  for (const url of ["/api/requests", "/app.js", "/styles.css", "/calendar-grid.js", "/timing-editor.js", "/markdown.js", "/.env", "/src/server.mjs", "/landing/README.md", "/../.env", "/missing"]) {
+  for (const url of ["/api/requests", "/app.js", "/styles.css", "/calendar-grid.js", "/timing-editor.js", "/markdown.js", "/favicon.png", "/icon.svg", "/logo-chapeaux-fous-1200-square-transparent.png", "/.env", "/src/server.mjs", "/landing/README.md", "/../.env", "/missing"]) {
     const response = await request(url);
     assert.equal(response.handled, false, url);
     assert.equal(response.status, undefined, url);
@@ -83,6 +86,10 @@ test("installed apps launch the app route and retain their existing identity and
   assert.equal(manifest.id, "/");
   assert.equal(manifest.start_url, "/app");
   assert.equal(manifest.scope, "/");
+  assert.deepEqual(manifest.icons, [
+    { src: "/brand/icon-192-opaque.png", sizes: "192x192", type: "image/png", purpose: "any" },
+    { src: "/brand/icon-512-opaque.png", sizes: "512x512", type: "image/png", purpose: "any" },
+  ]);
   assert.equal(response.headers["Cache-Control"], "no-cache");
   assert.equal((await request("/service-worker.js")).headers["Cache-Control"], "no-cache");
 });
