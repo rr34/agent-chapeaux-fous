@@ -61,10 +61,12 @@ test("the Journal heading opens the tracker editor", () => {
 test("journal trackers put entry creation beside the tracker name and show entry text on chart points", () => {
   const source = screenSource("JournalScreen", "UsageScreen");
   const card = fs.readFileSync(new URL("../web/src/components/object-cards/JournalTrackerCard.tsx", import.meta.url), "utf8");
+  const simpleCard = fs.readFileSync(new URL("../web/src/components/object-cards/SimpleObjectCard.tsx", import.meta.url), "utf8");
   assert.match(source, /onAddEntry=\{\(\) => setAddingEntryTarget\(Number\(tracker\.id\)\)\}/);
   assert.match(card, /journal-tracker-add-entry/);
   assert.match(card, /tracker-chart-tooltip-text/);
   assert.match(card, /active\.contentText/);
+  assert.match(simpleCard, /<FullObjectCard[\s\S]*titleAccessory=\{titleAccessory\}/);
   assert.match(styles, /\.journal-tracker-card > \.first-class-object-content > \.first-class-object-label \{ display: none; \}/);
   assert.match(styles, /\.journal-tracker-card > \.first-class-object-content > \.first-class-object-title-row \{[^}]*justify-content: space-between/);
   assert.doesNotMatch(source, /setAddingEntryTarget\("any"\)/);

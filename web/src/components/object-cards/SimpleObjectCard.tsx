@@ -26,6 +26,7 @@ export function SimpleObjectCard(props: ObjectCardProps) {
     bottomEdge={bottomEdge}
     leading={leading}
     controls={controls}
+    titleAccessory={titleAccessory}
     actions={actions}
     details={details}
     detailsInContent={detailsInContent}
