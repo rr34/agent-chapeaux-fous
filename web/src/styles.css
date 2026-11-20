@@ -1028,6 +1028,7 @@ button.request-object-reference { display: inline; margin: 0; padding: 0; appear
 .first-class-object-details .tracker-schedule { margin-top: 0; padding-top: 0; border-top: 0; }
 .journal-tracker-details { display: grid; gap: 16px; }
 .journal-tracker-card > .first-class-object-content > .first-class-object-label { display: none; }
+.journal-tracker-card > .first-class-object-content > .first-class-object-title-row { width: 100%; justify-content: space-between; }
 .journal-tracker-add-entry { min-height: 28px; padding: 4px 8px; }
 .journal-tracker-details > .tracker-schedule { padding-top: 16px; border-top: 1px solid var(--line); }
 .tracker-value-chart { min-width: 0; display: grid; gap: 9px; padding-top: 2px; color: var(--olive-dark); }

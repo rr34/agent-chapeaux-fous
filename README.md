@@ -1106,7 +1106,8 @@ controls which exact tool schemas are callable.
   the same native journal operation. Each tracker chart keeps latest value,
   change, current and longest distinct-local-day logging streaks, days logged,
   and the selected-range daily average in one summary row. Each tracker puts a
-  tracker-scoped **Add entry** action beside its name. Chart points expose their
+  tracker-scoped **Add entry** action at the right of its graph header, with no
+  separate page-level entry action. Chart points expose their
   exact date, value, and entry text through hover, keyboard focus, or touch.
 - `contact_file_import` parses a complete attached CSV or vCard/VCF directly,
   importing up to 10,000 contacts in one transaction without asking the model

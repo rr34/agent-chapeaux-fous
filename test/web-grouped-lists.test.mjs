@@ -47,11 +47,10 @@ test("journal trackers and entries share lists under their persisted journal gro
   assert.match(source, /type: "journal\.entry"/);
 });
 
-test("the Journal heading opens tracker and entry editors", () => {
+test("the Journal heading opens the tracker editor", () => {
   const source = screenSource("JournalScreen", "UsageScreen");
   const editors = fs.readFileSync(new URL("../web/src/components/EditableItems.tsx", import.meta.url), "utf8");
   assert.match(source, />Add tracker<\/button>/);
-  assert.match(source, />Add entry<\/button>/);
   assert.match(source, /<JournalTrackerEditor/);
   assert.match(editors, /export function JournalTrackerEditor/);
   assert.match(editors, /api\("\/api\/journal-trackers"/);
@@ -67,6 +66,8 @@ test("journal trackers put entry creation beside the tracker name and show entry
   assert.match(card, /tracker-chart-tooltip-text/);
   assert.match(card, /active\.contentText/);
   assert.match(styles, /\.journal-tracker-card > \.first-class-object-content > \.first-class-object-label \{ display: none; \}/);
+  assert.match(styles, /\.journal-tracker-card > \.first-class-object-content > \.first-class-object-title-row \{[^}]*justify-content: space-between/);
+  assert.doesNotMatch(source, /setAddingEntryTarget\("any"\)/);
 });
 
 test("expanded journal entry cards open a version-safe edit modal", () => {

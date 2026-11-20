@@ -2423,7 +2423,7 @@ function JournalScreen() {
   const [serverQuery, setServerQuery] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState("all");
   const [addingTracker, setAddingTracker] = useState(false);
-  const [addingEntryTarget, setAddingEntryTarget] = useState<"any" | number | null>(null);
+  const [addingEntryTarget, setAddingEntryTarget] = useState<number | null>(null);
   const [editingEntry, setEditingEntry] = useState<Entity | null>(null);
   const [editingGroup, setEditingGroup] = useState<EditableGroup | null>(null);
   const journalTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -2478,7 +2478,7 @@ function JournalScreen() {
     else setServerQuery(nextQuery);
   };
   return <>
-    <PageHeading eyebrow="A record of lived time" title="Journal" groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={journalGroupOptions} totalCount={journalTrackers.length + journalEntries.length} disabled={loading || entriesLoading} />} actions={<><button className="button button--quiet" type="button" disabled={groupsLoading || Boolean(groupError)} onClick={() => setAddingTracker(true)}>Add tracker</button><button className="button" type="button" disabled={loading || groupsLoading || Boolean(error || groupError)} onClick={() => setAddingEntryTarget("any")}>Add entry</button></>} />
+    <PageHeading eyebrow="A record of lived time" title="Journal" groupFilter={<GroupButtonFilter value={selectedGroupId} onChange={setSelectedGroupId} options={journalGroupOptions} totalCount={journalTrackers.length + journalEntries.length} disabled={loading || entriesLoading} />} actions={<button className="button button--quiet" type="button" disabled={groupsLoading || Boolean(groupError)} onClick={() => setAddingTracker(true)}>Add tracker</button>} />
     <SectionFilter query={filterQuery} onChange={setFilterQuery} onSearch={searchJournal} searching={loading || entriesLoading} count={visibleCount} noun="result" />
     {(loading || entriesLoading) && <Loading />}
     {error && <ErrorState error={error} retry={reloadJournal} />}
@@ -2543,7 +2543,7 @@ function JournalScreen() {
     {addingEntryTarget !== null && <JournalEntryEditor
       trackers={journalTrackers}
       groups={groupData?.groups || []}
-      initialTrackerId={typeof addingEntryTarget === "number" ? addingEntryTarget : selectedGroupId === "all" ? undefined : Number(visibleTrackers[0]?.id)}
+      initialTrackerId={addingEntryTarget}
       onClose={() => setAddingEntryTarget(null)}
       onChanged={reloadJournal}
     />}

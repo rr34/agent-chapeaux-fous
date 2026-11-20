@@ -4,6 +4,7 @@ import test from "node:test";
 
 const app = fs.readFileSync(new URL("../web/src/App.tsx", import.meta.url), "utf8");
 const editors = fs.readFileSync(new URL("../web/src/components/EditableItems.tsx", import.meta.url), "utf8");
+const journalTrackerCard = fs.readFileSync(new URL("../web/src/components/object-cards/JournalTrackerCard.tsx", import.meta.url), "utf8");
 const account = fs.readFileSync(new URL("../web/src/components/AdditionalScreens.tsx", import.meta.url), "utf8");
 const server = fs.readFileSync(new URL("../src/server.mjs", import.meta.url), "utf8");
 
@@ -17,7 +18,8 @@ test("Account Tool integrations owns complete integration management", () => {
 });
 
 test("React exposes journal entry creation and the native agent journal remains declared", () => {
-  assert.match(app, />Add entry<\/button>/);
+  assert.match(journalTrackerCard, />Add entry<\/button>/);
+  assert.match(app, /onAddEntry=\{\(\) => setAddingEntryTarget/);
   assert.match(editors, /creating \? "\/api\/journal-entries"/);
   assert.match(editors, /Create a new tracker/);
   assert.match(server, /organizer\.createJournalEntry/);

@@ -16,6 +16,10 @@
     },
     "android": {
       "package": "com.timev3.technologyagent",
+      "adaptiveIcon": {
+        "foregroundImage": "../public/brand/android-adaptive-foreground-1024-transparent.png",
+        "backgroundColor": "#0e001e"
+      },
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.READ_CONTACTS",
