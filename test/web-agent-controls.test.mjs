@@ -65,6 +65,8 @@ test("the Agent composer uploads selected files and binds the group to the queue
   assert.match(composer, /headers: \{ "Content-Type": requestAttachmentMimeType\(file\) \}/);
   assert.match(composer, /primaryFileId,/);
   assert.match(composer, /attachmentFileIds,/);
+  assert.match(composer, /allPdfImages/);
+  assert.match(composer, /all MP3 files, all PDFs, or all JPEG\/PNG images/);
   assert.match(composer, /setAttachments\(\[\]\)/);
   assert.match(composer, /Remove attached files/);
   assert.match(styles, /\.composer-attachment-summary \{/);

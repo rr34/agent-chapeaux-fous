@@ -39,3 +39,26 @@ test("file_get reads an exact bounded file batch in requested order", async () =
     /does not match any allowed schema|not both/iu,
   );
 });
+
+test("PDF assembly tools publish exact file inputs and one-file outcomes", () => {
+  const registry = new ToolRegistry();
+  registerFileTools(registry, {
+    ledger: {},
+    searchCoordinator: { searchScope: () => ({ hits: [] }) },
+    mediaRoot: "/tmp",
+    maximumTextBytes: 4096,
+  });
+  for (const name of ["file_pdf_merge", "file_images_to_pdf"]) {
+    const definition = registry.toolDefinitions().find((tool) => tool.name === name);
+    assert.ok(definition);
+    assert.deepEqual(definition.inputSchema.properties.file_ids.minItems, 2);
+    assert.deepEqual(definition.inputSchema.properties.file_ids.maxItems, 100);
+    assert.deepEqual(definition.outputSchema.required, ["file"]);
+    assert.deepEqual(Object.keys(definition.outputSchema.properties), ["file"]);
+    const binding = definition.metadata["agent-slayer/object-input-bindings"].bindings
+      .find(({ path }) => path === "/file_ids/*");
+    assert.deepEqual(binding, {
+      path: "/file_ids/*", objectType: "files.file", value: "id", role: "source",
+    });
+  }
+});

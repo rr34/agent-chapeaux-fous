@@ -4,7 +4,7 @@
   "version": 1,
   "id": "files",
   "title": "Files",
-  "summary": "Find, inspect, enrich, safely transform durable uploads, and materialize schema-validated canonical JSON Lines artifacts.",
+  "summary": "Find, inspect, enrich, safely transform durable uploads, combine PDFs, turn ordered images into one PDF, and materialize schema-validated canonical JSON Lines artifacts.",
   "aliases": [
     "file",
     "upload",
@@ -18,7 +18,12 @@
     "partition",
     "batch",
     "mp3",
-    "music metadata"
+    "music metadata",
+    "pdf merge",
+    "combine pdfs",
+    "combine images into pdf",
+    "images to pdf",
+    "scans"
   ],
   "attachmentHints": [
     {

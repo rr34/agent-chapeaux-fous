@@ -7,6 +7,7 @@ import { RE2JS } from "re2js";
 import { createFileArtifactSource } from "../artifact-source.mjs";
 import { inspectTextStructure } from "../file-structure-inspect.mjs";
 import { musicMetadataInputSchema, serializeMusicMetadata } from "../music-metadata.mjs";
+import { imagesToPdfBytes, mergePdfBytes, orderPdfSources } from "../pdf-assembly.mjs";
 import { readTextAttachment } from "../request-attachments.mjs";
 import { inspectDelimitedText, readDelimitedRecords, transformDelimitedText } from "../tabular-transform.mjs";
 import {
@@ -37,6 +38,20 @@ const toolDescriptions = Object.freeze({
     "effectClassifications": [
       "MUTATING"
     ]
+  },
+  "file_images_to_pdf": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Create one durable multi-page PDF from an exact ordered set of JPEG or PNG files, with one image per page and source-image appendix pages.",
+    "actionClasses": ["CREATE"],
+    "effectClassifications": ["MUTATING"]
+  },
+  "file_pdf_merge": {
+    "protocol": "agent-slayer.tool-description",
+    "version": 1,
+    "summary": "Combine an exact ordered set of durable PDF files into one durable PDF without sending their bytes through model context.",
+    "actionClasses": ["CREATE"],
+    "effectClassifications": ["MUTATING"]
   },
   "file_read": {
     "protocol": "agent-slayer.tool-description",
@@ -298,6 +313,126 @@ async function storeGeneratedJsonLines({
   return file;
 }
 
+async function storeGeneratedPdf({
+  ledger, mediaRoot, bytes, originalFilename, title, description, maximumBytes,
+}) {
+  if (!bytes.length) throw Object.assign(new Error("Generated PDF is empty"), { statusCode: 502 });
+  if (bytes.length > maximumBytes) {
+    throw Object.assign(new Error(`Generated PDF exceeds the ${maximumBytes}-byte generated-file ceiling`), { statusCode: 413 });
+  }
+  const now = new Date();
+  const relativeDirectory = path.join(
+    String(now.getUTCFullYear()),
+    String(now.getUTCMonth() + 1).padStart(2, "0"),
+  );
+  const directory = path.join(mediaRoot, relativeDirectory);
+  await fsp.mkdir(directory, { recursive: true, mode: 0o700 });
+  const storedName = `${randomUUID()}.pdf`;
+  const absoluteFilename = path.join(directory, storedName);
+  await fsp.writeFile(absoluteFilename, bytes, { flag: "wx", mode: 0o600 });
+  const storagePath = path.posix.join("media", ...relativeDirectory.split(path.sep), storedName);
+  let file;
+  try {
+    file = ledger.registerFile({
+      storagePath,
+      originalFilename,
+      title,
+      description,
+      mediaKind: "document",
+      mimeType: "application/pdf",
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      byteSize: bytes.length,
+    });
+  } catch (error) {
+    await fsp.unlink(absoluteFilename).catch(() => {});
+    throw error;
+  }
+  if (file.duplicate && file.storagePath !== storagePath) await fsp.unlink(absoluteFilename).catch(() => {});
+  return {
+    ...file,
+    ref: `agent-slayer://files/${Number(file.fileId)}`,
+    downloadUrl: `/api/files/${Number(file.fileId)}/download`,
+    objectRole: "artifact_source",
+  };
+}
+
+const pdfAssemblyParameters = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    file_ids: {
+      type: "array", minItems: 2, maxItems: 100, uniqueItems: true,
+      items: { type: "integer", minimum: 1 },
+      description: "Complete source file set. Its order is authoritative when order is provided.",
+    },
+    order: {
+      type: "string", enum: ["provided", "filename", "created_at"],
+      description: "Use provided for an explicit user or selection order; filename for natural filename order; created_at for upload chronology.",
+    },
+    filename: {
+      type: "string", minLength: 5, maxLength: 255,
+      description: "Safe output basename ending in .pdf.",
+    },
+    title: { type: "string", minLength: 1, maxLength: 200 },
+    description: { type: ["string", "null"], maxLength: 2000 },
+  },
+  required: ["file_ids", "order", "filename", "title"],
+};
+
+const generatedPdfOutputSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: { file: { type: "object" } },
+  required: ["file"],
+};
+
+function validatePdfOutputFilename(filename) {
+  if (path.basename(filename) !== filename || filename.includes("\\")
+    || /[\u0000-\u001f\u007f]/u.test(filename) || !filename.toLowerCase().endsWith(".pdf")) {
+    throw Object.assign(new Error("filename must be a basename ending in .pdf"), { statusCode: 400 });
+  }
+}
+
+async function verifiedAssemblySources({
+  ledger, mediaRoot, fileIds, order, allowedMimeTypes, maximumBytes,
+}) {
+  const artifactSource = createFileArtifactSource({ ledger, mediaRoot });
+  const sources = [];
+  let sourceBytes = 0;
+  for (const fileId of fileIds) {
+    const details = requireFile(ledger, fileId);
+    const source = await artifactSource.open(fileId);
+    try {
+      const { descriptor } = source;
+      if (!allowedMimeTypes.has(descriptor.mimeType)) {
+        throw Object.assign(new Error(
+          `File ${fileId} (${descriptor.filename}) has unsupported media type ${descriptor.mimeType}.`,
+        ), { statusCode: 409 });
+      }
+      sourceBytes += descriptor.byteSize;
+      if (sourceBytes > maximumBytes) {
+        throw Object.assign(new Error(`Source files exceed the ${maximumBytes}-byte PDF assembly ceiling`), { statusCode: 413 });
+      }
+      const bytes = await source.read(0, descriptor.byteSize);
+      if (createHash("sha256").update(bytes).digest("hex") !== descriptor.sha256) {
+        throw new Error(`Stored artifact ${fileId} changed during PDF assembly`);
+      }
+      sources.push({
+        fileId,
+        filename: descriptor.filename,
+        mimeType: descriptor.mimeType,
+        byteSize: descriptor.byteSize,
+        sha256: descriptor.sha256,
+        createdAtUtc: details.createdAtUtc,
+        bytes,
+      });
+    } finally {
+      await source.close();
+    }
+  }
+  return orderPdfSources(sources, order);
+}
+
 function requireFile(ledger, fileId) {
   const file = ledger.fileDetails(fileId);
   if (!file) throw Object.assign(new Error(`File ${fileId} was not found`), { statusCode: 404 });
@@ -345,12 +480,91 @@ const nativeToolContracts = Object.freeze({
   file_table_inspect: { allowUnboundInputs: true },
   file_table_read_rows: { allowUnboundInputs: true },
   file_update: { allowUnboundInputs: false },
+  file_pdf_merge: { inputRoles: { "/file_ids/*": "source" } },
+  file_images_to_pdf: { inputRoles: { "/file_ids/*": "source" } },
 });
 
 export function registerFileTools(registry, {
   ledger, searchCoordinator, mediaRoot, maximumTextBytes, maximumGeneratedBytes = 50 * 1024 * 1024,
 }) {
   registry = registry.withCapability?.("files", toolDescriptions, nativeToolContracts) ?? registry;
+  registry.register({
+    name: "file_pdf_merge",
+    description: "Combine 2-100 complete, checksum-verified durable PDFs into one durable PDF. Supply the complete exact source set once. Use order=provided when the user states an order or the selected/uploaded order is authoritative; use filename for natural filename ordering or created_at for upload chronology when the request calls for automatic ordering. Every page from every source is copied in the resolved order. The operation rejects unreadable or encrypted PDFs, more than 500 total pages, duplicate IDs, unsupported media types, and byte ceilings before registering a result. It returns only the generated first-class file; the durable tool receipt retains the exact inputs and resolved order.",
+    parameters: pdfAssemblyParameters,
+    outputSchema: generatedPdfOutputSchema,
+    metadata: {
+      [outcomeEvidenceBindingsMetadataKey]: defineOutcomeEvidenceBindings([{
+        path: "/file", objectType: "files.file", effect: "created",
+        countsTowardOutcome: true, role: "artifact_source",
+      }]),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    async execute({ file_ids: fileIds, order, filename, title, description = null }, context = {}) {
+      validatePdfOutputFilename(filename);
+      const sources = await verifiedAssemblySources({
+        ledger, mediaRoot, fileIds, order,
+        allowedMimeTypes: new Set(["application/pdf"]),
+        maximumBytes: maximumGeneratedBytes,
+      });
+      const assembled = await mergePdfBytes(sources, { title, maximumPages: 500 });
+      const file = await storeGeneratedPdf({
+        ledger, mediaRoot, bytes: assembled.bytes, originalFilename: filename, title,
+        description: description ?? `Combined PDF containing ${assembled.pageCount} pages from ${sources.length} source files.`,
+        maximumBytes: maximumGeneratedBytes,
+      });
+      ledger.append?.({
+        type: "file.pdf.merged", status: "complete", actorType: "tool", actorName: "file_pdf_merge",
+        channel: context.channel, turnId: context.requestId, operationId: context.callId,
+        name: title, subjectType: "file", subjectId: String(file.fileId), primaryFileId: file.fileId,
+        payload: {
+          sourceFileIds: sources.map((source) => source.fileId), order,
+          pageCount: assembled.pageCount, outputFileId: file.fileId,
+        },
+      });
+      return { file };
+    },
+  });
+
+  registry.register({
+    name: "file_images_to_pdf",
+    description: "Create one durable PDF from 2-100 complete, checksum-verified JPEG or PNG files. Supply the complete exact source set once. Use order=provided when the user states an order or the selected/uploaded order is authoritative; use filename for natural filename ordering or created_at for upload chronology when the request calls for automatic ordering. Each original image is embedded once on its own uncropped page without destructive enhancement; JPEG EXIF rotation is applied at the PDF page level. Compact source-image appendix pages list each image page, filename, dimensions, and SHA-256. The operation rejects unsupported or unreadable images, duplicate IDs, and byte ceilings before registering a result. It returns only the generated first-class file; the durable tool receipt retains the exact inputs and resolved order.",
+    parameters: pdfAssemblyParameters,
+    outputSchema: generatedPdfOutputSchema,
+    metadata: {
+      [outcomeEvidenceBindingsMetadataKey]: defineOutcomeEvidenceBindings([{
+        path: "/file", objectType: "files.file", effect: "created",
+        countsTowardOutcome: true, role: "artifact_source",
+      }]),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    async execute({ file_ids: fileIds, order, filename, title, description = null }, context = {}) {
+      validatePdfOutputFilename(filename);
+      const sources = await verifiedAssemblySources({
+        ledger, mediaRoot, fileIds, order,
+        allowedMimeTypes: new Set(["image/jpeg", "image/png"]),
+        maximumBytes: maximumGeneratedBytes,
+      });
+      const assembled = await imagesToPdfBytes(sources, { title });
+      const file = await storeGeneratedPdf({
+        ledger, mediaRoot, bytes: assembled.bytes, originalFilename: filename, title,
+        description: description ?? `PDF derived from ${assembled.imagePageCount} source images with source appendix pages.`,
+        maximumBytes: maximumGeneratedBytes,
+      });
+      ledger.append?.({
+        type: "file.images.pdf.created", status: "complete", actorType: "tool", actorName: "file_images_to_pdf",
+        channel: context.channel, turnId: context.requestId, operationId: context.callId,
+        name: title, subjectType: "file", subjectId: String(file.fileId), primaryFileId: file.fileId,
+        payload: {
+          sourceFileIds: sources.map((source) => source.fileId), order,
+          imagePageCount: assembled.imagePageCount, pageCount: assembled.pageCount,
+          outputFileId: file.fileId,
+        },
+      });
+      return { file };
+    },
+  });
+
   registry.register({
     name: "file_jsonl_create",
     description: "Create one canonical JSON Lines artifact from 1-1000 complete JSON objects already present in this interaction. Copy target_schema exactly from the authoritative destination contract; do not invent or weaken it. The application compiles that schema, validates every record before writing anything, serializes one object per line in order, and returns a verified files.file with role artifact_source. This is a general artifact materializer, not a destination-specific import tool. Use a source-file transform instead when rows still need to be read or mapped from an uploaded table.",

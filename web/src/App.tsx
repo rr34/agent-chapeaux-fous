@@ -1184,12 +1184,14 @@ function AgentComposer({
   const chooseAttachments = (files: FileList | null) => {
     const selected = Array.from(files ?? []);
     const allMp3 = selected.every((file) => file.name.toLowerCase().endsWith(".mp3"));
+    const allPdf = selected.every((file) => file.name.toLowerCase().endsWith(".pdf"));
+    const allPdfImages = selected.every((file) => /\.(?:jpe?g|png)$/iu.test(file.name));
     if (selected.length > 100) {
-      setSubmitError(new Error("Choose no more than 100 MP3 files at once."));
+      setSubmitError(new Error("Choose no more than 100 files at once."));
       return;
     }
-    if (selected.length > 1 && !allMp3) {
-      setSubmitError(new Error("Multiple attachments must all be MP3 files."));
+    if (selected.length > 1 && !allMp3 && !allPdf && !allPdfImages) {
+      setSubmitError(new Error("Multiple attachments must be all MP3 files, all PDFs, or all JPEG/PNG images."));
       return;
     }
     setAttachments(selected.map((file) => ({ file, storedFileId: null })));

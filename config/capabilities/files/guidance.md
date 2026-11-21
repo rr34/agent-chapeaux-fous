@@ -6,6 +6,19 @@ contents. When an ID is unknown, use `file_search`, then retrieve
 the selected result by ID. Do not reconstruct a file from remembered excerpts,
 tool receipts, or profile facts when the durable file can be read.
 
+Use `file_pdf_merge` when the requested result is one PDF containing every page
+from two or more exact durable PDFs. Use `file_images_to_pdf` when the result is
+one PDF containing two or more exact JPEG or PNG images, one image per page.
+Both tools process verified stored bytes directly and return one durable file;
+never reproduce source bytes through model arguments. Supply the complete
+source set in one call. Preserve an order the user explicitly states. Otherwise
+use `provided` when checked cards or uploads already establish the intended
+sequence, `filename` when filenames encode the useful sequence, or `created_at`
+when upload chronology is the requested automatic order. Ask only when a
+material order is genuinely ambiguous. Image conversion preserves the original
+image without cropping or destructive enhancement, applies JPEG orientation,
+and adds compact source-image appendix pages inside the resulting PDF.
+
 `file_get` returns ordered metadata and originating requests for an exact
 bounded file set. `file_read` verifies the
 stored byte count and SHA-256 checksum before returning paged text. Continue

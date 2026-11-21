@@ -674,7 +674,9 @@ stable Agent references from its file cards. Possible duplicates are reviewed an
 remain as logically deleted inactive history so existing references are preserved without
 appearing in ordinary agent search, context, or action targets. Stored birthdays
 continue to appear on the calendar. Agent requests may include one PDF, JPEG, PNG,
-WebP, GIF, CSV, TSV, JSON, JSON Lines, vCard/VCF, or plain-text attachment. Text is decoded as UTF-8,
+WebP, GIF, CSV, TSV, JSON, JSON Lines, vCard/VCF, or plain-text attachment. One request may instead
+include an ordered group of up to 100 PDFs or an ordered group of up to 100 JPEG/PNG images for native
+PDF assembly. Text is decoded as UTF-8,
 UTF-16, or Windows-1252. Image originals remain in the existing media store and
 are loaded only while the queued request is processed. OpenAI receives images at
 the configured detail; `original` is the default so small receipt text remains
@@ -683,6 +685,17 @@ decoded as text; invoice receipts use their exact file bindings. Small text file
 large files contribute a bounded preview while native file tools can process the verified
 full attachment. Full to-do cards expose the completion instant when present
 and the row's latest update instant as **Last changed**.
+
+The native Files capability can combine two through 100 exact durable PDFs into
+one PDF or create one PDF from two through 100 exact JPEG/PNG images. Explicit
+user order is authoritative; otherwise the agent may preserve selection/upload
+order or choose deterministic natural-filename or creation-time ordering as the
+request warrants. PDF merging copies every source page. Image conversion puts
+one uncropped image on each page, applies JPEG orientation without destructive
+enhancement, and appends compact source-image pages containing filenames,
+dimensions, hashes, and page assignments. Both operations verify source byte
+counts and SHA-256 values, enforce byte and page ceilings, register exactly one
+durable output file, and return that file as typed outcome evidence.
 
 The **To do** screen's **Print PDF** action captures its current visible
 projection after the group, text-search, and completed-item filters have been

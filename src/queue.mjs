@@ -82,7 +82,51 @@ export class RequestQueue {
         });
       }
       let attachment = null;
-      if (["document", "image"].includes(file?.media_kind)) {
+      const assemblyGroup = attachedFiles.length > 1 && (
+        attachedFiles.every((entry) => entry.media_kind === "document" && entry.mime_type === "application/pdf")
+        || attachedFiles.every((entry) => entry.media_kind === "image" && ["image/jpeg", "image/png"].includes(entry.mime_type))
+      );
+      if (assemblyGroup) {
+        const files = attachedFiles.map((entry) => ({
+          fileId: Number(entry.file_id),
+          title: entry.title || entry.original_filename,
+          description: entry.description ?? null,
+          titleSource: entry.title_source ?? "original_filename",
+          originalFilename: entry.original_filename,
+          filename: entry.original_filename,
+          mediaKind: entry.media_kind,
+          mimeType: entry.mime_type,
+          byteSize: entry.byte_size == null ? null : Number(entry.byte_size),
+          sha256: entry.sha256,
+          createdAtUtc: entry.created_at_utc,
+        }));
+        const groupKind = files.every((entry) => entry.mimeType === "application/pdf") ? "PDF" : "image";
+        attachment = {
+          ...files[0],
+          mediaKind: "file_group",
+          filename: `${files.length} uploaded ${groupKind} files`,
+          files,
+          text: JSON.stringify({
+            purpose: groupKind === "PDF"
+              ? "These files are available as exact durable inputs for PDF combination. Use file_pdf_merge when the user asks for one combined PDF."
+              : "These files are available as exact durable inputs for image-to-PDF conversion. Use file_images_to_pdf when the user asks for one PDF.",
+            files: files.map(({ fileId, originalFilename, title, titleSource, description, mimeType, byteSize, sha256, createdAtUtc }) => ({
+              fileId, originalFilename, title, titleSource, description, mimeType, byteSize, sha256, createdAtUtc,
+            })),
+          }, null, 2),
+        };
+        this.ledger.append({
+          type: "attachment.read", status: "complete", actorType: "service",
+          actorName: "PDF assembly input reader", channel: request.channel,
+          turnId: request.turnId, name: `Prepared ${files.length} ${groupKind} files for PDF assembly`,
+          payload: {
+            fileIds: files.map(({ fileId }) => fileId),
+            fileCount: files.length,
+            bytesRead: 0,
+          },
+          primaryFileId: request.primaryFileId,
+        });
+      } else if (["document", "image"].includes(file?.media_kind)) {
         attachment = await readRequestAttachment({
           mediaRoot: this.mediaRoot,
           file,
