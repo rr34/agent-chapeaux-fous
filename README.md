@@ -893,7 +893,11 @@ scope or completion, each action also carries a small structured set of
 ordinary-language semantic roles and mappings. Roles distinguish singular
 containers from singular, plural, potentially plural, or unresolved members;
 mappings state coverage, one-to-one or other correspondence, and whether member
-boundaries must survive. One overall requested result and one destination
+boundaries must survive. Each orientation mapping contains complete source and
+destination role definitions, which application code deterministically
+normalizes into the accepted core's role table and role-name mapping. This
+makes dangling mapping endpoints unrepresentable in model output without an
+additional model interaction. One overall requested result and one destination
 container never make their members singular. Copy, move, transfer, migration,
 and conversion preserve member boundaries unless the user requests a merge,
 summary, bundle, consolidation, or another structural collapse. This version-2

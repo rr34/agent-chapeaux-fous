@@ -711,6 +711,10 @@ Agent Slayer uses a structured loop derived from the military OODA loop:
    sets, unresolved target slots, explicit constraints, genuine questions,
    context needs, and capability families. Do not select capability resource
    types, exact tools, result shapes, or audits.
+   Mapping output contains complete source and destination semantic-role
+   definitions. Application code deterministically normalizes those
+   self-contained correspondences into the accepted core's role table and
+   role-name edges, so mapping integrity does not require another model call.
    The application then projects that accepted core into a compact persistent
    intent state whose always-present buckets are `requested`, `observed`,
    `current`, `remaining`, and `cause`. The requested bucket is immutable for

@@ -110,17 +110,19 @@ test("the core represents singular containers and plural member preservation exp
         role: "source_group", description: "the selected to-do group", multiplicity: "one",
         containerRole: null, sameCountAs: null,
       }, {
-        role: "source_members", description: "every item in the selected group", multiplicity: "one_or_more",
-        containerRole: "source_group", sameCountAs: null,
-      }, {
         role: "destination_group", description: "the corresponding Things group", multiplicity: "one",
         containerRole: null, sameCountAs: null,
-      }, {
-        role: "destination_members", description: "Things corresponding to every source item", multiplicity: "one_or_more",
-        containerRole: "destination_group", sameCountAs: "source_members",
       }],
       mappings: [{
-        fromRole: "source_members", toRole: "destination_members", shape: "one_to_one",
+        sourceRole: {
+          role: "source_members", description: "every item in the selected group", multiplicity: "one_or_more",
+          containerRole: "source_group", sameCountAs: null,
+        },
+        destinationRole: {
+          role: "destination_members", description: "Things corresponding to every source item", multiplicity: "one_or_more",
+          containerRole: "destination_group", sameCountAs: "source_members",
+        },
+        shape: "one_to_one",
         coverage: "all", preserveMemberBoundaries: true,
       }],
       outcomes: [{
@@ -130,6 +132,7 @@ test("the core represents singular containers and plural member preservation exp
     }],
   };
   const parsed = parseStructuredModelOutput(JSON.stringify(value), schema, "Orientation");
+  assert.equal(parsed.actions[0].mappings[0].sourceRole.role, "source_members");
   const connected = connectCoreIntent(parsed);
   assert.equal(intentContinuityProblem(connected), null);
   assert.equal(connected.actions[0].semanticRoles[3].sameCountAs, "source_members");
@@ -137,6 +140,52 @@ test("the core represents singular containers and plural member preservation exp
 
   connected.actions[0].mappings[0].toRole = "missing_members";
   assert.match(intentContinuityProblem(connected), /references an unknown role/u);
+});
+
+test("self-contained mapping endpoints prevent the Accounting orientation dangling-role failure", () => {
+  const schema = commonSenseCoreSchema({ capabilities: ["integration:accounting"] });
+  const value = {
+    ...validCore(),
+    objective: "Create one pending transaction-list import preview.",
+    conversationSummary: "The supplied Accounting import job contains dated movements to preview.",
+    capabilities: ["integration:accounting"],
+    actions: [{
+      instruction: "Extract every dated movement into the pending preview without committing it.",
+      targetRefs: [], targetSetRefs: [], relationshipSetRefs: [], unresolvedTargets: [],
+      semanticRoles: [{
+        role: "import_work_item", description: "The supplied import work item", multiplicity: "one",
+        containerRole: null, sameCountAs: null,
+      }],
+      mappings: [{
+        sourceRole: {
+          role: "dated_movements", description: "Movements extracted from the evidence", multiplicity: "unknown",
+          containerRole: "import_work_item", sameCountAs: null,
+        },
+        destinationRole: {
+          role: "previewed_movements", description: "Separate movements in the pending preview", multiplicity: "unknown",
+          containerRole: null, sameCountAs: "dated_movements",
+        },
+        shape: "one_to_one", coverage: "all", preserveMemberBoundaries: true,
+      }],
+      outcomes: [{
+        description: "One pending import preview", targetRefs: [],
+        cardinality: { minimum: 1, maximum: 1, basis: "request" },
+      }],
+    }],
+  };
+
+  const connected = connectCoreIntent(
+    parseStructuredModelOutput(JSON.stringify(value), schema, "Orientation"),
+  );
+  assert.deepEqual(
+    connected.actions[0].semanticRoles.map(({ role }) => role),
+    ["import_work_item", "dated_movements", "previewed_movements"],
+  );
+  assert.deepEqual(connected.actions[0].mappings, [{
+    fromRole: "dated_movements", toRole: "previewed_movements",
+    shape: "one_to_one", coverage: "all", preserveMemberBoundaries: true,
+  }]);
+  assert.equal(intentContinuityProblem(connected), null);
 });
 
 test("read-only work is answer mode and current receipts can correct factual premises", () => {

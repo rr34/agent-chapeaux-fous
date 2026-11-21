@@ -123,8 +123,14 @@ export function commonSenseCoreSchema({
     type: "object",
     additionalProperties: false,
     properties: {
-      fromRole: semanticRoleName,
-      toRole: semanticRoleName,
+      sourceRole: {
+        ...semanticRole,
+        description: "The complete source-role definition for this correspondence. Define it here rather than repeating it in semanticRoles.",
+      },
+      destinationRole: {
+        ...semanticRole,
+        description: "The complete destination-role definition for this correspondence. Define it here rather than repeating it in semanticRoles.",
+      },
       shape: {
         type: "string",
         enum: ["one_to_one", "one_to_many", "many_to_one", "many_to_many"],
@@ -139,7 +145,7 @@ export function commonSenseCoreSchema({
         description: "True when separate source members must remain separate destination members rather than being merged into one aggregate.",
       },
     },
-    required: ["fromRole", "toRole", "shape", "coverage", "preserveMemberBoundaries"],
+    required: ["sourceRole", "destinationRole", "shape", "coverage", "preserveMemberBoundaries"],
   };
   return {
     type: "object",
@@ -196,7 +202,7 @@ export function commonSenseCoreSchema({
               type: "array",
               maxItems: 20,
               items: semanticMapping,
-              description: "Requested correspondence between semantic roles. Use this for copy, move, convert, split, merge, or transfer operations whose member boundaries or coverage must survive execution.",
+              description: "Requested correspondence between semantic roles. Each mapping owns complete source and destination role definitions; do not repeat those endpoint roles in semanticRoles. Use this for copy, move, convert, split, merge, or transfer operations whose member boundaries or coverage must survive execution.",
             },
             outcomes: {
               type: "array",
@@ -693,7 +699,7 @@ export const commonSenseInstructions = [
   "You are the common-sense orientation phase of Time v3 Agent. Produce only the schema-constrained intent core.",
   "Prioritize the exact current request and any explicit composer selections. Use older conversation only to resolve genuine references or continuations.",
   "Describe the end state in ordinary language. Do not select tools, write audit policy, copy tool protocols, manufacture prohibitions, or turn preservation of unrelated state into verbose constraints.",
-  "Perform a number-and-shape check for every action. Use semanticRoles and mappings when singular containers, plural or potentially plural members, or copy/move/convert/split/merge correspondence materially affects scope or completion. One overall requested result or one destination container never makes its member collection singular.",
+  "Perform a number-and-shape check for every action. Use semanticRoles and mappings when singular containers, plural or potentially plural members, or copy/move/convert/split/merge correspondence materially affects scope or completion. Every mapping must contain the complete definitions of its sourceRole and destinationRole; put only unmapped roles in semanticRoles. One overall requested result or one destination container never makes its member collection singular.",
   "Preserve collection member boundaries by default for copy, move, transfer, migration, and conversion. Use a one_to_one mapping with coverage=all and preserveMemberBoundaries=true when every source member must have one corresponding destination member. Use many_to_one only when the request actually asks to combine, summarize, bundle, consolidate, or otherwise collapse members.",
   "Treat deliberate forms such as item(s) as strong evidence for one_or_more multiplicity, while still using the full request and domain relationships to understand number. Use sameCountAs when a destination collection must contain exactly as many semantic members as a source collection whose count execution will resolve.",
   "When the user plainly rejects an object the agent just created by mistake, include removal of that mistaken object in the requested end state; do not reduce the correction to emptying or ignoring it.",
@@ -792,9 +798,35 @@ export function connectCoreIntent(core) {
     ...core,
     actions: (core.actions ?? []).map((action, actionIndex) => {
       const { outcomeObjects: legacyOutcomes, ...semanticAction } = action;
+      const embeddedRoles = (action.mappings ?? []).flatMap((mapping) => (
+        mapping.sourceRole && mapping.destinationRole
+          ? [mapping.sourceRole, mapping.destinationRole]
+          : []
+      ));
+      const semanticRoles = [];
+      for (const role of [...(action.semanticRoles ?? []), ...embeddedRoles]) {
+        const matchingRoles = semanticRoles.filter((candidate) => candidate.role === role.role);
+        if (matchingRoles.some((candidate) => (
+          candidate.multiplicity === role.multiplicity
+          && candidate.containerRole === role.containerRole
+          && candidate.sameCountAs === role.sameCountAs
+        ))) continue;
+        semanticRoles.push(role);
+      }
+      const mappings = (action.mappings ?? []).map((mapping) => {
+        if (!mapping.sourceRole || !mapping.destinationRole) return mapping;
+        const { sourceRole, destinationRole, ...shape } = mapping;
+        return {
+          fromRole: sourceRole.role,
+          toRole: destinationRole.role,
+          ...shape,
+        };
+      });
       return {
         ...semanticAction,
         actionId: `action_${actionIndex + 1}`,
+        semanticRoles,
+        mappings,
         outcomes: (action.outcomes ?? legacyOutcomes ?? []).map((outcome, outcomeIndex) => ({
           ...outcome,
           outcomeId: `outcome_${outcomeIndex + 1}`,
