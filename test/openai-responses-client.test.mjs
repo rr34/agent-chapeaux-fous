@@ -787,6 +787,67 @@ test("OpenAI Responses adds a verified provider PDF after its MCP tool result", 
   assert.equal(result.protocol.pdfDetail, "high");
 });
 
+test("OpenAI Responses adds a verified provider image after its MCP tool result", async () => {
+  const requests = [];
+  const events = [];
+  const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const responses = [{
+    id: "resp_provider_image_descriptor", model: "gpt-5.6-terra", status: "completed",
+    output: [{
+      type: "function_call", call_id: "call_receipt", name: "get_receipt",
+      arguments: "{}",
+    }],
+    usage: { input_tokens: 10, output_tokens: 2, total_tokens: 12 },
+  }, {
+    id: "resp_provider_image_read", model: "gpt-5.6-terra", status: "completed",
+    output: [{
+      type: "message", id: "msg_provider_image", role: "assistant",
+      content: [{ type: "output_text", text: "I inspected the image." }],
+    }],
+    usage: { input_tokens: 50, output_tokens: 4, total_tokens: 54 },
+  }];
+  const client = new OpenAIResponsesClient({
+    apiKey: "test-key",
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return jsonResponse(responses.shift());
+    },
+  });
+  const result = await client.runTurn({
+    model: "gpt-5.6-terra", baseInstructions: "BASE", developerInstructions: "CONTEXT",
+    input: "Process the receipt.",
+    tools: [{
+      name: "get_receipt", description: "Get the receipt image.",
+      inputSchema: { type: "object", additionalProperties: false, properties: {} },
+    }],
+    onEvent: event => events.push(event),
+    onToolCall: async () => attachModelInputAttachments({ ok: true }, [{
+      mediaKind: "image", filename: "receipt.png", mimeType: "image/png",
+      byteSize: bytes.length, sha256: "verified-image-sha", dataBase64: bytes.toString("base64"),
+      text: "Complete original provider image. Inspect every visible region.", source: "mcp:accounting",
+    }]),
+  });
+
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].input[1].content[1].type, "input_image");
+  assert.equal(requests[1].input[1].content[1].detail, "original");
+  assert.equal(requests[1].input[1].content[1].image_url,
+    `data:image/png;base64,${bytes.toString("base64")}`);
+  assert.deepEqual(events.filter(({ type }) => type === "model_input.attachment")[0], {
+    type: "model_input.attachment",
+    modelCallIndex: 2,
+    delivery: "input_image",
+    attachment: {
+      mediaKind: "image", filename: "receipt.png", mimeType: "image/png",
+      byteSize: bytes.length, sha256: "verified-image-sha", source: "mcp:accounting",
+      transportId: null, cache: null,
+    },
+  });
+  assert.match(requests[1].input[1].content[1].image_url, /^data:image\/png;base64,/);
+  assert.doesNotMatch(JSON.stringify(events), new RegExp(bytes.toString("base64")));
+  assert.equal(result.text, "I inspected the image.");
+});
+
 test("OpenAI schemas omit provider-unsupported uniqueness constraints without mutating local schemas", () => {
   const localSchema = {
     type: "object",

@@ -538,6 +538,76 @@ test("a provider-declared PDF download is verified, attached transiently, and re
   assert.equal(downloadCount, 2);
 });
 
+test("provider-declared model-readable images are verified and attached transiently", async (context) => {
+  const temporary = temporaryDirectory();
+  context.after(temporary.cleanup);
+  const configPath = path.join(temporary.directory, "mcp.json");
+  fs.writeFileSync(configPath, JSON.stringify({ accounting: {
+    enabled: true,
+    url: "https://accounting.example.test/mcp",
+    headers: { Authorization: "Bearer accounting-token" },
+  } }));
+  const examples = [
+    ["image/jpeg", "receipt.jpg", Buffer.from([0xff, 0xd8, 0xff, 0xdb])],
+    ["image/png", "receipt.png", Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])],
+    ["image/webp", "receipt.webp", Buffer.from("RIFF\x04\x00\x00\x00WEBP", "binary")],
+    ["image/gif", "receipt.gif", Buffer.from("GIF89a", "ascii")],
+  ];
+  let active = examples[0];
+  const descriptor = () => ({
+    contractVersion: 1,
+    transportId: `receipt_${active[0].split("/")[1]}_download`,
+    sourceRef: `accounting://evidence-files/${active[1]}`,
+    fileName: active[1],
+    mediaType: active[0],
+    byteSize: active[2].length,
+    sha256: `sha256:${createHash("sha256").update(active[2]).digest("hex")}`,
+    method: "GET",
+    endpointPath: `/mcp/evidence-files/${active[1]}/content`,
+    acceptsByteRanges: false,
+  });
+  const manager = new McpToolManager({
+    configPath,
+    clientFactory: () => ({
+      async connect() {},
+      async listTools() { return { tools: [{
+        name: "get_receipt", description: "Get one receipt image.",
+        inputSchema: { type: "object", additionalProperties: false, properties: {} },
+      }] }; },
+      async callTool() { return { structuredContent: { download: descriptor() } }; },
+      async close() {},
+    }),
+    transportFactory: () => ({ async close() {} }),
+    fetchFn: async (_input, options) => {
+      assert.equal(options.headers.Authorization, "Bearer accounting-token");
+      assert.equal(options.headers.Range, undefined);
+      return new Response(active[2], {
+        status: 200,
+        headers: { "Content-Type": active[0], "Content-Length": String(active[2].length) },
+      });
+    },
+  });
+  context.after(() => manager.close());
+  const registry = new ToolRegistry();
+  await manager.initialize(registry);
+
+  for (const example of examples) {
+    active = example;
+    const result = await registry.execute("remote_accounting_get_receipt", {});
+    const attachment = modelInputAttachments(result)[0];
+    assert.equal(attachment.mediaKind, "image");
+    assert.equal(attachment.mimeType, active[0]);
+    assert.equal(attachment.filename, active[1]);
+    assert.equal(attachment.dataBase64, active[2].toString("base64"));
+    assert.match(attachment.text, /Inspect every visible region carefully/);
+  }
+
+  active = ["image/png", "invalid.png", Buffer.from("not a png", "ascii")];
+  const invalid = await registry.execute("remote_accounting_get_receipt", {});
+  assert.equal(modelInputAttachments(invalid).length, 0);
+  assert.match(mcpResultDetails(invalid).attachmentFailures[0].error, /did not match image\/png/);
+});
+
 test("an advertised artifact route returning 405 is terminal until a successful integration refresh", async (context) => {
   const temporary = temporaryDirectory();
   context.after(temporary.cleanup);

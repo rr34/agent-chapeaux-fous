@@ -135,6 +135,13 @@ const providerDownloadChunkBytes = 1024 * 1024;
 const providerDownloadCacheTtlMs = 5 * 60 * 1000;
 const maximumProviderDownloadCacheEntries = 8;
 const maximumProviderDownloadCacheBytes = 64 * 1024 * 1024;
+const providerDownloadMediaKinds = new Map([
+  ["application/pdf", "document"],
+  ["image/gif", "image"],
+  ["image/jpeg", "image"],
+  ["image/png", "image"],
+  ["image/webp", "image"],
+]);
 
 function artifactFailureKey(serverName, upload) {
   return `${serverName}\n${upload.transportId}\n${upload.contractFingerprint}`;
@@ -399,17 +406,19 @@ function validatedProviderDownload(descriptor) {
     throw new Error("Provider artifact download descriptor is incomplete");
   }
   const mimeType = descriptor.mediaType.trim().toLowerCase();
-  if (mimeType !== "application/pdf") {
+  const mediaKind = providerDownloadMediaKinds.get(mimeType);
+  if (!mediaKind) {
     throw new Error(`Provider artifact download media type ${mimeType || "(missing)"} is not model-readable`);
   }
   if (descriptor.byteSize < 1 || descriptor.byteSize > maximumProviderDownloadBytes) {
-    throw new Error(`Provider PDF must be between 1 and ${maximumProviderDownloadBytes} bytes`);
+    throw new Error(`Provider artifact must be between 1 and ${maximumProviderDownloadBytes} bytes`);
   }
   const filename = path.basename(descriptor.fileName.trim());
   if (!filename || filename.length > 255) throw new Error("Provider artifact download filename is invalid");
   return {
     transportId: descriptor.transportId,
     endpointPath: descriptor.endpointPath,
+    mediaKind,
     mimeType,
     byteSize: descriptor.byteSize,
     sha256: normalizedSha256(descriptor.sha256, "provider artifact download sha256"),
@@ -417,6 +426,34 @@ function validatedProviderDownload(descriptor) {
     acceptsByteRanges: descriptor.acceptsByteRanges === true,
     sourceRef: typeof descriptor.sourceRef === "string" ? descriptor.sourceRef.slice(0, 2048) : null,
   };
+}
+
+function providerDownloadSignatureMatches(bytes, mimeType) {
+  if (mimeType === "application/pdf") {
+    return bytes.subarray(0, Math.min(bytes.length, 1024)).includes(Buffer.from("%PDF-", "ascii"));
+  }
+  if (mimeType === "image/jpeg") {
+    return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  }
+  if (mimeType === "image/png") {
+    return bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  }
+  if (mimeType === "image/gif") {
+    return bytes.length >= 6 && ["GIF87a", "GIF89a"].includes(bytes.subarray(0, 6).toString("ascii"));
+  }
+  if (mimeType === "image/webp") {
+    return bytes.length >= 12
+      && bytes.subarray(0, 4).toString("ascii") === "RIFF"
+      && bytes.subarray(8, 12).toString("ascii") === "WEBP";
+  }
+  return false;
+}
+
+function providerAttachmentText(serverName, descriptor) {
+  const source = `${serverName}${descriptor.sourceRef ? ` (${descriptor.sourceRef})` : ""}`;
+  return descriptor.mediaKind === "image"
+    ? `# Provider image\nComplete original image from ${source}. Inspect every visible region carefully.`
+    : `# Provider document\nComplete original PDF from ${source}. Read every page at high detail.`;
 }
 
 async function boundedResponseBytes(response, maximumBytes, label) {
@@ -854,7 +891,7 @@ export class McpToolManager {
                   type: "mcp.artifact.download", phase: "error", status: "error",
                   actorType: "service", actorName: "MCP artifact HTTP", source: `mcp:${serverName}`,
                   channel: context.channel, turnId: context.requestId, operationId: context.callId,
-                  name: `Provider PDF download from ${serverName} failed`,
+                  name: `Provider artifact download from ${serverName} failed`,
                   payload: {
                     transportId: String(rawDescriptor?.transportId ?? "unknown").slice(0, 64),
                     path: typeof rawDescriptor?.endpointPath === "string"
@@ -930,7 +967,7 @@ export class McpToolManager {
       return {
         ...cached.attachment,
         filename: descriptor.filename,
-        text: `# Provider document\nComplete original PDF from ${serverName}${descriptor.sourceRef ? ` (${descriptor.sourceRef})` : ""}. Read every page at high detail.`,
+        text: providerAttachmentText(serverName, descriptor),
         transportId: descriptor.transportId,
         cache: "memory",
       };
@@ -980,17 +1017,17 @@ export class McpToolManager {
     const bytes = Buffer.concat(chunks, descriptor.byteSize);
     const digest = createHash("sha256").update(bytes).digest("hex");
     if (digest !== descriptor.sha256) throw new Error(`${serverName} provider download SHA-256 did not match`);
-    if (!bytes.subarray(0, Math.min(bytes.length, 1024)).includes(Buffer.from("%PDF-", "ascii"))) {
-      throw new Error(`${serverName} provider download did not contain a PDF header`);
+    if (!providerDownloadSignatureMatches(bytes, descriptor.mimeType)) {
+      throw new Error(`${serverName} provider download bytes did not match ${descriptor.mimeType}`);
     }
     const attachment = {
-      mediaKind: "document",
+      mediaKind: descriptor.mediaKind,
       filename: descriptor.filename,
       mimeType: descriptor.mimeType,
       byteSize: descriptor.byteSize,
       sha256: descriptor.sha256,
       dataBase64: bytes.toString("base64"),
-      text: `# Provider document\nComplete original PDF from ${serverName}${descriptor.sourceRef ? ` (${descriptor.sourceRef})` : ""}. Read every page at high detail.`,
+      text: providerAttachmentText(serverName, descriptor),
       source: `mcp:${serverName}`,
       transportId: descriptor.transportId,
       cache: "downloaded",
@@ -1004,7 +1041,7 @@ export class McpToolManager {
       type: "mcp.artifact.download", phase: "end", status: "complete",
       actorType: "service", actorName: "MCP artifact HTTP", source: `mcp:${serverName}`,
       channel: context.channel, turnId: context.requestId, operationId: context.callId,
-      name: `Verified provider PDF from ${serverName}`,
+      name: `Verified provider artifact from ${serverName}`,
       payload: {
         transportId: descriptor.transportId, path: endpoint.pathname,
         mediaType: descriptor.mimeType, byteSize: descriptor.byteSize,

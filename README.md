@@ -1284,16 +1284,18 @@ repair retry that unchanged transfer, and it permits another attempt only after
 a successful integration refresh rediscovers the provider tools.
 
 An MCP may also return the versioned provider-download descriptor defined in
-the same manifesto when a successful tool makes a provider-owned PDF available.
+the same manifesto when a successful tool makes a provider-owned PDF or
+model-readable image (JPEG, PNG, WebP, or GIF) available.
 Agent Slayer fetches it from the MCP origin with the integration's bearer token,
-confirms every declared byte range, size, and SHA-256, and adds the verified PDF
-at high detail to the next model call in that execution. Tool expansion preserves
+confirms every declared byte range, size, SHA-256, and file signature, and adds
+the verified PDF or image at the configured detail to the next model call in
+that execution. Tool expansion preserves
 that Responses chain, so subsequent calls in the execution can continue reading
-the document. Compact receipt evidence records the filename, media type, byte
-count, digest, source, and transport ID as evidence that the document remains
+the artifact. Compact receipt evidence records the filename, media type, byte
+count, digest, source, and transport ID as evidence that the artifact remains
 available in the model chain, but never records the bytes. A separate literal
 `model.input.attachment` event is emitted only when the transport actually adds
-the provider document to a model request; cached descriptor repetitions do not
+the provider artifact to a model request; cached descriptor repetitions do not
 claim another delivery. The bytes stay out of MCP JSON and observability and
 live only in a bounded five-minute memory cache; the MCP remains the durable
 source of record.

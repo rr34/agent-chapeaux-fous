@@ -1537,8 +1537,8 @@ The boundary is deterministic:
   prose or a field name.
 
 A provider may return this versioned download descriptor inside a successful
-tool result when the referenced document becomes available only after the tool
-runs:
+tool result when the referenced PDF or model-readable image becomes available
+only after the tool runs. Version 1 accepts PDF, JPEG, PNG, WebP, and GIF:
 
 ```json
 {
@@ -1558,10 +1558,11 @@ runs:
 Agent Slayer recognizes the descriptor only from its complete typed shape. It
 resolves `endpointPath` against the configured MCP server origin, reuses the
 same bearer authorization, requests and confirms the declared byte ranges,
-and verifies the complete byte count and SHA-256. A verified PDF is retained
-only in a short-lived bounded memory cache and is supplied as a high-detail
-`input_file` in the next model call of the same execution. Later tool-schema
-expansion continues that same model response chain, so the verified PDF remains
+and verifies the complete byte count, SHA-256, and media signature. A verified
+PDF or image is retained only in a short-lived bounded memory cache and is
+supplied as an `input_file` or `input_image`, respectively, at the configured
+detail in the next model call of the same execution. Later tool-schema
+expansion continues that same model response chain, so the verified artifact remains
 available without another download or a receipt reconstruction. Its bytes never
 enter MCP JSON, tool receipts, or traces. The cache is an execution accelerator,
 not domain persistence; the provider remains the durable owner. Invalid download
@@ -1569,10 +1570,10 @@ descriptors or failed verification are returned to the model as explicit host
 attachment failures without changing the provider tool's already-observed
 effect receipt.
 
-Tool receipts retain only compact evidence that a verified document is available
+Tool receipts retain only compact evidence that a verified artifact is available
 in the model chain. They never claim that every repeated descriptor caused a new
 delivery. The model transport records one separate literal attachment event when
-it actually inserts the provider document into a model request; a cache hit or
+it actually inserts the provider artifact into a model request; a cache hit or
 duplicate descriptor that is already present in the chain does not emit another
 delivery event.
 
