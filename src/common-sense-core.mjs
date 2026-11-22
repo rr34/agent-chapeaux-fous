@@ -4,7 +4,7 @@ import {
 } from "./object-references.mjs";
 import { compactReferenceSets, referenceSetObjectRefs } from "./reference-sets.mjs";
 
-export const commonSenseCoreVersion = 3;
+export const commonSenseCoreVersion = 4;
 
 const text = (maximum = 2_000) => ({ type: "string", minLength: 1, maxLength: maximum });
 const textList = (maximumItems = 12, maximumText = 1_000) => ({
@@ -105,37 +105,27 @@ export function commonSenseCoreSchema({
     },
     multiplicity: semanticMultiplicity,
   };
-  const semanticContainer = {
-    type: "object",
-    additionalProperties: false,
-    properties: semanticParticipantFields,
-    required: ["role", "description", "multiplicity"],
-  };
   const semanticRole = {
     type: "object",
     additionalProperties: false,
     properties: {
       ...semanticParticipantFields,
-      containerPath: {
-        type: "array",
-        maxItems: 10,
-        items: semanticContainer,
-        description: "Complete containing roles ordered from the outermost container to the immediate container. Keep empty when this participant is not contained. Never emit role-name references.",
+      container: {
+        anyOf: [{ $ref: "#/$defs/semanticRole" }, { type: "null" }],
+        description: "The complete immediate containing role, which recursively names its own container. Use null only for an outermost participant. This field states that this participant is inside the nested role; visual JSON nesting does not reverse containment.",
       },
     },
-    required: ["role", "description", "multiplicity", "containerPath"],
+    required: ["role", "description", "multiplicity", "container"],
   };
   const semanticMapping = {
     type: "object",
     additionalProperties: false,
     properties: {
       sourceRole: {
-        ...semanticRole,
-        description: "The complete source-role definition for this correspondence. Define it here rather than repeating it in semanticRoles.",
+        $ref: "#/$defs/semanticRole",
       },
       destinationRole: {
-        ...semanticRole,
-        description: "The complete destination-role definition for this correspondence. Define it here rather than repeating it in semanticRoles.",
+        $ref: "#/$defs/semanticRole",
       },
       shape: {
         type: "string",
@@ -156,6 +146,7 @@ export function commonSenseCoreSchema({
   return {
     type: "object",
     additionalProperties: false,
+    $defs: { semanticRole },
     properties: {
       version: { type: "integer", enum: [commonSenseCoreVersion] },
       mode: {
@@ -201,7 +192,7 @@ export function commonSenseCoreSchema({
             semanticRoles: {
               type: "array",
               maxItems: 20,
-              items: semanticRole,
+              items: { $ref: "#/$defs/semanticRole" },
               description: "Machine-checkable number and container/member shape for semantic participants when that shape matters to scope or completion. Keep empty when exact target refs or ordinary prose already express all relevant multiplicity.",
             },
             mappings: {
@@ -705,7 +696,7 @@ export const commonSenseInstructions = [
   "You are the common-sense orientation phase of Time v3 Agent. Produce only the schema-constrained intent core.",
   "Prioritize the exact current request and any explicit composer selections. Use older conversation only to resolve genuine references or continuations.",
   "Describe the end state in ordinary language. Do not select tools, write audit policy, copy tool protocols, manufacture prohibitions, or turn preservation of unrelated state into verbose constraints.",
-  "Perform a number-and-shape check for every action. Use semanticRoles and mappings when singular containers, plural or potentially plural members, or copy/move/convert/split/merge correspondence materially affects scope or completion. Every participant must contain its complete containerPath, ordered outermost to immediate, rather than referring to another role by name. Every mapping must contain the complete definitions of its sourceRole and destinationRole; put only unmapped roles in semanticRoles. One overall requested result or one destination container never makes its member collection singular.",
+  "Perform a number-and-shape check for every action. Use semanticRoles and mappings when singular containers, plural or potentially plural members, or copy/move/convert/split/merge correspondence materially affects scope or completion. Every participant must contain its complete immediate container object; that container recursively contains its own container, ending with null at the outermost role. Every mapping must contain the complete definitions of its sourceRole and destinationRole; put only unmapped roles in semanticRoles. One overall requested result or one destination container never makes its member collection singular.",
   "Preserve collection member boundaries by default for copy, move, transfer, migration, and conversion. Use a one_to_one mapping with coverage=all and preserveMemberBoundaries=true when every source member must have one corresponding destination member. Use many_to_one only when the request actually asks to combine, summarize, bundle, consolidate, or otherwise collapse members.",
   "Treat deliberate forms such as item(s) as strong evidence for one_or_more multiplicity, while still using the full request and domain relationships to understand number. Mapping shape and coverage express correspondence; the application derives count equality during normalization rather than receiving a role-name reference from orientation.",
   "When the user plainly rejects an object the agent just created by mistake, include removal of that mistaken object in the requested end state; do not reduce the correction to emptying or ignoring it.",
@@ -824,17 +815,25 @@ export function connectCoreIntent(core) {
         }
       };
       const addParticipant = (participant, sameCountAs = null) => {
-        if (!Object.hasOwn(participant, "containerPath")) {
+        if (!Object.hasOwn(participant, "container")) {
           addRole(participant);
           return;
         }
-        let containerRole = null;
-        for (const container of participant.containerPath) {
-          addRole({ ...container, containerRole, sameCountAs: null });
-          containerRole = container.role;
+        const ancestry = [];
+        let current = participant;
+        while (current) {
+          if (ancestry.length >= 11) {
+            throw new Error(`semantic role ${participant.role} exceeds 10 containing roles`);
+          }
+          ancestry.push(current);
+          current = current.container;
         }
-        const { containerPath, ...role } = participant;
-        addRole({ ...role, containerRole, sameCountAs });
+        let containerRole = null;
+        for (const nested of ancestry.reverse()) {
+          const { container: _container, ...role } = nested;
+          addRole({ ...role, containerRole, sameCountAs: nested === participant ? sameCountAs : null });
+          containerRole = nested.role;
+        }
       };
       for (const role of action.semanticRoles ?? []) addParticipant(role);
       const mappings = (action.mappings ?? []).map((mapping) => {

@@ -83,10 +83,14 @@ test("the common-sense core is compact, batch-shaped, and contains no tool plann
     schema.properties.actions.items.properties.unresolvedTargets.items.properties,
     "objectType",
   ), false);
-  const orientationRoleSchema = schema.properties.actions.items.properties.semanticRoles.items;
+  const orientationRoleSchema = schema.$defs.semanticRole;
   assert.equal(Object.hasOwn(orientationRoleSchema.properties, "containerRole"), false);
   assert.equal(Object.hasOwn(orientationRoleSchema.properties, "sameCountAs"), false);
-  assert.ok(orientationRoleSchema.required.includes("containerPath"));
+  assert.ok(orientationRoleSchema.required.includes("container"));
+  assert.equal(
+    orientationRoleSchema.properties.container.anyOf[0].$ref,
+    "#/$defs/semanticRole",
+  );
   const orientationMappingSchema = schema.properties.actions.items.properties.mappings.items;
   assert.ok(orientationMappingSchema.required.includes("sourceRole"));
   assert.ok(orientationMappingSchema.required.includes("destinationRole"));
@@ -117,15 +121,17 @@ test("the core represents singular containers and plural member preservation exp
       mappings: [{
         sourceRole: {
           role: "source_members", description: "every item in the selected group", multiplicity: "one_or_more",
-          containerPath: [{
+          container: {
             role: "source_group", description: "the selected to-do group", multiplicity: "one",
-          }],
+            container: null,
+          },
         },
         destinationRole: {
           role: "destination_members", description: "Things corresponding to every source item", multiplicity: "one_or_more",
-          containerPath: [{
+          container: {
             role: "destination_group", description: "the corresponding Things group", multiplicity: "one",
-          }],
+            container: null,
+          },
         },
         shape: "one_to_one",
         coverage: "all", preserveMemberBoundaries: true,
@@ -161,15 +167,17 @@ test("self-contained mapping endpoints prevent the Accounting orientation dangli
       mappings: [{
         sourceRole: {
           role: "dated_movements", description: "Movements extracted from the evidence", multiplicity: "unknown",
-          containerPath: [{
+          container: {
             role: "import_work_item", description: "The supplied import work item", multiplicity: "one",
-          }],
+            container: null,
+          },
         },
         destinationRole: {
           role: "previewed_movements", description: "Separate movements in the pending preview", multiplicity: "unknown",
-          containerPath: [{
+          container: {
             role: "pending_import_preview", description: "The uncommitted Accounting import preview", multiplicity: "one",
-          }],
+            container: null,
+          },
         },
         shape: "one_to_one", coverage: "all", preserveMemberBoundaries: true,
       }],
@@ -193,6 +201,63 @@ test("self-contained mapping endpoints prevent the Accounting orientation dangli
     fromRole: "dated_movements", toRole: "previewed_movements",
     shape: "one_to_one", coverage: "all", preserveMemberBoundaries: true,
   }]);
+  assert.equal(intentContinuityProblem(connected), null);
+});
+
+test("nested containers merge repeated Accounting roles without an order convention", () => {
+  const schema = commonSenseCoreSchema({ capabilities: ["integration:accounting"] });
+  const importJob = {
+    role: "import_job", description: "The specified pending Accounting import job",
+    multiplicity: "one", container: null,
+  };
+  const sourceEvidence = {
+    role: "source_evidence", description: "The complete copied source evidence",
+    multiplicity: "one", container: importJob,
+  };
+  const pendingPreview = {
+    role: "pending_import_preview", description: "The uncommitted import preview",
+    multiplicity: "one", container: importJob,
+  };
+  const value = {
+    ...validCore(),
+    objective: "Create an uncommitted import preview from the complete evidence.",
+    capabilities: ["integration:accounting"],
+    actions: [{
+      instruction: "Preview every dated source movement without committing it.",
+      targetRefs: [], targetSetRefs: [], relationshipSetRefs: [], unresolvedTargets: [],
+      semanticRoles: [
+        importJob,
+        {
+          role: "selected_account", description: "The already-selected account",
+          multiplicity: "one", container: importJob,
+        },
+        sourceEvidence,
+      ],
+      mappings: [{
+        sourceRole: {
+          role: "dated_source_movements", description: "All dated movements for the account",
+          multiplicity: "many", container: sourceEvidence,
+        },
+        destinationRole: {
+          role: "preview_movements", description: "Corresponding preview movements",
+          multiplicity: "many", container: pendingPreview,
+        },
+        shape: "one_to_one", coverage: "all", preserveMemberBoundaries: true,
+      }],
+      outcomes: [{
+        description: "One uncommitted import preview", targetRefs: [],
+        cardinality: { minimum: 1, maximum: 1, basis: "request" },
+      }],
+    }],
+  };
+
+  const connected = connectCoreIntent(
+    parseStructuredModelOutput(JSON.stringify(value), schema, "Orientation"),
+  );
+  assert.deepEqual(connected.actions[0].semanticRoles.map(({ role }) => role), [
+    "import_job", "selected_account", "source_evidence", "dated_source_movements",
+    "pending_import_preview", "preview_movements",
+  ]);
   assert.equal(intentContinuityProblem(connected), null);
 });
 

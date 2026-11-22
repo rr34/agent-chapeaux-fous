@@ -33,10 +33,27 @@ function typeMatches(value, type) {
   return typeof value === type;
 }
 
-export function schemaProblem(value, schema, path = "arguments") {
+function localSchemaReference(rootSchema, reference) {
+  if (reference === "#") return rootSchema;
+  if (typeof reference !== "string" || !reference.startsWith("#/")) return null;
+  let current = rootSchema;
+  for (const rawSegment of reference.slice(2).split("/")) {
+    const segment = rawSegment.replaceAll("~1", "/").replaceAll("~0", "~");
+    if (!current || typeof current !== "object" || !Object.hasOwn(current, segment)) return null;
+    current = current[segment];
+  }
+  return current;
+}
+
+export function schemaProblem(value, schema, path = "arguments", rootSchema = schema) {
   if (!schema || typeof schema !== "object") return null;
+  if (schema.$ref) {
+    const referenced = localSchemaReference(rootSchema, schema.$ref);
+    if (!referenced) return `${path} uses unresolved schema reference ${schema.$ref}`;
+    return schemaProblem(value, referenced, path, rootSchema);
+  }
   if (Array.isArray(schema.anyOf)) {
-    if (!schema.anyOf.some((candidate) => schemaProblem(value, candidate, path) === null)) {
+    if (!schema.anyOf.some((candidate) => schemaProblem(value, candidate, path, rootSchema) === null)) {
       return `${path} does not match any allowed schema`;
     }
   }
@@ -67,7 +84,7 @@ export function schemaProblem(value, schema, path = "arguments") {
     }
     if (schema.items) {
       for (let index = 0; index < value.length; index += 1) {
-        const problem = schemaProblem(value[index], schema.items, `${path}[${index}]`);
+        const problem = schemaProblem(value[index], schema.items, `${path}[${index}]`, rootSchema);
         if (problem) return problem;
       }
     }
@@ -83,7 +100,7 @@ export function schemaProblem(value, schema, path = "arguments") {
     }
     for (const [name, propertySchema] of Object.entries(schema.properties ?? {})) {
       if (!Object.hasOwn(value, name)) continue;
-      const problem = schemaProblem(value[name], propertySchema, `${path}.${name}`);
+      const problem = schemaProblem(value[name], propertySchema, `${path}.${name}`, rootSchema);
       if (problem) return problem;
     }
   }

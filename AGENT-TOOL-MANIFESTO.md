@@ -712,8 +712,10 @@ Agent Slayer uses a structured loop derived from the military OODA loop:
    context needs, and capability families. Do not select capability resource
    types, exact tools, result shapes, or audits.
    Mapping output contains complete source and destination semantic-role
-   definitions, and every participant contains its complete structural
-   container path rather than role-name foreign keys. Application code
+   definitions. Every participant contains its immediate container object,
+   which recursively contains its own container and terminates with `null` at
+   the outermost role; there is no separately ordered container path or
+   role-name foreign key. Application code
    deterministically normalizes those self-contained correspondences into the
    accepted core's role table, containment references, count equalities, and
    role-name edges, so semantic-role integrity does not require another model
