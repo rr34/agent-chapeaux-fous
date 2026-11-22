@@ -329,11 +329,50 @@ test("published file tool schema exposes exact timestamp and ratio transforms", 
   assert.ok(operation.properties.op.enum.includes("decimal_ratio_units"));
   assert.ok(operation.properties.op.enum.includes("regex_extract"));
   assert.ok(operation.properties.op.enum.includes("regex_replace"));
+  const rowFilter = tool.parameters.properties.mapping.properties.row_filter.anyOf[0];
+  assert.deepEqual(rowFilter.properties.mode.enum, ["all", "any"]);
+  assert.ok(rowFilter.properties.conditions.items.properties.op.enum.includes("equals"));
   assert.equal(operation.properties.input_formats.items.type, "string");
   assert.equal(operation.properties.pattern.maxLength, 256);
   assert.deepEqual(operation.properties.side.enum, ["from_units", "to_units"]);
   assert.match(tool.description, /RE2 regex extraction\/replacement/);
   assert.equal(registry.get("file_table_read_rows").annotations.readOnlyHint, true);
+});
+
+test("declarative row filtering selects one account side without treating counterpart rows as errors", () => {
+  const transformed = transformDelimitedText([
+    "Account,Transaction ID,Amount",
+    "Joint x9676,one,-12.34",
+    "Other,one,12.34",
+    "Joint x9676,two,50.00",
+    "Income,two,-50.00",
+  ].join("\n"), {
+    delimiter: "comma",
+    mapping: {
+      row_filter: {
+        mode: "all",
+        conditions: [{
+          source_column: "Account", op: "equals", value: "Joint x9676", case_sensitive: true,
+        }],
+      },
+      fields: [
+        { output_field: "source_record_id", source_column: "Transaction ID" },
+        { output_field: "amount_decimal", source_column: "Amount", transforms: [{
+          op: "decimal", decimal_separator: ".", grouping_separator: null,
+          currency_symbols: [], parentheses_negative: true,
+        }] },
+      ],
+    },
+  });
+  assert.equal(transformed.sourceRecordCount, 4);
+  assert.equal(transformed.transformedRecordCount, 2);
+  assert.equal(transformed.excludedRecordCount, 2);
+  assert.equal(transformed.exceptionRecordCount, 0);
+  assert.deepEqual(transformed.records.map(({ record }) => record), [{
+    source_record_id: "one", amount_decimal: "-12.34",
+  }, {
+    source_record_id: "two", amount_decimal: "50.00",
+  }]);
 });
 
 test("file tools expose header repairs and exact irregular rows from a verified upload", async (context) => {

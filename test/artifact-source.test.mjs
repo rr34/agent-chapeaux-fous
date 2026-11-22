@@ -6,6 +6,39 @@ import path from "node:path";
 import test from "node:test";
 import { createFileArtifactSource } from "../src/artifact-source.mjs";
 
+test("provider evidence materialization creates a verified native source file", async (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "agent-slayer-provider-evidence-"));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const bytes = Buffer.from("Account,Amount\nJoint x9676,-12.34\n", "utf8");
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  let registered;
+  const source = createFileArtifactSource({
+    mediaRoot: directory,
+    ledger: {
+      registerFile(value) {
+        registered = value;
+        return { fileId: 218, title: value.title, duplicate: false, storagePath: value.storagePath };
+      },
+    },
+  });
+  const file = await source.materializeProviderEvidence({
+    bytes,
+    filename: "x9676.csv",
+    mimeType: "text/csv",
+    sha256,
+    sourceRef: "accounting://evidence-files/33",
+    providerSource: "mcp:accounting",
+  });
+  assert.equal(file.fileId, 218);
+  assert.equal(registered.originalFilename, "x9676.csv");
+  assert.equal(registered.mimeType, "text/csv");
+  assert.match(registered.description, /accounting:\/\/evidence-files\/33/);
+  assert.deepEqual(
+    fs.readFileSync(path.join(directory, registered.storagePath.replace(/^media\//, ""))),
+    bytes,
+  );
+});
+
 test("persisted artifact sources verify identity and support bounded positional reads", async (context) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "agent-slayer-artifact-source-"));
   context.after(() => fs.rmSync(directory, { recursive: true, force: true }));

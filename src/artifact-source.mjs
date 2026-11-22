@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { safeMediaPath } from "./request-attachments.mjs";
@@ -64,6 +64,48 @@ async function verifiedJsonLines(handle, byteSize) {
 
 export function createFileArtifactSource({ ledger, mediaRoot }) {
   return {
+    async materializeProviderEvidence({
+      bytes, filename, mimeType, sha256, sourceRef, providerSource,
+    }) {
+      if (!Buffer.isBuffer(bytes) || bytes.length === 0) {
+        throw inputError("Provider evidence bytes are missing");
+      }
+      const digest = createHash("sha256").update(bytes).digest("hex");
+      if (digest !== sha256) throw new Error("Provider evidence checksum changed before persistence");
+      const safeFilename = path.basename(String(filename ?? "provider-evidence.txt"));
+      const extension = path.extname(safeFilename).slice(0, 20) || ".txt";
+      const now = new Date();
+      const relativeDirectory = path.join(
+        String(now.getUTCFullYear()),
+        String(now.getUTCMonth() + 1).padStart(2, "0"),
+      );
+      const directory = path.join(mediaRoot, relativeDirectory);
+      await fsp.mkdir(directory, { recursive: true, mode: 0o700 });
+      const storedName = `${randomUUID()}${extension}`;
+      const absoluteFilename = path.join(directory, storedName);
+      await fsp.writeFile(absoluteFilename, bytes, { flag: "wx", mode: 0o600 });
+      const storagePath = path.posix.join("media", ...relativeDirectory.split(path.sep), storedName);
+      let file;
+      try {
+        file = ledger.registerFile({
+          storagePath,
+          originalFilename: safeFilename,
+          title: safeFilename,
+          description: `Verified provider evidence from ${providerSource}${sourceRef ? ` (${sourceRef})` : ""}.`,
+          mediaKind: "document",
+          mimeType,
+          sha256: digest,
+          byteSize: bytes.length,
+        });
+      } catch (error) {
+        await fsp.unlink(absoluteFilename).catch(() => {});
+        throw error;
+      }
+      if (file.duplicate && file.storagePath !== storagePath) {
+        await fsp.unlink(absoluteFilename).catch(() => {});
+      }
+      return file;
+    },
     async open(fileId) {
       const stored = ledger.file(fileId);
       if (!stored) throw inputError(`File ${fileId} was not found`, 404);

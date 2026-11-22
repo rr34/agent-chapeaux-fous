@@ -180,8 +180,8 @@ function remoteReferences(toolDefinition, toolDefinitions, result, sourceEventSe
   return groups;
 }
 
-function nativeReferences(toolDefinition, result, sourceEventSeq, exactRecords) {
-  if (toolDefinition?.source !== "local") return [];
+function nativeReferences(toolDefinition, result, sourceEventSeq, exactRecords, { explicitOnly = false } = {}) {
+  if (toolDefinition?.source !== "local" && !explicitOnly) return [];
   const byType = new Map(nativeFirstClassObjectTypes.map((type) => [type.id, new Map()]));
   const add = (type, record, object) => {
     const role = recordObjectRole(record);
@@ -196,7 +196,7 @@ function nativeReferences(toolDefinition, result, sourceEventSeq, exactRecords) 
     // identity for the contact or descend into its methods and tags.
     if (inactiveContactRecord(record)) return false;
     const searchType = nativeObjectTypeForSearchType(record?.type);
-    if (searchType) {
+    if (searchType && (!explicitOnly || record?.objectType === searchType.id)) {
       const id = canonicalId(record.id, searchType);
       const display = compactScalar(record.display ?? record.title, 500);
       if (id != null && display) {
@@ -205,6 +205,7 @@ function nativeReferences(toolDefinition, result, sourceEventSeq, exactRecords) 
       }
     }
     for (const type of nativeFirstClassObjectTypes) {
+      if (explicitOnly && record?.objectType !== type.id) continue;
       const id = firstId(record, type.idFields, type);
       const display = firstDisplay(record, type.displayFields);
       if (id == null || !display) continue;
@@ -244,10 +245,16 @@ export function objectReferenceGroupsFromToolResult({
   const remote = remoteReferences(
     toolDefinition, toolDefinitions, result, sourceEventSeq, exactRecords,
   );
+  const local = toolDefinition.source === "local";
+  const native = nativeReferences(
+    toolDefinition,
+    local ? result : result?.providerEvidenceFiles ?? [],
+    sourceEventSeq,
+    local ? exactRecords : true,
+    { explicitOnly: !local },
+  );
   return normalizeObjectReferenceGroups(
-    remote.length
-      ? remote
-      : nativeReferences(toolDefinition, result, sourceEventSeq, exactRecords),
+    [...remote, ...native],
   );
 }
 

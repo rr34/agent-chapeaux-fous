@@ -1544,8 +1544,9 @@ The boundary is deterministic:
   prose or a field name.
 
 A provider may return this versioned download descriptor inside a successful
-tool result when the referenced PDF or model-readable image becomes available
-only after the tool runs. Version 1 accepts PDF, JPEG, PNG, WebP, and GIF:
+tool result when referenced evidence becomes available only after the tool
+runs. Version 1 accepts PDF, JPEG, PNG, WebP, GIF, UTF-8 `text/csv`, and UTF-8
+`text/plain`:
 
 ```json
 {
@@ -1569,13 +1570,28 @@ and verifies the complete byte count, SHA-256, and media signature. A verified
 PDF or image is retained only in a short-lived bounded memory cache and is
 supplied as an `input_file` or `input_image`, respectively, at the configured
 detail in the next model call of the same execution. Later tool-schema
-expansion continues that same model response chain, so the verified artifact remains
-available without another download or a receipt reconstruction. Its bytes never
-enter MCP JSON, tool receipts, or traces. The cache is an execution accelerator,
-not domain persistence; the provider remains the durable owner. Invalid download
-descriptors or failed verification are returned to the model as explicit host
-attachment failures without changing the provider tool's already-observed
-effect receipt.
+expansion continues that same model response chain, so the verified visual
+artifact remains available without another download or a receipt
+reconstruction.
+
+A verified CSV or plain-text download is instead persisted byte-for-byte as a
+new native `files.file` working copy. The returned file correspondence is
+self-contained: it includes the native file ID and reference, the provider
+source and source reference, filename, media type, size, and digest. A provider
+evidence ID is provenance only and is never accepted as a native file ID. The
+native table tools can then inspect, select, transform, and partition the
+complete verified file deterministically. Optional declarative row selection
+is applied before field mapping; excluded rows are counted separately from
+transformation exceptions, and the application accounts for the complete
+nonblank source set.
+
+No artifact bytes enter MCP JSON, tool receipts, or traces. CSV and text bytes
+also never enter model tool arguments or model context. The PDF/image cache is
+an execution accelerator, and a native CSV/text working copy is transport
+persistence rather than a new provider-domain identity; the provider remains
+the authoritative owner. Invalid download descriptors or failed verification
+are returned to the model as explicit host attachment failures without changing
+the provider tool's already-observed effect receipt.
 
 Tool receipts retain only compact evidence that a verified artifact is available
 in the model chain. They never claim that every repeated descriptor caused a new

@@ -258,6 +258,38 @@ test("a non-owner tool result needs the provider objectType discriminator", () =
   assert.equal(group.type, "accounting.account");
 });
 
+test("a remote result can bind an explicitly materialized native provider-evidence file", () => {
+  const action = { name: "remote_accounting_start_import", source: "mcp:accounting", metadata: {} };
+  const groups = objectReferenceGroupsFromToolResult({
+    toolDefinition: action,
+    toolDefinitions: [accountRead, action],
+    sourceEventSeq: 62_425,
+    result: {
+      evidenceFile: {
+        objectType: "accounting.evidence_file",
+        id: 33,
+        ref: "accounting://evidence-files/33",
+        name: "source.csv",
+      },
+      providerEvidenceFiles: [{
+        objectType: "files.file",
+        objectRole: "provider_evidence_source",
+        id: 218,
+        fileId: 218,
+        ref: "agent-slayer://files/218",
+        title: "source.csv",
+      }],
+    },
+  });
+  const native = groups.find(({ type }) => type === "files.file");
+  assert.equal(native.role, "provider_evidence_source");
+  assert.deepEqual(native.objects, [{
+    id: 218,
+    ref: "agent-slayer://files/218",
+    display: "source.csv",
+  }]);
+});
+
 test("provider-declared object roles keep same-type returned objects in separate bindings", () => {
   const action = { name: "remote_accounting_start_import", source: "mcp:accounting", metadata: {} };
   const groups = objectReferenceGroupsFromToolResult({

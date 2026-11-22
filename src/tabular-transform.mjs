@@ -526,6 +526,69 @@ function mappingConfiguration(mapping, headers) {
   return preparedFields;
 }
 
+function rowFilterConfiguration(rowFilter, headers) {
+  if (rowFilter == null) return null;
+  if (!rowFilter || !["all", "any"].includes(rowFilter.mode)
+    || !Array.isArray(rowFilter.conditions) || rowFilter.conditions.length === 0) {
+    throw new Error("mapping.row_filter requires mode and at least one condition");
+  }
+  const headerSet = new Set(headers);
+  return {
+    mode: rowFilter.mode,
+    conditions: rowFilter.conditions.map((condition) => {
+      if (!headerSet.has(condition.source_column)) {
+        throw new Error(`Row filter references missing column: ${condition.source_column}`);
+      }
+      if (["equals", "not_equals"].includes(condition.op) && typeof condition.value !== "string") {
+        throw new Error(`Row filter ${condition.op} requires value`);
+      }
+      if (["regex", "not_regex"].includes(condition.op)) {
+        if (typeof condition.pattern !== "string" || !condition.pattern || condition.pattern.length > 256) {
+          throw new Error(`Row filter ${condition.op} requires a pattern of 1 through 256 characters`);
+        }
+        let compiledRegex;
+        try {
+          compiledRegex = RE2JS.compile(
+            condition.pattern,
+            condition.case_sensitive === false ? RE2JS.CASE_INSENSITIVE : 0,
+          );
+          if (compiledRegex.programSize() > 10_000) {
+            throw new Error("compiled regex exceeds 10,000 program instructions");
+          }
+        } catch (error) {
+          throw new Error(`Invalid row filter regex: ${error.message}`);
+        }
+        return { ...condition, compiledRegex };
+      }
+      if (!["equals", "not_equals", "blank", "not_blank"].includes(condition.op)) {
+        throw new Error(`Unknown row filter operation: ${condition.op}`);
+      }
+      return condition;
+    }),
+  };
+}
+
+function rowFilterMatches(source, rowFilter) {
+  if (!rowFilter) return true;
+  const matches = rowFilter.conditions.map((condition) => {
+    const selected = String(source[condition.source_column] ?? "");
+    const comparable = condition.case_sensitive === false ? selected.toLocaleLowerCase() : selected;
+    const expected = condition.case_sensitive === false
+      ? String(condition.value ?? "").toLocaleLowerCase()
+      : String(condition.value ?? "");
+    switch (condition.op) {
+      case "equals": return comparable === expected;
+      case "not_equals": return comparable !== expected;
+      case "regex": return condition.compiledRegex.exec(selected) !== null;
+      case "not_regex": return condition.compiledRegex.exec(selected) === null;
+      case "blank": return blank(selected);
+      case "not_blank": return !blank(selected);
+      default: return false;
+    }
+  });
+  return rowFilter.mode === "all" ? matches.every(Boolean) : matches.some(Boolean);
+}
+
 function schemaValidator(schema) {
   if (schema == null) return null;
   const ajv = new Ajv2020({ allErrors: true, strict: false });
@@ -551,10 +614,12 @@ export function transformDelimitedText(text, {
 } = {}) {
   const parsed = table(text, { delimiter, headerRow });
   const fields = mappingConfiguration(mapping, parsed.headers);
+  const rowFilter = rowFilterConfiguration(mapping?.row_filter, parsed.headers);
   const validator = schemaValidator(targetSchema);
   const records = [];
   const exceptions = [];
   let blankRecordCount = 0;
+  let excludedRecordCount = 0;
   for (const [index, row] of parsed.rows.entries()) {
     const sourceRecordNumber = index + 1;
     if (!nonblankRow(row)) {
@@ -569,6 +634,10 @@ export function transformDelimitedText(text, {
         message: `Record has ${row.length} columns; expected ${parsed.headers.length}`,
         source,
       });
+      continue;
+    }
+    if (!rowFilterMatches(source, rowFilter)) {
+      excludedRecordCount += 1;
       continue;
     }
     try {
@@ -606,8 +675,9 @@ export function transformDelimitedText(text, {
     delimiter: parsed.delimiter,
     headers: parsed.headers,
     headerAdjustments: parsed.headerAdjustments,
-    sourceRecordCount: records.length + exceptions.length,
+    sourceRecordCount: records.length + exceptions.length + excludedRecordCount,
     blankRecordCount,
+    excludedRecordCount,
     transformedRecordCount: records.length,
     exceptionRecordCount: exceptions.length,
     mappingHash,

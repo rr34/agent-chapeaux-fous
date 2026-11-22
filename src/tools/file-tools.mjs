@@ -229,6 +229,21 @@ const mappingFieldSchema = {
   },
   required: ["output_field"],
 };
+const rowFilterConditionSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    source_column: { type: "string", minLength: 1, maxLength: 500 },
+    op: { type: "string", enum: ["equals", "not_equals", "regex", "not_regex", "blank", "not_blank"] },
+    value: { type: "string", maxLength: 10_000 },
+    pattern: {
+      type: "string", minLength: 1, maxLength: 256,
+      description: "RE2 regular expression used only by regex and not_regex.",
+    },
+    case_sensitive: { type: "boolean" },
+  },
+  required: ["source_column", "op"],
+};
 const tableInputProperties = {
   file_id: { type: "integer", minimum: 1 },
   delimiter: {
@@ -260,6 +275,18 @@ const tableTransformParameters = {
       additionalProperties: false,
       properties: {
         fields: { type: "array", minItems: 1, maxItems: 500, items: mappingFieldSchema },
+        row_filter: {
+          anyOf: [{
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              mode: { type: "string", enum: ["all", "any"] },
+              conditions: { type: "array", minItems: 1, maxItems: 20, items: rowFilterConditionSchema },
+            },
+            required: ["mode", "conditions"],
+          }, { type: "null" }],
+          description: "Optional declarative source-row selection applied before field mapping. Excluded rows are counted separately and are not transformation exceptions.",
+        },
       },
       required: ["fields"],
     },
@@ -934,7 +961,7 @@ export function registerFileTools(registry, {
 
   registry.register({
     name: "file_table_transform_preview",
-    description: "Run a complete verified table through one declarative mapping, including RE2 regex extraction/replacement, without saving artifacts or changing data. Return exact transformed and exception counts plus bounded output and exception samples. Use the same mapping and target_schema with file_table_transform after reviewing this preview; matching mappingHash proves the same mapping was used.",
+    description: "Run a complete verified table through one declarative row selection and mapping, including RE2 regex matching, extraction, and replacement, without saving artifacts or changing data. Return exact selected, excluded, transformed, and exception counts plus bounded output and exception samples. Use the same mapping and target_schema with file_table_transform after reviewing this preview; matching mappingHash proves the same mapping was used.",
     parameters: tableTransformParameters,
     outputSchema: {
       type: "object",
@@ -948,6 +975,7 @@ export function registerFileTools(registry, {
         mappingHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
         sourceRecordCount: { type: "integer", minimum: 0 },
         blankRecordCount: { type: "integer", minimum: 0 },
+        excludedRecordCount: { type: "integer", minimum: 0 },
         transformedRecordCount: { type: "integer", minimum: 0 },
         exceptionRecordCount: { type: "integer", minimum: 0 },
         accountedRecordCount: { type: "integer", minimum: 0 },
@@ -959,7 +987,7 @@ export function registerFileTools(registry, {
       },
       required: [
         "sourceFile", "sourceSha256", "verified", "delimiter", "headers", "headerAdjustments", "mappingHash",
-        "sourceRecordCount", "blankRecordCount", "transformedRecordCount", "exceptionRecordCount",
+        "sourceRecordCount", "blankRecordCount", "excludedRecordCount", "transformedRecordCount", "exceptionRecordCount",
         "accountedRecordCount", "complete", "outputPreview", "outputPreviewTruncated",
         "exceptionPreview", "exceptionPreviewTruncated",
       ],
@@ -981,10 +1009,13 @@ export function registerFileTools(registry, {
         mappingHash: transformed.mappingHash,
         sourceRecordCount: transformed.sourceRecordCount,
         blankRecordCount: transformed.blankRecordCount,
+        excludedRecordCount: transformed.excludedRecordCount,
         transformedRecordCount: transformed.transformedRecordCount,
         exceptionRecordCount: transformed.exceptionRecordCount,
-        accountedRecordCount: transformed.transformedRecordCount + transformed.exceptionRecordCount,
-        complete: transformed.transformedRecordCount + transformed.exceptionRecordCount === transformed.sourceRecordCount,
+        accountedRecordCount: transformed.transformedRecordCount + transformed.exceptionRecordCount
+          + transformed.excludedRecordCount,
+        complete: transformed.transformedRecordCount + transformed.exceptionRecordCount
+          + transformed.excludedRecordCount === transformed.sourceRecordCount,
         outputPreview: transformed.records.slice(0, 20).map(({ sourceRecordNumber, record }) => ({
           source_record_number: sourceRecordNumber, record,
         })),
@@ -997,7 +1028,7 @@ export function registerFileTools(registry, {
 
   registry.register({
     name: "file_table_transform",
-    description: "Apply one declarative mapping to every record in a complete verified delimited-text upload and save successful canonical objects as durable JSON Lines. Supports columns, constants, source record numbers, literal and RE2 regex extraction/replacement, declared date/time templates, exact decimal normalization and native-unit ratios, and boolean values. The model selects a regex pattern from inspected source evidence; the application compiles it once with a linear-time engine, then applies it to every bounded field. A literal period in a pattern is \\.. For decimal_ratio_units, map the same source column twice using side from_units and to_units with both currency scales; the ratio is reduced exactly without rounding. When target_schema is supplied, every output object is validated against it. Bad records become separate exceptions with source record numbers and original values. No arbitrary code executes.",
+    description: "Apply one declarative row selection and mapping to every record in a complete verified delimited-text upload and save successful canonical objects as durable JSON Lines. Supports exact or RE2 row conditions, columns, constants, source record numbers, literal and RE2 regex extraction/replacement, declared date/time templates, exact decimal normalization and native-unit ratios, and boolean values. Excluded rows are counted separately from transformation exceptions. The model selects patterns from inspected source evidence; the application compiles them once with a linear-time engine, then applies them to every bounded field. A literal period in a pattern is \\.. For decimal_ratio_units, map the same source column twice using side from_units and to_units with both currency scales; the ratio is reduced exactly without rounding. When target_schema is supplied, every output object is validated against it. Bad selected records become separate exceptions with source record numbers and original values. No arbitrary code executes.",
     parameters: tableTransformParameters,
     outputSchema: {
       type: "object",
@@ -1010,6 +1041,7 @@ export function registerFileTools(registry, {
         mappingHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
         sourceRecordCount: { type: "integer", minimum: 0 },
         blankRecordCount: { type: "integer", minimum: 0 },
+        excludedRecordCount: { type: "integer", minimum: 0 },
         transformedRecordCount: { type: "integer", minimum: 0 },
         exceptionRecordCount: { type: "integer", minimum: 0 },
         accountedRecordCount: { type: "integer", minimum: 0 },
@@ -1021,7 +1053,7 @@ export function registerFileTools(registry, {
       },
       required: [
         "sourceFile", "sourceSha256", "delimiter", "headers", "headerAdjustments", "mappingHash",
-        "sourceRecordCount", "blankRecordCount", "transformedRecordCount",
+        "sourceRecordCount", "blankRecordCount", "excludedRecordCount", "transformedRecordCount",
         "exceptionRecordCount", "accountedRecordCount", "complete", "outputFile",
         "exceptionFile", "exceptionPreview", "exceptionPreviewTruncated",
       ],
@@ -1088,10 +1120,13 @@ export function registerFileTools(registry, {
         mappingHash: transformed.mappingHash,
         sourceRecordCount: transformed.sourceRecordCount,
         blankRecordCount: transformed.blankRecordCount,
+        excludedRecordCount: transformed.excludedRecordCount,
         transformedRecordCount: transformed.transformedRecordCount,
         exceptionRecordCount: transformed.exceptionRecordCount,
-        accountedRecordCount: transformed.transformedRecordCount + transformed.exceptionRecordCount,
-        complete: transformed.transformedRecordCount + transformed.exceptionRecordCount === transformed.sourceRecordCount,
+        accountedRecordCount: transformed.transformedRecordCount + transformed.exceptionRecordCount
+          + transformed.excludedRecordCount,
+        complete: transformed.transformedRecordCount + transformed.exceptionRecordCount
+          + transformed.excludedRecordCount === transformed.sourceRecordCount,
         outputFile,
         exceptionFile,
         exceptionPreview: transformed.exceptions.slice(0, 20),
@@ -1114,6 +1149,7 @@ export function registerFileTools(registry, {
           sourceSha256: verified.sha256,
           mappingHash: transformed.mappingHash,
           sourceRecordCount: transformed.sourceRecordCount,
+          excludedRecordCount: transformed.excludedRecordCount,
           transformedRecordCount: transformed.transformedRecordCount,
           exceptionRecordCount: transformed.exceptionRecordCount,
           outputFileId: outputFile?.fileId ?? null,

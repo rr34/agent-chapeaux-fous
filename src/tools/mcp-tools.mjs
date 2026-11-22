@@ -130,7 +130,7 @@ const artifactUploadContractVersion = 1;
 const artifactFailureContractVersion = 1;
 const maximumArtifactChunkBytes = 1024 * 1024;
 const maximumArtifactResponseBytes = 1024 * 1024;
-const maximumProviderDownloadBytes = 50 * 1024 * 1024;
+const maximumProviderDownloadBytes = 64 * 1024 * 1024;
 const providerDownloadChunkBytes = 1024 * 1024;
 const providerDownloadCacheTtlMs = 5 * 60 * 1000;
 const maximumProviderDownloadCacheEntries = 8;
@@ -141,6 +141,8 @@ const providerDownloadMediaKinds = new Map([
   ["image/jpeg", "image"],
   ["image/png", "image"],
   ["image/webp", "image"],
+  ["text/csv", "text"],
+  ["text/plain", "text"],
 ]);
 
 function artifactFailureKey(serverName, upload) {
@@ -406,9 +408,9 @@ function validatedProviderDownload(descriptor) {
     throw new Error("Provider artifact download descriptor is incomplete");
   }
   const mimeType = descriptor.mediaType.trim().toLowerCase();
-  const mediaKind = providerDownloadMediaKinds.get(mimeType);
-  if (!mediaKind) {
-    throw new Error(`Provider artifact download media type ${mimeType || "(missing)"} is not model-readable`);
+  const downloadKind = providerDownloadMediaKinds.get(mimeType);
+  if (!downloadKind) {
+    throw new Error(`Provider artifact download media type ${mimeType || "(missing)"} is unsupported`);
   }
   if (descriptor.byteSize < 1 || descriptor.byteSize > maximumProviderDownloadBytes) {
     throw new Error(`Provider artifact must be between 1 and ${maximumProviderDownloadBytes} bytes`);
@@ -418,7 +420,8 @@ function validatedProviderDownload(descriptor) {
   return {
     transportId: descriptor.transportId,
     endpointPath: descriptor.endpointPath,
-    mediaKind,
+    delivery: downloadKind === "text" ? "native_file" : "model_attachment",
+    mediaKind: downloadKind === "text" ? "document" : downloadKind,
     mimeType,
     byteSize: descriptor.byteSize,
     sha256: normalizedSha256(descriptor.sha256, "provider artifact download sha256"),
@@ -445,6 +448,14 @@ function providerDownloadSignatureMatches(bytes, mimeType) {
     return bytes.length >= 12
       && bytes.subarray(0, 4).toString("ascii") === "RIFF"
       && bytes.subarray(8, 12).toString("ascii") === "WEBP";
+  }
+  if (["text/csv", "text/plain"].includes(mimeType)) {
+    try {
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      return true;
+    } catch {
+      return false;
+    }
   }
   return false;
 }
@@ -876,11 +887,20 @@ export class McpToolManager {
           const result = await connection.client.callTool({ name: tool.name, arguments: argumentsObject });
           const value = resultContent(result);
           const attachments = [];
+          const providerEvidenceFiles = [];
           const attachmentFailures = [];
+          const rawDownloadDescriptors = providerDownloadDescriptors(value);
+          // This is a host-owned correspondence. Never trust a provider's
+          // similarly named field as proof of a native Agent Slayer identity.
+          if (value && typeof value === "object" && !Array.isArray(value)) {
+            delete value.providerEvidenceFiles;
+          }
           if (!result?.isError) {
-            for (const rawDescriptor of providerDownloadDescriptors(value)) {
+            for (const rawDescriptor of rawDownloadDescriptors) {
               try {
-                attachments.push(await this.downloadProviderArtifact(serverName, rawDescriptor, context));
+                const downloaded = await this.downloadProviderArtifact(serverName, rawDescriptor, context);
+                if (downloaded.nativeFile) providerEvidenceFiles.push(downloaded.nativeFile);
+                else attachments.push(downloaded);
               } catch (downloadError) {
                 const message = downloadError instanceof Error ? downloadError.message : String(downloadError);
                 attachmentFailures.push({
@@ -901,6 +921,9 @@ export class McpToolManager {
                 });
               }
             }
+          }
+          if (providerEvidenceFiles.length && value && typeof value === "object" && !Array.isArray(value)) {
+            value.providerEvidenceFiles = providerEvidenceFiles;
           }
           const details = mcpResultDetails(value);
           if (details && attachmentFailures.length) details.attachmentFailures = attachmentFailures;
@@ -964,6 +987,16 @@ export class McpToolManager {
     if (cached && cached.byteSize === descriptor.byteSize && cached.mimeType === descriptor.mimeType) {
       this.providerDownloadCache.delete(cacheKey);
       this.providerDownloadCache.set(cacheKey, cached);
+      if (cached.nativeFile) {
+        return {
+          nativeFile: {
+            ...cached.nativeFile,
+            originalFilename: descriptor.filename,
+            providerSourceRef: descriptor.sourceRef,
+            cache: "native_file",
+          },
+        };
+      }
       return {
         ...cached.attachment,
         filename: descriptor.filename,
@@ -1019,6 +1052,56 @@ export class McpToolManager {
     if (digest !== descriptor.sha256) throw new Error(`${serverName} provider download SHA-256 did not match`);
     if (!providerDownloadSignatureMatches(bytes, descriptor.mimeType)) {
       throw new Error(`${serverName} provider download bytes did not match ${descriptor.mimeType}`);
+    }
+    if (descriptor.delivery === "native_file") {
+      if (typeof this.artifactSource?.materializeProviderEvidence !== "function") {
+        throw new Error("Provider text evidence requires native file materialization");
+      }
+      const stored = await this.artifactSource.materializeProviderEvidence({
+        bytes,
+        filename: descriptor.filename,
+        mimeType: descriptor.mimeType,
+        sha256: descriptor.sha256,
+        sourceRef: descriptor.sourceRef,
+        providerSource: `mcp:${serverName}`,
+      });
+      const nativeFile = {
+        objectType: "files.file",
+        objectRole: "provider_evidence_source",
+        id: stored.fileId,
+        fileId: stored.fileId,
+        ref: `agent-slayer://files/${stored.fileId}`,
+        title: stored.title ?? descriptor.filename,
+        originalFilename: descriptor.filename,
+        mimeType: descriptor.mimeType,
+        byteSize: descriptor.byteSize,
+        sha256: descriptor.sha256,
+        providerSource: `mcp:${serverName}`,
+        providerSourceRef: descriptor.sourceRef,
+        transportId: descriptor.transportId,
+        verified: true,
+        cache: "downloaded",
+      };
+      this.providerDownloadCache.set(cacheKey, {
+        nativeFile, byteSize: descriptor.byteSize, mimeType: descriptor.mimeType,
+        expiresAt: Date.now() + providerDownloadCacheTtlMs,
+      });
+      this.pruneProviderDownloadCache();
+      this.ledger?.append?.({
+        type: "mcp.artifact.download", phase: "end", status: "complete",
+        actorType: "service", actorName: "MCP artifact HTTP", source: `mcp:${serverName}`,
+        channel: context.channel, turnId: context.requestId, operationId: context.callId,
+        name: `Materialized provider evidence from ${serverName}`,
+        primaryFileId: stored.fileId,
+        payload: {
+          transportId: descriptor.transportId, path: endpoint.pathname,
+          mediaType: descriptor.mimeType, byteSize: descriptor.byteSize,
+          sha256: `sha256:${descriptor.sha256}`, byteRangeRequests: chunks.length,
+          persistence: "native_files_file", fileId: stored.fileId,
+          ref: `agent-slayer://files/${stored.fileId}`, sourceRef: descriptor.sourceRef,
+        },
+      });
+      return { nativeFile };
     }
     const attachment = {
       mediaKind: descriptor.mediaKind,

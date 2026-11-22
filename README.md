@@ -686,6 +686,13 @@ large files contribute a bounded preview while native file tools can process the
 full attachment. Full to-do cards expose the completion instant when present
 and the row's latest update instant as **Last changed**.
 
+Delimited-text processing is file-native rather than model-paged. The table
+tools inspect and transform the complete checksum-verified file, and an optional
+declarative row filter selects records before field mapping. Selected,
+excluded, transformed, and exceptional record counts remain distinct and must
+account for the complete nonblank source set. Source rows and generated records
+do not pass through model arguments.
+
 The native Files capability can combine two through 100 exact durable PDFs into
 one PDF or create one PDF from two through 100 exact JPEG/PNG images. Explicit
 user order is authoritative; otherwise the agent may preserve selection/upload
@@ -1291,21 +1298,28 @@ repair retry that unchanged transfer, and it permits another attempt only after
 a successful integration refresh rediscovers the provider tools.
 
 An MCP may also return the versioned provider-download descriptor defined in
-the same manifesto when a successful tool makes a provider-owned PDF or
-model-readable image (JPEG, PNG, WebP, or GIF) available.
+the same manifesto when a successful tool makes a provider-owned PDF,
+model-readable image (JPEG, PNG, WebP, or GIF), UTF-8 CSV, or UTF-8 plain-text
+file available.
 Agent Slayer fetches it from the MCP origin with the integration's bearer token,
-confirms every declared byte range, size, SHA-256, and file signature, and adds
-the verified PDF or image at the configured detail to the next model call in
-that execution. Tool expansion preserves
+confirms every declared byte range, size, SHA-256, and media signature. It adds
+a verified PDF or image at the configured detail to the next model call in
+that execution. A verified CSV or text file is instead materialized as a new
+native `files.file` working copy whose result carries both its Agent Slayer
+reference and the provider source reference. Provider evidence identifiers are
+never interpreted as native file IDs. Native table tools then process the exact
+bytes without placing the file or its rows in model context. Tool expansion preserves
 that Responses chain, so subsequent calls in the execution can continue reading
-the artifact. Compact receipt evidence records the filename, media type, byte
+attached visual artifacts. Compact receipt evidence records the filename, media type, byte
 count, digest, source, and transport ID as evidence that the artifact remains
-available in the model chain, but never records the bytes. A separate literal
+available to the execution, but never records the bytes. A separate literal
 `model.input.attachment` event is emitted only when the transport actually adds
-the provider artifact to a model request; cached descriptor repetitions do not
-claim another delivery. The bytes stay out of MCP JSON and observability and
-live only in a bounded five-minute memory cache; the MCP remains the durable
-source of record.
+the provider PDF or image to a model request; cached descriptor repetitions do
+not claim another delivery. PDF and image bytes stay out of MCP JSON and
+observability and live only in a bounded five-minute memory cache. CSV and text
+bytes stay out of MCP JSON, model context, and observability and live in the
+native file store as a source-qualified verified copy. The MCP remains the
+authoritative provider source.
 
 MCP integrations with an `oauth` block use the standard MCP authorization-code
 flow with OAuth discovery, dynamic client registration, PKCE, and refresh

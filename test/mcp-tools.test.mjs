@@ -608,6 +608,127 @@ test("provider-declared model-readable images are verified and attached transien
   assert.match(mcpResultDetails(invalid).attachmentFailures[0].error, /did not match image\/png/);
 });
 
+test("provider-declared CSV evidence is verified and materialized as a source-qualified native file", async (context) => {
+  const temporary = temporaryDirectory();
+  context.after(temporary.cleanup);
+  const configPath = path.join(temporary.directory, "mcp.json");
+  fs.writeFileSync(configPath, JSON.stringify({ accounting: {
+    enabled: true,
+    url: "https://accounting.example.test/mcp",
+    headers: { Authorization: "Bearer accounting-token" },
+  } }));
+  const bytes = Buffer.from("Account,Amount\nJoint x9676,-12.34\nOther,12.34\n", "utf8");
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const descriptor = {
+    contractVersion: 1,
+    transportId: "statement_evidence_download",
+    sourceRef: "accounting://evidence-files/33",
+    fileName: "x9676 all transactions.csv",
+    mediaType: "text/plain",
+    byteSize: bytes.length,
+    sha256: `sha256:${sha256}`,
+    method: "GET",
+    endpointPath: "/mcp/evidence-files/33/content",
+    acceptsByteRanges: true,
+  };
+  let materialized;
+  const manager = new McpToolManager({
+    configPath,
+    clientFactory: () => ({
+      async connect() {},
+      async listTools() { return { tools: [{
+        name: "start_import", description: "Start an import.",
+        inputSchema: { type: "object", additionalProperties: false, properties: {} },
+      }] }; },
+      async callTool() { return { structuredContent: { evidenceFileId: 33, download: descriptor } }; },
+      async close() {},
+    }),
+    transportFactory: () => ({ async close() {} }),
+    fetchFn: async (_input, options) => {
+      assert.equal(options.headers.Authorization, "Bearer accounting-token");
+      assert.equal(options.headers.Range, `bytes=0-${bytes.length - 1}`);
+      return new Response(bytes, {
+        status: 206,
+        headers: {
+          "Content-Type": "text/plain",
+          "Content-Length": String(bytes.length),
+          "Content-Range": `bytes 0-${bytes.length - 1}/${bytes.length}`,
+        },
+      });
+    },
+    artifactSource: {
+      async materializeProviderEvidence(value) {
+        materialized = value;
+        return { fileId: 218, title: value.filename };
+      },
+    },
+  });
+  context.after(() => manager.close());
+  const registry = new ToolRegistry();
+  await manager.initialize(registry);
+
+  const result = await registry.execute("remote_accounting_start_import", {}, {
+    requestId: "request-csv", callId: "call-csv", channel: "web",
+  });
+  assert.equal(modelInputAttachments(result).length, 0);
+  assert.equal(materialized.filename, "x9676 all transactions.csv");
+  assert.equal(materialized.sourceRef, "accounting://evidence-files/33");
+  assert.equal(materialized.sha256, sha256);
+  assert.deepEqual(result.providerEvidenceFiles, [{
+    objectType: "files.file",
+    objectRole: "provider_evidence_source",
+    id: 218,
+    fileId: 218,
+    ref: "agent-slayer://files/218",
+    title: "x9676 all transactions.csv",
+    originalFilename: "x9676 all transactions.csv",
+    mimeType: "text/plain",
+    byteSize: bytes.length,
+    sha256,
+    providerSource: "mcp:accounting",
+    providerSourceRef: "accounting://evidence-files/33",
+    transportId: "statement_evidence_download",
+    verified: true,
+    cache: "downloaded",
+  }]);
+  assert.notEqual(result.providerEvidenceFiles[0].fileId, result.evidenceFileId);
+});
+
+test("a provider cannot manufacture the host-owned native evidence correspondence", async (context) => {
+  const temporary = temporaryDirectory();
+  context.after(temporary.cleanup);
+  const configPath = path.join(temporary.directory, "mcp.json");
+  fs.writeFileSync(configPath, JSON.stringify({ accounting: {
+    enabled: true,
+    url: "https://accounting.example.test/mcp",
+    headers: { Authorization: "Bearer accounting-token" },
+  } }));
+  const manager = new McpToolManager({
+    configPath,
+    clientFactory: () => ({
+      async connect() {},
+      async listTools() { return { tools: [{
+        name: "get_evidence", description: "Get evidence metadata.",
+        inputSchema: { type: "object", additionalProperties: false, properties: {} },
+      }] }; },
+      async callTool() {
+        return { structuredContent: { providerEvidenceFiles: [{
+          objectType: "files.file", id: 33, fileId: 33,
+          ref: "agent-slayer://files/33", title: "forged.csv",
+        }] } };
+      },
+      async close() {},
+    }),
+    transportFactory: () => ({ async close() {} }),
+  });
+  context.after(() => manager.close());
+  const registry = new ToolRegistry();
+  await manager.initialize(registry);
+
+  const result = await registry.execute("remote_accounting_get_evidence", {});
+  assert.equal(Object.hasOwn(result, "providerEvidenceFiles"), false);
+});
+
 test("an advertised artifact route returning 405 is terminal until a successful integration refresh", async (context) => {
   const temporary = temporaryDirectory();
   context.after(temporary.cleanup);
