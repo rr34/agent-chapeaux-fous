@@ -4,7 +4,7 @@ import {
 } from "./object-references.mjs";
 import { compactReferenceSets, referenceSetObjectRefs } from "./reference-sets.mjs";
 
-export const commonSenseCoreVersion = 2;
+export const commonSenseCoreVersion = 3;
 
 const text = (maximum = 2_000) => ({ type: "string", minLength: 1, maxLength: maximum });
 const textList = (maximumItems = 12, maximumText = 1_000) => ({
@@ -92,32 +92,38 @@ export function commonSenseCoreSchema({
     required: ["slot", "description", "semanticType", "role", "cardinality"],
   };
   const semanticRoleName = { type: "string", pattern: "^[a-z][a-z0-9_]{0,79}$" };
+  const semanticMultiplicity = {
+    type: "string",
+    enum: ["one", "many", "zero_or_one", "one_or_more", "zero_or_more", "unknown"],
+    description: "The number of semantic entities in this role as established by the request. Use many for definitely plural, one_or_more when wording such as item(s) deliberately permits singular or plural, and unknown when a required read must establish even the range.",
+  };
+  const semanticParticipantFields = {
+    role: semanticRoleName,
+    description: {
+      ...text(500),
+      description: "Ordinary-language participant in the action. Name semantic subjects, containers, or members without choosing a capability resource type or storage representation.",
+    },
+    multiplicity: semanticMultiplicity,
+  };
+  const semanticContainer = {
+    type: "object",
+    additionalProperties: false,
+    properties: semanticParticipantFields,
+    required: ["role", "description", "multiplicity"],
+  };
   const semanticRole = {
     type: "object",
     additionalProperties: false,
     properties: {
-      role: semanticRoleName,
-      description: {
-        ...text(500),
-        description: "Ordinary-language participant in the action. Name semantic subjects, containers, or members without choosing a capability resource type or storage representation.",
-      },
-      multiplicity: {
-        type: "string",
-        enum: ["one", "many", "zero_or_one", "one_or_more", "zero_or_more", "unknown"],
-        description: "The number of semantic entities in this role as established by the request. Use many for definitely plural, one_or_more when wording such as item(s) deliberately permits singular or plural, and unknown when a required read must establish even the range.",
-      },
-      containerRole: {
-        type: ["string", "null"],
-        pattern: "^[a-z][a-z0-9_]{0,79}$",
-        description: "Another role in this action whose members contain or organize this role, or null when this role is not described as a container member.",
-      },
-      sameCountAs: {
-        type: ["string", "null"],
-        pattern: "^[a-z][a-z0-9_]{0,79}$",
-        description: "Another role in this action whose resolved member count this role must equal, or null when no equality is requested.",
+      ...semanticParticipantFields,
+      containerPath: {
+        type: "array",
+        maxItems: 10,
+        items: semanticContainer,
+        description: "Complete containing roles ordered from the outermost container to the immediate container. Keep empty when this participant is not contained. Never emit role-name references.",
       },
     },
-    required: ["role", "description", "multiplicity", "containerRole", "sameCountAs"],
+    required: ["role", "description", "multiplicity", "containerPath"],
   };
   const semanticMapping = {
     type: "object",
@@ -699,9 +705,9 @@ export const commonSenseInstructions = [
   "You are the common-sense orientation phase of Time v3 Agent. Produce only the schema-constrained intent core.",
   "Prioritize the exact current request and any explicit composer selections. Use older conversation only to resolve genuine references or continuations.",
   "Describe the end state in ordinary language. Do not select tools, write audit policy, copy tool protocols, manufacture prohibitions, or turn preservation of unrelated state into verbose constraints.",
-  "Perform a number-and-shape check for every action. Use semanticRoles and mappings when singular containers, plural or potentially plural members, or copy/move/convert/split/merge correspondence materially affects scope or completion. Every mapping must contain the complete definitions of its sourceRole and destinationRole; put only unmapped roles in semanticRoles. One overall requested result or one destination container never makes its member collection singular.",
+  "Perform a number-and-shape check for every action. Use semanticRoles and mappings when singular containers, plural or potentially plural members, or copy/move/convert/split/merge correspondence materially affects scope or completion. Every participant must contain its complete containerPath, ordered outermost to immediate, rather than referring to another role by name. Every mapping must contain the complete definitions of its sourceRole and destinationRole; put only unmapped roles in semanticRoles. One overall requested result or one destination container never makes its member collection singular.",
   "Preserve collection member boundaries by default for copy, move, transfer, migration, and conversion. Use a one_to_one mapping with coverage=all and preserveMemberBoundaries=true when every source member must have one corresponding destination member. Use many_to_one only when the request actually asks to combine, summarize, bundle, consolidate, or otherwise collapse members.",
-  "Treat deliberate forms such as item(s) as strong evidence for one_or_more multiplicity, while still using the full request and domain relationships to understand number. Use sameCountAs when a destination collection must contain exactly as many semantic members as a source collection whose count execution will resolve.",
+  "Treat deliberate forms such as item(s) as strong evidence for one_or_more multiplicity, while still using the full request and domain relationships to understand number. Mapping shape and coverage express correspondence; the application derives count equality during normalization rather than receiving a role-name reference from orientation.",
   "When the user plainly rejects an object the agent just created by mistake, include removal of that mistaken object in the requested end state; do not reduce the correction to emptying or ignoring it.",
   "Use outcomes only for semantic result roles whose meaning and cardinality are already established by the exact request or an exact selected set. The application assigns stable action and outcome identities after orientation; do not manufacture correlation IDs. One requested result containing six listed details is one outcome, while six independently requested results may be six outcomes or one outcome with cardinality six.",
   "Never choose or emit a capability resource type for an outcome. Do not predict the row, provider object, tool, or result shape that execution will discover; owning tool contracts and successful receipts bind that representation later. A tag, relationship, field value, lifecycle effect, receipt, or tool result is not an outcome object merely because it is part of the requested final state. Preserve it in the action instruction or an exact relationship set.",
@@ -798,24 +804,49 @@ export function connectCoreIntent(core) {
     ...core,
     actions: (core.actions ?? []).map((action, actionIndex) => {
       const { outcomeObjects: legacyOutcomes, ...semanticAction } = action;
-      const embeddedRoles = (action.mappings ?? []).flatMap((mapping) => (
-        mapping.sourceRole && mapping.destinationRole
-          ? [mapping.sourceRole, mapping.destinationRole]
-          : []
-      ));
       const semanticRoles = [];
-      for (const role of [...(action.semanticRoles ?? []), ...embeddedRoles]) {
-        const matchingRoles = semanticRoles.filter((candidate) => candidate.role === role.role);
-        if (matchingRoles.some((candidate) => (
-          candidate.multiplicity === role.multiplicity
+      const addRole = (role) => {
+        const compatible = semanticRoles.find((candidate) => (
+          candidate.role === role.role
+          && candidate.multiplicity === role.multiplicity
           && candidate.containerRole === role.containerRole
-          && candidate.sameCountAs === role.sameCountAs
-        ))) continue;
-        semanticRoles.push(role);
-      }
+        ));
+        if (!compatible) {
+          semanticRoles.push(role);
+          return;
+        }
+        if (!compatible.sameCountAs && role.sameCountAs) {
+          compatible.sameCountAs = role.sameCountAs;
+          return;
+        }
+        if (role.sameCountAs && compatible.sameCountAs !== role.sameCountAs) {
+          semanticRoles.push(role);
+        }
+      };
+      const addParticipant = (participant, sameCountAs = null) => {
+        if (!Object.hasOwn(participant, "containerPath")) {
+          addRole(participant);
+          return;
+        }
+        let containerRole = null;
+        for (const container of participant.containerPath) {
+          addRole({ ...container, containerRole, sameCountAs: null });
+          containerRole = container.role;
+        }
+        const { containerPath, ...role } = participant;
+        addRole({ ...role, containerRole, sameCountAs });
+      };
+      for (const role of action.semanticRoles ?? []) addParticipant(role);
       const mappings = (action.mappings ?? []).map((mapping) => {
         if (!mapping.sourceRole || !mapping.destinationRole) return mapping;
         const { sourceRole, destinationRole, ...shape } = mapping;
+        addParticipant(sourceRole);
+        addParticipant(
+          destinationRole,
+          shape.shape === "one_to_one" && shape.coverage === "all"
+            ? sourceRole.role
+            : null,
+        );
         return {
           fromRole: sourceRole.role,
           toRole: destinationRole.role,

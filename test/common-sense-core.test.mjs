@@ -83,6 +83,13 @@ test("the common-sense core is compact, batch-shaped, and contains no tool plann
     schema.properties.actions.items.properties.unresolvedTargets.items.properties,
     "objectType",
   ), false);
+  const orientationRoleSchema = schema.properties.actions.items.properties.semanticRoles.items;
+  assert.equal(Object.hasOwn(orientationRoleSchema.properties, "containerRole"), false);
+  assert.equal(Object.hasOwn(orientationRoleSchema.properties, "sameCountAs"), false);
+  assert.ok(orientationRoleSchema.required.includes("containerPath"));
+  const orientationMappingSchema = schema.properties.actions.items.properties.mappings.items;
+  assert.ok(orientationMappingSchema.required.includes("sourceRole"));
+  assert.ok(orientationMappingSchema.required.includes("destinationRole"));
   assert.match(schema.properties.mode.description, /act only when.*mutation/i);
   const connected = connectCoreIntent(value);
   assert.equal(connected.actions[0].actionId, "action_1");
@@ -106,21 +113,19 @@ test("the core represents singular containers and plural member preservation exp
       targetSetRefs: [],
       relationshipSetRefs: [],
       unresolvedTargets: [],
-      semanticRoles: [{
-        role: "source_group", description: "the selected to-do group", multiplicity: "one",
-        containerRole: null, sameCountAs: null,
-      }, {
-        role: "destination_group", description: "the corresponding Things group", multiplicity: "one",
-        containerRole: null, sameCountAs: null,
-      }],
+      semanticRoles: [],
       mappings: [{
         sourceRole: {
           role: "source_members", description: "every item in the selected group", multiplicity: "one_or_more",
-          containerRole: "source_group", sameCountAs: null,
+          containerPath: [{
+            role: "source_group", description: "the selected to-do group", multiplicity: "one",
+          }],
         },
         destinationRole: {
           role: "destination_members", description: "Things corresponding to every source item", multiplicity: "one_or_more",
-          containerRole: "destination_group", sameCountAs: "source_members",
+          containerPath: [{
+            role: "destination_group", description: "the corresponding Things group", multiplicity: "one",
+          }],
         },
         shape: "one_to_one",
         coverage: "all", preserveMemberBoundaries: true,
@@ -152,18 +157,19 @@ test("self-contained mapping endpoints prevent the Accounting orientation dangli
     actions: [{
       instruction: "Extract every dated movement into the pending preview without committing it.",
       targetRefs: [], targetSetRefs: [], relationshipSetRefs: [], unresolvedTargets: [],
-      semanticRoles: [{
-        role: "import_work_item", description: "The supplied import work item", multiplicity: "one",
-        containerRole: null, sameCountAs: null,
-      }],
+      semanticRoles: [],
       mappings: [{
         sourceRole: {
           role: "dated_movements", description: "Movements extracted from the evidence", multiplicity: "unknown",
-          containerRole: "import_work_item", sameCountAs: null,
+          containerPath: [{
+            role: "import_work_item", description: "The supplied import work item", multiplicity: "one",
+          }],
         },
         destinationRole: {
           role: "previewed_movements", description: "Separate movements in the pending preview", multiplicity: "unknown",
-          containerRole: null, sameCountAs: "dated_movements",
+          containerPath: [{
+            role: "pending_import_preview", description: "The uncommitted Accounting import preview", multiplicity: "one",
+          }],
         },
         shape: "one_to_one", coverage: "all", preserveMemberBoundaries: true,
       }],
@@ -179,8 +185,10 @@ test("self-contained mapping endpoints prevent the Accounting orientation dangli
   );
   assert.deepEqual(
     connected.actions[0].semanticRoles.map(({ role }) => role),
-    ["import_work_item", "dated_movements", "previewed_movements"],
+    ["import_work_item", "dated_movements", "pending_import_preview", "previewed_movements"],
   );
+  assert.equal(connected.actions[0].semanticRoles[3].containerRole, "pending_import_preview");
+  assert.equal(connected.actions[0].semanticRoles[3].sameCountAs, "dated_movements");
   assert.deepEqual(connected.actions[0].mappings, [{
     fromRole: "dated_movements", toRole: "previewed_movements",
     shape: "one_to_one", coverage: "all", preserveMemberBoundaries: true,

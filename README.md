@@ -894,13 +894,16 @@ ordinary-language semantic roles and mappings. Roles distinguish singular
 containers from singular, plural, potentially plural, or unresolved members;
 mappings state coverage, one-to-one or other correspondence, and whether member
 boundaries must survive. Each orientation mapping contains complete source and
-destination role definitions, which application code deterministically
-normalizes into the accepted core's role table and role-name mapping. This
-makes dangling mapping endpoints unrepresentable in model output without an
-additional model interaction. One overall requested result and one destination
+destination role definitions. Every participant structurally includes its
+complete outermost-to-immediate container path; orientation emits no role-name
+foreign keys. Application code deterministically normalizes that structure
+into the accepted core's role table, containment references, count equalities,
+and role-name mappings. This makes dangling semantic-role references
+unrepresentable in model output without an additional model interaction. One
+overall requested result and one destination
 container never make their members singular. Copy, move, transfer, migration,
 and conversion preserve member boundaries unless the user requests a merge,
-summary, bundle, consolidation, or another structural collapse. This version-2
+summary, bundle, consolidation, or another structural collapse. This version-3
 common-sense core deliberately moves multiplicity and mapping shape from prose
 inside the core to machine-checkable JSON fields; the exact request remains
 authoritative, and the prose objective and instructions remain its readable

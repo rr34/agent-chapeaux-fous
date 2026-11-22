@@ -797,6 +797,7 @@ export class SlayerRuntime {
     developerInstructions,
     requestAttachmentInput = null,
     outputSchema,
+    acceptValue = null,
     runTimeoutMs = null,
   }) {
     const operationId = `${this.modelTransport.id}:${requestId}:${step}`;
@@ -906,16 +907,17 @@ export class SlayerRuntime {
       });
       responseRecorded = true;
       const parsedValue = parseStructuredModelOutput(result.text, outputSchema, label);
-      const value = outputSchema === completionAuditSchema
+      const normalizedValue = outputSchema === completionAuditSchema
         ? normalizeCompletionAudit(parsedValue)
         : parsedValue;
+      const value = acceptValue ? acceptValue(normalizedValue) : normalizedValue;
       this.ledger.append({
         type: "agent.step", phase: "end", status: "complete", actorType: "service",
         actorName: "Structured turn workflow", channel, turnId: requestId, operationId,
         name: label, content: value.summary ?? `Completed ${label.toLowerCase()}`,
         payload: { workflowStep: step, workflowStepLabel: label, stepIndex, reasoningEffort: effort, result: value },
       });
-      return { value, result };
+      return { value, structuredValue: normalizedValue, result };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const diagnostics = error?.data && typeof error.data === "object" && !Array.isArray(error.data)
@@ -1178,22 +1180,6 @@ export class SlayerRuntime {
       referencedExchangeContext(referencedExchanges, 8_000, false),
       args.supplementalInstructions,
     );
-    let orientation = await this.#runStructuredStep({
-      requestId: args.requestId,
-      channel,
-      step: "orientation",
-      label: "Understand request",
-      stepIndex: 1,
-      model: args.model || this.config.model,
-      effort: this.config.orientationReasoningEffort ?? "medium",
-      input: args.text,
-      developerInstructions: orientationDeveloperInstructions,
-      requestAttachmentInput: orientationBaseContext.orientationAttachmentInput
-        ?? orientationBaseContext.requestAttachmentInput
-        ?? null,
-      outputSchema: schema,
-      runTimeoutMs: remainingTimeoutMs(),
-    });
     const withCoreReadCapabilities = (value) => ({
       ...value,
       capabilities: [...new Set([
@@ -1221,8 +1207,25 @@ export class SlayerRuntime {
       if (problem) throw new Error(`Common-sense reference selection is invalid: ${problem}`);
       return accepted;
     };
-    let orientationSelectedCapabilities = [...orientation.value.capabilities];
-    let core = acceptedCore(orientation.value);
+    let orientation = await this.#runStructuredStep({
+      requestId: args.requestId,
+      channel,
+      step: "orientation",
+      label: "Understand request",
+      stepIndex: 1,
+      model: args.model || this.config.model,
+      effort: this.config.orientationReasoningEffort ?? "medium",
+      input: args.text,
+      developerInstructions: orientationDeveloperInstructions,
+      requestAttachmentInput: orientationBaseContext.orientationAttachmentInput
+        ?? orientationBaseContext.requestAttachmentInput
+        ?? null,
+      outputSchema: schema,
+      acceptValue: acceptedCore,
+      runTimeoutMs: remainingTimeoutMs(),
+    });
+    let orientationSelectedCapabilities = [...orientation.structuredValue.capabilities];
+    let core = orientation.value;
     let temporalFindings = temporalConsistencyFindings(core, {
       requestText: args.text,
       requestEventSeq,
@@ -1260,10 +1263,11 @@ export class SlayerRuntime {
           ?? orientationBaseContext.requestAttachmentInput
           ?? null,
         outputSchema: schema,
+        acceptValue: acceptedCore,
         runTimeoutMs: remainingTimeoutMs(),
       });
-      orientationSelectedCapabilities = [...orientation.value.capabilities];
-      core = acceptedCore(orientation.value);
+      orientationSelectedCapabilities = [...orientation.structuredValue.capabilities];
+      core = orientation.value;
       temporalFindings = temporalConsistencyFindings(core, {
         requestText: args.text,
         requestEventSeq,
