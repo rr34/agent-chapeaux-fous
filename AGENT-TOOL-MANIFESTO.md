@@ -1583,9 +1583,12 @@ source and source reference, filename, media type, size, and digest. A provider
 evidence ID is provenance only and is never accepted as a native file ID. The
 native table tools can then inspect, select, transform, and partition the
 complete verified file deterministically. Optional declarative row selection
-is applied before field mapping; excluded rows are counted separately from
-transformation exceptions, and the application accounts for the complete
-nonblank source set.
+is a sibling of the field mapping and is applied before that mapping; the host
+normalizes both into one deterministic transform. The read-only transform
+preview owns its already-bounded output and exception samples and therefore
+does not require a general model-authored result filter. Excluded rows are
+counted separately from transformation exceptions, and the application
+accounts for the complete nonblank source set.
 
 No artifact bytes enter MCP JSON, tool receipts, or traces. CSV and text bytes
 also never enter model tool arguments or model context. The PDF/image cache is

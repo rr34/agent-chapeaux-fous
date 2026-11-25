@@ -332,7 +332,7 @@ export class ToolRegistry {
         description: tool.description,
         inputSchema: withReadResultFilterSchema(
           tool.parameters,
-          annotations?.readOnlyHint === true,
+          annotations?.readOnlyHint === true && tool.selfBoundedReadResult !== true,
           tool.readResultCollectionPaths ?? [],
         ),
         outputSchema: tool.outputSchema ?? null,

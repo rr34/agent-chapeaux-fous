@@ -329,9 +329,11 @@ test("published file tool schema exposes exact timestamp and ratio transforms", 
   assert.ok(operation.properties.op.enum.includes("decimal_ratio_units"));
   assert.ok(operation.properties.op.enum.includes("regex_extract"));
   assert.ok(operation.properties.op.enum.includes("regex_replace"));
-  const rowFilter = tool.parameters.properties.mapping.properties.row_filter.anyOf[0];
+  const rowFilter = tool.parameters.properties.row_filter.anyOf[0];
   assert.deepEqual(rowFilter.properties.mode.enum, ["all", "any"]);
   assert.ok(rowFilter.properties.conditions.items.properties.op.enum.includes("equals"));
+  assert.equal(Object.hasOwn(tool.parameters.properties.mapping.properties, "row_filter"), false);
+  assert.equal(tool.parameters.required.includes("target_schema"), false);
   assert.equal(operation.properties.input_formats.items.type, "string");
   assert.equal(operation.properties.pattern.maxLength, 256);
   assert.deepEqual(operation.properties.side.enum, ["from_units", "to_units"]);
@@ -436,11 +438,62 @@ test("read-only mapping preview checks a verified whole file before artifact cre
     }] }] },
     target_schema: { type: "object", properties: { price: { type: "string" } }, required: ["price"] },
   });
+  const published = registry.toolDefinitions()
+    .find(({ name }) => name === "file_table_transform_preview");
   assert.equal(registry.get("file_table_transform_preview").annotations.readOnlyHint, true);
+  assert.equal(registry.get("file_table_transform_preview").selfBoundedReadResult, true);
+  assert.equal(Object.hasOwn(published.inputSchema.properties, "result_filter"), false);
   assert.equal(preview.verified, true);
   assert.equal(preview.transformedRecordCount, 1);
   assert.equal(preview.exceptionRecordCount, 1);
   assert.deepEqual(preview.outputPreview, [{ source_record_number: 1, record: { price: "141.96" } }]);
   assert.equal(preview.exceptionPreview[0].source_record_number, 2);
   assert.deepEqual(fs.readdirSync(mediaRoot), ["prices.csv"]);
+});
+
+test("self-bounded table preview accepts top-level row selection without projection boilerplate", async (context) => {
+  const mediaRoot = fs.mkdtempSync(path.join(os.tmpdir(), "table-self-bounded-preview-"));
+  context.after(() => fs.rmSync(mediaRoot, { recursive: true, force: true }));
+  const source = [
+    "Account,Transaction ID,Amount",
+    "Joint x7595,one,-12.34",
+    "Other,one,12.34",
+    "Joint x7595,two,50.00",
+    "Income,two,-50.00",
+  ].join("\n");
+  fs.writeFileSync(path.join(mediaRoot, "statement.csv"), source);
+  const stored = {
+    file_id: 9, storage_path: "media/statement.csv", original_filename: "statement.csv",
+    media_kind: "document", mime_type: "text/csv", byte_size: Buffer.byteLength(source),
+    sha256: createHash("sha256").update(source).digest("hex"),
+  };
+  const registry = new ToolRegistry();
+  registerFileTools(registry, {
+    ledger: {
+      file: () => stored,
+      fileDetails: () => ({ fileId: 9, originalFilename: "statement.csv" }),
+    },
+    searchCoordinator: {}, mediaRoot, maximumTextBytes: 4096,
+  });
+
+  const preview = await registry.execute("file_table_transform_preview", {
+    file_id: 9,
+    delimiter: "comma",
+    header_row: true,
+    mapping: { fields: [
+      { output_field: "source_record_id", source_column: "Transaction ID" },
+      { output_field: "amount_decimal", source_column: "Amount" },
+    ] },
+    row_filter: {
+      mode: "all",
+      conditions: [{
+        source_column: "Account", op: "equals", value: "Joint x7595", case_sensitive: true,
+      }],
+    },
+  });
+
+  assert.equal(preview.sourceRecordCount, 4);
+  assert.equal(preview.transformedRecordCount, 2);
+  assert.equal(preview.excludedRecordCount, 2);
+  assert.equal(preview.exceptionRecordCount, 0);
 });

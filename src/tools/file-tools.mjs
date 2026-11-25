@@ -244,6 +244,18 @@ const rowFilterConditionSchema = {
   },
   required: ["source_column", "op"],
 };
+const rowFilterSchema = {
+  anyOf: [{
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      mode: { type: "string", enum: ["all", "any"] },
+      conditions: { type: "array", minItems: 1, maxItems: 20, items: rowFilterConditionSchema },
+    },
+    required: ["mode", "conditions"],
+  }, { type: "null" }],
+  description: "Optional declarative source-row selection applied before field mapping. Excluded rows are counted separately and are not transformation exceptions.",
+};
 const tableInputProperties = {
   file_id: { type: "integer", minimum: 1 },
   delimiter: {
@@ -275,27 +287,16 @@ const tableTransformParameters = {
       additionalProperties: false,
       properties: {
         fields: { type: "array", minItems: 1, maxItems: 500, items: mappingFieldSchema },
-        row_filter: {
-          anyOf: [{
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              mode: { type: "string", enum: ["all", "any"] },
-              conditions: { type: "array", minItems: 1, maxItems: 20, items: rowFilterConditionSchema },
-            },
-            required: ["mode", "conditions"],
-          }, { type: "null" }],
-          description: "Optional declarative source-row selection applied before field mapping. Excluded rows are counted separately and are not transformation exceptions.",
-        },
       },
       required: ["fields"],
     },
+    row_filter: rowFilterSchema,
     target_schema: {
       anyOf: [{ type: "object" }, { type: "null" }],
       description: "Optional authoritative JSON Schema for each transformed output object.",
     },
   },
-  required: ["file_id", "delimiter", "header_row", "mapping", "target_schema"],
+  required: ["file_id", "delimiter", "header_row", "mapping"],
 };
 
 function jsonLines(values) {
@@ -961,8 +962,9 @@ export function registerFileTools(registry, {
 
   registry.register({
     name: "file_table_transform_preview",
-    description: "Run a complete verified table through one declarative row selection and mapping, including RE2 regex matching, extraction, and replacement, without saving artifacts or changing data. Return exact selected, excluded, transformed, and exception counts plus bounded output and exception samples. Use the same mapping and target_schema with file_table_transform after reviewing this preview; matching mappingHash proves the same mapping was used.",
+    description: "Run a complete verified table through one declarative row selection and field mapping, including RE2 regex matching, extraction, and replacement, without saving artifacts or changing data. Put row_filter beside mapping, not inside it. The application itself bounds the returned output and exception samples, so this tool has no result_filter argument. Supply target_schema when an authoritative destination schema is available. Use the same row_filter, mapping, and target_schema with file_table_transform after reviewing this preview; matching mappingHash proves the same transformation was used.",
     parameters: tableTransformParameters,
+    selfBoundedReadResult: true,
     outputSchema: {
       type: "object",
       properties: {
@@ -992,12 +994,15 @@ export function registerFileTools(registry, {
         "exceptionPreview", "exceptionPreviewTruncated",
       ],
     },
-    async execute({ file_id: fileId, delimiter, header_row: headerRow, mapping, target_schema: targetSchema }) {
+    async execute({
+      file_id: fileId, delimiter, header_row: headerRow, mapping,
+      row_filter: rowFilter = null, target_schema: targetSchema = null,
+    }) {
       const stored = ledger.file(fileId);
       if (!stored) throw Object.assign(new Error(`File ${fileId} was not found`), { statusCode: 404 });
       const verified = await readTextAttachment({ mediaRoot, file: stored, maximumBytes: maximumGeneratedBytes });
       const transformed = transformDelimitedText(verified.text, {
-        delimiter, headerRow, mapping, targetSchema,
+        delimiter, headerRow, mapping: { ...mapping, row_filter: rowFilter }, targetSchema,
       });
       return {
         sourceFile: requireFile(ledger, fileId),
@@ -1028,7 +1033,7 @@ export function registerFileTools(registry, {
 
   registry.register({
     name: "file_table_transform",
-    description: "Apply one declarative row selection and mapping to every record in a complete verified delimited-text upload and save successful canonical objects as durable JSON Lines. Supports exact or RE2 row conditions, columns, constants, source record numbers, literal and RE2 regex extraction/replacement, declared date/time templates, exact decimal normalization and native-unit ratios, and boolean values. Excluded rows are counted separately from transformation exceptions. The model selects patterns from inspected source evidence; the application compiles them once with a linear-time engine, then applies them to every bounded field. A literal period in a pattern is \\.. For decimal_ratio_units, map the same source column twice using side from_units and to_units with both currency scales; the ratio is reduced exactly without rounding. When target_schema is supplied, every output object is validated against it. Bad selected records become separate exceptions with source record numbers and original values. No arbitrary code executes.",
+    description: "Apply one declarative row selection and field mapping to every record in a complete verified delimited-text upload and save successful canonical objects as durable JSON Lines. Put row_filter beside mapping, not inside it. Supports exact or RE2 row conditions, columns, constants, source record numbers, literal and RE2 regex extraction/replacement, declared date/time templates, exact decimal normalization and native-unit ratios, and boolean values. Excluded rows are counted separately from transformation exceptions. The model selects patterns from inspected source evidence; the application compiles them once with a linear-time engine, then applies them to every bounded field. A literal period in a pattern is \\.. For decimal_ratio_units, map the same source column twice using side from_units and to_units with both currency scales; the ratio is reduced exactly without rounding. When target_schema is supplied, every output object is validated against it. Bad selected records become separate exceptions with source record numbers and original values. No arbitrary code executes.",
     parameters: tableTransformParameters,
     outputSchema: {
       type: "object",
@@ -1071,12 +1076,15 @@ export function registerFileTools(registry, {
       }]),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    async execute({ file_id: fileId, delimiter, header_row: headerRow, mapping, target_schema: targetSchema }, context = {}) {
+    async execute({
+      file_id: fileId, delimiter, header_row: headerRow, mapping,
+      row_filter: rowFilter = null, target_schema: targetSchema = null,
+    }, context = {}) {
       const stored = ledger.file(fileId);
       if (!stored) throw Object.assign(new Error(`File ${fileId} was not found`), { statusCode: 404 });
       const verified = await readTextAttachment({ mediaRoot, file: stored, maximumBytes: maximumGeneratedBytes });
       const transformed = transformDelimitedText(verified.text, {
-        delimiter, headerRow, mapping, targetSchema,
+        delimiter, headerRow, mapping: { ...mapping, row_filter: rowFilter }, targetSchema,
       });
       const sourceName = path.parse(verified.filename).name;
       const outputContents = jsonLines(transformed.records.map(({ record }) => record));

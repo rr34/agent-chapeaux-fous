@@ -688,7 +688,9 @@ and the row's latest update instant as **Last changed**.
 
 Delimited-text processing is file-native rather than model-paged. The table
 tools inspect and transform the complete checksum-verified file, and an optional
-declarative row filter selects records before field mapping. Selected,
+top-level declarative row filter selects records before field mapping. The
+read-only transform preview owns its bounded output and exception samples, so
+it does not expose the general read-result filter argument. Selected,
 excluded, transformed, and exceptional record counts remain distinct and must
 account for the complete nonblank source set. Source rows and generated records
 do not pass through model arguments.

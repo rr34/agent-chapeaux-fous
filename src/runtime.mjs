@@ -2471,7 +2471,8 @@ export class SlayerRuntime {
             // were already sent remain callable for this response's other calls.
             const registeredTool = this.registry.get(name);
             const readOnly = registeredTool?.annotations?.readOnlyHint === true;
-            const { toolArguments, filterRequest } = splitReadResultFilter(args, readOnly);
+            const usesReadResultFilter = readOnly && registeredTool?.selfBoundedReadResult !== true;
+            const { toolArguments, filterRequest } = splitReadResultFilter(args, usesReadResultFilter);
             const attemptKey = toolAttemptKey(name, args);
             if (call.preflightError) {
               const message = call.preflightError.message;
@@ -2510,7 +2511,7 @@ export class SlayerRuntime {
               });
               return { ok: false, error: message, stopToolLoop: true };
             }
-            if (readOnly) {
+            if (usesReadResultFilter) {
               const problem = schemaProblem(filterRequest, readResultFilterSchema, "result_filter");
               if (problem) {
                 const message = `Read tool ${name} requires a valid result_filter: ${problem}`;
@@ -2789,7 +2790,7 @@ export class SlayerRuntime {
                 const receiptEventSeq = typeof this.ledger.eventSequence === "function"
                   ? this.ledger.eventSequence(resultEventId)
                   : null;
-                const filteredError = readOnly
+                const filteredError = usesReadResultFilter
                   ? this.resultFilter.filterReadResult(toolResult, {
                       requestId,
                       interactionId: callId,
@@ -2856,7 +2857,7 @@ export class SlayerRuntime {
               ) {
                 generatedActionReferences.push(sourcedActionReference);
               }
-              const filtered = readOnly
+              const filtered = usesReadResultFilter
                 ? this.resultFilter.filterReadResult(toolResult, {
                     requestId,
                     interactionId: callId,
